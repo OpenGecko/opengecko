@@ -77,6 +77,12 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Define fixture sources for compatibility-oriented contract tests.
 - Decide the default runtime model for fresh-by-default market ingestion: in-process scheduler, separate worker, or both.
 
+## Key Gaps
+
+1. Data sources are still the largest fidelity gap. Most market-facing endpoints continue to read from seeded static snapshots and seeded historical windows instead of a continuously refreshed live market dataset.
+2. The CCXT provider abstraction is in place, but the exchange refresh and backfill paths are not yet the default source of truth for the API surface. Live ingestion exists as a scaffold, not as the fully hardened path that owns endpoint reads.
+3. Historical chart and OHLC behavior still depends on the current seeded window. There is no durable historical storage policy yet for long-range retention, rolling backfill, or recovery after refresh gaps.
+
 ## Known Data-Fidelity Follow-ups After Treasury/Onchain Kickoff
 
 - `/coins/{id}` and `/coins/{id}/history` now satisfy the intended R1 contract shape, but their values still come from the current seeded market/history slices rather than live/backfilled sources.

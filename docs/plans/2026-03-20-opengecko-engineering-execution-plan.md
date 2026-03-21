@@ -180,6 +180,97 @@ The current implementation cycle should execute in order:
 8. Expose scheduling/lag assumptions for local and hosted execution
 9. Replace seeded ticker and history slices with CCXT-backed paths where practical
 
+## 8.1 Data-Fidelity Remediation Plan
+
+The largest product gap is no longer HTTP shape. It is data ownership. The system already has seeded compatibility scaffolding plus initial CCXT ingestion hooks, but the live path is not yet the default truth for hot reads and historical series.
+
+Recommended execution order:
+
+1. Make live snapshots the default owner for hot market reads.
+2. Replace seeded chart and OHLC reads with canonical persisted history.
+3. Add retention, gap-repair, and recovery rules so historical behavior survives missed refreshes and restarts.
+
+### Phase 1: Hot Market Read Ownership
+
+**Goal:** `/simple/*`, `/coins/markets`, `/coins/{id}`, `/coins/{id}/tickers`, and exchange ticker surfaces should prefer continuously refreshed live-backed snapshots over seeded records whenever live data is available and fresh.
+
+**Code areas:**
+
+- `src/services/market-refresh.ts`
+- `src/services/market-runtime.ts`
+- `src/modules/market-freshness.ts`
+- `src/modules/coins.ts`
+- `src/modules/simple.ts`
+- `src/modules/exchanges.ts`
+
+**Required changes:**
+
+- Treat seeded rows as bootstrap-only fallback data, not the steady-state owner for hot market responses.
+- Ensure boot-time refresh completes before the runtime claims fresh-by-default behavior.
+- Tighten stale-snapshot handling so live snapshots that age past threshold degrade explicitly instead of silently falling back to seeded rows where that would hide freshness loss.
+- Expose snapshot provenance consistently in services so endpoint code can distinguish bootstrap fallback from fresh live ownership.
+
+**Exit criteria:**
+
+- Fresh boot produces live-owned snapshots for supported coins and exchanges without manual intervention.
+- Hot endpoints read fresh live snapshots by default during normal runtime.
+- If refresh stops and live data becomes stale, endpoint behavior is explicit and test-covered.
+- Tests assert seeded fallback only applies when no live snapshot has ever been materialized.
+
+### Phase 2: Historical Source-of-Truth Migration
+
+**Goal:** `/coins/{id}/history`, `/coins/{id}/market_chart*`, and `/coins/{id}/ohlc` should read from persisted canonical candles rather than the seeded historical window.
+
+**Code areas:**
+
+- `src/services/ohlcv-backfill.ts`
+- `src/services/candle-store.ts`
+- `src/modules/coins.ts`
+- `src/modules/catalog.ts`
+- `src/db/client.ts`
+
+**Required changes:**
+
+- Remove seeded chart points and seeded OHLC candles from being the default historical owner once canonical candles exist.
+- Route historical reads through canonical candle storage first, with seeded fixtures reserved for bootstrap/dev-only fallback where necessary.
+- Expand backfill so the initial canonical dataset is materialized early enough for market-chart and OHLC routes to serve real persisted history.
+- Align history serializers so detail/history endpoints derive their price windows from the same canonical persisted series used by chart endpoints.
+
+**Exit criteria:**
+
+- Chart and OHLC responses are sourced from `ohlcvCandles` canonical history for supported assets.
+- Seeded historical windows are no longer required for steady-state endpoint correctness.
+- Tests cover empty-history behavior, partial backfill behavior, and seeded bootstrap fallback.
+
+### Phase 3: Retention, Repair, and Historical Durability
+
+**Goal:** Historical data should remain usable after process restarts, transient CCXT failures, and missed scheduled refreshes.
+
+**Code areas:**
+
+- `src/services/ohlcv-backfill.ts`
+- `src/services/candle-store.ts`
+- `src/jobs/backfill-ohlcv.ts`
+- `src/services/market-runtime.ts`
+- future migration files under `drizzle/`
+
+**Required changes:**
+
+- Define retention windows by interval, starting with `1d` and later extending to higher-frequency candles where justified.
+- Add rolling backfill and gap-detection so missed periods are repaired automatically.
+- Separate intraday aggregation policy from durable historical policy instead of treating both as the same candle stream.
+- Add operational visibility for last successful backfill window and detected candle gaps.
+
+**Exit criteria:**
+
+- Historical series persists across restarts without reseeding.
+- Backfill jobs can recover missing daily windows deterministically.
+- Tests cover duplicate upserts, missing-window repair, and restart continuity.
+
+### Sequencing Note
+
+Do not treat Phase 2 as complete just because CCXT backfill exists. It is only complete when the API read path has been switched away from seeded chart windows. Likewise, Phase 1 is not complete until fresh-by-default behavior is true at runtime, not just available as a manual job.
+
 ## 9. Definition of Done
 
 An endpoint or workstream should not be considered done unless all of the following are true:
