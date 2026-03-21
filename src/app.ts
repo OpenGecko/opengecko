@@ -34,7 +34,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds);
   registerAssetPlatformRoutes(app, database);
   registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds);
-  registerExchangeRoutes(app, database);
+  registerExchangeRoutes(app, database, config.marketFreshnessThresholdSeconds);
   registerTreasuryRoutes(app, database);
   registerOnchainRoutes(app, database);
   registerSearchRoutes(app, database);

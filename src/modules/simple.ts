@@ -44,8 +44,10 @@ function toPreciseNumber(value: number | null | undefined, precision: number | '
 }
 
 function buildSimplePayload(
+  database: AppDatabase,
   snapshot: MarketSnapshotRow,
   requestedCurrencies: string[],
+  marketFreshnessThresholdSeconds: number,
   options: {
     includeMarketCap: boolean;
     include24hrVol: boolean;
@@ -56,7 +58,7 @@ function buildSimplePayload(
 ) {
   return Object.fromEntries(
     requestedCurrencies.flatMap((vsCurrency) => {
-      const rate = getConversionRate(vsCurrency);
+      const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds);
       const entries: Array<[string, number | null]> = [[vsCurrency, toPreciseNumber(snapshot.price * rate, options.precision)]];
 
       if (options.includeMarketCap) {
@@ -81,7 +83,7 @@ function buildSimplePayload(
 }
 
 export function registerSimpleRoutes(app: FastifyInstance, database: AppDatabase, marketFreshnessThresholdSeconds: number) {
-  app.get('/exchange_rates', async () => buildExchangeRatesPayload());
+  app.get('/exchange_rates', async () => buildExchangeRatesPayload(database, marketFreshnessThresholdSeconds));
 
   app.get('/simple/supported_vs_currencies', async () => [...SUPPORTED_VS_CURRENCIES]);
 
@@ -114,7 +116,7 @@ export function registerSimpleRoutes(app: FastifyInstance, database: AppDatabase
         .filter((row) => row.snapshot)
         .map((row) => [
           row.coin.id,
-          buildSimplePayload(row.snapshot!, requestedCurrencies, {
+          buildSimplePayload(database, row.snapshot!, requestedCurrencies, marketFreshnessThresholdSeconds, {
             includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
             include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
             include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
@@ -163,7 +165,7 @@ export function registerSimpleRoutes(app: FastifyInstance, database: AppDatabase
 
         return [[
           normalizedAddress,
-          buildSimplePayload(snapshot, requestedCurrencies, {
+          buildSimplePayload(database, snapshot, requestedCurrencies, marketFreshnessThresholdSeconds, {
             includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
             include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
             include24hrChange: parseBooleanQuery(query.include_24hr_change, false),

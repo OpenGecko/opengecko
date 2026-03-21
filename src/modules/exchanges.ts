@@ -6,6 +6,7 @@ import type { AppDatabase } from '../db/client';
 import { coinTickers, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
+import { getConversionRates } from '../lib/conversion';
 import { getCoinById } from './catalog';
 
 const exchangesListQuerySchema = z.object({
@@ -168,6 +169,7 @@ function sortExchangeTickerRows(
 function buildExchangeTickerPayload(
   database: AppDatabase,
   row: ReturnType<typeof getExchangeTickerRows>[number],
+  conversionRates: ReturnType<typeof getConversionRates>,
   options: {
     includeExchangeLogo: boolean;
     includeDepth: boolean;
@@ -186,14 +188,14 @@ function buildExchangeTickerPayload(
     last: row.ticker.last,
     volume: row.ticker.volume,
     converted_last: {
-      btc: row.ticker.convertedLastBtc,
+      btc: row.ticker.convertedLastUsd === null ? null : row.ticker.convertedLastUsd * conversionRates.btc,
       usd: row.ticker.convertedLastUsd,
-      eth: row.ticker.convertedLastUsd === null ? null : row.ticker.convertedLastUsd / 2000,
+      eth: row.ticker.convertedLastUsd === null ? null : row.ticker.convertedLastUsd * conversionRates.eth,
     },
     converted_volume: {
-      btc: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd / 85000,
+      btc: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd * conversionRates.btc,
       usd: row.ticker.convertedVolumeUsd,
-      eth: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd / 2000,
+      eth: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd * conversionRates.eth,
     },
     trust_score: row.ticker.trustScore,
     bid_ask_spread_percentage: row.ticker.bidAskSpreadPercentage,
@@ -225,13 +227,15 @@ function getExchangeTickers(
     page: number;
     order?: string;
     dexPairFormat: string;
+    marketFreshnessThresholdSeconds: number;
   },
 ) {
   const perPage = 100;
   const rows = sortExchangeTickerRows(getExchangeTickerRows(database, exchangeId, options.coinIds), options.order);
   const start = (options.page - 1) * perPage;
+  const conversionRates = getConversionRates(database, options.marketFreshnessThresholdSeconds);
 
-  return rows.slice(start, start + perPage).map((row) => buildExchangeTickerPayload(database, row, {
+  return rows.slice(start, start + perPage).map((row) => buildExchangeTickerPayload(database, row, conversionRates, {
     includeExchangeLogo: options.includeExchangeLogo,
     includeDepth: options.includeDepth,
     dexPairFormat: options.dexPairFormat,
@@ -317,7 +321,7 @@ function buildDerivativeTickerPayload(row: { ticker: DerivativeTickerRow; exchan
   };
 }
 
-export function registerExchangeRoutes(app: FastifyInstance, database: AppDatabase) {
+export function registerExchangeRoutes(app: FastifyInstance, database: AppDatabase, marketFreshnessThresholdSeconds: number) {
   app.get('/exchanges/list', async (request) => {
     const query = exchangesListQuerySchema.parse(request.query);
 
@@ -356,6 +360,7 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
         includeDepth: false,
         page: 1,
         dexPairFormat,
+        marketFreshnessThresholdSeconds,
       }),
     };
   });
@@ -385,6 +390,7 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
         page,
         order: query.order,
         dexPairFormat,
+        marketFreshnessThresholdSeconds,
       }),
     };
   });

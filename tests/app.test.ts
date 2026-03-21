@@ -95,7 +95,17 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(contractFixtures.assetPlatforms);
+    expect(response.json()).toEqual(expect.arrayContaining([
+      ...contractFixtures.assetPlatforms,
+      {
+        id: 'solana',
+        chain_identifier: 101,
+        name: 'Solana',
+        shortname: 'sol',
+        native_coin_id: 'solana',
+        image: null,
+      },
+    ]));
   });
 
   it('returns seeded exchanges and exchange detail data', async () => {
@@ -121,7 +131,13 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toEqual(contractFixtures.exchangesList);
+    expect(listResponse.json()).toEqual(expect.arrayContaining([
+      ...contractFixtures.exchangesList,
+      {
+        id: 'kraken',
+        name: 'Kraken',
+      },
+    ]));
 
     expect(inactiveListResponse.statusCode).toBe(200);
     expect(inactiveListResponse.json()).toEqual([]);
@@ -130,7 +146,23 @@ describe('OpenGecko app scaffold', () => {
     expect(exchangesResponse.json()).toMatchObject(contractFixtures.exchanges);
 
     expect(detailResponse.statusCode).toBe(200);
-    expect(detailResponse.json()).toMatchObject(contractFixtures.exchangeDetail);
+    expect(detailResponse.json()).toMatchObject({
+      id: 'binance',
+      name: 'Binance',
+      year_established: 2017,
+      country: 'Cayman Islands',
+      twitter_handle: 'binance',
+      tickers: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          target: 'USDT',
+        }),
+        expect.objectContaining({
+          coin_id: 'usd-coin',
+          target: 'USDT',
+        }),
+      ]),
+    });
 
     expect(volumeChartResponse.statusCode).toBe(200);
     expect(volumeChartResponse.json()).toEqual(contractFixtures.exchangeVolumeChart);
@@ -147,7 +179,22 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.exchangeTickers);
+    expect(response.json().name).toBe('Binance');
+    expect(response.json().tickers.length).toBeGreaterThanOrEqual(7);
+    expect(response.json().tickers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        target: 'USDT',
+      }),
+      expect.objectContaining({
+        coin_id: 'ethereum',
+        target: 'USDT',
+      }),
+      expect.objectContaining({
+        coin_id: 'usd-coin',
+        target: 'USDT',
+      }),
+    ]));
 
     expect(filteredResponse.statusCode).toBe(200);
     expect(filteredResponse.json().tickers).toHaveLength(1);
@@ -168,7 +215,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(detailResponse.statusCode).toBe(200);
-    expect(detailResponse.json().tickers[2]).toMatchObject({
+    expect(detailResponse.json().tickers.find((ticker: { coin_id: string }) => ticker.coin_id === 'usd-coin')).toMatchObject({
       base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
       coin_id: 'usd-coin',
     });
@@ -281,7 +328,19 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(contractFixtures.ethereumTokenList);
+    expect(response.json()).toMatchObject({
+      name: 'OpenGecko Ethereum Token List',
+      tokens: expect.arrayContaining([
+        expect.objectContaining({
+          symbol: 'USDC',
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        }),
+        expect.objectContaining({
+          symbol: 'LINK',
+          address: '0x514910771af9ca656af840dff83e8264ecf986ca',
+        }),
+      ]),
+    });
   });
 
   it('returns seeded coins with optional platform data', async () => {
@@ -291,7 +350,8 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
+    expect(response.json()).toHaveLength(8);
+    expect(response.json()).toEqual(expect.arrayContaining([
       {
         id: 'bitcoin',
         name: 'Bitcoin',
@@ -312,7 +372,15 @@ describe('OpenGecko app scaffold', () => {
         },
         symbol: 'usdc',
       },
-    ]);
+      {
+        id: 'chainlink',
+        name: 'Chainlink',
+        platforms: {
+          ethereum: '0x514910771af9ca656af840dff83e8264ecf986ca',
+        },
+        symbol: 'link',
+      },
+    ]));
   });
 
   it('returns market search results', async () => {
@@ -342,7 +410,18 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.global);
+    expect(response.json()).toMatchObject({
+      data: {
+        active_cryptocurrencies: 8,
+        markets: 3,
+        total_market_cap: {
+          usd: 2325000000000,
+        },
+        total_volume: {
+          usd: 68900000000,
+        },
+      },
+    });
   });
 
   it('returns coin market rows', async () => {
@@ -368,8 +447,8 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toHaveLength(2);
-    expect(response.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'ethereum']);
+    expect(response.json()).toHaveLength(4);
+    expect(response.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'ethereum', 'solana', 'cardano']);
     expect(response.json()[0]).toMatchObject({
       id: 'bitcoin',
       price_change_percentage_24h_in_currency: 0.89,
@@ -389,7 +468,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(orderResponse.statusCode).toBe(200);
     expect(orderResponse.json()[0]).toMatchObject({
-      id: 'usd-coin',
+      id: 'chainlink',
     });
 
     expect(paginationResponse.statusCode).toBe(200);

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import Database from 'better-sqlite3';
-import { count, eq } from 'drizzle-orm';
+import { count } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
@@ -176,6 +176,186 @@ const seededCoins = [
     createdAt: new Date(seedTimestamp),
     updatedAt: new Date(seedTimestamp),
   },
+  {
+    id: 'ripple',
+    symbol: 'xrp',
+    name: 'XRP',
+    apiSymbol: 'ripple',
+    hashingAlgorithm: null,
+    blockTimeInMinutes: 4,
+    categoriesJson: JSON.stringify(['Payments']),
+    descriptionJson: JSON.stringify({
+      en: 'XRP is a digital asset used in the XRP Ledger ecosystem for payments and liquidity transfer.',
+    }),
+    linksJson: JSON.stringify({
+      homepage: ['https://xrpl.org'],
+      blockchain_site: ['https://livenet.xrpl.org'],
+      official_forum_url: ['https://xrpl.org/blog'],
+      chat_url: ['https://discord.gg/xrpl'],
+      announcement_url: [],
+      twitter_screen_name: 'Ripple',
+      facebook_username: '',
+      telegram_channel_identifier: '',
+      subreddit_url: 'https://reddit.com/r/Ripple',
+      repos_url: {
+        github: ['https://github.com/XRPLF/rippled'],
+        bitbucket: [],
+      },
+    }),
+    imageThumbUrl: 'https://assets.coingecko.com/coins/images/44/thumb/xrp-symbol-white-128.png',
+    imageSmallUrl: 'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+    imageLargeUrl: 'https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png',
+    marketCapRank: 3,
+    genesisDate: '2012-06-02',
+    platformsJson: '{}',
+    status: 'active' as const,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'solana',
+    symbol: 'sol',
+    name: 'Solana',
+    apiSymbol: 'solana',
+    hashingAlgorithm: 'Proof of History',
+    blockTimeInMinutes: 0,
+    categoriesJson: JSON.stringify(['Smart Contract Platform', 'Layer 1']),
+    descriptionJson: JSON.stringify({
+      en: 'Solana is a high-throughput smart contract platform focused on low-latency execution and consumer-scale applications.',
+    }),
+    linksJson: JSON.stringify({
+      homepage: ['https://solana.com'],
+      blockchain_site: ['https://solscan.io'],
+      official_forum_url: ['https://forum.solana.com'],
+      chat_url: ['https://discord.gg/solana'],
+      announcement_url: [],
+      twitter_screen_name: 'solana',
+      facebook_username: '',
+      telegram_channel_identifier: '',
+      subreddit_url: 'https://reddit.com/r/solana',
+      repos_url: {
+        github: ['https://github.com/solana-labs/solana'],
+        bitbucket: [],
+      },
+    }),
+    imageThumbUrl: 'https://assets.coingecko.com/coins/images/4128/thumb/solana.png',
+    imageSmallUrl: 'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+    imageLargeUrl: 'https://assets.coingecko.com/coins/images/4128/large/solana.png',
+    marketCapRank: 4,
+    genesisDate: '2020-03-16',
+    platformsJson: '{}',
+    status: 'active' as const,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'dogecoin',
+    symbol: 'doge',
+    name: 'Dogecoin',
+    apiSymbol: 'dogecoin',
+    hashingAlgorithm: 'Scrypt',
+    blockTimeInMinutes: 1,
+    categoriesJson: JSON.stringify(['Meme']),
+    descriptionJson: JSON.stringify({
+      en: 'Dogecoin is a proof-of-work cryptocurrency that began as an internet-native meme and evolved into a broadly traded payment token.',
+    }),
+    linksJson: JSON.stringify({
+      homepage: ['https://dogecoin.com'],
+      blockchain_site: ['https://dogechain.info'],
+      official_forum_url: ['https://dogecoin.com/blog'],
+      chat_url: ['https://discord.gg/dogecoin'],
+      announcement_url: [],
+      twitter_screen_name: 'dogecoin',
+      facebook_username: '',
+      telegram_channel_identifier: '',
+      subreddit_url: 'https://reddit.com/r/dogecoin',
+      repos_url: {
+        github: ['https://github.com/dogecoin/dogecoin'],
+        bitbucket: [],
+      },
+    }),
+    imageThumbUrl: 'https://assets.coingecko.com/coins/images/5/thumb/dogecoin.png',
+    imageSmallUrl: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+    imageLargeUrl: 'https://assets.coingecko.com/coins/images/5/large/dogecoin.png',
+    marketCapRank: 5,
+    genesisDate: '2013-12-06',
+    platformsJson: '{}',
+    status: 'active' as const,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'cardano',
+    symbol: 'ada',
+    name: 'Cardano',
+    apiSymbol: 'cardano',
+    hashingAlgorithm: 'Ouroboros',
+    blockTimeInMinutes: 1,
+    categoriesJson: JSON.stringify(['Smart Contract Platform', 'Layer 1']),
+    descriptionJson: JSON.stringify({
+      en: 'Cardano is a proof-of-stake blockchain built around layered architecture and formal methods.',
+    }),
+    linksJson: JSON.stringify({
+      homepage: ['https://cardano.org'],
+      blockchain_site: ['https://cardanoscan.io'],
+      official_forum_url: ['https://forum.cardano.org'],
+      chat_url: ['https://discord.gg/cardano'],
+      announcement_url: [],
+      twitter_screen_name: 'cardano',
+      facebook_username: '',
+      telegram_channel_identifier: '',
+      subreddit_url: 'https://reddit.com/r/cardano',
+      repos_url: {
+        github: ['https://github.com/input-output-hk/cardano-node'],
+        bitbucket: [],
+      },
+    }),
+    imageThumbUrl: 'https://assets.coingecko.com/coins/images/975/thumb/cardano.png',
+    imageSmallUrl: 'https://assets.coingecko.com/coins/images/975/small/cardano.png',
+    imageLargeUrl: 'https://assets.coingecko.com/coins/images/975/large/cardano.png',
+    marketCapRank: 7,
+    genesisDate: '2017-09-29',
+    platformsJson: '{}',
+    status: 'active' as const,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'chainlink',
+    symbol: 'link',
+    name: 'Chainlink',
+    apiSymbol: 'chainlink',
+    hashingAlgorithm: null,
+    blockTimeInMinutes: null,
+    categoriesJson: JSON.stringify(['Oracle']),
+    descriptionJson: JSON.stringify({
+      en: 'Chainlink is a decentralized oracle network that brings external data and computation to smart contracts.',
+    }),
+    linksJson: JSON.stringify({
+      homepage: ['https://chain.link'],
+      blockchain_site: ['https://etherscan.io/token/0x514910771af9ca656af840dff83e8264ecf986ca'],
+      official_forum_url: ['https://blog.chain.link'],
+      chat_url: ['https://discord.gg/chainlink'],
+      announcement_url: [],
+      twitter_screen_name: 'chainlink',
+      facebook_username: '',
+      telegram_channel_identifier: '',
+      subreddit_url: 'https://reddit.com/r/Chainlink',
+      repos_url: {
+        github: ['https://github.com/smartcontractkit/chainlink'],
+        bitbucket: [],
+      },
+    }),
+    imageThumbUrl: 'https://assets.coingecko.com/coins/images/877/thumb/chainlink-new-logo.png',
+    imageSmallUrl: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+    imageLargeUrl: 'https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png',
+    marketCapRank: 8,
+    genesisDate: '2017-09-20',
+    platformsJson: JSON.stringify({ ethereum: '0x514910771af9ca656af840dff83e8264ecf986ca' }),
+    status: 'active' as const,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
 ];
 
 const seededAssetPlatforms = [
@@ -198,6 +378,17 @@ const seededAssetPlatforms = [
     nativeCoinId: 'bitcoin',
     imageUrl: null,
     isNft: false,
+    createdAt: new Date(seedTimestamp),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'solana',
+    chainIdentifier: 101,
+    name: 'Solana',
+    shortname: 'sol',
+    nativeCoinId: 'solana',
+    imageUrl: null,
+    isNft: true,
     createdAt: new Date(seedTimestamp),
     updatedAt: new Date(seedTimestamp),
   },
@@ -270,6 +461,30 @@ const seededExchanges = [
     slackUrl: null,
     otherUrlJson: JSON.stringify([]),
     twitterHandle: 'coinbase',
+    centralised: true,
+    publicNotice: null,
+    alertNotice: null,
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'kraken',
+    name: 'Kraken',
+    yearEstablished: 2011,
+    country: 'United States',
+    description: 'Kraken is a long-running exchange with deep fiat pairs and institutional market access.',
+    url: 'https://www.kraken.com',
+    imageUrl: 'https://assets.coingecko.com/markets/images/29/small/kraken.jpg',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 3,
+    tradeVolume24hBtc: 91000,
+    tradeVolume24hBtcNormalized: 90500,
+    facebookUrl: 'https://www.facebook.com/krakenfx',
+    redditUrl: 'https://reddit.com/r/Kraken',
+    telegramUrl: null,
+    slackUrl: null,
+    otherUrlJson: JSON.stringify([]),
+    twitterHandle: 'krakenfx',
     centralised: true,
     publicNotice: null,
     alertNotice: null,
@@ -496,7 +711,7 @@ const seededOnchainNetworks = [
     name: 'Solana',
     chainIdentifier: 101,
     coingeckoAssetPlatformId: 'solana',
-    nativeCurrencyCoinId: null,
+    nativeCurrencyCoinId: 'solana',
     imageUrl: 'https://assets.coingecko.com/asset_platforms/images/4128/small/solana.png',
     updatedAt: new Date(seedTimestamp),
   },
@@ -579,6 +794,78 @@ const seededSnapshots = [
     lastUpdated: new Date(seedTimestamp),
   },
   {
+    coinId: 'ripple',
+    vsCurrency: 'usd',
+    price: 2.55,
+    marketCap: 148_000_000_000,
+    totalVolume: 12_000_000_000,
+    marketCapRank: 3,
+    fullyDilutedValuation: 255_000_000_000,
+    circulatingSupply: 58_000_000_000,
+    totalSupply: 100_000_000_000,
+    maxSupply: 100_000_000_000,
+    ath: 3.84,
+    athChangePercentage: -33.59,
+    athDate: new Date(athTimestamp),
+    atl: 0.12,
+    atlChangePercentage: 2025,
+    atlDate: new Date(atlTimestamp),
+    priceChange24h: 0.08,
+    priceChangePercentage24h: 3.24,
+    sourceProvidersJson: '[]',
+    sourceCount: 0,
+    updatedAt: new Date(seedTimestamp),
+    lastUpdated: new Date(seedTimestamp),
+  },
+  {
+    coinId: 'solana',
+    vsCurrency: 'usd',
+    price: 175,
+    marketCap: 84_000_000_000,
+    totalVolume: 9_000_000_000,
+    marketCapRank: 4,
+    fullyDilutedValuation: 105_000_000_000,
+    circulatingSupply: 480_000_000,
+    totalSupply: 600_000_000,
+    maxSupply: null,
+    ath: 294,
+    athChangePercentage: -40.48,
+    athDate: new Date(athTimestamp),
+    atl: 8,
+    atlChangePercentage: 2087.5,
+    atlDate: new Date(atlTimestamp),
+    priceChange24h: 7.05,
+    priceChangePercentage24h: 4.2,
+    sourceProvidersJson: '[]',
+    sourceCount: 0,
+    updatedAt: new Date(seedTimestamp),
+    lastUpdated: new Date(seedTimestamp),
+  },
+  {
+    coinId: 'dogecoin',
+    vsCurrency: 'usd',
+    price: 0.28,
+    marketCap: 41_000_000_000,
+    totalVolume: 3_800_000_000,
+    marketCapRank: 5,
+    fullyDilutedValuation: 41_000_000_000,
+    circulatingSupply: 147_000_000_000,
+    totalSupply: 147_000_000_000,
+    maxSupply: null,
+    ath: 0.73,
+    athChangePercentage: -61.64,
+    athDate: new Date(athTimestamp),
+    atl: 0.05,
+    atlChangePercentage: 460,
+    atlDate: new Date(atlTimestamp),
+    priceChange24h: 0.012,
+    priceChangePercentage24h: 4.48,
+    sourceProvidersJson: '[]',
+    sourceCount: 0,
+    updatedAt: new Date(seedTimestamp),
+    lastUpdated: new Date(seedTimestamp),
+  },
+  {
     coinId: 'usd-coin',
     vsCurrency: 'usd',
     price: 1,
@@ -602,6 +889,54 @@ const seededSnapshots = [
     updatedAt: new Date(seedTimestamp),
     lastUpdated: new Date(seedTimestamp),
   },
+  {
+    coinId: 'cardano',
+    vsCurrency: 'usd',
+    price: 1.05,
+    marketCap: 37_000_000_000,
+    totalVolume: 1_900_000_000,
+    marketCapRank: 7,
+    fullyDilutedValuation: 47_250_000_000,
+    circulatingSupply: 35_200_000_000,
+    totalSupply: 45_000_000_000,
+    maxSupply: 45_000_000_000,
+    ath: 3.1,
+    athChangePercentage: -66.13,
+    athDate: new Date(athTimestamp),
+    atl: 0.02,
+    atlChangePercentage: 5150,
+    atlDate: new Date(atlTimestamp),
+    priceChange24h: 0.04,
+    priceChangePercentage24h: 3.96,
+    sourceProvidersJson: '[]',
+    sourceCount: 0,
+    updatedAt: new Date(seedTimestamp),
+    lastUpdated: new Date(seedTimestamp),
+  },
+  {
+    coinId: 'chainlink',
+    vsCurrency: 'usd',
+    price: 24,
+    marketCap: 15_000_000_000,
+    totalVolume: 1_200_000_000,
+    marketCapRank: 8,
+    fullyDilutedValuation: 24_000_000_000,
+    circulatingSupply: 625_000_000,
+    totalSupply: 1_000_000_000,
+    maxSupply: 1_000_000_000,
+    ath: 52,
+    athChangePercentage: -53.85,
+    athDate: new Date(athTimestamp),
+    atl: 0.15,
+    atlChangePercentage: 15900,
+    atlDate: new Date(atlTimestamp),
+    priceChange24h: 0.9,
+    priceChangePercentage24h: 3.9,
+    sourceProvidersJson: '[]',
+    sourceCount: 0,
+    updatedAt: new Date(seedTimestamp),
+    lastUpdated: new Date(seedTimestamp),
+  },
 ];
 
 const seededChartPointValues = {
@@ -615,10 +950,35 @@ const seededChartPointValues = {
     marketCaps: [222_000_000_000, 226_000_000_000, 230_000_000_000, 231_000_000_000, 235_000_000_000, 238_000_000_000, 240_000_000_000],
     volumes: [8_000_000_000, 8_300_000_000, 8_700_000_000, 8_900_000_000, 9_200_000_000, 9_600_000_000, 10_000_000_000],
   },
+  ripple: {
+    prices: [2.2, 2.25, 2.3, 2.34, 2.4, 2.48, 2.55],
+    marketCaps: [128_000_000_000, 131_000_000_000, 134_000_000_000, 136_000_000_000, 140_000_000_000, 144_000_000_000, 148_000_000_000],
+    volumes: [8_800_000_000, 9_100_000_000, 9_500_000_000, 9_800_000_000, 10_400_000_000, 11_200_000_000, 12_000_000_000],
+  },
+  solana: {
+    prices: [154, 158, 160, 162, 166, 170, 175],
+    marketCaps: [74_000_000_000, 76_000_000_000, 77_000_000_000, 78_000_000_000, 80_000_000_000, 82_000_000_000, 84_000_000_000],
+    volumes: [6_200_000_000, 6_500_000_000, 6_700_000_000, 7_100_000_000, 7_500_000_000, 8_200_000_000, 9_000_000_000],
+  },
+  dogecoin: {
+    prices: [0.24, 0.245, 0.252, 0.258, 0.265, 0.273, 0.28],
+    marketCaps: [35_000_000_000, 36_000_000_000, 37_000_000_000, 38_000_000_000, 39_000_000_000, 40_000_000_000, 41_000_000_000],
+    volumes: [2_400_000_000, 2_600_000_000, 2_800_000_000, 3_000_000_000, 3_200_000_000, 3_500_000_000, 3_800_000_000],
+  },
   'usd-coin': {
     prices: [0.999, 1.001, 1.0, 1.0, 0.9995, 1.0002, 1.0],
     marketCaps: [59_700_000_000, 59_800_000_000, 59_850_000_000, 59_900_000_000, 59_950_000_000, 59_980_000_000, 60_000_000_000],
     volumes: [5_500_000_000, 5_600_000_000, 5_700_000_000, 5_800_000_000, 5_900_000_000, 5_950_000_000, 6_000_000_000],
+  },
+  cardano: {
+    prices: [0.94, 0.96, 0.98, 1.0, 1.01, 1.03, 1.05],
+    marketCaps: [33_000_000_000, 33_600_000_000, 34_300_000_000, 35_000_000_000, 35_500_000_000, 36_200_000_000, 37_000_000_000],
+    volumes: [1_200_000_000, 1_300_000_000, 1_400_000_000, 1_500_000_000, 1_600_000_000, 1_750_000_000, 1_900_000_000],
+  },
+  chainlink: {
+    prices: [20.5, 21, 21.5, 22.1, 22.8, 23.4, 24],
+    marketCaps: [12_800_000_000, 13_100_000_000, 13_400_000_000, 13_800_000_000, 14_200_000_000, 14_600_000_000, 15_000_000_000],
+    volumes: [820_000_000, 880_000_000, 940_000_000, 1_000_000_000, 1_050_000_000, 1_120_000_000, 1_200_000_000],
   },
 } satisfies Record<string, { prices: number[]; marketCaps: number[]; volumes: number[] }>;
 
@@ -646,6 +1006,7 @@ function buildSeededExchangeVolumePoints() {
   const seededExchangeVolumes: Array<[string, number[]]> = [
     ['binance', [295000, 300500, 305000, 299500, 308000, 315000, 320000]],
     ['coinbase_exchange', [132000, 134500, 136000, 137500, 140000, 142000, 145000]],
+    ['kraken', [82000, 83500, 84800, 86000, 87500, 89200, 91000]],
   ];
 
   return seededExchangeVolumes.flatMap(([exchangeId, volumes]) =>
@@ -763,6 +1124,111 @@ const seededCoinTickers = [
     tokenInfoUrl: null,
     coinGeckoUrl: 'https://www.coingecko.com/en/coins/usd-coin',
   },
+  {
+    coinId: 'ripple',
+    exchangeId: 'binance',
+    base: 'XRP',
+    target: 'USDT',
+    marketName: 'XRP/USDT',
+    last: 2.55,
+    volume: 780000000,
+    convertedLastUsd: 2.55,
+    convertedLastBtc: 2.55 / 85000,
+    convertedVolumeUsd: 1989000000,
+    bidAskSpreadPercentage: 0.02,
+    trustScore: 'green',
+    lastTradedAt: new Date(seedTimestamp),
+    lastFetchAt: new Date(seedTimestamp),
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: 'https://www.binance.com/en/trade/XRP_USDT',
+    tokenInfoUrl: 'https://www.binance.com/en/price/xrp',
+    coinGeckoUrl: 'https://www.coingecko.com/en/coins/ripple',
+  },
+  {
+    coinId: 'solana',
+    exchangeId: 'binance',
+    base: 'SOL',
+    target: 'USDT',
+    marketName: 'SOL/USDT',
+    last: 175,
+    volume: 22000000,
+    convertedLastUsd: 175,
+    convertedLastBtc: 175 / 85000,
+    convertedVolumeUsd: 3850000000,
+    bidAskSpreadPercentage: 0.02,
+    trustScore: 'green',
+    lastTradedAt: new Date(seedTimestamp),
+    lastFetchAt: new Date(seedTimestamp),
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: 'https://www.binance.com/en/trade/SOL_USDT',
+    tokenInfoUrl: 'https://www.binance.com/en/price/solana',
+    coinGeckoUrl: 'https://www.coingecko.com/en/coins/solana',
+  },
+  {
+    coinId: 'dogecoin',
+    exchangeId: 'binance',
+    base: 'DOGE',
+    target: 'USDT',
+    marketName: 'DOGE/USDT',
+    last: 0.28,
+    volume: 6200000000,
+    convertedLastUsd: 0.28,
+    convertedLastBtc: 0.28 / 85000,
+    convertedVolumeUsd: 1736000000,
+    bidAskSpreadPercentage: 0.03,
+    trustScore: 'green',
+    lastTradedAt: new Date(seedTimestamp),
+    lastFetchAt: new Date(seedTimestamp),
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: 'https://www.binance.com/en/trade/DOGE_USDT',
+    tokenInfoUrl: 'https://www.binance.com/en/price/dogecoin',
+    coinGeckoUrl: 'https://www.coingecko.com/en/coins/dogecoin',
+  },
+  {
+    coinId: 'cardano',
+    exchangeId: 'binance',
+    base: 'ADA',
+    target: 'USDT',
+    marketName: 'ADA/USDT',
+    last: 1.05,
+    volume: 980000000,
+    convertedLastUsd: 1.05,
+    convertedLastBtc: 1.05 / 85000,
+    convertedVolumeUsd: 1029000000,
+    bidAskSpreadPercentage: 0.02,
+    trustScore: 'green',
+    lastTradedAt: new Date(seedTimestamp),
+    lastFetchAt: new Date(seedTimestamp),
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: 'https://www.binance.com/en/trade/ADA_USDT',
+    tokenInfoUrl: 'https://www.binance.com/en/price/cardano',
+    coinGeckoUrl: 'https://www.coingecko.com/en/coins/cardano',
+  },
+  {
+    coinId: 'chainlink',
+    exchangeId: 'binance',
+    base: 'LINK',
+    target: 'USDT',
+    marketName: 'LINK/USDT',
+    last: 24,
+    volume: 43000000,
+    convertedLastUsd: 24,
+    convertedLastBtc: 24 / 85000,
+    convertedVolumeUsd: 1032000000,
+    bidAskSpreadPercentage: 0.03,
+    trustScore: 'green',
+    lastTradedAt: new Date(seedTimestamp),
+    lastFetchAt: new Date(seedTimestamp),
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: 'https://www.binance.com/en/trade/LINK_USDT',
+    tokenInfoUrl: 'https://www.binance.com/en/price/chainlink',
+    coinGeckoUrl: 'https://www.coingecko.com/en/coins/chainlink',
+  },
 ];
 
 export function migrateDatabase(database: AppDatabase) {
@@ -777,108 +1243,41 @@ export function migrateDatabase(database: AppDatabase) {
 
 export function seedReferenceData(database: AppDatabase) {
   const [{ value: coinCount }] = database.db.select({ value: count() }).from(coins).all();
-  const [{ value: assetPlatformCount }] = database.db.select({ value: count() }).from(assetPlatforms).all();
-  const [{ value: categoryCount }] = database.db.select({ value: count() }).from(categories).all();
-  const [{ value: chartPointCount }] = database.db.select({ value: count() }).from(chartPoints).all();
-  const [{ value: exchangeCount }] = database.db.select({ value: count() }).from(exchanges).all();
-  const [{ value: quoteSnapshotCount }] = database.db.select({ value: count() }).from(quoteSnapshots).all();
-  const [{ value: ohlcvCandleCount }] = database.db.select({ value: count() }).from(ohlcvCandles).all();
-  const [{ value: derivativeTickerCount }] = database.db.select({ value: count() }).from(derivativeTickers).all();
-  const [{ value: derivativesExchangeCount }] = database.db.select({ value: count() }).from(derivativesExchanges).all();
-  const [{ value: exchangeVolumePointCount }] = database.db.select({ value: count() }).from(exchangeVolumePoints).all();
-  const [{ value: coinTickerCount }] = database.db.select({ value: count() }).from(coinTickers).all();
-  const [{ value: treasuryEntityCount }] = database.db.select({ value: count() }).from(treasuryEntities).all();
-  const [{ value: treasuryHoldingCount }] = database.db.select({ value: count() }).from(treasuryHoldings).all();
-  const [{ value: treasuryTransactionCount }] = database.db.select({ value: count() }).from(treasuryTransactions).all();
-  const [{ value: onchainNetworkCount }] = database.db.select({ value: count() }).from(onchainNetworks).all();
-  const [{ value: onchainDexCount }] = database.db.select({ value: count() }).from(onchainDexes).all();
 
   if (coinCount === 0) {
     database.db.insert(coins).values(seededCoins).run();
+  } else {
+    database.db.insert(coins).values(seededCoins).onConflictDoNothing().run();
   }
 
-  if (assetPlatformCount === 0) {
-    database.db.insert(assetPlatforms).values(seededAssetPlatforms).run();
-  }
-
-  if (categoryCount === 0) {
-    database.db.insert(categories).values(seededCategories).run();
-  }
-
-  const existingSnapshot = database.db
-    .select({ coinId: marketSnapshots.coinId })
-    .from(marketSnapshots)
-    .where(eq(marketSnapshots.coinId, 'bitcoin'))
-    .limit(1)
-    .all();
-
-  if (existingSnapshot.length === 0) {
-    database.db.insert(marketSnapshots).values(seededSnapshots).onConflictDoNothing().run();
-  }
-
-  if (chartPointCount === 0) {
-    database.db.insert(chartPoints).values(buildSeededChartPoints()).onConflictDoNothing().run();
-  }
-
-  if (ohlcvCandleCount === 0) {
-    database.db.insert(ohlcvCandles).values(buildSeededOhlcvCandles()).onConflictDoNothing().run();
-  }
-
-  if (exchangeCount === 0) {
-    database.db.insert(exchanges).values(seededExchanges).run();
-  }
-
-  if (derivativesExchangeCount === 0) {
-    database.db.insert(derivativesExchanges).values(seededDerivativesExchanges).run();
-  }
-
-  if (derivativeTickerCount === 0) {
-    database.db.insert(derivativeTickers).values(seededDerivativeTickers).run();
-  }
-
-  if (treasuryEntityCount === 0) {
-    database.db.insert(treasuryEntities).values(seededTreasuryEntities).run();
-  }
-
-  if (treasuryHoldingCount === 0) {
-    database.db.insert(treasuryHoldings).values(seededTreasuryHoldings).run();
-  }
-
-  if (treasuryTransactionCount === 0) {
-    database.db.insert(treasuryTransactions).values(seededTreasuryTransactions).run();
-  }
-
-  if (onchainNetworkCount === 0) {
-    database.db.insert(onchainNetworks).values(seededOnchainNetworks).run();
-  }
-
-  if (onchainDexCount === 0) {
-    database.db.insert(onchainDexes).values(seededOnchainDexes).run();
-  }
-
-  if (exchangeVolumePointCount === 0) {
-    database.db.insert(exchangeVolumePoints).values(buildSeededExchangeVolumePoints()).onConflictDoNothing().run();
-  }
-
-  if (coinTickerCount === 0) {
-    database.db.insert(coinTickers).values(seededCoinTickers).onConflictDoNothing().run();
-  }
-
-  if (quoteSnapshotCount === 0) {
-    database.db.insert(quoteSnapshots).values(
-      seededCoinTickers.map((ticker) => ({
-        coinId: ticker.coinId,
-        vsCurrency: 'usd',
-        exchangeId: ticker.exchangeId,
-        symbol: ticker.marketName,
-        fetchedAt: ticker.lastFetchAt ?? new Date(seedTimestamp),
-        price: ticker.convertedLastUsd ?? ticker.last ?? 0,
-        quoteVolume: ticker.convertedVolumeUsd,
-        priceChangePercentage24h: null,
-        sourcePayloadJson: '{}',
-      })),
-    ).onConflictDoNothing().run();
-  }
+  database.db.insert(assetPlatforms).values(seededAssetPlatforms).onConflictDoNothing().run();
+  database.db.insert(categories).values(seededCategories).onConflictDoNothing().run();
+  database.db.insert(marketSnapshots).values(seededSnapshots).onConflictDoNothing().run();
+  database.db.insert(chartPoints).values(buildSeededChartPoints()).onConflictDoNothing().run();
+  database.db.insert(ohlcvCandles).values(buildSeededOhlcvCandles()).onConflictDoNothing().run();
+  database.db.insert(exchanges).values(seededExchanges).onConflictDoNothing().run();
+  database.db.insert(derivativesExchanges).values(seededDerivativesExchanges).onConflictDoNothing().run();
+  database.db.insert(derivativeTickers).values(seededDerivativeTickers).onConflictDoNothing().run();
+  database.db.insert(treasuryEntities).values(seededTreasuryEntities).onConflictDoNothing().run();
+  database.db.insert(treasuryHoldings).values(seededTreasuryHoldings).onConflictDoNothing().run();
+  database.db.insert(treasuryTransactions).values(seededTreasuryTransactions).onConflictDoNothing().run();
+  database.db.insert(onchainNetworks).values(seededOnchainNetworks).onConflictDoNothing().run();
+  database.db.insert(onchainDexes).values(seededOnchainDexes).onConflictDoNothing().run();
+  database.db.insert(exchangeVolumePoints).values(buildSeededExchangeVolumePoints()).onConflictDoNothing().run();
+  database.db.insert(coinTickers).values(seededCoinTickers).onConflictDoNothing().run();
+  database.db.insert(quoteSnapshots).values(
+    seededCoinTickers.map((ticker) => ({
+      coinId: ticker.coinId,
+      vsCurrency: 'usd',
+      exchangeId: ticker.exchangeId,
+      symbol: ticker.marketName,
+      fetchedAt: ticker.lastFetchAt ?? new Date(seedTimestamp),
+      price: ticker.convertedLastUsd ?? ticker.last ?? 0,
+      quoteVolume: ticker.convertedVolumeUsd,
+      priceChangePercentage24h: null,
+      sourcePayloadJson: '{}',
+    })),
+  ).onConflictDoNothing().run();
 }
 
 export function initializeDatabase(database: AppDatabase) {
