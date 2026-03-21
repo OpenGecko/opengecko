@@ -34,8 +34,9 @@ This matrix is about OpenGecko planning, not a claim that OpenGecko already supp
 - `R0`: foundation and compatibility shell
 - `R1`: core coins and historical charts
 - `R2`: market expansion, exchanges, contract coverage, richer aggregates
-- `R3`: NFT and public treasury families
+- `R3`: public treasury family
 - `R4`: onchain DEX and hardest premium or enterprise parity
+- NFT family: removed from the active roadmap
 
 ### Internal services shorthand
 
@@ -44,9 +45,8 @@ This matrix is about OpenGecko planning, not a claim that OpenGecko already supp
 - `PriceCache`: hot spot prices and quote conversions
 - `MarketSummary`: market caps, volume, supply, rankings, category aggregates
 - `ChartStore`: historical price, volume, OHLC, supply, and time-series storage
-- `SearchIndex`: coins, exchanges, NFTs, categories, and ranking logic
+- `SearchIndex`: coins, exchanges, categories, and ranking logic
 - `ExchangeVenue`: exchange and derivatives venue metadata plus ticker ingestion
-- `NftCatalog`: NFT collection metadata, market stats, and marketplace aggregation
 - `TreasuryLedger`: curated entity, holdings, and transaction datasets
 - `OnchainIndexer`: networks, pools, trades, token metadata, holders, and OHLCV
 - `EntityResolver`: joins between CoinGecko-compatible external IDs and internal entities
@@ -57,11 +57,10 @@ This matrix is about OpenGecko planning, not a claim that OpenGecko already supp
 | --- | ---: | --- | --- |
 | Simple + General | 12 | Yes | search ranking and global aggregation |
 | Coins + Contracts + Categories | 20 | Yes | ticker normalization and historical fidelity |
-| NFTs | 7 | Later | fragmented sources and derived collection metrics |
 | Exchanges + Derivatives | 10 | Later | ticker normalization, trust scoring, derivatives fields |
 | Public Treasury | 5 | Later | curated off-chain disclosures and derived finance fields |
 | Onchain DEX | 29 | Much later | multi-chain indexing, ranking logic, holders and trader analytics |
-| Total | 83 | staged rollout required | data platform complexity |
+| Total | 76 | staged rollout required | data platform complexity |
 
 ## Family 1: Simple + General
 
@@ -105,7 +104,11 @@ This matrix is about OpenGecko planning, not a claim that OpenGecko already supp
 | `/coins/{id}/total_supply_chart` | Enterprise | P3 | R4 | `days`; optional `interval` | total supply series object | retained historical total supply ledger | `ChartStore`, `MarketSummary` | High | High |
 | `/coins/{id}/total_supply_chart/range` | Enterprise | P3 | R4 | `from`; `to` | total supply series object by range | retained total supply history with range queries | `ChartStore`, `MarketSummary` | High | High |
 
-## Family 3: NFTs
+## Family 3: Removed from active roadmap (NFTs)
+
+The NFT family is intentionally removed from the active roadmap.
+
+The reference inventory below is retained only as future-scope context and should not influence current sequencing.
 
 | Endpoint | Tier | Priority | Phase | Main params | Response shape | Primary data needs | Internal services | Difficulty | Parity risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -251,13 +254,14 @@ Without this layer, even "easy" endpoints become unreliable.
 
 ### Third ship: specialist verticals
 
-- NFT family
 - public treasury family
 - derivatives detail and full ticker-heavy endpoints
 
 ### Fourth ship: GeckoTerminal parity
 
 - entire `/onchain/*` family, starting with catalogs, pool detail, token detail, pool OHLCV, and pool trades
+
+NFT scope is intentionally excluded from the current build order.
 - only then the ranking, search, holder, and trader analytics endpoints
 
 ## Maintenance Rules

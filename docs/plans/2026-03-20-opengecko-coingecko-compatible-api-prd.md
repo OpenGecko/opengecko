@@ -20,11 +20,12 @@ Important clarification: OpenGecko should be treated as a CoinGecko-compatible r
 
 ## 2. Executive Summary
 
-OpenGecko is an open-source, self-hostable, CoinGecko-compatible API platform for crypto market data, metadata, historical charts, exchange data, NFT data, treasury data, and onchain DEX data.
+OpenGecko is an open-source, self-hostable, CoinGecko-compatible API platform for crypto market data, metadata, historical charts, exchange data, treasury data, and onchain DEX data.
 
 The core product promise is simple:
 
 - existing CoinGecko integrations should be able to migrate with minimal code changes
+- supported market endpoints should return fresh-by-default price data from OpenGecko's internal snapshot layer
 - operators should be able to self-host the platform and control their own providers
 - contributors should be able to extend the system without rewriting the public API contract
 
@@ -32,6 +33,7 @@ The key insight is that the hard part is not routing or JSON shaping. The hard p
 
 - canonical entity modeling
 - provider reconciliation
+- continuous market ingestion and hot snapshot serving
 - historical retention and chart generation
 - ranking and search behavior
 - freshness management
@@ -117,6 +119,7 @@ OpenGecko solves these problems by offering a stable compatibility contract back
 - Preserve path structure, query parameter semantics, pagination behavior, response field names, nesting, and core error behavior closely enough that many clients can migrate by changing only base URL and credentials.
 - Offer a fully open-source core that can be self-hosted.
 - Decouple API compatibility from provider choice so operators can use different data sources without changing downstream integrations.
+- Keep internal hot-price data continuously refreshed so market-facing REST responses are up to date by default.
 - Support phased rollout with explicit compatibility grades, freshness grades, and divergence notes.
 - Provide a realistic path from MVP reference implementation to larger-scale managed deployments.
 
@@ -148,23 +151,29 @@ External contract compatibility is the product wedge. Route names, field names, 
 
 An endpoint can be contract-compatible while still having lower fidelity than CoinGecko in freshness, ranking quality, or coverage. These must be measured separately.
 
-### 8.3 Build by endpoint family, not by total endpoint count
+### 8.3 Fresh-by-default market reads are a core value
+
+For supported hot-price and market endpoints, OpenGecko should aim to return the freshest defensible internal snapshot available at request time.
+
+This means REST handlers should read from an always-hot internal market data layer maintained by background ingestion, not depend on request-time upstream fetches.
+
+### 8.4 Build by endpoint family, not by total endpoint count
 
 The product should ship coherent value in phases rather than attempting broad but shallow parity.
 
-### 8.4 Provider-agnostic internals
+### 8.5 Provider-agnostic internals
 
 OpenGecko should not be structurally coupled to any single upstream. Adapters, reconciliation rules, and overrides should be replaceable.
 
-### 8.5 Canonical entity modeling is a core system
+### 8.6 Canonical entity modeling is a core system
 
 Coins, contracts, networks, exchanges, NFT collections, treasury entities, and categories must all resolve through durable internal IDs.
 
-### 8.6 Self-hostability is a product feature
+### 8.7 Self-hostability is a product feature
 
 The OSS distribution must remain practical to run locally and in small deployments, not just in a large hosted environment.
 
-### 8.7 Divergences must be explicit
+### 8.8 Divergences must be explicit
 
 When OpenGecko intentionally differs from CoinGecko behavior, that difference should be documented and testable.
 
@@ -202,13 +211,12 @@ When OpenGecko intentionally differs from CoinGecko behavior, that difference sh
 
 ## 10. Product Scope
 
-Based on the current endpoint inventory, OpenGecko targets approximately 83 REST endpoints across six families:
+Based on the current active roadmap, OpenGecko targets approximately 76 REST endpoints across five families:
 
 | Family | Approx endpoints | Product importance | Implementation difficulty |
 | --- | ---: | --- | --- |
 | Simple + General | 12 | Critical for migration | Medium |
 | Coins + Contracts + Categories | 20 | Critical for migration | Medium-High |
-| NFTs | 7 | Important expansion | High |
 | Exchanges + Derivatives | 10 | Important expansion | High |
 | Public Treasury | 5 | Specialist expansion | Medium-High |
 | Onchain DEX | 29 | Long-term strategic surface | Very High |
@@ -330,6 +338,10 @@ OpenGecko must support market data primitives needed by the core CoinGecko surfa
 - rankings and category aggregates
 - optional sparkline-style compact history
 
+For supported hot assets, the system must maintain an always-hot internal snapshot layer that is refreshed continuously by background ingestion, using streaming transports where worthwhile and polling fallbacks where necessary.
+
+Market-facing REST reads should serve from that internal snapshot layer so users get fresh data without waiting for request-time provider calls.
+
 The system must define precedence rules for conflicting provider values.
 
 ### 12.6 Historical chart requirements
@@ -378,17 +390,13 @@ For exchange and derivatives families, OpenGecko must support:
 - depth or order-book derived fields when supported
 - stale, anomalous, or unreliable market flags where applicable
 
-### 12.9 NFT requirements
+### 12.9 NFT roadmap status
 
-For NFT families, OpenGecko must support:
+NFT endpoints are removed from the active OpenGecko roadmap.
 
-- collection registry and contract mapping
-- floor price and volume aggregation
-- marketplace ticker-style views where supported
-- collection metadata and links
-- historical collection metrics where retained
+They are not part of the current phased delivery plan and should not block public treasury or onchain work.
 
-NFT support should be gated by source quality and contract resolution reliability.
+Any future reconsideration should be treated as a new scope decision rather than an assumed follow-on milestone.
 
 ### 12.10 Public treasury requirements
 
@@ -423,6 +431,7 @@ The OSS distribution must allow operators to:
 - configure provider adapters by environment
 - disable endpoint families without required data support
 - tune caching and refresh cadence
+- run boot-time and continuous market-refresh workers locally
 - rebuild search indices and refresh market snapshots via jobs
 - inspect freshness and provider errors locally
 
@@ -522,6 +531,7 @@ Core layers:
 
 3. **Ingestion and reconciliation layer**
    - scheduled refresh jobs
+   - continuous streaming ingestors where supported
    - backfills
    - adapter fetchers
    - snapshot import pipelines
@@ -587,6 +597,7 @@ OpenGecko must be provider-agnostic from day one.
 For each domain, OpenGecko must define:
 
 - preferred provider order
+- preferred ingestion mode such as streaming vs polling
 - freshness expectations
 - fallback behavior
 - merge or conflict-resolution rules
@@ -780,19 +791,18 @@ Exit criteria:
 - venue normalization is stable
 - volume history policies are implemented
 
-### Release 3: NFTs and Public Treasury
+### Release 3: Public Treasury
 
-Goal: add specialist verticals that depend more heavily on curation and fragmented providers.
+Goal: add the first curated off-chain holdings surface while preserving the compatibility-first delivery model.
 
 Primary scope:
 
-- `/nfts*`
 - `/entities/list`
 - `/public_treasury*`
 
 Exit criteria:
 
-- collection and treasury entity models are stable
+- treasury entity models are stable
 - curation workflows exist for manual correction
 - provenance is visible for curated data
 
@@ -806,6 +816,8 @@ Primary scope:
 - pool and token catalogs first
 - pool/token detail and OHLCV next
 - advanced trending, search, holders, and traders last
+
+NFT endpoints remain out of roadmap unless explicitly reintroduced in a later product decision.
 
 Exit criteria:
 

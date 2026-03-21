@@ -32,20 +32,20 @@ Implemented or materially in place:
 
 ### 2.2 Current release focus
 
-- Current target: `R0` completed and hardened
-- Current transition: move seeded early `R1` endpoints from `partial` toward reliable compatibility
+- Current target: `R2` completed and validated
+- Current transition: move directly into public treasury and onchain kickoff while keeping NFT work out of the active roadmap
 
 ### 2.3 Current execution truth
 
-The next phase should not be broad endpoint expansion.
+The next phase should treat fresh-by-default market data as a central product value while continuing the next roadmap families.
 
 The next phase should be:
 
-1. hardening compatibility fidelity on current endpoints
-2. locking freshness and stale-data behavior
-3. locking chart semantics and retention assumptions
-4. widening test and fixture coverage
-5. only then starting selective low-risk `R2` work
+1. making hot market reads fresh by default through boot-time and continuous refresh behavior
+2. starting seeded public treasury coverage
+3. starting seeded onchain network and DEX catalogs
+4. widening fixtures and validation for the new families immediately
+5. preserving the same compatibility-first discipline used in R1 and R2
 
 ## 3. Execution Principles
 
@@ -69,6 +69,10 @@ Canonical entity resolution, fixture strategy, and freshness policy are cross-cu
 
 The OSS reference architecture should remain practical for local development and self-hosting even as managed-scale options are defined.
 
+### 3.6 Treat fresh-by-default reads as a product guarantee
+
+For supported hot-price endpoints, the system should maintain an always-hot internal snapshot layer so REST requests return current data by default rather than seeded placeholders or request-time upstream fetches.
+
 ## 4. Delivery Objectives
 
 ### 4.1 Near-term objective
@@ -81,7 +85,7 @@ Add live-backed confidence, deterministic historical semantics, and the first lo
 
 ### 4.3 Long-term objective
 
-Expand into exchanges, derivatives, NFTs, treasury, and onchain in a controlled order without breaking the trustworthiness of the public contract.
+Expand into exchanges, derivatives, treasury, and onchain in a controlled order without breaking the trustworthiness of the public contract.
 
 ## 5. Milestones
 
@@ -93,6 +97,8 @@ Expand into exchanges, derivatives, NFTs, treasury, and onchain in a controlled 
 | `M3` | Historical semantics stabilization | `M0`, `M1` | chart/range/OHLC semantics are deterministic and protected by tests |
 | `M4` | Low-risk R2 foundation | `M1`, `M2`, `M3` | first exchange registry/detail and token-list endpoints land as stable `partial` or `compatible` |
 | `M5` | Ticker-heavy R2 expansion | `M4` | ticker normalization and venue semantics are defined before ticker endpoints broaden |
+| `M6` | Public treasury foundation | `M5` | `/entities/list` and the first `/public_treasury*` routes land with seeded curated coverage and explicit divergence notes |
+| `M7` | Onchain catalog foundation | `M6` | `/onchain/networks` and `/onchain/networks/{network}/dexes` land with JSON:API-style seeded coverage |
 
 ## 6. Workstreams
 
@@ -129,11 +135,14 @@ Bring existing endpoints closer to CoinGecko contract behavior.
 
 ### Goal
 
-Move from seeded confidence to controlled live-backed freshness behavior.
+Move from seeded confidence to fresh-by-default live-backed market behavior.
 
 ### Scope
 
 - initial CCXT exchange set
+- boot-time refresh behavior
+- continuous in-process or worker-driven refresh scheduling
+- streaming ingestion where it is worth the complexity
 - polling cadence
 - stale snapshot policy
 - fallback behavior when refresh jobs fail
@@ -142,6 +151,9 @@ Move from seeded confidence to controlled live-backed freshness behavior.
 ### Concrete tasks
 
 - choose a narrow default exchange set for the first live rollout
+- run a best-effort market refresh during server boot or paired worker startup
+- keep market snapshots warm continuously without relying on request-time upstream reads
+- define when streaming adapters should replace or augment polling
 - define refresh cadence for hot endpoints
 - define what happens when market data exceeds freshness thresholds
 - encode stale-data behavior in services and tests
@@ -436,22 +448,22 @@ Expected outputs:
 
 Success condition:
 
-R1 is effectively complete for MVP scope and ready for selective R2 expansion.
+R2 is effectively complete for MVP scope and ready for treasury/onchain expansion.
 
 ### 9.3 First 90 days
 
-Primary goal: land the first useful low-risk R2 surface.
+Primary goal: land the first useful public treasury and onchain catalog surface.
 
 Expected outputs:
 
-- token-list support
-- exchange registries and basic exchange detail endpoints
-- exchange volume history
-- derivatives venue list support
+- treasury entity registry support
+- grouped public treasury responses for seeded holdings
+- onchain network registry support
+- onchain DEX catalog support
 
 Success condition:
 
-The public launch surface is strong on R0 + R1 + selective low-risk R2 while clearly deferring ticker-heavy and onchain-heavy complexity.
+The public launch surface is strong on R0 + R1 + R2 with treasury and onchain foundations in place while NFT scope remains explicitly removed from the roadmap.
 
 ## 10. Definition of Done
 
