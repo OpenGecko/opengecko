@@ -6,14 +6,15 @@ import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
-import { coinTickers } from '../src/db/schema';
+import { coinTickers, coins } from '../src/db/schema';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
 
 vi.mock('../src/providers/ccxt', () => ({
+  fetchExchangeMarkets: vi.fn(),
   fetchExchangeTickers: vi.fn(),
 }));
 
-import { fetchExchangeTickers } from '../src/providers/ccxt';
+import { fetchExchangeMarkets, fetchExchangeTickers } from '../src/providers/ccxt';
 
 describe('market refresh service', () => {
   let tempDir: string;
@@ -23,6 +24,7 @@ describe('market refresh service', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-market-refresh-'));
     database = createDatabase(join(tempDir, 'test.db'));
     initializeDatabase(database);
+    vi.mocked(fetchExchangeMarkets).mockReset();
     vi.mocked(fetchExchangeTickers).mockReset();
   });
 
@@ -32,6 +34,38 @@ describe('market refresh service', () => {
   });
 
   it('upserts live coin tickers from exchange refresh results', async () => {
+    vi.mocked(fetchExchangeMarkets).mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USD',
+        base: 'BTC',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'ETH/USD',
+        base: 'ETH',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Ethereum',
+        raw: {},
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'LTC/USD',
+        base: 'LTC',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Litecoin',
+        raw: {},
+      },
+    ]);
     vi.mocked(fetchExchangeTickers).mockImplementation(async (exchangeId) => {
       switch (exchangeId) {
         case 'binance':
@@ -85,6 +119,8 @@ describe('market refresh service', () => {
             timestamp: Date.parse('2026-03-21T00:02:00.000Z'),
             raw: {} as never,
           }];
+        default:
+          return [];
       }
     });
 
@@ -122,6 +158,11 @@ describe('market refresh service', () => {
         eq(coinTickers.target, 'EUR'),
       ))
       .get();
+    const litecoinCoin = database.db
+      .select()
+      .from(coins)
+      .where(eq(coins.id, 'litecoin'))
+      .get();
 
     expect(bitcoinBinanceTicker).toMatchObject({
       marketName: 'BTC/USDT',
@@ -155,5 +196,10 @@ describe('market refresh service', () => {
       tokenInfoUrl: null,
     });
     expect(bitcoinKrakenTicker?.convertedVolumeUsd).toBeGreaterThan(8_200_000);
+    expect(litecoinCoin).toMatchObject({
+      id: 'litecoin',
+      symbol: 'ltc',
+      name: 'Litecoin',
+    });
   });
 });

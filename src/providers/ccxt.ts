@@ -33,6 +33,17 @@ export type ExchangeOhlcvSnapshot = {
   raw: OHLCV;
 };
 
+export type ExchangeMarketSnapshot = {
+  exchangeId: SupportedExchangeId;
+  symbol: string;
+  base: string;
+  quote: string;
+  active: boolean;
+  spot: boolean;
+  baseName: string | null;
+  raw: unknown;
+};
+
 export function isSupportedExchangeId(value: string): value is SupportedExchangeId {
   return SUPPORTED_EXCHANGE_IDS.includes(value as SupportedExchangeId);
 }
@@ -87,6 +98,23 @@ function toTickerSnapshot(exchangeId: SupportedExchangeId, ticker: Ticker): Exch
     percentage: ticker.percentage ?? null,
     timestamp: ticker.timestamp ?? null,
     raw: ticker,
+  };
+}
+
+function toMarketSnapshot(
+  exchangeId: SupportedExchangeId,
+  market: Exchange['markets'][string],
+  currencyName: string | null,
+): ExchangeMarketSnapshot {
+  return {
+    exchangeId,
+    symbol: market.symbol,
+    base: market.base,
+    quote: market.quote,
+    active: market.active ?? true,
+    spot: market.spot ?? false,
+    baseName: currencyName,
+    raw: market,
   };
 }
 
@@ -149,6 +177,20 @@ export async function fetchExchangeTickers(exchangeId: SupportedExchangeId, symb
     );
 
     return tickers;
+  } finally {
+    await exchange.close();
+  }
+}
+
+export async function fetchExchangeMarkets(exchangeId: SupportedExchangeId) {
+  const exchange = createExchange(exchangeId);
+
+  try {
+    await exchange.loadMarkets();
+
+    return Object.values(exchange.markets).map((market) =>
+      toMarketSnapshot(exchangeId, market, exchange.currencies?.[market.base]?.name ?? null),
+    );
   } finally {
     await exchange.close();
   }

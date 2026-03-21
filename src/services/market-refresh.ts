@@ -3,42 +3,14 @@ import { and, eq } from 'drizzle-orm';
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { coinTickers, exchanges, marketSnapshots } from '../db/schema';
+import { coins } from '../db/schema';
 import { fetchExchangeTickers, type SupportedExchangeId } from '../providers/ccxt';
+import { syncCoinCatalogWithBinance } from './coin-catalog-sync';
 import { recordQuoteSnapshot, toDailyBucket, toMinuteBucket, upsertCanonicalCandle } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
 import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
 
 const SUPPORTED_EXCHANGES: SupportedExchangeId[] = ['binance', 'coinbase', 'kraken'];
-
-const COIN_MARKET_CANDIDATES = {
-  bitcoin: {
-    usd: ['BTC/USD', 'BTC/USDT'],
-    eur: ['BTC/EUR'],
-  },
-  ethereum: {
-    usd: ['ETH/USD', 'ETH/USDT'],
-    eur: ['ETH/EUR'],
-  },
-  'usd-coin': {
-    usd: ['USDC/USD', 'USDC/USDT'],
-    eur: ['USDC/EUR'],
-  },
-  solana: {
-    usd: ['SOL/USD', 'SOL/USDT'],
-  },
-  ripple: {
-    usd: ['XRP/USD', 'XRP/USDT'],
-  },
-  dogecoin: {
-    usd: ['DOGE/USD', 'DOGE/USDT'],
-  },
-  cardano: {
-    usd: ['ADA/USD', 'ADA/USDT'],
-  },
-  chainlink: {
-    usd: ['LINK/USD', 'LINK/USDT'],
-  },
-} satisfies Record<string, Partial<Record<'usd' | 'eur', string[]>>>;
 
 const EXCHANGE_TABLE_IDS = {
   binance: 'binance',
@@ -72,12 +44,21 @@ type PendingCoinTicker = {
   vsCurrency: 'usd' | 'eur';
 };
 
-function buildRequestedSymbolIndex() {
-  const symbolEntries: Array<[string, SymbolIndexEntry]> = Object.entries(COIN_MARKET_CANDIDATES).flatMap(([coinId, currencyCandidates]) =>
-    Object.entries(currencyCandidates).flatMap(([vsCurrency, symbols]) =>
-      symbols.map((symbol) => [symbol, { coinId, vsCurrency: vsCurrency as SymbolIndexEntry['vsCurrency'] }] as [string, SymbolIndexEntry]),
-    ),
-  );
+function buildRequestedSymbolIndex(database: AppDatabase) {
+  const symbolEntries: Array<[string, SymbolIndexEntry]> = [];
+  const databaseCoinsForRefresh = database.db.select({ id: coins.id, symbol: coins.symbol }).from(coins).all();
+
+  for (const coin of databaseCoinsForRefresh) {
+    const symbol = coin.symbol.toUpperCase();
+
+    for (const vsCurrency of ['usd', 'eur'] as const) {
+      const quoteCandidates = vsCurrency === 'usd' ? ['USD', 'USDT'] : ['EUR'];
+
+      for (const quote of quoteCandidates) {
+        symbolEntries.push([`${symbol}/${quote}`, { coinId: coin.id, vsCurrency }]);
+      }
+    }
+  }
 
   return new Map<string, SymbolIndexEntry>(symbolEntries);
 }
@@ -185,7 +166,9 @@ export async function runMarketRefreshOnce(database: AppDatabase, config: Pick<A
     return;
   }
 
-  const symbolIndex = buildRequestedSymbolIndex();
+  await syncCoinCatalogWithBinance(database);
+
+  const symbolIndex = buildRequestedSymbolIndex(database);
   const requestedSymbols = [...symbolIndex.keys()];
   const accumulators = new Map<string, { coinId: string; vsCurrency: string; accumulator: MarketQuoteAccumulator }>();
   const pendingCoinTickers: PendingCoinTicker[] = [];
