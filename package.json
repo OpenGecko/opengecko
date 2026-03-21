@@ -11,6 +11,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "charts:backfill": "tsx src/jobs/backfill-ohlcv.ts",
     "search:rebuild": "tsx src/jobs/rebuild-search-index.ts",
     "markets:refresh": "tsx src/jobs/refresh-market-snapshots.ts"
   },

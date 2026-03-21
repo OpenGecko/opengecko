@@ -1,6 +1,7 @@
-import ccxt, { type Exchange, type Ticker } from 'ccxt';
+import ccxt, { type Exchange, type OHLCV, type Ticker } from 'ccxt';
 
 export type SupportedExchangeId = 'binance' | 'coinbase' | 'kraken';
+export const SUPPORTED_EXCHANGE_IDS: SupportedExchangeId[] = ['binance', 'coinbase', 'kraken'];
 
 export type ExchangeTickerSnapshot = {
   exchangeId: SupportedExchangeId;
@@ -18,6 +19,23 @@ export type ExchangeTickerSnapshot = {
   timestamp: number | null;
   raw: Ticker;
 };
+
+export type ExchangeOhlcvSnapshot = {
+  exchangeId: SupportedExchangeId;
+  symbol: string;
+  timeframe: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+  raw: OHLCV;
+};
+
+export function isSupportedExchangeId(value: string): value is SupportedExchangeId {
+  return SUPPORTED_EXCHANGE_IDS.includes(value as SupportedExchangeId);
+}
 
 function createExchange(exchangeId: SupportedExchangeId): Exchange {
   const options = {
@@ -72,6 +90,29 @@ function toTickerSnapshot(exchangeId: SupportedExchangeId, ticker: Ticker): Exch
   };
 }
 
+function toRequiredNumber(value: number | undefined, fieldName: string, exchangeId: SupportedExchangeId, symbol: string) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  throw new Error(`Invalid ${fieldName} value from ${exchangeId} for ${symbol}`);
+}
+
+function toOhlcvSnapshot(exchangeId: SupportedExchangeId, symbol: string, timeframe: string, row: OHLCV): ExchangeOhlcvSnapshot {
+  return {
+    exchangeId,
+    symbol,
+    timeframe,
+    timestamp: toRequiredNumber(row[0], 'timestamp', exchangeId, symbol),
+    open: toRequiredNumber(row[1], 'open', exchangeId, symbol),
+    high: toRequiredNumber(row[2], 'high', exchangeId, symbol),
+    low: toRequiredNumber(row[3], 'low', exchangeId, symbol),
+    close: toRequiredNumber(row[4], 'close', exchangeId, symbol),
+    volume: row[5] ?? null,
+    raw: row,
+  };
+}
+
 export async function fetchExchangeTicker(exchangeId: SupportedExchangeId, symbol: string) {
   const exchange = createExchange(exchangeId);
 
@@ -108,6 +149,30 @@ export async function fetchExchangeTickers(exchangeId: SupportedExchangeId, symb
     );
 
     return tickers;
+  } finally {
+    await exchange.close();
+  }
+}
+
+export async function fetchExchangeOHLCV(
+  exchangeId: SupportedExchangeId,
+  symbol: string,
+  timeframe: string,
+  since?: number,
+  limit?: number,
+) {
+  const exchange = createExchange(exchangeId);
+
+  try {
+    await exchange.loadMarkets();
+
+    if (!exchange.has.fetchOHLCV) {
+      return [];
+    }
+
+    const rows = await exchange.fetchOHLCV(symbol, timeframe, since, limit);
+
+    return rows.map((row) => toOhlcvSnapshot(exchangeId, symbol, timeframe, row));
   } finally {
     await exchange.close();
   }
