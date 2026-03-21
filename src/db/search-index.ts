@@ -1,8 +1,8 @@
 import type { AppDatabase } from './client';
-import { categories, coins } from './schema';
+import { categories, coins, exchanges } from './schema';
 
 const CREATE_SEARCH_INDEX_SQL = `
-  CREATE VIRTUAL TABLE IF NOT EXISTS search_documents USING fts5(
+  CREATE VIRTUAL TABLE search_documents USING fts5(
     doc_type UNINDEXED,
     ref_id UNINDEXED,
     name,
@@ -14,7 +14,7 @@ const CREATE_SEARCH_INDEX_SQL = `
 `;
 
 export type SearchDocumentMatch = {
-  docType: 'coin' | 'category';
+  docType: 'coin' | 'category' | 'exchange';
   refId: string;
   rank: number;
 };
@@ -33,13 +33,18 @@ function buildMatchExpression(query: string) {
 }
 
 export function ensureSearchIndex(database: AppDatabase) {
-  database.client.exec(CREATE_SEARCH_INDEX_SQL);
+  const existingTable = database.client
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'search_documents'")
+    .get() as { name: string } | undefined;
+
+  if (!existingTable) {
+    database.client.exec(CREATE_SEARCH_INDEX_SQL);
+  }
 }
 
 export function rebuildSearchIndex(database: AppDatabase) {
-  ensureSearchIndex(database);
-
-  database.client.prepare('DELETE FROM search_documents').run();
+  database.client.exec('DROP TABLE IF EXISTS search_documents');
+  database.client.exec(CREATE_SEARCH_INDEX_SQL);
 
   const insertStatement = database.client.prepare(
     'INSERT INTO search_documents (doc_type, ref_id, name, symbol, api_symbol, categories) VALUES (?, ?, ?, ?, ?, ?)',
@@ -58,6 +63,10 @@ export function rebuildSearchIndex(database: AppDatabase) {
 
   for (const category of database.db.select().from(categories).all()) {
     insertStatement.run('category', category.id, category.name, '', '', category.name);
+  }
+
+  for (const exchange of database.db.select().from(exchanges).all()) {
+    insertStatement.run('exchange', exchange.id, exchange.name, exchange.country ?? '', exchange.id, exchange.url);
   }
 }
 
@@ -78,7 +87,7 @@ export function searchDocuments(database: AppDatabase, query: string, limit = 20
     LIMIT ?
   `);
 
-  return (statement.all(matchExpression, limit) as Array<{ doc_type: 'coin' | 'category'; ref_id: string; rank: number }>).map((row) => ({
+  return (statement.all(matchExpression, limit) as Array<{ doc_type: 'coin' | 'category' | 'exchange'; ref_id: string; rank: number }>).map((row) => ({
     docType: row.doc_type,
     refId: row.ref_id,
     rank: row.rank,
