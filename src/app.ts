@@ -8,8 +8,10 @@ import { registerCoinRoutes } from './modules/coins';
 import { registerExchangeRoutes } from './modules/exchanges';
 import { registerGlobalRoutes } from './modules/global';
 import { registerHealthRoutes } from './modules/health';
+import { registerOnchainRoutes } from './modules/onchain';
 import { registerSearchRoutes } from './modules/search';
 import { registerSimpleRoutes } from './modules/simple';
+import { registerTreasuryRoutes } from './modules/treasury';
 
 export type BuildAppOptions = {
   config?: Partial<AppConfig>;
@@ -29,6 +31,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAssetPlatformRoutes(app, database);
   registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds);
   registerExchangeRoutes(app, database);
+  registerTreasuryRoutes(app, database);
+  registerOnchainRoutes(app, database);
   registerSearchRoutes(app, database);
   registerGlobalRoutes(app, database, config.marketFreshnessThresholdSeconds);
 

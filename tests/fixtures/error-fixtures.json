@@ -54,7 +54,15 @@
     "error": "invalid_parameter",
     "message": "Unsupported order value: unsupported"
   },
+  "exchangeBadDexPairFormat": {
+    "error": "invalid_parameter",
+    "message": "Unsupported dex_pair_format value: bad"
+  },
   "derivativesExchangesBadOrder": {
+    "error": "invalid_parameter",
+    "message": "Unsupported order value: unsupported"
+  },
+  "treasuryBadOrder": {
     "error": "invalid_parameter",
     "message": "Unsupported order value: unsupported"
   },

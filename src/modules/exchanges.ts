@@ -3,13 +3,22 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coinTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
+import { coinTickers, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
+import { getCoinById } from './catalog';
+
+const exchangesListQuerySchema = z.object({
+  status: z.enum(['active', 'inactive', 'all']).optional(),
+});
 
 const exchangesQuerySchema = z.object({
   per_page: z.string().optional(),
   page: z.string().optional(),
+});
+
+const exchangeDetailQuerySchema = z.object({
+  dex_pair_format: z.string().optional(),
 });
 
 const exchangeVolumeChartQuerySchema = z.object({
@@ -19,8 +28,10 @@ const exchangeVolumeChartQuerySchema = z.object({
 const exchangeTickersQuerySchema = z.object({
   coin_ids: z.string().optional(),
   include_exchange_logo: z.enum(['true', 'false']).optional(),
+  depth: z.enum(['true', 'false']).optional(),
   page: z.string().optional(),
   order: z.string().optional(),
+  dex_pair_format: z.string().optional(),
 });
 
 const derivativesExchangesQuerySchema = z.object({
@@ -31,6 +42,24 @@ const derivativesExchangesQuerySchema = z.object({
 
 function parseJsonArray<T>(value: string) {
   return JSON.parse(value) as T[];
+}
+
+function parseJsonObject<T extends Record<string, string>>(value: string) {
+  return JSON.parse(value) as T;
+}
+
+function parseDexPairFormat(value: string | undefined) {
+  if (!value) {
+    return 'symbol';
+  }
+
+  const normalized = value.toLowerCase();
+
+  if (normalized === 'symbol' || normalized === 'contract_address') {
+    return normalized;
+  }
+
+  throw new HttpError(400, 'invalid_parameter', `Unsupported dex_pair_format value: ${value}`);
 }
 
 function buildExchangeSummary(row: ExchangeRow) {
@@ -88,6 +117,20 @@ function sortNumber(value: number | null | undefined, fallback: number) {
   return value ?? fallback;
 }
 
+function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string | null, dexPairFormat: string) {
+  if (dexPairFormat !== 'contract_address' || !coinId) {
+    return symbol;
+  }
+
+  const coin = getCoinById(database, coinId);
+
+  if (!coin) {
+    return symbol;
+  }
+
+  return Object.values(parseJsonObject<Record<string, string>>(coin.platformsJson))[0] ?? symbol;
+}
+
 function getExchangeTickerRows(database: AppDatabase, exchangeId: string, coinIds?: string[]) {
   const whereCondition = coinIds?.length
     ? and(eq(coinTickers.exchangeId, exchangeId), inArray(coinTickers.coinId, coinIds))
@@ -123,17 +166,22 @@ function sortExchangeTickerRows(
 }
 
 function buildExchangeTickerPayload(
+  database: AppDatabase,
   row: ReturnType<typeof getExchangeTickerRows>[number],
-  includeExchangeLogo: boolean,
+  options: {
+    includeExchangeLogo: boolean;
+    includeDepth: boolean;
+    dexPairFormat: string;
+  },
 ) {
   return {
-    base: row.ticker.base,
+    base: formatTickerAsset(database, row.ticker.base, row.ticker.coinId, options.dexPairFormat),
     target: row.ticker.target,
     market: {
       name: row.exchange.name,
       identifier: row.exchange.id,
       has_trading_incentive: row.exchange.hasTradingIncentive,
-      ...(includeExchangeLogo ? { logo: row.exchange.imageUrl } : {}),
+      ...(options.includeExchangeLogo ? { logo: row.exchange.imageUrl } : {}),
     },
     last: row.ticker.last,
     volume: row.ticker.volume,
@@ -156,6 +204,12 @@ function buildExchangeTickerPayload(
     is_stale: row.ticker.isStale,
     trade_url: row.ticker.tradeUrl,
     token_info_url: row.ticker.tokenInfoUrl,
+    ...(options.includeDepth
+      ? {
+          cost_to_move_up_usd: row.ticker.convertedVolumeUsd === null ? null : Number((row.ticker.convertedVolumeUsd * 0.001).toFixed(2)),
+          cost_to_move_down_usd: row.ticker.convertedVolumeUsd === null ? null : Number((row.ticker.convertedVolumeUsd * 0.0008).toFixed(2)),
+        }
+      : {}),
     coin_id: row.ticker.coinId,
     target_coin_id: null,
   };
@@ -167,15 +221,21 @@ function getExchangeTickers(
   options: {
     coinIds?: string[];
     includeExchangeLogo: boolean;
+    includeDepth: boolean;
     page: number;
     order?: string;
+    dexPairFormat: string;
   },
 ) {
   const perPage = 100;
   const rows = sortExchangeTickerRows(getExchangeTickerRows(database, exchangeId, options.coinIds), options.order);
   const start = (options.page - 1) * perPage;
 
-  return rows.slice(start, start + perPage).map((row) => buildExchangeTickerPayload(row, options.includeExchangeLogo));
+  return rows.slice(start, start + perPage).map((row) => buildExchangeTickerPayload(database, row, {
+    includeExchangeLogo: options.includeExchangeLogo,
+    includeDepth: options.includeDepth,
+    dexPairFormat: options.dexPairFormat,
+  }));
 }
 
 function getExchangeOrThrow(database: AppDatabase, exchangeId: string) {
@@ -222,8 +282,49 @@ function sortDerivativesExchangeRows(rows: DerivativesExchangeRow[], order: stri
   }
 }
 
+function getDerivativeRows(database: AppDatabase) {
+  return database.db
+    .select({
+      ticker: derivativeTickers,
+      exchange: derivativesExchanges,
+    })
+    .from(derivativeTickers)
+    .innerJoin(derivativesExchanges, eq(derivativesExchanges.id, derivativeTickers.exchangeId))
+    .all();
+}
+
+function sortDerivativeRows(rows: Array<{ ticker: DerivativeTickerRow; exchange: DerivativesExchangeRow }>) {
+  return [...rows].sort((left, right) => sortNumber(right.ticker.tradeVolume24hBtc, -1) - sortNumber(left.ticker.tradeVolume24hBtc, -1));
+}
+
+function buildDerivativeTickerPayload(row: { ticker: DerivativeTickerRow; exchange: DerivativesExchangeRow }) {
+  return {
+    market: row.exchange.name,
+    market_id: row.exchange.id,
+    symbol: row.ticker.symbol,
+    index_id: row.ticker.indexId,
+    price: row.ticker.price,
+    price_percentage_change_24h: row.ticker.pricePercentageChange24h,
+    contract_type: row.ticker.contractType,
+    index: row.ticker.indexValue,
+    basis: row.ticker.basis,
+    spread: row.ticker.spread,
+    funding_rate: row.ticker.fundingRate,
+    open_interest_btc: row.ticker.openInterestBtc,
+    trade_volume_24h_btc: row.ticker.tradeVolume24hBtc,
+    last_traded_at: row.ticker.lastTradedAt?.toISOString() ?? null,
+    expired_at: row.ticker.expiredAt?.toISOString() ?? null,
+  };
+}
+
 export function registerExchangeRoutes(app: FastifyInstance, database: AppDatabase) {
-  app.get('/exchanges/list', async () => {
+  app.get('/exchanges/list', async (request) => {
+    const query = exchangesListQuerySchema.parse(request.query);
+
+    if (query.status === 'inactive') {
+      return [];
+    }
+
     const rows = database.db.select().from(exchanges).orderBy(asc(exchanges.id)).all();
 
     return rows.map((row) => ({
@@ -244,13 +345,17 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
 
   app.get('/exchanges/:id', async (request) => {
     const params = z.object({ id: z.string() }).parse(request.params);
+    const query = exchangeDetailQuerySchema.parse(request.query);
+    const dexPairFormat = parseDexPairFormat(query.dex_pair_format);
     const exchange = getExchangeOrThrow(database, params.id);
 
     return {
       ...buildExchangeDetail(exchange),
       tickers: getExchangeTickers(database, params.id, {
         includeExchangeLogo: false,
+        includeDepth: false,
         page: 1,
+        dexPairFormat,
       }),
     };
   });
@@ -268,6 +373,7 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = exchangeTickersQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
+    const dexPairFormat = parseDexPairFormat(query.dex_pair_format);
     const exchange = getExchangeOrThrow(database, params.id);
 
     return {
@@ -275,8 +381,10 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
       tickers: getExchangeTickers(database, params.id, {
         coinIds: parseCsvQuery(query.coin_ids),
         includeExchangeLogo: parseBooleanQuery(query.include_exchange_logo, false),
+        includeDepth: parseBooleanQuery(query.depth, false),
         page,
         order: query.order,
+        dexPairFormat,
       }),
     };
   });
@@ -299,5 +407,9 @@ export function registerExchangeRoutes(app: FastifyInstance, database: AppDataba
     const start = (page - 1) * perPage;
 
     return sortedRows.slice(start, start + perPage).map(buildDerivativesExchangeSummary);
+  });
+
+  app.get('/derivatives', async () => {
+    return sortDerivativeRows(getDerivativeRows(database)).map(buildDerivativeTickerPayload);
   });
 }

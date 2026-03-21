@@ -149,6 +149,89 @@ export const derivativesExchanges = sqliteTable('derivatives_exchanges', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
+export const derivativeTickers = sqliteTable(
+  'derivative_tickers',
+  {
+    exchangeId: text('exchange_id')
+      .notNull()
+      .references(() => derivativesExchanges.id),
+    symbol: text('symbol').notNull(),
+    market: text('market').notNull(),
+    indexId: text('index_id'),
+    price: real('price'),
+    pricePercentageChange24h: real('price_percentage_change_24h'),
+    contractType: text('contract_type').notNull(),
+    indexValue: real('index_value'),
+    basis: real('basis'),
+    spread: real('spread'),
+    fundingRate: real('funding_rate'),
+    openInterestBtc: real('open_interest_btc'),
+    tradeVolume24hBtc: real('trade_volume_24h_btc'),
+    lastTradedAt: integer('last_traded_at', { mode: 'timestamp_ms' }),
+    expiredAt: integer('expired_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.exchangeId, table.symbol] }),
+  }),
+);
+
+export const treasuryEntities = sqliteTable('treasury_entities', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  symbol: text('symbol'),
+  entityType: text('entity_type', { enum: ['company', 'government'] }).notNull(),
+  country: text('country'),
+  description: text('description').notNull().default(''),
+  websiteUrl: text('website_url'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const treasuryHoldings = sqliteTable(
+  'treasury_holdings',
+  {
+    entityId: text('entity_id')
+      .notNull()
+      .references(() => treasuryEntities.id),
+    coinId: text('coin_id')
+      .notNull()
+      .references(() => coins.id),
+    amount: real('amount').notNull(),
+    entryValueUsd: real('entry_value_usd'),
+    reportedAt: integer('reported_at', { mode: 'timestamp_ms' }).notNull(),
+    sourceUrl: text('source_url'),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.entityId, table.coinId] }),
+  }),
+);
+
+export const onchainNetworks = sqliteTable('onchain_networks', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  chainIdentifier: integer('chain_identifier'),
+  coingeckoAssetPlatformId: text('coingecko_asset_platform_id'),
+  nativeCurrencyCoinId: text('native_currency_coin_id'),
+  imageUrl: text('image_url'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const onchainDexes = sqliteTable(
+  'onchain_dexes',
+  {
+    id: text('id').notNull(),
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    name: text('name').notNull(),
+    url: text('url'),
+    imageUrl: text('image_url'),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.id] }),
+  }),
+);
+
 export const coinTickers = sqliteTable(
   'coin_tickers',
   {
@@ -189,4 +272,9 @@ export type ChartPointRow = typeof chartPoints.$inferSelect;
 export type ExchangeRow = typeof exchanges.$inferSelect;
 export type ExchangeVolumePointRow = typeof exchangeVolumePoints.$inferSelect;
 export type DerivativesExchangeRow = typeof derivativesExchanges.$inferSelect;
+export type DerivativeTickerRow = typeof derivativeTickers.$inferSelect;
+export type TreasuryEntityRow = typeof treasuryEntities.$inferSelect;
+export type TreasuryHoldingRow = typeof treasuryHoldings.$inferSelect;
+export type OnchainNetworkRow = typeof onchainNetworks.$inferSelect;
+export type OnchainDexRow = typeof onchainDexes.$inferSelect;
 export type CoinTickerRow = typeof coinTickers.$inferSelect;

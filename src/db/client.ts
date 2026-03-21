@@ -7,7 +7,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { rebuildSearchIndex } from './search-index';
-import { assetPlatforms, categories, chartPoints, coinTickers, coins, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots } from './schema';
+import { assetPlatforms, categories, chartPoints, coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots, onchainDexes, onchainNetworks, treasuryEntities, treasuryHoldings } from './schema';
 
 const MIGRATIONS_FOLDER = resolve(process.cwd(), 'drizzle');
 const MIGRATION_JOURNAL = resolve(MIGRATIONS_FOLDER, 'meta', '_journal.json');
@@ -40,10 +40,15 @@ export function createDatabase(databaseUrl: string) {
       chartPoints,
       coinTickers,
       coins,
+      derivativeTickers,
       derivativesExchanges,
       exchangeVolumePoints,
       exchanges,
       marketSnapshots,
+      onchainDexes,
+      onchainNetworks,
+      treasuryEntities,
+      treasuryHoldings,
     },
   });
 
@@ -301,6 +306,150 @@ const seededDerivativesExchanges = [
   },
 ];
 
+const seededDerivativeTickers = [
+  {
+    exchangeId: 'binance_futures',
+    symbol: 'BTCUSDT',
+    market: 'Binance Futures',
+    indexId: 'bitcoin',
+    price: 85120,
+    pricePercentageChange24h: 1.7,
+    contractType: 'perpetual',
+    indexValue: 85080,
+    basis: 40,
+    spread: 0.012,
+    fundingRate: 0.0001,
+    openInterestBtc: 120000,
+    tradeVolume24hBtc: 420000,
+    lastTradedAt: new Date(seedTimestamp),
+    expiredAt: null,
+  },
+  {
+    exchangeId: 'binance_futures',
+    symbol: 'ETHUSDT',
+    market: 'Binance Futures',
+    indexId: 'ethereum',
+    price: 2010,
+    pricePercentageChange24h: 2.2,
+    contractType: 'perpetual',
+    indexValue: 2004,
+    basis: 6,
+    spread: 0.018,
+    fundingRate: 0.00012,
+    openInterestBtc: 42000,
+    tradeVolume24hBtc: 110000,
+    lastTradedAt: new Date(seedTimestamp),
+    expiredAt: null,
+  },
+  {
+    exchangeId: 'bybit',
+    symbol: 'BTC-27JUN26',
+    market: 'Bybit',
+    indexId: 'bitcoin',
+    price: 85840,
+    pricePercentageChange24h: 1.1,
+    contractType: 'futures',
+    indexValue: 85080,
+    basis: 760,
+    spread: 0.025,
+    fundingRate: null,
+    openInterestBtc: 18500,
+    tradeVolume24hBtc: 56000,
+    lastTradedAt: new Date(seedTimestamp),
+    expiredAt: new Date(Date.parse('2026-06-27T08:00:00.000Z')),
+  },
+];
+
+const seededTreasuryEntities = [
+  {
+    id: 'strategy',
+    name: 'Strategy',
+    symbol: 'MSTR',
+    entityType: 'company' as const,
+    country: 'United States',
+    description: 'Strategy is a public company with a large bitcoin treasury position.',
+    websiteUrl: 'https://www.strategy.com',
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'el-salvador',
+    name: 'El Salvador',
+    symbol: null,
+    entityType: 'government' as const,
+    country: 'El Salvador',
+    description: 'El Salvador publishes sovereign bitcoin treasury disclosures.',
+    websiteUrl: 'https://bitcoin.gob.sv',
+    updatedAt: new Date(seedTimestamp),
+  },
+];
+
+const seededTreasuryHoldings = [
+  {
+    entityId: 'strategy',
+    coinId: 'bitcoin',
+    amount: 499096,
+    entryValueUsd: 33150000000,
+    reportedAt: new Date(seedTimestamp),
+    sourceUrl: 'https://www.strategy.com/press',
+  },
+  {
+    entityId: 'el-salvador',
+    coinId: 'bitcoin',
+    amount: 6100,
+    entryValueUsd: 402000000,
+    reportedAt: new Date(seedTimestamp),
+    sourceUrl: 'https://bitcoin.gob.sv',
+  },
+];
+
+const seededOnchainNetworks = [
+  {
+    id: 'eth',
+    name: 'Ethereum',
+    chainIdentifier: 1,
+    coingeckoAssetPlatformId: 'ethereum',
+    nativeCurrencyCoinId: 'ethereum',
+    imageUrl: 'https://assets.coingecko.com/asset_platforms/images/279/small/ethereum.png',
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'solana',
+    name: 'Solana',
+    chainIdentifier: 101,
+    coingeckoAssetPlatformId: 'solana',
+    nativeCurrencyCoinId: null,
+    imageUrl: 'https://assets.coingecko.com/asset_platforms/images/4128/small/solana.png',
+    updatedAt: new Date(seedTimestamp),
+  },
+];
+
+const seededOnchainDexes = [
+  {
+    id: 'uniswap_v3',
+    networkId: 'eth',
+    name: 'Uniswap V3',
+    url: 'https://app.uniswap.org',
+    imageUrl: 'https://assets.coingecko.com/markets/images/665/small/uniswap.png',
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'curve',
+    networkId: 'eth',
+    name: 'Curve',
+    url: 'https://curve.fi',
+    imageUrl: 'https://assets.coingecko.com/markets/images/538/small/curve.png',
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'raydium',
+    networkId: 'solana',
+    name: 'Raydium',
+    url: 'https://raydium.io',
+    imageUrl: 'https://assets.coingecko.com/markets/images/609/small/Raydium.png',
+    updatedAt: new Date(seedTimestamp),
+  },
+];
+
 const seededSnapshots = [
   {
     coinId: 'bitcoin',
@@ -549,9 +698,14 @@ export function seedReferenceData(database: AppDatabase) {
   const [{ value: categoryCount }] = database.db.select({ value: count() }).from(categories).all();
   const [{ value: chartPointCount }] = database.db.select({ value: count() }).from(chartPoints).all();
   const [{ value: exchangeCount }] = database.db.select({ value: count() }).from(exchanges).all();
+  const [{ value: derivativeTickerCount }] = database.db.select({ value: count() }).from(derivativeTickers).all();
   const [{ value: derivativesExchangeCount }] = database.db.select({ value: count() }).from(derivativesExchanges).all();
   const [{ value: exchangeVolumePointCount }] = database.db.select({ value: count() }).from(exchangeVolumePoints).all();
   const [{ value: coinTickerCount }] = database.db.select({ value: count() }).from(coinTickers).all();
+  const [{ value: treasuryEntityCount }] = database.db.select({ value: count() }).from(treasuryEntities).all();
+  const [{ value: treasuryHoldingCount }] = database.db.select({ value: count() }).from(treasuryHoldings).all();
+  const [{ value: onchainNetworkCount }] = database.db.select({ value: count() }).from(onchainNetworks).all();
+  const [{ value: onchainDexCount }] = database.db.select({ value: count() }).from(onchainDexes).all();
 
   if (coinCount === 0) {
     database.db.insert(coins).values(seededCoins).run();
@@ -586,6 +740,26 @@ export function seedReferenceData(database: AppDatabase) {
 
   if (derivativesExchangeCount === 0) {
     database.db.insert(derivativesExchanges).values(seededDerivativesExchanges).run();
+  }
+
+  if (derivativeTickerCount === 0) {
+    database.db.insert(derivativeTickers).values(seededDerivativeTickers).run();
+  }
+
+  if (treasuryEntityCount === 0) {
+    database.db.insert(treasuryEntities).values(seededTreasuryEntities).run();
+  }
+
+  if (treasuryHoldingCount === 0) {
+    database.db.insert(treasuryHoldings).values(seededTreasuryHoldings).run();
+  }
+
+  if (onchainNetworkCount === 0) {
+    database.db.insert(onchainNetworks).values(seededOnchainNetworks).run();
+  }
+
+  if (onchainDexCount === 0) {
+    database.db.insert(onchainDexes).values(seededOnchainDexes).run();
   }
 
   if (exchangeVolumePointCount === 0) {

@@ -203,6 +203,16 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(response.json()).toMatchObject(errorFixtures.exchangeTickersBadOrder);
   });
 
+  it('rejects unsupported exchange dex pair formats', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/exchanges/binance?dex_pair_format=bad',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject(errorFixtures.exchangeBadDexPairFormat);
+  });
+
   it('rejects unsupported derivatives exchange ordering values', async () => {
     const response = await app!.inject({
       method: 'GET',
@@ -211,6 +221,16 @@ describe('OpenGecko invalid parameter handling', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject(errorFixtures.derivativesExchangesBadOrder);
+  });
+
+  it('rejects unsupported treasury ordering values', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/companies/public_treasury/bitcoin?order=unsupported',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject(errorFixtures.treasuryBadOrder);
   });
 
   it('returns not found for unknown exchanges', async () => {
@@ -223,6 +243,32 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(response.json()).toMatchObject({
       error: 'not_found',
       message: 'Exchange not found: not-an-exchange',
+    });
+  });
+
+  it('returns not found for unknown treasury entities', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/public_treasury/not-an-entity',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Treasury entity not found: not-an-entity',
+    });
+  });
+
+  it('returns not found for unknown onchain networks', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/not-a-network/dexes',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain network not found: not-a-network',
     });
   });
 

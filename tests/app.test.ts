@@ -103,6 +103,10 @@ describe('OpenGecko app scaffold', () => {
       method: 'GET',
       url: '/exchanges/list',
     });
+    const inactiveListResponse = await getApp().inject({
+      method: 'GET',
+      url: '/exchanges/list?status=inactive',
+    });
     const exchangesResponse = await getApp().inject({
       method: 'GET',
       url: '/exchanges?per_page=2&page=1',
@@ -118,6 +122,9 @@ describe('OpenGecko app scaffold', () => {
 
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json()).toEqual(contractFixtures.exchangesList);
+
+    expect(inactiveListResponse.statusCode).toBe(200);
+    expect(inactiveListResponse.json()).toEqual([]);
 
     expect(exchangesResponse.statusCode).toBe(200);
     expect(exchangesResponse.json()).toMatchObject(contractFixtures.exchanges);
@@ -150,6 +157,30 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('supports exchange ticker depth and dex pair formatting', async () => {
+    const detailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/exchanges/binance?dex_pair_format=contract_address',
+    });
+    const tickersResponse = await getApp().inject({
+      method: 'GET',
+      url: '/exchanges/binance/tickers?coin_ids=usd-coin&depth=true&dex_pair_format=contract_address',
+    });
+
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json().tickers[2]).toMatchObject({
+      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      coin_id: 'usd-coin',
+    });
+
+    expect(tickersResponse.statusCode).toBe(200);
+    expect(tickersResponse.json().tickers[0]).toMatchObject({
+      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      cost_to_move_up_usd: 950,
+      cost_to_move_down_usd: 760,
+    });
+  });
+
   it('returns derivatives exchange registry rows', async () => {
     const listResponse = await getApp().inject({
       method: 'GET',
@@ -166,6 +197,57 @@ describe('OpenGecko app scaffold', () => {
     expect(exchangesResponse.statusCode).toBe(200);
     expect(exchangesResponse.json()).toHaveLength(1);
     expect(exchangesResponse.json()[0]).toMatchObject(contractFixtures.derivativesExchanges[0]);
+  });
+
+  it('returns derivatives tickers', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject(contractFixtures.derivatives);
+  });
+
+  it('returns treasury entities and grouped public treasury rows', async () => {
+    const entitiesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/entities/list?entity_type=companies&page=1&per_page=10',
+    });
+    const groupedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/companies/public_treasury/bitcoin?order=value_desc',
+    });
+    const detailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/public_treasury/strategy',
+    });
+
+    expect(entitiesResponse.statusCode).toBe(200);
+    expect(entitiesResponse.json()).toMatchObject([contractFixtures.treasuryEntities[1]]);
+
+    expect(groupedResponse.statusCode).toBe(200);
+    expect(groupedResponse.json()).toMatchObject(contractFixtures.companyTreasuryBitcoin);
+
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject(contractFixtures.treasuryEntityDetail);
+  });
+
+  it('returns onchain networks and network dexes', async () => {
+    const networksResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks?page=1',
+    });
+    const dexesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/dexes?page=1',
+    });
+
+    expect(networksResponse.statusCode).toBe(200);
+    expect(networksResponse.json()).toMatchObject(contractFixtures.onchainNetworks);
+
+    expect(dexesResponse.statusCode).toBe(200);
+    expect(dexesResponse.json()).toMatchObject(contractFixtures.onchainDexesEth);
   });
 
   it('returns token list data for an asset platform', async () => {

@@ -190,6 +190,38 @@
       "country": "United Arab Emirates"
     }
   ],
+  "derivatives": [
+    {
+      "market": "Binance Futures",
+      "market_id": "binance_futures",
+      "symbol": "BTCUSDT",
+      "index_id": "bitcoin",
+      "price": 85120,
+      "contract_type": "perpetual",
+      "open_interest_btc": 120000,
+      "trade_volume_24h_btc": 420000
+    },
+    {
+      "market": "Binance Futures",
+      "market_id": "binance_futures",
+      "symbol": "ETHUSDT",
+      "index_id": "ethereum",
+      "price": 2010,
+      "contract_type": "perpetual",
+      "open_interest_btc": 42000,
+      "trade_volume_24h_btc": 110000
+    },
+    {
+      "market": "Bybit",
+      "market_id": "bybit",
+      "symbol": "BTC-27JUN26",
+      "index_id": "bitcoin",
+      "price": 85840,
+      "contract_type": "futures",
+      "open_interest_btc": 18500,
+      "trade_volume_24h_btc": 56000
+    }
+  ],
   "ethereumTokenList": {
     "name": "OpenGecko Ethereum Token List",
     "timestamp": "2026-03-20T00:00:00.000Z",
@@ -343,5 +375,85 @@
     {
       "category_id": "stablecoins"
     }
-  ]
+  ],
+  "treasuryEntities": [
+    {
+      "id": "el-salvador",
+      "name": "El Salvador",
+      "symbol": null,
+      "country": "El Salvador",
+      "entity_type": "government"
+    },
+    {
+      "id": "strategy",
+      "name": "Strategy",
+      "symbol": "MSTR",
+      "country": "United States",
+      "entity_type": "company"
+    }
+  ],
+  "companyTreasuryBitcoin": {
+    "coin_id": "bitcoin",
+    "current_price_usd": 85000,
+    "total_holdings": 499096,
+    "companies": [
+      {
+        "entity_id": "strategy",
+        "name": "Strategy",
+        "symbol": "MSTR",
+        "country": "United States"
+      }
+    ]
+  },
+  "treasuryEntityDetail": {
+    "id": "strategy",
+    "name": "Strategy",
+    "entity_type": "company",
+    "holdings": [
+      {
+        "coin_id": "bitcoin",
+        "amount": 499096
+      }
+    ]
+  },
+  "onchainNetworks": {
+    "data": [
+      {
+        "id": "eth",
+        "type": "network",
+        "attributes": {
+          "name": "Ethereum",
+          "chain_identifier": 1,
+          "coingecko_asset_platform_id": "ethereum"
+        }
+      },
+      {
+        "id": "solana",
+        "type": "network",
+        "attributes": {
+          "name": "Solana",
+          "chain_identifier": 101,
+          "coingecko_asset_platform_id": "solana"
+        }
+      }
+    ]
+  },
+  "onchainDexesEth": {
+    "data": [
+      {
+        "id": "curve",
+        "type": "dex",
+        "attributes": {
+          "name": "Curve"
+        }
+      },
+      {
+        "id": "uniswap_v3",
+        "type": "dex",
+        "attributes": {
+          "name": "Uniswap V3"
+        }
+      }
+    ]
+  }
 }

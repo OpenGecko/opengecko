@@ -43,6 +43,20 @@
       "when": 1774080000000,
       "tag": "0005_derivatives_exchanges",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1774083600000,
+      "tag": "0006_derivative_tickers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1774087200000,
+      "tag": "0007_treasury_onchain_bootstrap",
+      "breakpoints": true
     }
   ]
 }
