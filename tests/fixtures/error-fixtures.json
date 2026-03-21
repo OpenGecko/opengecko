@@ -66,6 +66,10 @@
     "error": "invalid_parameter",
     "message": "Unsupported order value: unsupported"
   },
+  "treasuryHoldingChartBadDays": {
+    "error": "invalid_parameter",
+    "message": "Invalid days value: bad"
+  },
   "searchBlankQuery": {
     "error": "invalid_request"
   }

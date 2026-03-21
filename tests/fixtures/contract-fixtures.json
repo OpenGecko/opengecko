@@ -416,6 +416,72 @@
       }
     ]
   },
+  "treasuryHoldingChart": {
+    "holdings": [
+      [1773446400000, 420000],
+      [1773705600000, 480000],
+      [1773964800000, 499096]
+    ],
+    "holding_value_in_usd": [
+      [1773446400000, 33180000000],
+      [1773705600000, 39240000000],
+      [1773964800000, 42423160000]
+    ]
+  },
+  "treasuryHoldingChartWithIntervals": {
+    "holdings": [
+      [1773446400000, 420000],
+      [1773532800000, 420000],
+      [1773619200000, 420000],
+      [1773705600000, 480000],
+      [1773792000000, 480000],
+      [1773878400000, 480000],
+      [1773964800000, 499096]
+    ],
+    "holding_value_in_usd": [
+      [1773446400000, 33180000000],
+      [1773532800000, 33810000000],
+      [1773619200000, 34545000000],
+      [1773705600000, 39240000000],
+      [1773792000000, 39840000000],
+      [1773878400000, 40440000000],
+      [1773964800000, 42423160000]
+    ]
+  },
+  "treasuryTransactionHistory": {
+    "transactions": [
+      {
+        "date": 1773964800000,
+        "source_url": "https://www.strategy.com/press/march-2026-bitcoin-update",
+        "coin_id": "bitcoin",
+        "type": "buy",
+        "holding_net_change": 19096,
+        "transaction_value_usd": 2040000000,
+        "holding_balance": 499096,
+        "average_entry_value_usd": 66420.08751823296
+      },
+      {
+        "date": 1773705600000,
+        "source_url": "https://www.strategy.com/press/march-2026-bitcoin-update",
+        "coin_id": "bitcoin",
+        "type": "buy",
+        "holding_net_change": 60000,
+        "transaction_value_usd": 4020000000,
+        "holding_balance": 480000,
+        "average_entry_value_usd": 64770.833333333336
+      },
+      {
+        "date": 1773446400000,
+        "source_url": "https://www.strategy.com/press/march-2026-bitcoin-update",
+        "coin_id": "bitcoin",
+        "type": "buy",
+        "holding_net_change": 420000,
+        "transaction_value_usd": 27090000000,
+        "holding_balance": 420000,
+        "average_entry_value_usd": 64500
+      }
+    ]
+  },
   "onchainNetworks": {
     "data": [
       {

@@ -233,6 +233,26 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(response.json()).toMatchObject(errorFixtures.treasuryBadOrder);
   });
 
+  it('rejects unsupported treasury transaction ordering values', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/transaction_history?order=unsupported',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject(errorFixtures.treasuryBadOrder);
+  });
+
+  it('rejects unsupported treasury holding-chart days values', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/bitcoin/holding_chart?days=bad',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject(errorFixtures.treasuryHoldingChartBadDays);
+  });
+
   it('returns not found for unknown exchanges', async () => {
     const response = await app!.inject({
       method: 'GET',
@@ -256,6 +276,19 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(response.json()).toMatchObject({
       error: 'not_found',
       message: 'Treasury entity not found: not-an-entity',
+    });
+  });
+
+  it('returns not found for unknown treasury holding-chart coins', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/not-a-coin/holding_chart',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Coin not found: not-a-coin',
     });
   });
 

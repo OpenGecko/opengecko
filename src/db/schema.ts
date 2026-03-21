@@ -205,6 +205,23 @@ export const treasuryHoldings = sqliteTable(
   }),
 );
 
+export const treasuryTransactions = sqliteTable('treasury_transactions', {
+  id: text('id').primaryKey(),
+  entityId: text('entity_id')
+    .notNull()
+    .references(() => treasuryEntities.id),
+  coinId: text('coin_id')
+    .notNull()
+    .references(() => coins.id),
+  type: text('type', { enum: ['buy', 'sell'] }).notNull(),
+  holdingNetChange: real('holding_net_change').notNull(),
+  transactionValueUsd: real('transaction_value_usd'),
+  holdingBalance: real('holding_balance').notNull(),
+  averageEntryValueUsd: real('average_entry_value_usd'),
+  happenedAt: integer('happened_at', { mode: 'timestamp_ms' }).notNull(),
+  sourceUrl: text('source_url'),
+});
+
 export const onchainNetworks = sqliteTable('onchain_networks', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -275,6 +292,7 @@ export type DerivativesExchangeRow = typeof derivativesExchanges.$inferSelect;
 export type DerivativeTickerRow = typeof derivativeTickers.$inferSelect;
 export type TreasuryEntityRow = typeof treasuryEntities.$inferSelect;
 export type TreasuryHoldingRow = typeof treasuryHoldings.$inferSelect;
+export type TreasuryTransactionRow = typeof treasuryTransactions.$inferSelect;
 export type OnchainNetworkRow = typeof onchainNetworks.$inferSelect;
 export type OnchainDexRow = typeof onchainDexes.$inferSelect;
 export type CoinTickerRow = typeof coinTickers.$inferSelect;

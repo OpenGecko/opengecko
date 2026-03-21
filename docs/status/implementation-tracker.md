@@ -20,17 +20,16 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 ## Current Delivery Target
 
-- Current release focus: `R3/R4`
+- Current release focus: `R4`
 - Current architecture direction: `Bun + TypeScript + Fastify + Zod + SQLite + Drizzle + better-sqlite3 + SQLite FTS5 + CCXT + Vitest`
-- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, complete R0 general/simple endpoints, complete R1 core coin endpoints, complete R2 exchange/derivatives endpoints, and the first seeded public treasury/onchain catalog endpoints are implemented with passing validation`
+- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, complete R0 general/simple endpoints, complete R1 core coin endpoints, complete R2 exchange/derivatives endpoints, the complete seeded R3 public treasury family, and the first seeded onchain catalog endpoints are implemented with passing validation`
 
 ## Current Priorities
 
 1. Make hot market endpoints fresh by default via boot-time refresh and continuous internal snapshot updates.
-2. Expand the public treasury family beyond the initial seeded registry and grouped holdings baseline.
-3. Expand the onchain DEX family beyond the initial seeded network and DEX catalogs.
-4. Broaden repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases.
-5. Replace seeded ticker and history slices with CCXT-backed refresh and backfill paths where practical.
+2. Expand the onchain DEX family beyond the initial seeded network and DEX catalogs.
+3. Broaden repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases.
+4. Replace seeded ticker and history slices with CCXT-backed refresh and backfill paths where practical.
 
 ## Workstream Status
 
@@ -38,7 +37,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 | --- | --- | --- | --- |
 | Project scaffold | Fastify app, TypeScript config, test setup, logging | done | Package scripts, app entrypoints, and tests are in place |
 | Storage | SQLite connection, migrations, Drizzle schema, WAL mode | done | SQLite bootstraps with Drizzle migrations and seed data, including seeded exchange, derivatives, treasury, and onchain registries |
-| Compatibility layer | Param normalization, error shapes, serializers | partial | Several endpoint serializers exist across the complete R0, R1, and R2 surfaces, the first `/public_treasury*` routes, and the first `/onchain/*` routes; the full R1 coin family includes category filtering, extra price-change windows, category-detail flags, category ordering, richer history responses, and interval-aware chart-style routes |
+| Compatibility layer | Param normalization, error shapes, serializers | partial | Several endpoint serializers exist across the complete R0, R1, R2, and R3 surfaces plus the first `/onchain/*` routes; the full R1 coin family includes category filtering, extra price-change windows, category-detail flags, category ordering, richer history responses, and interval-aware chart-style routes |
 | Search | SQLite FTS5 indexing and `/search` support | done | FTS5 virtual table, rebuild job, and ranked `/search` queries are in place |
 | Historical data | Local chart and OHLC storage | partial | Seeded chart and OHLC routes exist; initial granularity/downsampling helpers are implemented, but retention policy remains open |
 | Background refresh jobs | Snapshot refresh and search rebuild jobs | partial | CCXT-backed market refresh and search rebuild scripts exist, and seed-vs-live ownership is now encoded in a shared snapshot service; scheduling and fresh-by-default read guarantees are not yet locked |
@@ -58,7 +57,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 | Core coin market endpoints | R1 | done | `/coins/markets`, `/coins/{id}`, history, chart, OHLC, categories, token lists, and contract-address chart/detail routes are implemented and validated with seeded compatibility coverage, including category filters/details, category ordering, richer history payloads, and interval-aware chart semantics |
 | Exchanges / derivatives | R2 | done | `/exchanges/list`, `/exchanges`, `/exchanges/{id}`, `/exchanges/{id}/tickers`, `/exchanges/{id}/volume_chart`, `/derivatives/exchanges/list`, `/derivatives/exchanges`, and `/derivatives` are implemented and validated with seeded compatibility coverage, including exchange status filtering, dex pair formatting, ticker depth toggles, derivatives venue ordering, and seeded contract-level derivatives rows |
 | NFTs | removed | removed | removed from the active roadmap |
-| Public treasury | R3 | partial | `/entities/list`, grouped `/:entity/public_treasury/:coin_id`, and `/public_treasury/{entity_id}` are implemented from seeded curated holdings data |
+| Public treasury | R3 | done | `/entities/list`, grouped `/:entity/public_treasury/:coin_id`, `/public_treasury/{entity_id}`, `/public_treasury/{entity_id}/{coin_id}/holding_chart`, and `/public_treasury/{entity_id}/transaction_history` are implemented from seeded curated holdings and transaction data |
 | Onchain DEX | R4 | partial | `/onchain/networks` and `/onchain/networks/{network}/dexes` are implemented from seeded network and DEX catalog data |
 
 ## Active Decisions
@@ -86,7 +85,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 - `/coins/categories*`, contract-address variants, and `/token_lists/{asset_platform_id}/all.json` are contract-complete for the current seed set, but broader taxonomy/platform coverage still depends on larger catalogs.
 - `/exchanges*` currently uses a small seeded exchange registry, seeded ticker rows, and seeded BTC volume history rather than live exchange ingestion.
 - `/derivatives*` now satisfies the intended R2 contract surface, but it is backed by a small seeded derivatives venue and contract set rather than live venue ingestion.
-- `/public_treasury*` currently uses a tiny seeded disclosure set and does not yet include holding charts or transaction history.
+- `/public_treasury*` now exposes holding-chart and transaction-history routes, but it still uses a tiny seeded disclosure/transaction set and reconstructed daily value series rather than a broad curated ledger.
 - `/onchain/*` currently uses a small seeded network/DEX catalog and does not yet include pools, token detail, trades, or OHLCV.
 
 ## Completed Milestones
@@ -117,6 +116,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Completed the R2 exchanges and derivatives endpoint family with passing validation coverage.
 - Removed NFTs from the active roadmap and shifted post-R2 delivery focus to public treasury and onchain DEX work.
 - Added seeded public treasury support for `/entities/list`, `/:entity/public_treasury/:coin_id`, and `/public_treasury/{entity_id}`.
+- Added the remaining seeded public treasury endpoints for `/public_treasury/{entity_id}/{coin_id}/holding_chart` and `/public_treasury/{entity_id}/transaction_history`, backed by a treasury transaction ledger and reconstructed daily holdings/value series.
 - Added seeded onchain catalog support for `/onchain/networks` and `/onchain/networks/{network}/dexes`.
 - Added passing tests for `/ping`, `/simple/*`, `/asset_platforms`, `/search`, `/global`, `/coins/list`, and the first seeded `/coins/*` market endpoints.
 

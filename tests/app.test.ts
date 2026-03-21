@@ -233,6 +233,30 @@ describe('OpenGecko app scaffold', () => {
     expect(detailResponse.json()).toMatchObject(contractFixtures.treasuryEntityDetail);
   });
 
+  it('returns treasury holding charts and transaction history', async () => {
+    const chartResponse = await getApp().inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/bitcoin/holding_chart?days=7',
+    });
+    const chartWithIntervalsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/bitcoin/holding_chart?days=7&include_empty_intervals=true',
+    });
+    const transactionsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/public_treasury/strategy/transaction_history?order=date_desc',
+    });
+
+    expect(chartResponse.statusCode).toBe(200);
+    expect(chartResponse.json()).toEqual(contractFixtures.treasuryHoldingChart);
+
+    expect(chartWithIntervalsResponse.statusCode).toBe(200);
+    expect(chartWithIntervalsResponse.json()).toEqual(contractFixtures.treasuryHoldingChartWithIntervals);
+
+    expect(transactionsResponse.statusCode).toBe(200);
+    expect(transactionsResponse.json()).toEqual(contractFixtures.treasuryTransactionHistory);
+  });
+
   it('returns onchain networks and network dexes', async () => {
     const networksResponse = await getApp().inject({
       method: 'GET',

@@ -7,7 +7,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { rebuildSearchIndex } from './search-index';
-import { assetPlatforms, categories, chartPoints, coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots, onchainDexes, onchainNetworks, treasuryEntities, treasuryHoldings } from './schema';
+import { assetPlatforms, categories, chartPoints, coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots, onchainDexes, onchainNetworks, treasuryEntities, treasuryHoldings, treasuryTransactions } from './schema';
 
 const MIGRATIONS_FOLDER = resolve(process.cwd(), 'drizzle');
 const MIGRATION_JOURNAL = resolve(MIGRATIONS_FOLDER, 'meta', '_journal.json');
@@ -49,6 +49,7 @@ export function createDatabase(databaseUrl: string) {
       onchainNetworks,
       treasuryEntities,
       treasuryHoldings,
+      treasuryTransactions,
     },
   });
 
@@ -402,6 +403,81 @@ const seededTreasuryHoldings = [
   },
 ];
 
+const seededTreasuryTransactions = [
+  {
+    id: 'strategy-bitcoin-2026-03-14',
+    entityId: 'strategy',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 420000,
+    transactionValueUsd: 27090000000,
+    holdingBalance: 420000,
+    averageEntryValueUsd: 64500,
+    happenedAt: new Date(Date.parse('2026-03-14T00:00:00.000Z')),
+    sourceUrl: 'https://www.strategy.com/press/march-2026-bitcoin-update',
+  },
+  {
+    id: 'strategy-bitcoin-2026-03-17',
+    entityId: 'strategy',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 60000,
+    transactionValueUsd: 4020000000,
+    holdingBalance: 480000,
+    averageEntryValueUsd: 64770.833333333336,
+    happenedAt: new Date(Date.parse('2026-03-17T00:00:00.000Z')),
+    sourceUrl: 'https://www.strategy.com/press/march-2026-bitcoin-update',
+  },
+  {
+    id: 'strategy-bitcoin-2026-03-20',
+    entityId: 'strategy',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 19096,
+    transactionValueUsd: 2040000000,
+    holdingBalance: 499096,
+    averageEntryValueUsd: 66420.08751823296,
+    happenedAt: new Date(seedTimestamp),
+    sourceUrl: 'https://www.strategy.com/press/march-2026-bitcoin-update',
+  },
+  {
+    id: 'el-salvador-bitcoin-2026-03-15',
+    entityId: 'el-salvador',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 3500,
+    transactionValueUsd: 210000000,
+    holdingBalance: 3500,
+    averageEntryValueUsd: 60000,
+    happenedAt: new Date(Date.parse('2026-03-15T00:00:00.000Z')),
+    sourceUrl: 'https://bitcoin.gob.sv/treasury-disclosures/march-2026',
+  },
+  {
+    id: 'el-salvador-bitcoin-2026-03-18',
+    entityId: 'el-salvador',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 1600,
+    transactionValueUsd: 108000000,
+    holdingBalance: 5100,
+    averageEntryValueUsd: 62352.94117647059,
+    happenedAt: new Date(Date.parse('2026-03-18T00:00:00.000Z')),
+    sourceUrl: 'https://bitcoin.gob.sv/treasury-disclosures/march-2026',
+  },
+  {
+    id: 'el-salvador-bitcoin-2026-03-20',
+    entityId: 'el-salvador',
+    coinId: 'bitcoin',
+    type: 'buy' as const,
+    holdingNetChange: 1000,
+    transactionValueUsd: 84000000,
+    holdingBalance: 6100,
+    averageEntryValueUsd: 65901.6393442623,
+    happenedAt: new Date(seedTimestamp),
+    sourceUrl: 'https://bitcoin.gob.sv/treasury-disclosures/march-2026',
+  },
+];
+
 const seededOnchainNetworks = [
   {
     id: 'eth',
@@ -704,6 +780,7 @@ export function seedReferenceData(database: AppDatabase) {
   const [{ value: coinTickerCount }] = database.db.select({ value: count() }).from(coinTickers).all();
   const [{ value: treasuryEntityCount }] = database.db.select({ value: count() }).from(treasuryEntities).all();
   const [{ value: treasuryHoldingCount }] = database.db.select({ value: count() }).from(treasuryHoldings).all();
+  const [{ value: treasuryTransactionCount }] = database.db.select({ value: count() }).from(treasuryTransactions).all();
   const [{ value: onchainNetworkCount }] = database.db.select({ value: count() }).from(onchainNetworks).all();
   const [{ value: onchainDexCount }] = database.db.select({ value: count() }).from(onchainDexes).all();
 
@@ -752,6 +829,10 @@ export function seedReferenceData(database: AppDatabase) {
 
   if (treasuryHoldingCount === 0) {
     database.db.insert(treasuryHoldings).values(seededTreasuryHoldings).run();
+  }
+
+  if (treasuryTransactionCount === 0) {
+    database.db.insert(treasuryTransactions).values(seededTreasuryTransactions).run();
   }
 
   if (onchainNetworkCount === 0) {
