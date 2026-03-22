@@ -22,7 +22,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 - Current release focus: `R4`
 - Current architecture direction: `Bun + TypeScript + Fastify + Zod + SQLite + Drizzle + better-sqlite3 + SQLite FTS5 + CCXT + Vitest`
-- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, complete R0 general/simple endpoints, complete R1 core coin endpoints, complete R2 exchange/derivatives endpoints, the complete seeded R3 public treasury family, and the first seeded onchain catalog endpoints are implemented with passing validation`
+- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, boot-time live market sync from 3 exchanges, 2D freshness model, complete R0-R3 endpoint families, and the first seeded onchain catalog endpoints are implemented with passing validation`
 
 ## Current Priorities
 
@@ -36,11 +36,11 @@ Use this tracker for current status, active priorities, completed milestones, an
 | Strategic workstream | Operational scope | Status | Notes |
 | --- | --- | --- | --- |
 | WS-A Compatibility fidelity | Parameter precedence, error shapes, serializers, divergence tracking | partial | R0, R1, R2, and R3 endpoint families are implemented with passing validation; the remaining compatibility work is concentrated in the expanding R4 onchain surface |
-| WS-B Live market ingestion and freshness | CCXT provider abstraction, snapshot refresh, stale-data policy, fresh-by-default reads | partial | CCXT-backed market refresh exists, stale-snapshot handling is deterministic, and seed-vs-live snapshot ownership is encoded in a shared service; boot-time refresh and continuous fresh-by-default guarantees still need hardening |
-| WS-C Historical chart and OHLC semantics | Chart, range, OHLC, and future onchain OHLCV behavior | partial | Seeded chart and OHLC routes exist with initial granularity and downsampling helpers, but retention, backfill, and onchain OHLCV policy remain open |
-| WS-D Canonical entity resolution | Coin, platform, contract, venue, treasury, network, and DEX identity mapping | partial | Seeded registries cover coins, platforms, exchanges, derivatives venues, treasury entities, onchain networks, and DEX catalogs, but live-ingestion and broader onchain identity expansion are still ahead |
-| WS-E Contract testing and fixtures | Endpoint fixtures, invalid-parameter coverage, repository/service-layer assertions | partial | Fixture-backed, invalid-parameter, repository-level, stale-data, and chart-semantic tests are in place; broader treasury/onchain and data-fidelity fixture coverage is still missing |
-| WS-F Jobs, operations, and observability | Refresh scheduling, search rebuilds, job failure handling, lag visibility | partial | Market refresh and search rebuild jobs exist, but scheduling guarantees, degraded-mode behavior, and observability still need to be locked for fresh-by-default operation |
+| WS-B Live market ingestion and freshness | CCXT provider abstraction, snapshot refresh, stale-data policy, fresh-by-default reads | done | Boot-time initial sync from 3 CCXT exchanges (binance/coinbase/kraken), continuous 60s refresh loop, 2D freshness model (initialSyncCompleted + allowStaleLiveService), seeded fallback before sync, live data owns hot reads after sync |
+| WS-C Historical chart and OHLC semantics | Chart, range, OHLC, and future onchain OHLCV behavior | partial | OHLCV backfill integrated into boot flow (365d first boot, 30d subsequent), daily + minute candles from live refresh, but retention policy still open |
+| WS-D Canonical entity resolution | Coin, platform, contract, venue, treasury, network, and DEX identity mapping | partial | Multi-exchange coin discovery via syncCoinCatalogFromExchanges(), COIN_ID_OVERRIDES shared in src/lib/coin-id.ts, exchange records from CCXT metadata |
+| WS-E Contract testing and fixtures | Endpoint fixtures, invalid-parameter coverage, repository/service-layer assertions | partial | 110 tests passing, integration tests for full live pipeline, stale-data tests adapted to 2D model |
+| WS-F Jobs, operations, and observability | Refresh scheduling, search rebuilds, job failure handling, lag visibility | partial | Initial-sync failure handling with stale fallback, serialized job execution, but observability still minimal |
 
 ## Endpoint Family Progress
 
@@ -124,6 +124,16 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Added the remaining seeded public treasury endpoints for `/public_treasury/{entity_id}/{coin_id}/holding_chart` and `/public_treasury/{entity_id}/transaction_history`, backed by a treasury transaction ledger and reconstructed daily holdings/value series.
 - Added seeded onchain catalog support for `/onchain/networks` and `/onchain/networks/{network}/dexes`.
 - Added passing tests for `/ping`, `/simple/*`, `/asset_platforms`, `/search`, `/global`, `/coins/list`, and the first seeded `/coins/*` market endpoints.
+- Extracted shared coin-id utilities (buildCoinId, buildCoinName, COIN_ID_OVERRIDES) into src/lib/coin-id.ts.
+- Split seedReferenceData into seedStaticReferenceData (non-market) and seedMarketData (market).
+- Created initial-sync service that boot-time syncs coins, exchanges, tickers, snapshots, and OHLCV from 3 CCXT exchanges.
+- Generalized coin catalog sync from Binance-only to multi-exchange via syncCoinCatalogFromExchanges().
+- Implemented boot-time exchange metadata sync from CCXT.
+- Integrated OHLCV backfill into startup flow (365d first boot, 30d subsequent).
+- Replaced 1D freshness model (allowSeededFallback) with 2D model (initialSyncCompleted + allowStaleLiveService).
+- Wired initial-sync into startup: runtime runs sync before refresh loop, handles failure with stale fallback.
+- Added live exchange volume snapshots during market refresh with downsampling in volume_chart endpoint.
+- Added end-to-end integration tests for full live CCXT data pipeline (6 tests covering /simple/price, /coins/markets, /coins/:id, /exchanges, /ohlc, /exchange_rates).
 
 ## Update Rules
 
