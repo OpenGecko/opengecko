@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { mergeConfig, type AppConfig } from './config/env';
-import { createDatabase, initializeDatabase } from './db/client';
+import { createDatabase, initializeDatabase, migrateDatabase, seedStaticReferenceData, seedReferenceData, rebuildSearchIndex } from './db/client';
 import { registerErrorHandler } from './http/errors';
 import { registerAssetPlatformRoutes } from './modules/assets';
 import { registerCoinRoutes } from './modules/coins';
@@ -30,7 +30,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const runtime = shouldStartBackgroundJobs ? createMarketRuntime(database, config, app.log, marketDataRuntimeState) : null;
 
-  initializeDatabase(database);
+  // Always run migrations and static seed
+  migrateDatabase(database);
+  seedStaticReferenceData(database);
+  rebuildSearchIndex(database);
+
+  // When background jobs are disabled (test/dev mode), seed market data for backward compat
+  if (!shouldStartBackgroundJobs) {
+    seedReferenceData(database);
+  }
   registerErrorHandler(app);
   registerHealthRoutes(app);
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);

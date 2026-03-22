@@ -1,10 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMarketRuntime } from '../src/services/market-runtime';
+import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 async function advanceTimersBy(ms: number) {
   vi.advanceTimersByTime(ms);
   await Promise.resolve();
+}
+
+function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
+  return {
+    initialSyncCompleted: false,
+    allowStaleLiveService: false,
+    syncFailureReason: null,
+    ...overrides,
+  };
 }
 
 describe('market runtime', () => {
@@ -23,24 +33,32 @@ describe('market runtime', () => {
     vi.useRealTimers();
   });
 
-  it('runs a boot refresh immediately and schedules both background jobs', async () => {
+  const baseConfig = {
+    ccxtExchanges: ['binance'],
+    currencyRefreshIntervalSeconds: 300,
+    marketRefreshIntervalSeconds: 60,
+    searchRebuildIntervalSeconds: 900,
+    marketFreshnessThresholdSeconds: 300,
+  };
+
+  it('runs initial sync before starting refresh loop', async () => {
+    const runInitialMarketSync = vi.fn().mockResolvedValue({});
     const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
     const runMarketRefreshOnce = vi.fn().mockResolvedValue(undefined);
     const runSearchRebuildOnce = vi.fn().mockResolvedValue(undefined);
-    const state = { hasCompletedBootMarketRefresh: false };
-    const runtime = createMarketRuntime({} as never, {
-      ccxtExchanges: ['binance'],
-      currencyRefreshIntervalSeconds: 300,
-      marketRefreshIntervalSeconds: 60,
-      searchRebuildIntervalSeconds: 900,
-    }, logger, state, {
+    const state = createState();
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+      runInitialMarketSync,
       runCurrencyRefreshOnce,
       runMarketRefreshOnce,
       runSearchRebuildOnce,
     });
 
     await runtime.start();
-    expect(state.hasCompletedBootMarketRefresh).toBe(true);
+
+    expect(runInitialMarketSync).toHaveBeenCalledTimes(1);
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.syncFailureReason).toBeNull();
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
@@ -53,6 +71,38 @@ describe('market runtime', () => {
 
     await advanceTimersBy(840_000);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(1);
+
+    await runtime.stop();
+  });
+
+  it('handles initial sync failure gracefully', async () => {
+    const runInitialMarketSync = vi.fn().mockRejectedValue(new Error('network error'));
+    const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runMarketRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runSearchRebuildOnce = vi.fn().mockResolvedValue(undefined);
+    const state = createState();
+    const mockDb = {
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => [{ value: 0 }],
+          }),
+        }),
+      },
+    };
+    const runtime = createMarketRuntime(mockDb as never, baseConfig as never, logger, state, {
+      runInitialMarketSync,
+      runCurrencyRefreshOnce,
+      runMarketRefreshOnce,
+      runSearchRebuildOnce,
+    });
+
+    await runtime.start();
+
+    expect(state.initialSyncCompleted).toBe(false);
+    expect(state.syncFailureReason).toBe('network error');
+    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
+    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
 
     await runtime.stop();
   });
@@ -72,11 +122,10 @@ describe('market runtime', () => {
       return Promise.resolve();
     });
     const runtime = createMarketRuntime({} as never, {
-      ccxtExchanges: ['binance'],
+      ...baseConfig,
       currencyRefreshIntervalSeconds: 1,
-      marketRefreshIntervalSeconds: 60,
-      searchRebuildIntervalSeconds: 900,
-    }, logger, { hasCompletedBootMarketRefresh: false }, {
+    } as never, logger, createState(), {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce,
       runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
@@ -111,11 +160,10 @@ describe('market runtime', () => {
       return Promise.resolve();
     });
     const runtime = createMarketRuntime({} as never, {
-      ccxtExchanges: ['binance'],
-      currencyRefreshIntervalSeconds: 300,
+      ...baseConfig,
       marketRefreshIntervalSeconds: 1,
-      searchRebuildIntervalSeconds: 900,
-    }, logger, { hasCompletedBootMarketRefresh: false }, {
+    } as never, logger, createState(), {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce,
       runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),

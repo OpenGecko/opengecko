@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
 import { coinTickers, coins } from '../src/db/schema';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
 
@@ -23,7 +23,9 @@ describe('market refresh service', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-market-refresh-'));
     database = createDatabase(join(tempDir, 'test.db'));
-    initializeDatabase(database);
+    migrateDatabase(database);
+    seedReferenceData(database);
+    rebuildSearchIndex(database);
     vi.mocked(fetchExchangeMarkets).mockReset();
     vi.mocked(fetchExchangeTickers).mockReset();
   });

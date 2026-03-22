@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { rebuildSearchIndex } from './search-index';
+export { rebuildSearchIndex } from './search-index';
 import { seedDailyCandlesFromCloseSeries } from '../services/candle-store';
 import { assetPlatforms, categories, chartPoints, coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots, ohlcvCandles, onchainDexes, onchainNetworks, quoteSnapshots, treasuryEntities, treasuryHoldings, treasuryTransactions } from './schema';
 
@@ -1292,6 +1293,6 @@ export function seedReferenceData(database: AppDatabase) {
 
 export function initializeDatabase(database: AppDatabase) {
   migrateDatabase(database);
-  seedReferenceData(database);
+  seedStaticReferenceData(database);
   rebuildSearchIndex(database);
 }

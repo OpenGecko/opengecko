@@ -4,6 +4,7 @@ import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { refreshCurrencyApiRatesOnce } from './currency-rates';
 import type { MarketDataRuntimeState } from './market-runtime-state';
+import { runInitialMarketSync } from './initial-sync';
 import { runMarketRefreshOnce } from './market-refresh';
 import { runSearchRebuildOnce } from './search-rebuild';
 
@@ -48,6 +49,7 @@ export type MarketRuntime = {
 };
 
 type MarketRuntimeOverrides = {
+  runInitialMarketSync?: (database: AppDatabase, config: Pick<AppConfig, 'ccxtExchanges' | 'marketFreshnessThresholdSeconds'>) => Promise<unknown>;
   runCurrencyRefreshOnce?: JobRunner;
   runMarketRefreshOnce?: JobRunner;
   runSearchRebuildOnce?: JobRunner;
@@ -55,7 +57,7 @@ type MarketRuntimeOverrides = {
 
 export function createMarketRuntime(
   database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds'>,
+  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds'>,
   logger: RuntimeLogger,
   state: MarketDataRuntimeState,
   overrides: MarketRuntimeOverrides = {},
@@ -76,9 +78,37 @@ export function createMarketRuntime(
 
   return {
     async start() {
+      // Run initial market sync before starting refresh loop
+      try {
+        const initialSync = overrides.runInitialMarketSync
+          ? () => overrides.runInitialMarketSync!(database, config)
+          : () => runInitialMarketSync(database, config);
+
+        await initialSync();
+        state.initialSyncCompleted = true;
+        state.syncFailureReason = null;
+        logger.info('initial market sync completed successfully');
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        state.syncFailureReason = reason;
+        logger.error({ error: reason }, 'initial market sync failed');
+
+        // Check for residual data from previous runs
+        const { count } = await import('drizzle-orm');
+        const { marketSnapshots } = await import('../db/schema');
+        const [{ value: snapshotCount }] = database.db
+          .select({ value: count() })
+          .from(marketSnapshots)
+          .all();
+
+        if (snapshotCount > 0) {
+          state.allowStaleLiveService = true;
+          logger.warn('using residual stale data from previous run');
+        }
+      }
+
       await runCurrencyJob.run();
       await runMarketJob.run();
-      state.hasCompletedBootMarketRefresh = true;
 
       currencyTimer = setInterval(() => {
         void runCurrencyJob.run();

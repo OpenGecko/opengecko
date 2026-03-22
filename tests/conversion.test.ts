@@ -4,13 +4,14 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
 import { HttpError } from '../src/http/errors';
 import { buildExchangeRatesPayload, getConversionRate, SUPPORTED_VS_CURRENCIES } from '../src/lib/conversion';
 import type { SnapshotAccessPolicy } from '../src/modules/market-freshness';
 
 const seedFriendlyPolicy: SnapshotAccessPolicy = {
-  allowSeededFallback: true,
+  initialSyncCompleted: false,
+  allowStaleLiveService: false,
 };
 
 describe('conversion helpers', () => {
@@ -20,7 +21,9 @@ describe('conversion helpers', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-conversion-'));
     database = createDatabase(join(tempDir, 'test.db'));
-    initializeDatabase(database);
+    migrateDatabase(database);
+    seedReferenceData(database);
+    rebuildSearchIndex(database);
   });
 
   afterEach(() => {

@@ -1,9 +1,13 @@
 export type MarketDataRuntimeState = {
-  hasCompletedBootMarketRefresh: boolean;
+  initialSyncCompleted: boolean;
+  allowStaleLiveService: boolean;
+  syncFailureReason: string | null;
 };
 
 export function createMarketDataRuntimeState(): MarketDataRuntimeState {
   return {
-    hasCompletedBootMarketRefresh: false,
+    initialSyncCompleted: false,
+    allowStaleLiveService: false,
+    syncFailureReason: null,
   };
 }

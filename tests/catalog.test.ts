@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
 import { getChartSeries, getCoinByContract, getMarketRows } from '../src/modules/catalog';
 
 describe('catalog repository helpers', () => {
@@ -14,7 +14,9 @@ describe('catalog repository helpers', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-catalog-'));
     database = createDatabase(join(tempDir, 'test.db'));
-    initializeDatabase(database);
+    migrateDatabase(database);
+    seedReferenceData(database);
+    rebuildSearchIndex(database);
   });
 
   afterEach(() => {

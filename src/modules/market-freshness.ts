@@ -10,7 +10,8 @@ export type SnapshotFreshness = {
 };
 
 export type SnapshotAccessPolicy = {
-  allowSeededFallback: boolean;
+  initialSyncCompleted: boolean;
+  allowStaleLiveService: boolean;
 };
 
 export function isLiveSnapshot(snapshot: Pick<MarketSnapshotRow, 'sourceCount'>) {
@@ -34,7 +35,8 @@ export function getSnapshotFreshness(
 
 export function getSnapshotAccessPolicy(runtimeState: MarketDataRuntimeState): SnapshotAccessPolicy {
   return {
-    allowSeededFallback: !runtimeState.hasCompletedBootMarketRefresh,
+    initialSyncCompleted: runtimeState.initialSyncCompleted,
+    allowStaleLiveService: runtimeState.allowStaleLiveService,
   };
 }
 
@@ -48,13 +50,25 @@ export function getUsableSnapshot<T extends Pick<MarketSnapshotRow, 'lastUpdated
     return null;
   }
 
+  // Seeded snapshots (sourceCount === 0) — usable before initial sync completes
   if (!isLiveSnapshot(snapshot)) {
-    if (!accessPolicy.allowSeededFallback) {
-      return null;
+    if (!accessPolicy.initialSyncCompleted) {
+      return snapshot;
     }
+    return null;
+  }
 
+  // Live data — check freshness
+  const freshness = getSnapshotFreshness(snapshot, thresholdSeconds, now);
+
+  if (!freshness.isStale) {
     return snapshot;
   }
 
-  return getSnapshotFreshness(snapshot, thresholdSeconds, now).isStale ? null : snapshot;
+  // Stale live data — allowed if policy permits
+  if (accessPolicy.allowStaleLiveService) {
+    return snapshot;
+  }
+
+  return null;
 }

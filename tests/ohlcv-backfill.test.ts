@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
 import { getCanonicalCandles } from '../src/services/candle-store';
 import { runOhlcvBackfillOnce } from '../src/services/ohlcv-backfill';
 
@@ -23,7 +23,9 @@ describe('ohlcv backfill service', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-backfill-'));
     database = createDatabase(join(tempDir, 'test.db'));
-    initializeDatabase(database);
+    migrateDatabase(database);
+    seedReferenceData(database);
+    rebuildSearchIndex(database);
     vi.mocked(fetchExchangeMarkets).mockReset();
     vi.mocked(fetchExchangeOHLCV).mockReset();
   });

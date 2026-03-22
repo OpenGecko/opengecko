@@ -37,31 +37,72 @@ describe('market snapshot freshness', () => {
     expect(freshness.ageSeconds).toBe(601);
   });
 
-  it('keeps seeded fallback available before boot refresh completes', () => {
+  it('allows seeded snapshots before initial sync but rejects after', () => {
     const snapshot = {
       lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
       sourceProvidersJson: '[]',
       sourceCount: 0,
     };
 
+    // Before sync — seeded snapshots allowed as fallback
     expect(getUsableSnapshot(
       snapshot,
       300,
-      getSnapshotAccessPolicy({ hasCompletedBootMarketRefresh: false }),
+      { initialSyncCompleted: false, allowStaleLiveService: false },
       Date.parse('2026-03-20T00:01:00.000Z'),
+    )).toEqual(snapshot);
+
+    // After sync — seeded snapshots rejected
+    expect(getUsableSnapshot(
+      snapshot,
+      300,
+      { initialSyncCompleted: true, allowStaleLiveService: false },
+      Date.parse('2026-03-20T00:01:00.000Z'),
+    )).toBeNull();
+  });
+
+  it('allows fresh live snapshots', () => {
+    const snapshot = {
+      lastUpdated: new Date('2026-03-20T00:04:00.000Z'),
+      sourceProvidersJson: '["binance"]',
+      sourceCount: 1,
+    };
+
+    expect(getUsableSnapshot(
+      snapshot,
+      300,
+      { initialSyncCompleted: true, allowStaleLiveService: false },
+      Date.parse('2026-03-20T00:05:00.000Z'),
     )).toEqual(snapshot);
   });
 
-  it('disables seeded fallback after boot refresh completes', () => {
+  it('allows stale live data when allowStaleLiveService is true', () => {
+    const snapshot = {
+      lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
+      sourceProvidersJson: '["binance"]',
+      sourceCount: 1,
+    };
+
     expect(getUsableSnapshot(
-      {
-        lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
-        sourceProvidersJson: '[]',
-        sourceCount: 0,
-      },
+      snapshot,
       300,
-      getSnapshotAccessPolicy({ hasCompletedBootMarketRefresh: true }),
-      Date.parse('2026-03-20T00:01:00.000Z'),
+      { initialSyncCompleted: false, allowStaleLiveService: true },
+      Date.parse('2026-03-20T00:10:00.000Z'),
+    )).toEqual(snapshot);
+  });
+
+  it('returns null for stale live data when not allowed', () => {
+    const snapshot = {
+      lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
+      sourceProvidersJson: '["binance"]',
+      sourceCount: 1,
+    };
+
+    expect(getUsableSnapshot(
+      snapshot,
+      300,
+      { initialSyncCompleted: true, allowStaleLiveService: false },
+      Date.parse('2026-03-20T00:10:00.000Z'),
     )).toBeNull();
   });
 });

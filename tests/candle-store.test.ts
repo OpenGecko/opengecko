@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createDatabase, initializeDatabase, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
 import { getCanonicalCandles, toMinuteBucket, upsertCanonicalCandle } from '../src/services/candle-store';
 
 describe('candle store', () => {
@@ -14,7 +14,9 @@ describe('candle store', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-candles-'));
     database = createDatabase(join(tempDir, 'test.db'));
-    initializeDatabase(database);
+    migrateDatabase(database);
+    seedReferenceData(database);
+    rebuildSearchIndex(database);
   });
 
   afterEach(() => {
