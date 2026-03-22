@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { mergeConfig, type AppConfig } from './config/env';
-import { createDatabase, initializeDatabase, migrateDatabase, seedStaticReferenceData, seedReferenceData, rebuildSearchIndex } from './db/client';
+import { createDatabase, migrateDatabase, seedStaticReferenceData, rebuildSearchIndex } from './db/client';
 import { registerErrorHandler } from './http/errors';
 import { registerAssetPlatformRoutes } from './modules/assets';
 import { registerCoinRoutes } from './modules/coins';
@@ -30,15 +30,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const runtime = shouldStartBackgroundJobs ? createMarketRuntime(database, config, app.log, marketDataRuntimeState) : null;
 
-  // Always run migrations and static seed
   migrateDatabase(database);
-  seedStaticReferenceData(database);
-  rebuildSearchIndex(database);
 
-  // When background jobs are disabled (test/dev mode), seed market data for backward compat
-  if (!shouldStartBackgroundJobs) {
-    seedReferenceData(database);
-  }
   registerErrorHandler(app);
   registerHealthRoutes(app);
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
@@ -50,11 +43,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerSearchRoutes(app, database);
   registerGlobalRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
 
-  if (runtime) {
-    app.addHook('onReady', async () => {
+  app.addHook('onReady', async () => {
+    // Always run initial market sync (live data from CCXT)
+    if (runtime) {
       await runtime.start();
-    });
-  }
+    } else {
+      const { runInitialMarketSync } = await import('./services/initial-sync');
+      await runInitialMarketSync(database, config);
+      marketDataRuntimeState.initialSyncCompleted = true;
+
+      // Seed static reference data (treasury, derivatives, onchain) after coins exist
+      seedStaticReferenceData(database);
+      rebuildSearchIndex(database);
+    }
+  });
 
   app.addHook('onClose', async () => {
     if (runtime) {

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
+import { coins } from '../src/db/schema';
 import { getCanonicalCandles } from '../src/services/candle-store';
 import { runOhlcvBackfillOnce } from '../src/services/ohlcv-backfill';
 
@@ -16,6 +17,13 @@ vi.mock('../src/providers/ccxt', () => ({
 
 import { fetchExchangeMarkets, fetchExchangeOHLCV } from '../src/providers/ccxt';
 
+const now = new Date();
+
+const backfillCoins = [
+  { id: 'bitcoin', symbol: 'btc', name: 'Bitcoin', apiSymbol: 'bitcoin' },
+  { id: 'litecoin', symbol: 'ltc', name: 'Litecoin', apiSymbol: 'litecoin' },
+];
+
 describe('ohlcv backfill service', () => {
   let tempDir: string;
   let database: AppDatabase;
@@ -24,7 +32,17 @@ describe('ohlcv backfill service', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-backfill-'));
     database = createDatabase(join(tempDir, 'test.db'));
     migrateDatabase(database);
-    seedReferenceData(database);
+    seedStaticReferenceData(database);
+    for (const coin of backfillCoins) {
+      database.db.insert(coins).values({
+        ...coin,
+        hashingAlgorithm: null, blockTimeInMinutes: null,
+        categoriesJson: '[]', descriptionJson: '{}', linksJson: '{}',
+        imageThumbUrl: null, imageSmallUrl: null, imageLargeUrl: null,
+        marketCapRank: null, genesisDate: null, platformsJson: '{}',
+        status: 'active', createdAt: now, updatedAt: now,
+      }).onConflictDoNothing().run();
+    }
     rebuildSearchIndex(database);
     vi.mocked(fetchExchangeMarkets).mockReset();
     vi.mocked(fetchExchangeOHLCV).mockReset();

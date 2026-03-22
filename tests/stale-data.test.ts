@@ -4,11 +4,26 @@ import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { createDatabase, type AppDatabase } from '../src/db/client';
 import { marketSnapshots } from '../src/db/schema';
+
+vi.mock('../src/providers/ccxt', () => ({
+  fetchExchangeMarkets: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, spot: true, baseName: 'Ethereum', raw: {} },
+  ]),
+  fetchExchangeTickers: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: Date.now(), raw: {} as never },
+  ]),
+  fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
+  isSupportedExchangeId: (value: string): value is 'binance' | 'coinbase' | 'kraken' =>
+    ['binance', 'coinbase', 'kraken'].includes(value),
+  SUPPORTED_EXCHANGE_IDS: ['binance', 'coinbase', 'kraken'],
+}));
 
 describe('stale market snapshot behavior', () => {
   let app: FastifyInstance | undefined;
@@ -25,6 +40,7 @@ describe('stale market snapshot behavior', () => {
         logLevel: 'silent',
         marketFreshnessThresholdSeconds: 60,
       },
+      startBackgroundJobs: false,
     });
     database = createDatabase(databaseUrl);
   });
@@ -42,6 +58,10 @@ describe('stale market snapshot behavior', () => {
   });
 
   it('treats stale live snapshots as unavailable in market-facing endpoints', async () => {
+    // First trigger onReady to run initial-sync, then age the snapshots
+    await app!.inject({ method: 'GET', url: '/ping' });
+
+    // Now age the live snapshots to be stale
     database!.db
       .update(marketSnapshots)
       .set({
@@ -80,7 +100,7 @@ describe('stale market snapshot behavior', () => {
     });
   });
 
-  it('keeps seeded snapshots usable before live provider data exists', async () => {
+  it('returns live price after initial sync', async () => {
     const response = await app!.inject({
       method: 'GET',
       url: '/simple/price?ids=bitcoin&vs_currencies=usd',

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { eq, count } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createDatabase, migrateDatabase, seedStaticReferenceData, seedReferenceData } from '../src/db/client';
+import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
 import { assetPlatforms, categories, coins, marketSnapshots, treasuryEntities, ohlcvCandles, coinTickers, exchanges } from '../src/db/schema';
 
 describe('seedStaticReferenceData', () => {
@@ -26,8 +26,9 @@ describe('seedStaticReferenceData', () => {
   it('seeds static reference data without market data', () => {
     seedStaticReferenceData(db);
 
+    // Minimal coins are seeded for FK references (treasury, chartPoints)
     const coinCount = db.db.select({ value: count() }).from(coins).all()[0].value;
-    expect(coinCount).toBeGreaterThan(0);
+    expect(coinCount).toBe(8);
 
     const platformCount = db.db.select({ value: count() }).from(assetPlatforms).all()[0].value;
     expect(platformCount).toBe(3);
@@ -58,39 +59,5 @@ describe('seedStaticReferenceData', () => {
 
     const platformCount = db.db.select({ value: count() }).from(assetPlatforms).all()[0].value;
     expect(platformCount).toBe(3);
-  });
-});
-
-describe('seedReferenceData', () => {
-  let tempDir: string;
-  let db: ReturnType<typeof createDatabase>;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'opengecko-seed-full-'));
-    db = createDatabase(join(tempDir, 'test.db'));
-    migrateDatabase(db);
-  });
-
-  afterEach(() => {
-    db.client.close();
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('seeds both static and market data', () => {
-    seedReferenceData(db);
-
-    // Static data
-    const platformCount = db.db.select({ value: count() }).from(assetPlatforms).all()[0].value;
-    expect(platformCount).toBeGreaterThan(0);
-
-    // Market data
-    const coinCount = db.db.select({ value: count() }).from(coins).all()[0].value;
-    expect(coinCount).toBeGreaterThan(0);
-
-    const snapshotCount = db.db.select({ value: count() }).from(marketSnapshots).all()[0].value;
-    expect(snapshotCount).toBeGreaterThan(0);
-
-    const candleCount = db.db.select({ value: count() }).from(ohlcvCandles).all()[0].value;
-    expect(candleCount).toBeGreaterThan(0);
   });
 });

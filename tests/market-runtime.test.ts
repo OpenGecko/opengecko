@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMarketRuntime } from '../src/services/market-runtime';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 
+vi.mock('../src/db/client', () => ({
+  seedStaticReferenceData: vi.fn(),
+  rebuildSearchIndex: vi.fn(),
+}));
+
 async function advanceTimersBy(ms: number) {
   vi.advanceTimersByTime(ms);
   await Promise.resolve();

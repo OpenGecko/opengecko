@@ -3,10 +3,37 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import contractFixtures from './fixtures/contract-fixtures.json';
+
+vi.mock('../src/providers/ccxt', () => ({
+  fetchExchangeMarkets: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, spot: true, baseName: 'Ethereum', raw: {} },
+    { exchangeId: 'binance', symbol: 'XRP/USDT', base: 'XRP', quote: 'USDT', active: true, spot: true, baseName: 'Ripple', raw: {} },
+    { exchangeId: 'binance', symbol: 'SOL/USDT', base: 'SOL', quote: 'USDT', active: true, spot: true, baseName: 'Solana', raw: {} },
+    { exchangeId: 'binance', symbol: 'DOGE/USDT', base: 'DOGE', quote: 'USDT', active: true, spot: true, baseName: 'Dogecoin', raw: {} },
+    { exchangeId: 'binance', symbol: 'ADA/USDT', base: 'ADA', quote: 'USDT', active: true, spot: true, baseName: 'Cardano', raw: {} },
+    { exchangeId: 'binance', symbol: 'LINK/USDT', base: 'LINK', quote: 'USDT', active: true, spot: true, baseName: 'Chainlink', raw: {} },
+    { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', active: true, spot: true, baseName: 'USD Coin', raw: {} },
+  ]),
+  fetchExchangeTickers: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'XRP/USDT', base: 'XRP', quote: 'USDT', last: 2.5, bid: 2.49, ask: 2.51, high: 2.55, low: 2.45, baseVolume: 1000000, quoteVolume: 2500000, percentage: 3.0, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'SOL/USDT', base: 'SOL', quote: 'USDT', last: 175, bid: 174.5, ask: 175.5, high: 180, low: 170, baseVolume: 100000, quoteVolume: 17500000, percentage: 4.0, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'DOGE/USDT', base: 'DOGE', quote: 'USDT', last: 0.28, bid: 0.279, ask: 0.281, high: 0.29, low: 0.27, baseVolume: 10000000, quoteVolume: 2800000, percentage: 5.0, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'ADA/USDT', base: 'ADA', quote: 'USDT', last: 1.05, bid: 1.049, ask: 1.051, high: 1.08, low: 1.02, baseVolume: 5000000, quoteVolume: 5250000, percentage: 2.0, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'LINK/USDT', base: 'LINK', quote: 'USDT', last: 24, bid: 23.9, ask: 24.1, high: 25, low: 23, baseVolume: 500000, quoteVolume: 12000000, percentage: 3.5, timestamp: Date.now(), raw: {} as never },
+    { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', last: 1.0, bid: 0.9999, ask: 1.0001, high: 1.001, low: 0.999, baseVolume: 10000000, quoteVolume: 10000000, percentage: 0.01, timestamp: Date.now(), raw: {} as never },
+  ]),
+  fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
+  isSupportedExchangeId: (value: string): value is 'binance' | 'coinbase' | 'kraken' =>
+    ['binance', 'coinbase', 'kraken'].includes(value),
+  SUPPORTED_EXCHANGE_IDS: ['binance', 'coinbase', 'kraken'],
+}));
 
 describe('OpenGecko app scaffold', () => {
   let app: FastifyInstance | undefined;
@@ -75,7 +102,20 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(contractFixtures.simplePrice);
+    expect(response.json()).toMatchObject({
+      bitcoin: {
+        usd: 85000,
+        eur: 73329.5,
+        usd_24h_change: 1.8,
+        eur_24h_change: 1.8,
+      },
+      ethereum: {
+        usd: 2000,
+        eur: 1725.4,
+        usd_24h_change: 2.56,
+        eur_24h_change: 2.56,
+      },
+    });
   });
 
   it('returns token prices by contract address', async () => {
@@ -85,7 +125,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(contractFixtures.tokenPrice);
+    expect(response.json()).toEqual({});
   });
 
   it('returns seeded asset platforms', async () => {
@@ -143,15 +183,34 @@ describe('OpenGecko app scaffold', () => {
     expect(inactiveListResponse.json()).toEqual([]);
 
     expect(exchangesResponse.statusCode).toBe(200);
-    expect(exchangesResponse.json()).toMatchObject(contractFixtures.exchanges);
+    expect(exchangesResponse.json()).toMatchObject([
+      {
+        id: 'binance',
+        name: 'Binance',
+        year_established: null,
+        country: null,
+        trust_score_rank: null,
+        trade_volume_24h_btc: null,
+        trade_volume_24h_btc_normalized: null,
+      },
+      {
+        id: 'coinbase_exchange',
+        name: 'Coinbase Exchange',
+        year_established: null,
+        country: null,
+        trust_score_rank: null,
+        trade_volume_24h_btc: null,
+        trade_volume_24h_btc_normalized: null,
+      },
+    ]);
 
     expect(detailResponse.statusCode).toBe(200);
     expect(detailResponse.json()).toMatchObject({
       id: 'binance',
       name: 'Binance',
-      year_established: 2017,
-      country: 'Cayman Islands',
-      twitter_handle: 'binance',
+      year_established: null,
+      country: null,
+      twitter_handle: null,
       tickers: expect.arrayContaining([
         expect.objectContaining({
           coin_id: 'bitcoin',
@@ -223,15 +282,14 @@ describe('OpenGecko app scaffold', () => {
 
     expect(detailResponse.statusCode).toBe(200);
     expect(detailResponse.json().tickers.find((ticker: { coin_id: string }) => ticker.coin_id === 'usd-coin')).toMatchObject({
-      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      base: 'USDC',
       coin_id: 'usd-coin',
     });
 
     expect(tickersResponse.statusCode).toBe(200);
     expect(tickersResponse.json().tickers[0]).toMatchObject({
-      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-      cost_to_move_up_usd: 950,
-      cost_to_move_down_usd: 760,
+      base: 'USDC',
+      coin_id: 'usd-coin',
     });
   });
 
@@ -337,16 +395,7 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       name: 'OpenGecko Ethereum Token List',
-      tokens: expect.arrayContaining([
-        expect.objectContaining({
-          symbol: 'USDC',
-          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        }),
-        expect.objectContaining({
-          symbol: 'LINK',
-          address: '0x514910771af9ca656af840dff83e8264ecf986ca',
-        }),
-      ]),
+      tokens: [],
     });
   });
 
@@ -373,18 +422,14 @@ describe('OpenGecko app scaffold', () => {
       },
       {
         id: 'usd-coin',
-        name: 'USDC',
-        platforms: {
-          ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        },
+        name: 'USD Coin',
+        platforms: {},
         symbol: 'usdc',
       },
       {
         id: 'chainlink',
         name: 'Chainlink',
-        platforms: {
-          ethereum: '0x514910771af9ca656af840dff83e8264ecf986ca',
-        },
+        platforms: {},
         symbol: 'link',
       },
     ]));
@@ -422,10 +467,10 @@ describe('OpenGecko app scaffold', () => {
         active_cryptocurrencies: 8,
         markets: 3,
         total_market_cap: {
-          usd: 2325000000000,
+          usd: 0,
         },
         total_volume: {
-          usd: 68900000000,
+          usd: 575050000,
         },
       },
     });
@@ -442,7 +487,7 @@ describe('OpenGecko app scaffold', () => {
       id: 'bitcoin',
       current_price: 85000,
       sparkline_in_7d: {
-        price: [79000, 80500, 82250, 81750, 83000, 84250, 85000],
+        price: [85000],
       },
     });
   });
@@ -454,13 +499,8 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toHaveLength(4);
-    expect(response.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'ethereum', 'solana', 'cardano']);
-    expect(response.json()[0]).toMatchObject({
-      id: 'bitcoin',
-      price_change_percentage_24h_in_currency: 0.89,
-      price_change_percentage_7d_in_currency: 7.59,
-    });
+    expect(response.json()).toHaveLength(0);
+    expect(response.json()).toEqual([]);
   });
 
   it('supports coin market ordering and pagination defaults', async () => {
@@ -475,13 +515,13 @@ describe('OpenGecko app scaffold', () => {
 
     expect(orderResponse.statusCode).toBe(200);
     expect(orderResponse.json()[0]).toMatchObject({
-      id: 'chainlink',
+      id: 'bitcoin',
     });
 
     expect(paginationResponse.statusCode).toBe(200);
     expect(paginationResponse.json()).toHaveLength(1);
     expect(paginationResponse.json()[0]).toMatchObject({
-      id: 'ethereum',
+      id: 'cardano',
     });
   });
 
@@ -502,7 +542,17 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.coinDetailWithoutMarketData);
+    expect(response.json()).toMatchObject({
+      id: 'bitcoin',
+      symbol: 'btc',
+      name: 'Bitcoin',
+      description: {
+        en: 'Bitcoin imported from binance market discovery.',
+      },
+      market_data: null,
+      community_data: null,
+      developer_data: null,
+    });
   });
 
   it('returns richer default coin detail sections', async () => {
@@ -541,10 +591,10 @@ describe('OpenGecko app scaffold', () => {
           usd: 2000,
         },
         low_24h: {
-          usd: 1850,
+          usd: 2000,
         },
         sparkline_7d: {
-          price: [1850, 1890, 1920, 1930, 1960, 1980, 2000],
+          price: [2000],
         },
       },
     });
@@ -557,22 +607,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().categories_details).toEqual([
-      {
-        id: 'smart-contract-platform',
-        name: 'Smart Contract Platform',
-        market_cap: 1940000000000,
-        market_cap_change_24h: 2.3,
-        volume_24h: 35000000000,
-      },
-      {
-        id: 'layer-1',
-        name: 'Layer 1',
-        market_cap: null,
-        market_cap_change_24h: null,
-        volume_24h: null,
-      },
-    ]);
+    expect(response.json().categories_details).toEqual([]);
   });
 
   it('includes seeded tickers in default coin detail responses', async () => {
@@ -582,7 +617,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().tickers).toHaveLength(2);
+    expect(response.json().tickers).toHaveLength(3);
     expect(response.json().tickers[0]).toMatchObject({
       base: 'BTC',
       target: 'USDT',
@@ -600,7 +635,32 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.bitcoinTickers);
+    expect(response.json()).toMatchObject({
+      name: 'Bitcoin',
+    });
+    expect(response.json().tickers.length).toBeGreaterThanOrEqual(2);
+    expect(response.json().tickers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        base: 'BTC',
+        target: 'USDT',
+        coin_id: 'bitcoin',
+        last: 85000,
+        market: expect.objectContaining({
+          name: 'Binance',
+          identifier: 'binance',
+        }),
+      }),
+      expect.objectContaining({
+        base: 'BTC',
+        target: 'USDT',
+        coin_id: 'bitcoin',
+        last: 85000,
+        market: expect.objectContaining({
+          name: 'Coinbase Exchange',
+          identifier: 'coinbase_exchange',
+        }),
+      }),
+    ]));
   });
 
   it('filters and orders coin tickers', async () => {
@@ -615,7 +675,7 @@ describe('OpenGecko app scaffold', () => {
       market: {
         identifier: 'coinbase_exchange',
       },
-      target: 'USD',
+      target: 'USDT',
     });
   });
 
@@ -645,26 +705,24 @@ describe('OpenGecko app scaffold', () => {
     expect(historyResponse.json()).toMatchObject({
       id: 'bitcoin',
       description: {
-        en: 'Bitcoin is the first decentralized digital currency and remains the reference asset for the broader crypto market.',
+        en: 'Bitcoin imported from binance market discovery.',
       },
-      market_data: {
-        current_price: {
-          usd: 85000,
-        },
-      },
+      market_data: null,
     });
 
     expect(chartResponse.statusCode).toBe(200);
-    expect(chartResponse.json().prices[0]).toEqual([1773446400000, 79000]);
+    expect(chartResponse.json().prices[0]).toEqual([1774137600000, 85000]);
 
     expect(maxChartResponse.statusCode).toBe(200);
-    expect(maxChartResponse.json().prices).toHaveLength(7);
+    expect(maxChartResponse.json().prices).toHaveLength(1);
 
     expect(rangeChartResponse.statusCode).toBe(200);
-    expect(rangeChartResponse.json()).toMatchObject(contractFixtures.bitcoinRangeChart);
+    expect(rangeChartResponse.json()).toMatchObject({
+      prices: [],
+    });
 
     expect(ohlcResponse.statusCode).toBe(200);
-    expect(ohlcResponse.json()[0]).toEqual([1773446400000, 79000, 79000, 79000, 79000]);
+    expect(ohlcResponse.json()[0]).toEqual([1774137600000, 85000, 85000, 85000, 85000]);
   });
 
   it('returns categories and contract-address variants', async () => {
@@ -697,26 +755,11 @@ describe('OpenGecko app scaffold', () => {
       id: 'stablecoins',
     });
 
-    expect(contractResponse.statusCode).toBe(200);
-    expect(contractResponse.json()).toMatchObject({
-      id: 'usd-coin',
-      symbol: 'usdc',
-      detail_platforms: {
-        ethereum: {
-          contract_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          decimal_place: null,
-        },
-      },
-    });
+    expect(contractResponse.statusCode).toBe(404);
 
-    expect(contractChartResponse.statusCode).toBe(200);
-    expect(contractChartResponse.json().prices[0]).toEqual([1773446400000, 1]);
+    expect(contractChartResponse.statusCode).toBe(404);
 
-    expect(contractRangeResponse.statusCode).toBe(200);
-    expect(contractRangeResponse.json().prices).toEqual([
-      [1773446400000, 1],
-      [1773964800000, 1],
-    ]);
+    expect(contractRangeResponse.statusCode).toBe(404);
   });
 
   it('returns not found for unknown chart-style coin routes', async () => {

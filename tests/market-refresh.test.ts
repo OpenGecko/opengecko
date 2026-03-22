@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDatabase, migrateDatabase, rebuildSearchIndex, seedReferenceData, type AppDatabase } from '../src/db/client';
-import { coinTickers, coins } from '../src/db/schema';
+import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
+import { coinTickers, coins, exchanges } from '../src/db/schema';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -16,6 +16,14 @@ vi.mock('../src/providers/ccxt', () => ({
 
 import { fetchExchangeMarkets, fetchExchangeTickers } from '../src/providers/ccxt';
 
+const now = new Date();
+
+const seededExchanges = [
+  { id: 'binance', name: 'Binance', url: 'https://www.binance.com', trustScore: 10, updatedAt: now },
+  { id: 'coinbase_exchange', name: 'Coinbase Exchange', url: 'https://exchange.coinbase.com', trustScore: 10, updatedAt: now },
+  { id: 'kraken', name: 'Kraken', url: 'https://www.kraken.com', trustScore: 10, updatedAt: now },
+];
+
 describe('market refresh service', () => {
   let tempDir: string;
   let database: AppDatabase;
@@ -24,7 +32,10 @@ describe('market refresh service', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-market-refresh-'));
     database = createDatabase(join(tempDir, 'test.db'));
     migrateDatabase(database);
-    seedReferenceData(database);
+    seedStaticReferenceData(database);
+    for (const exchange of seededExchanges) {
+      database.db.insert(exchanges).values(exchange).run();
+    }
     rebuildSearchIndex(database);
     vi.mocked(fetchExchangeMarkets).mockReset();
     vi.mocked(fetchExchangeTickers).mockReset();

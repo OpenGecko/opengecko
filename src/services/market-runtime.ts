@@ -87,6 +87,12 @@ export function createMarketRuntime(
         await initialSync();
         state.initialSyncCompleted = true;
         state.syncFailureReason = null;
+
+        // Seed static reference data (treasury, derivatives, onchain) after coins exist
+        const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
+        seedStaticReferenceData(database);
+        rebuildSearchIndex(database);
+
         logger.info('initial market sync completed successfully');
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
