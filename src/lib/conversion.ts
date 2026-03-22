@@ -6,19 +6,10 @@ import { getCurrencyApiSnapshot } from '../services/currency-rates';
 
 export const SUPPORTED_VS_CURRENCIES = ['usd', 'eur', 'btc', 'eth'] as const;
 
-const FALLBACK_USD_CONVERSION_RATES = {
-  usd: 1,
-  eur: 0.92,
-  btc: 1 / 85_000,
-  eth: 1 / 2_000,
-} as const satisfies Record<(typeof SUPPORTED_VS_CURRENCIES)[number], number>;
-
-type SupportedVsCurrency = (typeof SUPPORTED_VS_CURRENCIES)[number];
-
 function getCoinSnapshot(
   database: AppDatabase,
   coinId: string,
-  vsCurrency: SupportedVsCurrency,
+  vsCurrency: 'usd' | 'eur' | 'btc' | 'eth',
   marketFreshnessThresholdSeconds: number,
   snapshotAccessPolicy: SnapshotAccessPolicy,
 ) {
@@ -38,17 +29,21 @@ export function getConversionRates(
   const usdPerUsdt = currencyApiSnapshot.usdt.usd;
   const bitcoinUsdSnapshot = getCoinSnapshot(database, 'bitcoin', 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const ethereumUsdSnapshot = getCoinSnapshot(database, 'ethereum', 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const rates = Object.fromEntries(
+    Object.entries(currencyApiSnapshot.usdt)
+      .filter(([, value]) => Number.isFinite(value) && value > 0)
+      .map(([currencyCode, value]) => [currencyCode.toLowerCase(), value / usdPerUsdt]),
+  ) as Record<string, number>;
 
-  return {
-    usd: 1,
-    eur: currencyApiSnapshot.usdt.eur / usdPerUsdt,
-    btc: bitcoinUsdSnapshot && bitcoinUsdSnapshot.price > 0
-      ? 1 / bitcoinUsdSnapshot.price
-      : currencyApiSnapshot.usdt.btc / usdPerUsdt,
-    eth: ethereumUsdSnapshot && ethereumUsdSnapshot.price > 0
-      ? 1 / ethereumUsdSnapshot.price
-      : currencyApiSnapshot.usdt.eth / usdPerUsdt,
-  } satisfies Record<SupportedVsCurrency, number>;
+  rates.usd = 1;
+  rates.btc = bitcoinUsdSnapshot && bitcoinUsdSnapshot.price > 0
+    ? 1 / bitcoinUsdSnapshot.price
+    : currencyApiSnapshot.usdt.btc / usdPerUsdt;
+  rates.eth = ethereumUsdSnapshot && ethereumUsdSnapshot.price > 0
+    ? 1 / ethereumUsdSnapshot.price
+    : currencyApiSnapshot.usdt.eth / usdPerUsdt;
+
+  return rates;
 }
 
 export function getConversionRate(
@@ -60,8 +55,8 @@ export function getConversionRate(
   const normalized = vsCurrency.toLowerCase();
   const rates = getConversionRates(database, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
 
-  if (normalized in rates) {
-    return rates[normalized as keyof typeof rates];
+  if (normalized in rates && Number.isFinite(rates[normalized]) && rates[normalized] > 0) {
+    return rates[normalized];
   }
 
   throw new HttpError(400, 'invalid_parameter', `Unsupported vs_currency: ${vsCurrency}`);

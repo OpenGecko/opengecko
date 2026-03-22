@@ -5,8 +5,9 @@ import type { AppDatabase } from '../db/client';
 import type { MarketSnapshotRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePrecision } from '../http/params';
-import { buildExchangeRatesPayload, getConversionRate, SUPPORTED_VS_CURRENCIES } from '../lib/conversion';
+import { buildExchangeRatesPayload, getConversionRate } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
+import { getSupportedVsCurrencies } from '../services/currency-rates';
 import { getCoinByContract, getMarketRows, parseJsonObject } from './catalog';
 import { getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 
@@ -96,7 +97,7 @@ export function registerSimpleRoutes(
     getSnapshotAccessPolicy(runtimeState),
   ));
 
-  app.get('/simple/supported_vs_currencies', async () => [...SUPPORTED_VS_CURRENCIES]);
+  app.get('/simple/supported_vs_currencies', async () => getSupportedVsCurrencies());
 
   app.get('/simple/price', async (request) => {
     const query = simplePriceQuerySchema.parse(request.query);

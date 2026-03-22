@@ -30,14 +30,27 @@ function isValidCurrencyApiSnapshot(value: unknown): value is CurrencyApiSnapsho
     return false;
   }
 
+  const usdtRates = snapshot.usdt as Record<string, unknown>;
+
+  if (!Object.values(usdtRates).some((rate) => typeof rate === 'number' && Number.isFinite(rate) && rate > 0)) {
+    return false;
+  }
+
   return ['usdt', 'usd', 'eur', 'btc', 'eth'].every((key) => {
-    const rate = (snapshot.usdt as Record<string, unknown>)[key];
+    const rate = usdtRates[key];
     return typeof rate === 'number' && Number.isFinite(rate) && rate > 0;
   });
 }
 
 export function getCurrencyApiSnapshot() {
   return currentSnapshot;
+}
+
+export function getSupportedVsCurrencies() {
+  return Object.entries(currentSnapshot.usdt)
+    .filter(([, rate]) => Number.isFinite(rate) && rate > 0)
+    .map(([currencyCode]) => currencyCode.toLowerCase())
+    .sort();
 }
 
 export async function refreshCurrencyApiRatesOnce(fetchImpl: typeof fetch = fetch) {
