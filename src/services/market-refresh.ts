@@ -273,6 +273,16 @@ export async function runMarketRefreshOnce(database: AppDatabase, config: Pick<A
       })
       .onConflictDoNothing()
       .run();
+
+    // Update exchange records with live 24h volume
+    database.db
+      .update(exchanges)
+      .set({
+        tradeVolume24hBtc: totalQuoteVolume,
+        updatedAt: now,
+      })
+      .where(eq(exchanges.id, normalizedExchangeId))
+      .run();
   }
 
   for (const { coinId, vsCurrency, accumulator } of accumulators.values()) {

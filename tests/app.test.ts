@@ -190,7 +190,7 @@ describe('OpenGecko app scaffold', () => {
         year_established: null,
         country: null,
         trust_score_rank: null,
-        trade_volume_24h_btc: null,
+        trade_volume_24h_btc: expect.any(Number),
         trade_volume_24h_btc_normalized: null,
       },
       {
@@ -199,7 +199,7 @@ describe('OpenGecko app scaffold', () => {
         year_established: null,
         country: null,
         trust_score_rank: null,
-        trade_volume_24h_btc: null,
+        trade_volume_24h_btc: expect.any(Number),
         trade_volume_24h_btc_normalized: null,
       },
     ]);
