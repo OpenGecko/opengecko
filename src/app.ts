@@ -5,6 +5,7 @@ import { createDatabase, migrateDatabase, seedStaticReferenceData, rebuildSearch
 import { registerErrorHandler } from './http/errors';
 import { registerAssetPlatformRoutes } from './modules/assets';
 import { registerCoinRoutes } from './modules/coins';
+import { registerDiagnosticsRoutes } from './modules/diagnostics';
 import { registerExchangeRoutes } from './modules/exchanges';
 import { registerGlobalRoutes } from './modules/global';
 import { registerHealthRoutes } from './modules/health';
@@ -36,6 +37,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   registerErrorHandler(app);
   registerHealthRoutes(app);
+  registerDiagnosticsRoutes(app, database);
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerAssetPlatformRoutes(app, database);
   registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);

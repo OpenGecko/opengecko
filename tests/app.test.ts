@@ -76,6 +76,20 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json()).toEqual(contractFixtures.ping);
   });
 
+  it('returns chain coverage diagnostics', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/chain_coverage',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty('data.platform_counts.total');
+    expect(body).toHaveProperty('data.contract_mapping.active_coins');
+    expect(typeof body.data.platform_counts.total).toBe('number');
+    expect(typeof body.data.contract_mapping.active_coins).toBe('number');
+  });
+
   it('returns supported quote currencies', async () => {
     const response = await getApp().inject({
       method: 'GET',
