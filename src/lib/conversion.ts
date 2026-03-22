@@ -76,7 +76,7 @@ export function buildExchangeRatesPayload(
   const bitcoinValueUsd = 1 / conversionRates.btc;
 
   return {
-    rates: {
+    data: {
       btc: {
         name: 'Bitcoin',
         unit: 'BTC',

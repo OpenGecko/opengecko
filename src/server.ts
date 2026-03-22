@@ -2,7 +2,7 @@ import { buildApp } from './app';
 import { loadConfig } from './config/env';
 
 const config = loadConfig();
-const app = buildApp({ config, startBackgroundJobs: true });
+const app = buildApp({ config, startBackgroundJobs: true, pluginTimeout: 120_000 });
 
 async function start() {
   try {

@@ -189,7 +189,17 @@ export async function runMarketRefreshOnce(
   for (const exchangeId of exchangeIds) {
     const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
     const exchangeStart = Date.now();
-    const tickers = await fetchExchangeTickers(exchangeId, requestedSymbols);
+
+    let tickers: Awaited<ReturnType<typeof fetchExchangeTickers>> = [];
+    try {
+      tickers = await fetchExchangeTickers(exchangeId, requestedSymbols);
+    } catch (error) {
+      const errorInfo = error instanceof Error
+        ? { message: error.message, name: error.name }
+        : { message: String(error) };
+      exchangeLogger?.warn({ ...errorInfo, durationMs: Date.now() - exchangeStart }, 'exchange ticker fetch failed');
+      continue;
+    }
 
     let matchedCount = 0;
     for (const ticker of tickers) {

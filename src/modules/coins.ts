@@ -7,6 +7,7 @@ import { coinTickers, exchanges, type CoinRow, type MarketSnapshotRow } from '..
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate, getConversionRates } from '../lib/conversion';
+import { SUPPORTED_VS_CURRENCIES } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCategories, getChartSeries, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray, parseJsonObject } from './catalog';
 import { downsampleTimeSeries, getChartGranularityMs, getRangeDurationMs } from './chart-semantics';
@@ -463,28 +464,50 @@ function buildCoinDetail(
   const links = parseJsonObject<Record<string, unknown>>(coin.linksJson);
   const seriesExtremes = getSeriesExtremes(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const priceChangePercentage7d = getSeriesChangePercentage(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const conversionRates = getConversionRates(database, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+
+  function toMultiCurrency(value: number | null | undefined) {
+    if (value == null) {
+      return Object.fromEntries(SUPPORTED_VS_CURRENCIES.map((c) => [c, null]));
+    }
+
+    return Object.fromEntries(
+      SUPPORTED_VS_CURRENCIES.map((c) => [c, toNumberOrNull(value * conversionRates[c as keyof typeof conversionRates], 'full')]),
+    );
+  }
+
   const marketData = !options.includeMarketData || !snapshot
     ? null
     : {
-        current_price: { usd: snapshot.price },
-        market_cap: { usd: snapshot.marketCap },
-        total_volume: { usd: snapshot.totalVolume },
-        high_24h: { usd: seriesExtremes.high24h },
-        low_24h: { usd: seriesExtremes.low24h },
-        fully_diluted_valuation: { usd: snapshot.fullyDilutedValuation },
+        current_price: toMultiCurrency(snapshot.price),
+        market_cap: toMultiCurrency(snapshot.marketCap),
+        total_volume: toMultiCurrency(snapshot.totalVolume),
+        high_24h: toMultiCurrency(seriesExtremes.high24h),
+        low_24h: toMultiCurrency(seriesExtremes.low24h),
+        fully_diluted_valuation: toMultiCurrency(snapshot.fullyDilutedValuation),
         circulating_supply: snapshot.circulatingSupply,
         total_supply: snapshot.totalSupply,
         max_supply: snapshot.maxSupply,
-        ath: { usd: snapshot.ath },
-        ath_change_percentage: { usd: snapshot.athChangePercentage },
-        ath_date: { usd: snapshot.athDate?.toISOString() ?? null },
-        atl: { usd: snapshot.atl },
-        atl_change_percentage: { usd: snapshot.atlChangePercentage },
-        atl_date: { usd: snapshot.atlDate?.toISOString() ?? null },
+        ath: toMultiCurrency(snapshot.ath),
+        ath_change_percentage: Object.fromEntries(
+          SUPPORTED_VS_CURRENCIES.map((c) => [c, toNumberOrNull(snapshot?.athChangePercentage, 'full')]),
+        ),
+        ath_date: Object.fromEntries(
+          SUPPORTED_VS_CURRENCIES.map((c) => [c, snapshot?.athDate?.toISOString() ?? null]),
+        ),
+        atl: toMultiCurrency(snapshot.atl),
+        atl_change_percentage: Object.fromEntries(
+          SUPPORTED_VS_CURRENCIES.map((c) => [c, toNumberOrNull(snapshot?.atlChangePercentage, 'full')]),
+        ),
+        atl_date: Object.fromEntries(
+          SUPPORTED_VS_CURRENCIES.map((c) => [c, snapshot?.atlDate?.toISOString() ?? null]),
+        ),
         price_change_24h: snapshot.priceChange24h,
         price_change_percentage_24h: snapshot.priceChangePercentage24h,
         price_change_percentage_7d: priceChangePercentage7d,
-        price_change_percentage_7d_in_currency: { usd: priceChangePercentage7d },
+        price_change_percentage_7d_in_currency: Object.fromEntries(
+          SUPPORTED_VS_CURRENCIES.map((c) => [c, toNumberOrNull(priceChangePercentage7d, 'full')]),
+        ),
         market_cap_change_24h: null,
         market_cap_change_percentage_24h: null,
         market_cap_rank: snapshot.marketCapRank,

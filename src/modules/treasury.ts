@@ -8,7 +8,7 @@ import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 
 const entitiesListQuerySchema = z.object({
-  entity_type: z.enum(['companies', 'governments']).optional(),
+  entity_type: z.enum(['companies', 'governments', 'countries']).optional(),
   per_page: z.string().optional(),
   page: z.string().optional(),
 });
@@ -33,7 +33,7 @@ const treasuryTransactionHistoryQuerySchema = z.object({
 
 const VALID_TREASURY_CHART_DAYS = new Set(['7', '14', '30', '90', '180', '365', '730', 'max']);
 
-function mapEntitySegmentToType(entity: 'companies' | 'governments') {
+function mapEntitySegmentToType(entity: 'companies' | 'governments' | 'countries') {
   return entity === 'companies' ? 'company' : 'government';
 }
 
@@ -179,7 +179,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
 
   app.get('/:entity/public_treasury/:coin_id', async (request) => {
     const params = z.object({
-      entity: z.enum(['companies', 'governments']),
+      entity: z.enum(['companies', 'governments', 'countries']),
       coin_id: z.string(),
     }).parse(request.params);
     const query = treasuryByCoinQuerySchema.parse(request.query);

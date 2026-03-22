@@ -96,7 +96,7 @@ describe('conversion helpers', () => {
 
   it('builds the exchange-rates payload from the shared conversion source', () => {
     expect(buildExchangeRatesPayload(database, 300, seedFriendlyPolicy)).toEqual({
-      rates: {
+      data: {
         btc: {
           name: 'Bitcoin',
           unit: 'BTC',
