@@ -1034,6 +1034,29 @@ describe('CoinGecko API compatibility', () => {
   });
 
   // ========================================
+  // /onchain/networks/:network/pools/multi/:addresses
+  // ========================================
+  describe('GET /onchain/networks/:network/pools/multi/:addresses', () => {
+    it('returns multi pool lookup with correct structure', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).toHaveProperty('data');
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
+
+      if (body.data.length > 0) {
+        const pool = body.data[0];
+        expect(pool).toHaveProperty('id');
+        expect(pool).toHaveProperty('type', 'pool');
+      }
+    });
+  });
+
+  // ========================================
   // Token list
   // ========================================
   describe('GET /token_lists/:platform/all.json', () => {
@@ -1118,6 +1141,7 @@ describe('CoinGecko API compatibility', () => {
         { method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/dexes/uniswap_v3/pools', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/new_pools', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36', expectedStatus: 200 },
         { method: 'GET', url: '/token_lists/ethereum/all.json', expectedStatus: 200 },
       ];
 

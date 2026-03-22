@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
@@ -247,6 +247,36 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       meta: {
         page,
       },
+    };
+  });
+
+  app.get('/onchain/networks/:network/pools/multi/:addresses', async (request) => {
+    const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
+    const requestedAddresses = params.addresses
+      .split(',')
+      .map((address) => address.trim())
+      .filter((address) => address.length > 0);
+
+    if (requestedAddresses.length === 0) {
+      return {
+        data: [],
+      };
+    }
+
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const rows = database.db
+      .select()
+      .from(onchainPools)
+      .where(and(eq(onchainPools.networkId, params.network), inArray(onchainPools.address, requestedAddresses)))
+      .all();
+
+    return {
+      data: rows.map(buildPoolResource),
     };
   });
 

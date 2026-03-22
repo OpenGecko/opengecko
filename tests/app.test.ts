@@ -446,6 +446,20 @@ describe('OpenGecko app scaffold', () => {
     expect(body.data[0]).toHaveProperty('type', 'pool');
   });
 
+  it('returns onchain pools by multi-address lookup', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty('data');
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0]).toHaveProperty('type', 'pool');
+  });
+
   it('returns token list data for an asset platform', async () => {
     const response = await getApp().inject({
       method: 'GET',
