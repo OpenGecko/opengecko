@@ -7,7 +7,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { rebuildSearchIndex } from './search-index';
 export { rebuildSearchIndex } from './search-index';
-import { assetPlatforms, categories, chartPoints, coins, derivativeTickers, derivativesExchanges, onchainDexes, onchainNetworks, treasuryEntities, treasuryHoldings, treasuryTransactions } from './schema';
+import { assetPlatforms, categories, chartPoints, coins, derivativeTickers, derivativesExchanges, onchainDexes, onchainNetworks, onchainPools, treasuryEntities, treasuryHoldings, treasuryTransactions } from './schema';
 
 const MIGRATIONS_FOLDER = resolve(process.cwd(), 'drizzle');
 const MIGRATION_JOURNAL = resolve(MIGRATIONS_FOLDER, 'meta', '_journal.json');
@@ -43,6 +43,7 @@ export function createDatabase(databaseUrl: string) {
       derivativesExchanges,
       onchainDexes,
       onchainNetworks,
+      onchainPools,
       treasuryEntities,
       treasuryHoldings,
       treasuryTransactions,
@@ -379,6 +380,77 @@ const seededOnchainDexes = [
   },
 ];
 
+const seededOnchainPools = [
+  {
+    networkId: 'eth',
+    address: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    dexId: 'uniswap_v3',
+    name: 'USDC / WETH 0.05%',
+    baseTokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+    baseTokenSymbol: 'USDC',
+    quoteTokenAddress: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    quoteTokenSymbol: 'WETH',
+    priceUsd: 1,
+    reserveUsd: 325000000,
+    volume24hUsd: 64500000,
+    transactions24hBuys: 12840,
+    transactions24hSells: 12590,
+    createdAtTimestamp: new Date(Date.parse('2024-04-10T00:00:00.000Z')),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    networkId: 'eth',
+    address: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+    dexId: 'uniswap_v3',
+    name: 'WETH / USDT 0.30%',
+    baseTokenAddress: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    baseTokenSymbol: 'WETH',
+    quoteTokenAddress: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+    quoteTokenSymbol: 'USDT',
+    priceUsd: 3500,
+    reserveUsd: 410000000,
+    volume24hUsd: 74200000,
+    transactions24hBuys: 15400,
+    transactions24hSells: 14910,
+    createdAtTimestamp: new Date(Date.parse('2024-05-03T00:00:00.000Z')),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    networkId: 'eth',
+    address: '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+    dexId: 'curve',
+    name: 'DAI / USDC / USDT',
+    baseTokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+    baseTokenSymbol: 'USDC',
+    quoteTokenAddress: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+    quoteTokenSymbol: 'USDT',
+    priceUsd: 1,
+    reserveUsd: 680000000,
+    volume24hUsd: 28500000,
+    transactions24hBuys: 7250,
+    transactions24hSells: 7040,
+    createdAtTimestamp: new Date(Date.parse('2024-02-11T00:00:00.000Z')),
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    networkId: 'solana',
+    address: '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+    dexId: 'raydium',
+    name: 'SOL / USDC',
+    baseTokenAddress: 'So11111111111111111111111111111111111111112',
+    baseTokenSymbol: 'SOL',
+    quoteTokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    quoteTokenSymbol: 'USDC',
+    priceUsd: 180,
+    reserveUsd: 128000000,
+    volume24hUsd: 31800000,
+    transactions24hBuys: 11020,
+    transactions24hSells: 10880,
+    createdAtTimestamp: new Date(Date.parse('2024-07-15T00:00:00.000Z')),
+    updatedAt: new Date(seedTimestamp),
+  },
+];
+
 // Chart points used by treasury holding chart endpoint
 const seededChartPointValues = {
   bitcoin: {
@@ -481,6 +553,7 @@ export function seedStaticReferenceData(database: AppDatabase) {
   database.db.insert(treasuryTransactions).values(seededTreasuryTransactions).onConflictDoNothing().run();
   database.db.insert(onchainNetworks).values(seededOnchainNetworks).onConflictDoNothing().run();
   database.db.insert(onchainDexes).values(seededOnchainDexes).onConflictDoNothing().run();
+  database.db.insert(onchainPools).values(seededOnchainPools).onConflictDoNothing().run();
   database.db.insert(chartPoints).values(buildSeededChartPoints()).onConflictDoNothing().run();
 }
 

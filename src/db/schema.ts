@@ -292,6 +292,32 @@ export const onchainDexes = sqliteTable(
   }),
 );
 
+export const onchainPools = sqliteTable(
+  'onchain_pools',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    address: text('address').notNull(),
+    dexId: text('dex_id').notNull(),
+    name: text('name').notNull(),
+    baseTokenAddress: text('base_token_address').notNull(),
+    baseTokenSymbol: text('base_token_symbol').notNull(),
+    quoteTokenAddress: text('quote_token_address').notNull(),
+    quoteTokenSymbol: text('quote_token_symbol').notNull(),
+    priceUsd: real('price_usd'),
+    reserveUsd: real('reserve_usd'),
+    volume24hUsd: real('volume_24h_usd'),
+    transactions24hBuys: integer('transactions_24h_buys').notNull().default(0),
+    transactions24hSells: integer('transactions_24h_sells').notNull().default(0),
+    createdAtTimestamp: integer('created_at_timestamp', { mode: 'timestamp_ms' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.address] }),
+  }),
+);
+
 export const coinTickers = sqliteTable(
   'coin_tickers',
   {
@@ -340,4 +366,5 @@ export type TreasuryHoldingRow = typeof treasuryHoldings.$inferSelect;
 export type TreasuryTransactionRow = typeof treasuryTransactions.$inferSelect;
 export type OnchainNetworkRow = typeof onchainNetworks.$inferSelect;
 export type OnchainDexRow = typeof onchainDexes.$inferSelect;
+export type OnchainPoolRow = typeof onchainPools.$inferSelect;
 export type CoinTickerRow = typeof coinTickers.$inferSelect;

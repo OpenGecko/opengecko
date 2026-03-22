@@ -934,6 +934,60 @@ describe('CoinGecko API compatibility', () => {
   });
 
   // ========================================
+  // /onchain/networks/:network/pools
+  // ========================================
+  describe('GET /onchain/networks/:network/pools', () => {
+    it('returns onchain pools with correct structure', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).toHaveProperty('data');
+      expect(body).toHaveProperty('meta');
+      expect(Array.isArray(body.data)).toBe(true);
+
+      if (body.data.length > 0) {
+        const pool = body.data[0];
+        expect(pool).toHaveProperty('id');
+        expect(pool).toHaveProperty('type', 'pool');
+        expect(pool).toHaveProperty('attributes');
+        expect(pool.attributes).toHaveProperty('name');
+        expect(pool.attributes).toHaveProperty('base_token_symbol');
+        expect(pool.attributes).toHaveProperty('quote_token_symbol');
+        expect(pool.attributes).toHaveProperty('volume_usd');
+        expect(pool.attributes).toHaveProperty('transactions');
+        expect(pool).toHaveProperty('relationships');
+        expect(pool.relationships).toHaveProperty('network');
+        expect(pool.relationships).toHaveProperty('dex');
+      }
+    });
+  });
+
+  // ========================================
+  // /onchain/networks/:network/pools/:address
+  // ========================================
+  describe('GET /onchain/networks/:network/pools/:address', () => {
+    it('returns onchain pool detail with correct structure', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).toHaveProperty('data');
+      expect(body.data).toHaveProperty('id');
+      expect(body.data).toHaveProperty('type', 'pool');
+      expect(body.data).toHaveProperty('attributes');
+      expect(body.data.attributes).toHaveProperty('name');
+      expect(body.data).toHaveProperty('relationships');
+      expect(body.data.relationships).toHaveProperty('network');
+      expect(body.data.relationships).toHaveProperty('dex');
+    });
+  });
+
+  // ========================================
   // Token list
   // ========================================
   describe('GET /token_lists/:platform/all.json', () => {
@@ -1014,6 +1068,8 @@ describe('CoinGecko API compatibility', () => {
         { method: 'GET', url: '/companies/public_treasury/bitcoin', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/dexes', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/pools', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b', expectedStatus: 200 },
         { method: 'GET', url: '/token_lists/ethereum/all.json', expectedStatus: 200 },
       ];
 

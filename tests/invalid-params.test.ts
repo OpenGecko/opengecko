@@ -321,6 +321,19 @@ describe('OpenGecko invalid parameter handling', () => {
     });
   });
 
+  it('returns not found for unknown onchain pools', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/not-a-pool',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain pool not found: not-a-pool',
+    });
+  });
+
   it('returns not found for unknown exchange tickers', async () => {
     const response = await app!.inject({
       method: 'GET',

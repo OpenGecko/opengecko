@@ -401,6 +401,23 @@ describe('OpenGecko app scaffold', () => {
     expect(dexesResponse.json()).toMatchObject(contractFixtures.onchainDexesEth);
   });
 
+  it('returns onchain network pools and pool detail', async () => {
+    const poolsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools?page=1',
+    });
+    const poolDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    });
+
+    expect(poolsResponse.statusCode).toBe(200);
+    expect(poolsResponse.json()).toMatchObject(contractFixtures.onchainPoolsEth);
+
+    expect(poolDetailResponse.statusCode).toBe(200);
+    expect(poolDetailResponse.json()).toMatchObject(contractFixtures.onchainPoolEthDetail);
+  });
+
   it('returns token list data for an asset platform', async () => {
     const response = await getApp().inject({
       method: 'GET',

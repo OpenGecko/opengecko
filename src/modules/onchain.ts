@@ -1,14 +1,19 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { onchainDexes, onchainNetworks } from '../db/schema';
+import { onchainDexes, onchainNetworks, onchainPools } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parsePositiveInt } from '../http/params';
 
 const paginationQuerySchema = z.object({
   page: z.string().optional(),
+});
+
+const poolListQuerySchema = z.object({
+  page: z.string().optional(),
+  sort: z.enum(['h24_volume_usd_liquidity_desc', 'h24_tx_count_desc', 'reserve_in_usd_desc']).optional(),
 });
 
 function buildNetworkResource(row: typeof onchainNetworks.$inferSelect) {
@@ -39,6 +44,47 @@ function buildDexResource(row: typeof onchainDexes.$inferSelect) {
         data: {
           type: 'network',
           id: row.networkId,
+        },
+      },
+    },
+  };
+}
+
+function buildPoolResource(row: typeof onchainPools.$inferSelect) {
+  return {
+    id: row.address,
+    type: 'pool',
+    attributes: {
+      name: row.name,
+      address: row.address,
+      base_token_address: row.baseTokenAddress,
+      base_token_symbol: row.baseTokenSymbol,
+      quote_token_address: row.quoteTokenAddress,
+      quote_token_symbol: row.quoteTokenSymbol,
+      price_usd: row.priceUsd,
+      reserve_usd: row.reserveUsd,
+      volume_usd: {
+        h24: row.volume24hUsd,
+      },
+      transactions: {
+        h24: {
+          buys: row.transactions24hBuys,
+          sells: row.transactions24hSells,
+        },
+      },
+      pool_created_at: row.createdAtTimestamp ? Math.floor(row.createdAtTimestamp.getTime() / 1000) : null,
+    },
+    relationships: {
+      network: {
+        data: {
+          type: 'network',
+          id: row.networkId,
+        },
+      },
+      dex: {
+        data: {
+          type: 'dex',
+          id: row.dexId,
         },
       },
     },
@@ -86,6 +132,66 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         page,
         network: network.id,
       },
+    };
+  });
+
+  app.get('/onchain/networks/:network/pools', async (request) => {
+    const params = z.object({ network: z.string() }).parse(request.params);
+    const query = poolListQuerySchema.parse(request.query);
+    const page = parsePositiveInt(query.page, 1);
+    const perPage = 100;
+
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const orderBy = (() => {
+      switch (query.sort) {
+        case 'h24_tx_count_desc':
+          return [desc(onchainPools.transactions24hBuys), desc(onchainPools.transactions24hSells)];
+        case 'reserve_in_usd_desc':
+          return [desc(onchainPools.reserveUsd)];
+        case 'h24_volume_usd_liquidity_desc':
+        default:
+          return [desc(onchainPools.volume24hUsd), desc(onchainPools.reserveUsd)];
+      }
+    })();
+
+    const rows = database.db
+      .select()
+      .from(onchainPools)
+      .where(eq(onchainPools.networkId, params.network))
+      .orderBy(...orderBy)
+      .all();
+
+    const start = (page - 1) * perPage;
+
+    return {
+      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      meta: {
+        page,
+      },
+    };
+  });
+
+  app.get('/onchain/networks/:network/pools/:address', async (request) => {
+    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+
+    const row = database.db
+      .select()
+      .from(onchainPools)
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .limit(1)
+      .get();
+
+    if (!row) {
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+    }
+
+    return {
+      data: buildPoolResource(row),
     };
   });
 }
