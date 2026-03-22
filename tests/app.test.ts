@@ -418,6 +418,34 @@ describe('OpenGecko app scaffold', () => {
     expect(poolDetailResponse.json()).toMatchObject(contractFixtures.onchainPoolEthDetail);
   });
 
+  it('returns onchain pools scoped by dex', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/dexes/uniswap_v3/pools?page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty('data');
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data[0]).toHaveProperty('relationships.dex.data.id', 'uniswap_v3');
+  });
+
+  it('returns newest onchain pools for a network', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/new_pools?page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty('data');
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data[0]).toHaveProperty('type', 'pool');
+  });
+
   it('returns token list data for an asset platform', async () => {
     const response = await getApp().inject({
       method: 'GET',

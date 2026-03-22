@@ -988,6 +988,52 @@ describe('CoinGecko API compatibility', () => {
   });
 
   // ========================================
+  // /onchain/networks/:network/dexes/:dex/pools
+  // ========================================
+  describe('GET /onchain/networks/:network/dexes/:dex/pools', () => {
+    it('returns dex-scoped pools with correct structure', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/dexes/uniswap_v3/pools',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).toHaveProperty('data');
+      expect(body).toHaveProperty('meta');
+      expect(Array.isArray(body.data)).toBe(true);
+
+      if (body.data.length > 0) {
+        const pool = body.data[0];
+        expect(pool).toHaveProperty('type', 'pool');
+        expect(pool).toHaveProperty('relationships.dex.data.id');
+      }
+    });
+  });
+
+  // ========================================
+  // /onchain/networks/:network/new_pools
+  // ========================================
+  describe('GET /onchain/networks/:network/new_pools', () => {
+    it('returns newest pools with correct structure', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/new_pools',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body).toHaveProperty('data');
+      expect(body).toHaveProperty('meta');
+      expect(Array.isArray(body.data)).toBe(true);
+
+      if (body.data.length > 0) {
+        const pool = body.data[0];
+        expect(pool).toHaveProperty('type', 'pool');
+        expect(pool).toHaveProperty('attributes.pool_created_at');
+      }
+    });
+  });
+
+  // ========================================
   // Token list
   // ========================================
   describe('GET /token_lists/:platform/all.json', () => {
@@ -1070,6 +1116,8 @@ describe('CoinGecko API compatibility', () => {
         { method: 'GET', url: '/onchain/networks/eth/dexes', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/pools', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/dexes/uniswap_v3/pools', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/new_pools', expectedStatus: 200 },
         { method: 'GET', url: '/token_lists/ethereum/all.json', expectedStatus: 200 },
       ];
 

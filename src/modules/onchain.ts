@@ -91,6 +91,18 @@ function buildPoolResource(row: typeof onchainPools.$inferSelect) {
   };
 }
 
+function resolvePoolOrder(sort: z.infer<typeof poolListQuerySchema>['sort']) {
+  switch (sort) {
+    case 'h24_tx_count_desc':
+      return [desc(onchainPools.transactions24hBuys), desc(onchainPools.transactions24hSells)] as const;
+    case 'reserve_in_usd_desc':
+      return [desc(onchainPools.reserveUsd)] as const;
+    case 'h24_volume_usd_liquidity_desc':
+    default:
+      return [desc(onchainPools.volume24hUsd), desc(onchainPools.reserveUsd)] as const;
+  }
+}
+
 export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/onchain/networks', async (request) => {
     const query = paginationQuerySchema.parse(request.query);
@@ -147,23 +159,85 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
     }
 
-    const orderBy = (() => {
-      switch (query.sort) {
-        case 'h24_tx_count_desc':
-          return [desc(onchainPools.transactions24hBuys), desc(onchainPools.transactions24hSells)];
-        case 'reserve_in_usd_desc':
-          return [desc(onchainPools.reserveUsd)];
-        case 'h24_volume_usd_liquidity_desc':
-        default:
-          return [desc(onchainPools.volume24hUsd), desc(onchainPools.reserveUsd)];
-      }
-    })();
+    const orderBy = resolvePoolOrder(query.sort);
 
     const rows = database.db
       .select()
       .from(onchainPools)
       .where(eq(onchainPools.networkId, params.network))
       .orderBy(...orderBy)
+      .all();
+
+    const start = (page - 1) * perPage;
+
+    return {
+      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      meta: {
+        page,
+      },
+    };
+  });
+
+  app.get('/onchain/networks/:network/dexes/:dex/pools', async (request) => {
+    const params = z.object({ network: z.string(), dex: z.string() }).parse(request.params);
+    const query = poolListQuerySchema.parse(request.query);
+    const page = parsePositiveInt(query.page, 1);
+    const perPage = 100;
+
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const dex = database.db
+      .select()
+      .from(onchainDexes)
+      .where(and(eq(onchainDexes.networkId, params.network), eq(onchainDexes.id, params.dex)))
+      .limit(1)
+      .get();
+
+    if (!dex) {
+      throw new HttpError(404, 'not_found', `Onchain dex not found: ${params.dex}`);
+    }
+
+    const orderBy = resolvePoolOrder(query.sort);
+
+    const rows = database.db
+      .select()
+      .from(onchainPools)
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.dexId, params.dex)))
+      .orderBy(...orderBy)
+      .all();
+
+    const start = (page - 1) * perPage;
+
+    return {
+      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      meta: {
+        page,
+        dex: dex.id,
+      },
+    };
+  });
+
+  app.get('/onchain/networks/:network/new_pools', async (request) => {
+    const params = z.object({ network: z.string() }).parse(request.params);
+    const query = paginationQuerySchema.parse(request.query);
+    const page = parsePositiveInt(query.page, 1);
+    const perPage = 100;
+
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const rows = database.db
+      .select()
+      .from(onchainPools)
+      .where(eq(onchainPools.networkId, params.network))
+      .orderBy(desc(onchainPools.createdAtTimestamp), desc(onchainPools.updatedAt))
       .all();
 
     const start = (page - 1) * perPage;

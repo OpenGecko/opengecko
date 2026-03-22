@@ -334,6 +334,19 @@ describe('OpenGecko invalid parameter handling', () => {
     });
   });
 
+  it('returns not found for unknown onchain dex pools', async () => {
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/dexes/not-a-dex/pools',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain dex not found: not-a-dex',
+    });
+  });
+
   it('returns not found for unknown exchange tickers', async () => {
     const response = await app!.inject({
       method: 'GET',
