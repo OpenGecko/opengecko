@@ -27,9 +27,10 @@ Use this tracker for current status, active priorities, completed milestones, an
 ## Current Priorities
 
 1. Make hot market endpoints fresh by default via boot-time refresh and continuous internal snapshot updates.
-2. Expand the onchain DEX family beyond the initial seeded network and DEX catalogs.
-3. Broaden repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases.
-4. Replace seeded ticker and history slices with CCXT-backed refresh and backfill paths where practical.
+2. Expand canonical chain coverage by ingesting and normalizing all CCXT-discoverable networks from the active exchange set.
+3. Expand the onchain DEX family beyond the initial seeded network and DEX catalogs.
+4. Broaden repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases.
+5. Replace seeded ticker and history slices with CCXT-backed refresh and backfill paths where practical.
 
 ## Workstream Status
 
@@ -66,6 +67,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Prefer the smallest practical dependency set.
 - Use CCXT first for exchange and market integrations; only add custom exchange support when required data is missing.
 - Use `binance`, `coinbase`, and `kraken` as the initial live CCXT exchange set.
+- Treat CCXT-discoverable chains from the active exchange set as the baseline network universe for contract and platform compatibility mapping.
 - Use a default market refresh cadence of `60s`, a search rebuild cadence of `900s`, and a live freshness threshold of `300s`.
 - Treat fresh-by-default market responses as a central product value; REST reads should come from continuously updated internal snapshots.
 - Keep the codebase as a modular monolith before considering service splits.
@@ -80,8 +82,9 @@ Use this tracker for current status, active priorities, completed milestones, an
 ## Key Gaps
 
 1. Data sources are still the largest fidelity gap. Most market-facing endpoints continue to read from seeded static snapshots and seeded historical windows instead of a continuously refreshed live market dataset.
-2. The CCXT provider abstraction is in place, but the exchange refresh and backfill paths are not yet the default source of truth for the API surface. Live ingestion exists as a scaffold, not as the fully hardened path that owns endpoint reads.
-3. Historical chart and OHLC behavior still depends on the current seeded window. There is no durable historical storage policy yet for long-range retention, rolling backfill, or recovery after refresh gaps.
+2. Canonical chain and contract-address mapping coverage remains uneven; CCXT metadata is available, but normalized chain-universe ingestion and confidence reporting are not yet complete.
+3. The CCXT provider abstraction is in place, but the exchange refresh and backfill paths are not yet the default source of truth for the API surface. Live ingestion exists as a scaffold, not as the fully hardened path that owns endpoint reads.
+4. Historical chart and OHLC behavior still depends on the current seeded window. There is no durable historical storage policy yet for long-range retention, rolling backfill, or recovery after refresh gaps.
 
 ## Known Data-Fidelity Follow-ups After Treasury/Onchain Kickoff
 
