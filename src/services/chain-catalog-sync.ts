@@ -38,8 +38,15 @@ export async function syncChainCatalogFromExchanges(
 
   for (const exchangeId of exchangeIds) {
     const exchangeLogger = logger?.child({ exchange: exchangeId });
-    const networks = await fetchExchangeNetworks(exchangeId);
-    exchangeLogger?.debug({ networkCount: networks.length }, 'fetched networks for chain discovery');
+    let networks: Awaited<ReturnType<typeof fetchExchangeNetworks>> = [];
+    try {
+      networks = await fetchExchangeNetworks(exchangeId);
+      exchangeLogger?.debug({ networkCount: networks.length }, 'fetched networks for chain discovery');
+    } catch (error) {
+      const errorInfo = error instanceof Error ? { message: error.message, name: error.name } : { message: String(error) };
+      exchangeLogger?.warn(errorInfo, 'chain catalog sync failed for exchange');
+      continue;
+    }
 
     for (const network of networks) {
       const existing = networksById.get(network.networkId);

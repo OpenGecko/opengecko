@@ -90,8 +90,15 @@ export async function syncCoinCatalogFromExchanges(
 
   for (const exchangeId of exchangeIds) {
     const exchangeLogger = logger?.child({ exchange: exchangeId });
-    const markets = await fetchExchangeMarkets(exchangeId);
-    exchangeLogger?.debug({ marketCount: markets.length }, 'fetched markets for coin discovery');
+    let markets: Awaited<ReturnType<typeof fetchExchangeMarkets>> = [];
+    try {
+      markets = await fetchExchangeMarkets(exchangeId);
+      exchangeLogger?.debug({ marketCount: markets.length }, 'fetched markets for coin discovery');
+    } catch (error) {
+      const errorInfo = error instanceof Error ? { message: error.message, name: error.name } : { message: String(error) };
+      exchangeLogger?.warn(errorInfo, 'coin catalog sync failed for exchange');
+      continue;
+    }
 
     for (const market of markets) {
       if (!market.active || !market.spot) {

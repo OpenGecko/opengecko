@@ -15,7 +15,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   isValidExchangeId: (value: string): value is string =>
-    ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
+    ['binance', 'coinbase', 'kraken', 'bybit', 'okx', 'gate'].includes(value),
 }));
 
 import { fetchExchangeMarkets, fetchExchangeTickers, fetchExchangeOHLCV, fetchExchangeNetworks } from '../src/providers/ccxt';
@@ -153,6 +153,59 @@ describe('initial market sync', () => {
 
     expect(result.ohlcvCandlesWritten).toBe(0);
     expect(fetchExchangeOHLCV).not.toHaveBeenCalled();
+  });
+
+  it('continues initial sync when one exchange market discovery times out', async () => {
+    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+      if (exchangeId === 'gate') {
+        const timeoutError = new Error('gate GET https://api.gateio.ws/api/v4/spot/currencies request timed out (10000 ms)');
+        timeoutError.name = 'RequestTimeout';
+        throw timeoutError;
+      }
+
+      if (exchangeId === 'binance') {
+        return [
+          { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+        ];
+      }
+
+      return [];
+    });
+
+    vi.mocked(fetchExchangeTickers).mockImplementation(async (exchangeId) => {
+      if (exchangeId === 'binance') {
+        return [{
+          exchangeId: 'binance',
+          symbol: 'BTC/USDT',
+          base: 'BTC',
+          quote: 'USDT',
+          last: 90_000,
+          bid: null,
+          ask: null,
+          high: null,
+          low: null,
+          baseVolume: 1_000,
+          quoteVolume: 90_000_000,
+          percentage: 2,
+          timestamp: Date.now(),
+          raw: {} as never,
+        }];
+      }
+
+      return [];
+    });
+
+    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
+
+    await expect(runInitialMarketSync(database, {
+      ccxtExchanges: ['gate', 'binance'],
+      marketFreshnessThresholdSeconds: 300,
+    })).resolves.toMatchObject({
+      exchangesSynced: 2,
+    });
+
+    const bitcoin = database.db.select().from(coins).where(eq(coins.id, 'bitcoin')).get();
+    expect(bitcoin).toBeDefined();
   });
 
   it('discovers and upserts chain catalogs from exchange network metadata', async () => {
