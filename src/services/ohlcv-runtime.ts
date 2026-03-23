@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
+import { ohlcvSyncTargets } from '../db/schema';
+import { refreshOhlcvPriorityTiers } from './ohlcv-priority';
 import { buildOhlcvSyncTargets } from './ohlcv-targets';
 import { deepenHistoricalOhlcvWindow, syncRecentOhlcvWindow } from './ohlcv-sync';
 import {
@@ -32,6 +34,22 @@ export type OhlcvRuntime = {
   tick: (now?: Date) => Promise<void>;
 };
 
+export type OhlcvSyncSummary = {
+  top100: {
+    total: number;
+    ready: number;
+  };
+  targets: {
+    waiting: number;
+    running: number;
+    failed: number;
+  };
+  lag: {
+    oldest_recent_sync_ms: number;
+    oldest_historical_gap_ms: number;
+  };
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function isRecentCoverageCurrentEnough(latestSyncedAt: Date | null, now: Date) {
@@ -40,6 +58,57 @@ function isRecentCoverageCurrentEnough(latestSyncedAt: Date | null, now: Date) {
   }
 
   return latestSyncedAt.getTime() >= now.getTime() - DAY_MS;
+}
+
+export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): OhlcvSyncSummary {
+  const rows = database.db.select().from(ohlcvSyncTargets).all();
+  let top100Total = 0;
+  let top100Ready = 0;
+  let waiting = 0;
+  let running = 0;
+  let failed = 0;
+  let oldestRecentSyncMs = 0;
+  let oldestHistoricalGapMs = 0;
+
+  for (const row of rows) {
+    if (row.priorityTier === 'top100') {
+      top100Total += 1;
+      if (isRecentCoverageCurrentEnough(row.latestSyncedAt, now)) {
+        top100Ready += 1;
+      }
+    }
+
+    if (row.status === 'running') {
+      running += 1;
+    } else if (row.status === 'failed') {
+      failed += 1;
+    } else {
+      waiting += 1;
+    }
+
+    const recentLagMs = row.latestSyncedAt ? now.getTime() - row.latestSyncedAt.getTime() : Number.MAX_SAFE_INTEGER;
+    oldestRecentSyncMs = Math.max(oldestRecentSyncMs, recentLagMs === Number.MAX_SAFE_INTEGER ? 0 : recentLagMs);
+
+    const desiredOldestMs = now.getTime() - row.targetHistoryDays * DAY_MS;
+    const historicalGapMs = row.oldestSyncedAt ? Math.max(row.oldestSyncedAt.getTime() - desiredOldestMs, 0) : row.targetHistoryDays * DAY_MS;
+    oldestHistoricalGapMs = Math.max(oldestHistoricalGapMs, historicalGapMs);
+  }
+
+  return {
+    top100: {
+      total: top100Total,
+      ready: top100Ready,
+    },
+    targets: {
+      waiting,
+      running,
+      failed,
+    },
+    lag: {
+      oldest_recent_sync_ms: oldestRecentSyncMs,
+      oldest_historical_gap_ms: oldestHistoricalGapMs,
+    },
+  };
 }
 
 export function createOhlcvRuntime(
@@ -59,6 +128,7 @@ export function createOhlcvRuntime(
 
     const targets = await buildOhlcvSyncTargets(database, config.ccxtExchanges as never);
     upsertOhlcvSyncTargets(database, targets, now);
+    refreshOhlcvPriorityTiers(database, now);
   }
 
   return {

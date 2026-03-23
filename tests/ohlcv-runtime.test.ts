@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOhlcvRuntime } from '../src/services/ohlcv-runtime';
+import { runOhlcvWorkerJob } from '../src/jobs/run-ohlcv-worker';
+import { summarizeOhlcvSyncStatus } from '../src/services/ohlcv-runtime';
 
 describe('ohlcv runtime', () => {
   const logger = {
@@ -18,6 +20,24 @@ describe('ohlcv runtime', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('starts the ohlcv worker job entrypoint', async () => {
+    const createOhlcvRuntime = vi.fn().mockReturnValue({
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      tick: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runOhlcvWorkerJob({
+      loadConfig: vi.fn().mockReturnValue({ databaseUrl: ':memory:', ccxtExchanges: ['binance'] }),
+      createDatabase: vi.fn().mockReturnValue({ client: { close: vi.fn() } }),
+      initializeDatabase: vi.fn(),
+      createOhlcvRuntime,
+      logger: logger as never,
+    });
+
+    expect(createOhlcvRuntime).toHaveBeenCalled();
   });
 
   it('prioritizes top100 recent catch-up before long-tail historical deepening', async () => {
@@ -105,5 +125,41 @@ describe('ohlcv runtime', () => {
     await runtime.tick(new Date('2026-03-24T00:00:00.000Z'));
 
     expect(syncRecentOhlcvWindow).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ latestSyncedAt: new Date('2026-03-22T00:00:00.000Z') }), expect.any(Date));
+  });
+
+  it('summarizes ohlcv worker lag and failure metrics', () => {
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => [
+              {
+                coinId: 'bitcoin',
+                priorityTier: 'top100',
+                status: 'idle',
+                latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+                oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
+                targetHistoryDays: 365,
+                lastError: null,
+              },
+              {
+                coinId: 'some-microcap',
+                priorityTier: 'long_tail',
+                status: 'failed',
+                latestSyncedAt: null,
+                oldestSyncedAt: null,
+                targetHistoryDays: 365,
+                lastError: 'rate limit',
+              },
+            ],
+          }),
+        }),
+      },
+    } as never, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(summary.top100.ready).toBe(1);
+    expect(summary.targets.failed).toBe(1);
+    expect(summary.lag.oldest_recent_sync_ms).toBeGreaterThan(0);
+    expect(summary.lag.oldest_historical_gap_ms).toBeGreaterThan(0);
   });
 });

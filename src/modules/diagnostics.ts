@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms, coins } from '../db/schema';
+import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
 
 export function registerDiagnosticsRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/diagnostics/chain_coverage', async () => {
@@ -42,6 +43,12 @@ export function registerDiagnosticsRoutes(app: FastifyInstance, database: AppDat
           coins_without_platform_mappings: Math.max(activeCoins - contractMappedCoins, 0),
         },
       },
+    };
+  });
+
+  app.get('/diagnostics/ohlcv_sync', async () => {
+    return {
+      data: summarizeOhlcvSyncStatus(database, new Date()),
     };
   });
 }

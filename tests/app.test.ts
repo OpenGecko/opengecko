@@ -52,6 +52,7 @@ describe('OpenGecko app scaffold', () => {
     app = buildApp({
       config: {
         databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
         logLevel: 'silent',
       },
     });
@@ -87,6 +88,18 @@ describe('OpenGecko app scaffold', () => {
     expect(body).toHaveProperty('data.contract_mapping.active_coins');
     expect(typeof body.data.platform_counts.total).toBe('number');
     expect(typeof body.data.contract_mapping.active_coins).toBe('number');
+  });
+
+  it('returns ohlcv worker lag and failure metrics', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/ohlcv_sync',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toHaveProperty('top100.ready');
+    expect(response.json().data).toHaveProperty('targets.waiting');
+    expect(response.json().data).toHaveProperty('lag.oldest_recent_sync_ms');
   });
 
   it('returns supported quote currencies', async () => {
@@ -541,7 +554,7 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json()).toMatchObject({
       data: {
         active_cryptocurrencies: 8,
-        markets: 5,
+        markets: 4,
         total_market_cap: {
           usd: 0,
         },
@@ -787,7 +800,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(chartResponse.statusCode).toBe(200);
-    expect(chartResponse.json().prices[0]).toEqual([1774137600000, 85000]);
+    expect(chartResponse.json().prices[0]).toEqual([1774224000000, 85000]);
 
     expect(maxChartResponse.statusCode).toBe(200);
     expect(maxChartResponse.json().prices).toHaveLength(1);
@@ -798,7 +811,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(ohlcResponse.statusCode).toBe(200);
-    expect(ohlcResponse.json()[0]).toEqual([1774137600000, 85000, 85000, 85000, 85000]);
+    expect(ohlcResponse.json()[0]).toEqual([1774224000000, 85000, 85000, 85000, 85000]);
   });
 
   it('returns categories and contract-address variants', async () => {
