@@ -28,7 +28,7 @@ function createSerializedJob(name: string, logger: RuntimeLogger, runner: JobRun
       inFlight = (async () => {
         try {
           await runner();
-          logger.info({ job: name }, 'background job completed');
+          logger.info(`background job completed job=${name}`);
         } catch (error) {
           const errorInfo = error instanceof Error
             ? { message: error.message, stack: error.stack, name: error.name }

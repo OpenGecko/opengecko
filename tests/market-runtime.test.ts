@@ -229,6 +229,25 @@ describe('market runtime', () => {
     await runtime.stop();
   });
 
+  it('logs background job completion on a single line for consistent pretty output', async () => {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
+      runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await eventually(() => {
+      expect(logger.info).toHaveBeenCalledWith('background job completed job=currency_refresh');
+      expect(logger.info).toHaveBeenCalledWith('background job completed job=market_refresh');
+    });
+
+    await runtime.stop();
+  });
+
   it('does not overlap a still-running market refresh job', async () => {
     let releaseMarketJob!: () => void;
     let callCount = 0;
