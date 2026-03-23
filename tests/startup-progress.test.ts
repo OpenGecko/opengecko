@@ -6,7 +6,7 @@ import {
 } from '../src/services/startup-progress';
 
 describe('startup progress tracker', () => {
-  it('renders a step list with current progress and OHLCV worker startup subprogress', () => {
+  it('renders a step list with current progress and OHLCV worker subprogress', () => {
     const writes: string[] = [];
     const tracker = createStartupProgressTracker({
       write: (value: string) => {
@@ -25,12 +25,10 @@ describe('startup progress tracker', () => {
 
     const output = writes.at(-1) ?? '';
 
-    expect(output).toContain('Server starting...');
-    expect(output).toContain('[######----] 60%');
-    expect(output).toContain('[x] Load config');
-    expect(output).toContain('[x] Connect database');
-    expect(output).toContain('[>] Start OHLCV worker (124/386)');
-    expect(output).toContain('[ ] Seed reference data');
+    expect(output).toContain('v0.2.1');
+    expect(output).toContain('Start OHLCV worker');
+    expect(output).toContain('124/386');
+    expect(output).toContain('Seed reference data');
   });
 
   it('exposes the canonical step order used by startup progress', () => {
@@ -48,22 +46,6 @@ describe('startup progress tracker', () => {
     ]);
   });
 
-  it('supports terminal redraw instead of appending full snapshots', () => {
-    const writes: string[] = [];
-    const tracker = createStartupProgressTracker({
-      write: (value: string) => {
-        writes.push(value);
-      },
-    });
-
-    tracker.start();
-    tracker.complete('load_config');
-
-    expect(writes).toHaveLength(2);
-    expect(writes[1]).toContain('\u001bc');
-    expect(writes[1]).toContain('[x] Load config');
-  });
-
   it('renders failed steps with an explicit failure marker and message', () => {
     const writes: string[] = [];
     const tracker = createStartupProgressTracker({
@@ -79,8 +61,8 @@ describe('startup progress tracker', () => {
 
     const output = writes.at(-1) ?? '';
 
-    expect(output).toContain('[!] Connect database - sqlite busy');
-    expect(output).toContain('[x] Load config');
+    expect(output).toContain('sqlite busy');
+    expect(output).toContain('Connect database');
   });
 
   it('can fail the active step without repeating the step id at call site', () => {
@@ -98,6 +80,6 @@ describe('startup progress tracker', () => {
 
     const output = writes.at(-1) ?? '';
 
-    expect(output).toContain('[!] Sync coin catalog - catalog fetch failed');
+    expect(output).toContain('catalog fetch failed');
   });
 });

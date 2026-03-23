@@ -21,6 +21,7 @@ async function start() {
       port: config.port,
     });
     startupProgress.complete('start_http_listener');
+    startupProgress.start(config.port);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     startupProgress.failCurrent(message);
