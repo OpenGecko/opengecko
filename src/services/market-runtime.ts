@@ -69,6 +69,26 @@ export function createMarketRuntime(
   let currencyTimer: NodeJS.Timeout | null = null;
   let marketTimer: NodeJS.Timeout | null = null;
   let searchTimer: NodeJS.Timeout | null = null;
+  let startupTask: Promise<void> | null = null;
+
+  async function enableResidualStaleDataIfAvailable() {
+    const queryDb = (database as Partial<AppDatabase>).db;
+    if (!queryDb || typeof queryDb.select !== 'function') {
+      return;
+    }
+
+    const { count } = await import('drizzle-orm');
+    const { marketSnapshots } = await import('../db/schema');
+    const [{ value: snapshotCount }] = queryDb
+      .select({ value: count() })
+      .from(marketSnapshots)
+      .all();
+
+    if (snapshotCount > 0) {
+      state.allowStaleLiveService = true;
+      logger.warn('using residual stale data while bootstrap is still running');
+    }
+  }
 
   const runCurrencyJob = createSerializedJob('currency_refresh', logger, async () => {
     await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
@@ -82,54 +102,49 @@ export function createMarketRuntime(
 
   return {
     async start() {
-      // Run initial market sync before starting refresh loop
-      try {
-        const syncLogger = 'child' in logger ? logger.child({ operation: 'initial_sync' }) as unknown as Logger : undefined;
-        const initialSync = overrides.runInitialMarketSync
-          ? () => overrides.runInitialMarketSync!(database, config, syncLogger)
-          : () => runInitialMarketSync(database, config, syncLogger);
-
-        await initialSync();
-        state.initialSyncCompleted = true;
-        state.syncFailureReason = null;
-
-        // Seed static reference data (treasury, derivatives, onchain) after coins exist
-        const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
-        seedStaticReferenceData(database);
-        rebuildSearchIndex(database);
-
-        logger.info('initial market sync completed successfully');
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        state.syncFailureReason = reason;
-        logger.error({ error: reason }, 'initial market sync failed');
-
-        // Check for residual data from previous runs
-        const { count } = await import('drizzle-orm');
-        const { marketSnapshots } = await import('../db/schema');
-        const [{ value: snapshotCount }] = database.db
-          .select({ value: count() })
-          .from(marketSnapshots)
-          .all();
-
-        if (snapshotCount > 0) {
-          state.allowStaleLiveService = true;
-          logger.warn('using residual stale data from previous run');
-        }
+      if (startupTask) {
+        return;
       }
 
-      await runCurrencyJob.run();
-      await runMarketJob.run();
+      await enableResidualStaleDataIfAvailable();
 
-      currencyTimer = setInterval(() => {
-        void runCurrencyJob.run();
-      }, config.currencyRefreshIntervalSeconds * 1000);
-      marketTimer = setInterval(() => {
-        void runMarketJob.run();
-      }, config.marketRefreshIntervalSeconds * 1000);
-      searchTimer = setInterval(() => {
-        void runSearchJob.run();
-      }, config.searchRebuildIntervalSeconds * 1000);
+      startupTask = (async () => {
+        try {
+          const syncLogger = 'child' in logger ? logger.child({ operation: 'initial_sync' }) as unknown as Logger : undefined;
+          const initialSync = overrides.runInitialMarketSync
+            ? () => overrides.runInitialMarketSync!(database, config, syncLogger)
+            : () => runInitialMarketSync(database, config, syncLogger);
+
+          await initialSync();
+          state.initialSyncCompleted = true;
+          state.syncFailureReason = null;
+          state.allowStaleLiveService = false;
+
+          const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
+          seedStaticReferenceData(database);
+          rebuildSearchIndex(database);
+
+          logger.info('initial market sync completed successfully');
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          state.syncFailureReason = reason;
+          logger.error({ error: reason }, 'initial market sync failed');
+          await enableResidualStaleDataIfAvailable();
+        }
+
+        await runCurrencyJob.run();
+        await runMarketJob.run();
+
+        currencyTimer = setInterval(() => {
+          void runCurrencyJob.run();
+        }, config.currencyRefreshIntervalSeconds * 1000);
+        marketTimer = setInterval(() => {
+          void runMarketJob.run();
+        }, config.marketRefreshIntervalSeconds * 1000);
+        searchTimer = setInterval(() => {
+          void runSearchJob.run();
+        }, config.searchRebuildIntervalSeconds * 1000);
+      })();
     },
     async stop() {
       if (currencyTimer) {
@@ -145,6 +160,11 @@ export function createMarketRuntime(
       if (searchTimer) {
         clearInterval(searchTimer);
         searchTimer = null;
+      }
+
+      if (startupTask) {
+        await startupTask;
+        startupTask = null;
       }
 
       await Promise.all([runCurrencyJob.waitForIdle(), runMarketJob.waitForIdle(), runSearchJob.waitForIdle()]);

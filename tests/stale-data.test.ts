@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
 import { createDatabase, type AppDatabase } from '../src/db/client';
 import { marketSnapshots } from '../src/db/schema';
+import { fetchExchangeTickers } from '../src/providers/ccxt';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn().mockResolvedValue([
@@ -112,5 +113,57 @@ describe('stale market snapshot behavior', () => {
         usd: 85000,
       },
     });
+  });
+
+  it('serves stale live snapshots during background bootstrap until fresh data arrives', async () => {
+    await app!.inject({ method: 'GET', url: '/ping' });
+
+    await app!.close();
+    app = undefined;
+    database?.client.close();
+    database = undefined;
+
+    const bootstrapSourceTime = new Date('2026-03-20T00:00:00.000Z');
+    let releaseTickerFetch!: () => void;
+    const blockedTickerFetch = new Promise<Awaited<ReturnType<typeof fetchExchangeTickers>>>((resolve) => {
+      releaseTickerFetch = () => resolve([]);
+    });
+    vi.mocked(fetchExchangeTickers).mockReturnValueOnce(blockedTickerFetch);
+    app = buildApp({
+      config: {
+        databaseUrl,
+        logLevel: 'silent',
+        marketFreshnessThresholdSeconds: 60,
+      },
+      startBackgroundJobs: true,
+    });
+
+    database = createDatabase(databaseUrl);
+
+    await app.inject({ method: 'GET', url: '/ping' });
+
+    database.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: bootstrapSourceTime,
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      bitcoin: {
+        usd: 85000,
+      },
+    });
+
+    releaseTickerFetch();
   });
 });

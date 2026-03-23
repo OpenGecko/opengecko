@@ -13,6 +13,21 @@ async function advanceTimersBy(ms: number) {
   await Promise.resolve();
 }
 
+async function eventually(assertion: () => void) {
+  for (let index = 0; index < 20; index += 1) {
+    try {
+      assertion();
+      return;
+    } catch {
+      vi.advanceTimersByTime(0);
+    }
+
+    await Promise.resolve();
+  }
+
+  assertion();
+}
+
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   return {
     initialSyncCompleted: false,
@@ -62,22 +77,67 @@ describe('market runtime', () => {
     });
 
     await runtime.start();
+    await eventually(() => {
+      expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    });
 
     expect(runInitialMarketSync).toHaveBeenCalledTimes(1);
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.syncFailureReason).toBeNull();
-    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
-    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
 
-    await advanceTimersBy(60_000);
+    await eventually(() => {
+      vi.advanceTimersByTime(60_000);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
+    });
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
 
-    await advanceTimersBy(240_000);
+    await eventually(() => {
+      vi.advanceTimersByTime(240_000);
+      expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(2);
+    });
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(2);
 
-    await advanceTimersBy(840_000);
+    await eventually(() => {
+      vi.advanceTimersByTime(840_000);
+      expect(runSearchRebuildOnce).toHaveBeenCalledTimes(1);
+    });
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(1);
+
+    await runtime.stop();
+  });
+
+  it('does not block startup on a long-running initial sync', async () => {
+    let releaseInitialSync!: () => void;
+    const runInitialMarketSync = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      releaseInitialSync = resolve;
+    }));
+    const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runMarketRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), {
+      runInitialMarketSync,
+      runCurrencyRefreshOnce,
+      runMarketRefreshOnce,
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+    });
+
+    let startResolved = false;
+    const startPromise = runtime.start().then(() => {
+      startResolved = true;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runInitialMarketSync).toHaveBeenCalledTimes(1);
+    expect(startResolved).toBe(true);
+    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(0);
+    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
+
+    releaseInitialSync();
+    await startPromise;
+    await advanceTimersBy(0);
 
     await runtime.stop();
   });
@@ -105,11 +165,14 @@ describe('market runtime', () => {
     });
 
     await runtime.start();
+    await eventually(() => {
+      expect(state.syncFailureReason).toBe('network error');
+    });
 
     expect(state.initialSyncCompleted).toBe(false);
     expect(state.syncFailureReason).toBe('network error');
-    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
-    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(0);
+    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
 
     await runtime.stop();
   });
@@ -139,9 +202,15 @@ describe('market runtime', () => {
     });
 
     await runtime.start();
+    await eventually(() => {
+      expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
+    });
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
 
-    await advanceTimersBy(1_000);
+    await eventually(() => {
+      vi.advanceTimersByTime(1_000);
+      expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(2);
+    });
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(2);
 
     await advanceTimersBy(1_000);
@@ -177,9 +246,15 @@ describe('market runtime', () => {
     });
 
     await runtime.start();
+    await eventually(() => {
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    });
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
 
-    await advanceTimersBy(1_000);
+    await eventually(() => {
+      vi.advanceTimersByTime(1_000);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
+    });
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
 
     await advanceTimersBy(1_000);
