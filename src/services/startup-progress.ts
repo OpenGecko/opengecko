@@ -65,6 +65,7 @@ export function createStartupProgressTracker(
   let ohlcvProgress: OhlcvProgress | null = null;
   let failure: StepFailure | null = null;
   let hasRendered = false;
+  let previousLines = 0;
   let listeningPort: number | undefined;
 
   function pad(str: string, len: number): string {
@@ -83,18 +84,23 @@ export function createStartupProgressTracker(
     const labelWidth = Math.max(...INITIAL_STARTUP_STEPS.map((s) => s.label.length), 18);
 
     // ── Header ──────────────────────────────────────────────────────────
+    // Each line inside ║ ║ must be exactly 68 visible characters wide
+    const art = [
+      '░█▀█░█▀█░█▀▀░█▀█░█▀▀░█▀▀░█▀▀░█░█░█▀█',
+      '░█░█░█▀▀░█▀▀░█░█░█░█░█▀▀░█░░░█▀▄░█░█',
+      '░▀▀▀░▀░░░▀▀▀░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀▀▀',
+    ];
+    const artPad = 15; // left padding for art lines
     const header = [
       `${C.cyan}╔${'═'.repeat(68)}╗${C.reset}`,
-      `${C.cyan}║${C.reset}                                                                  ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}   ${C.bold}${C.cyan}___${C.reset}                    ${C.bold}${C.cyan}___${C.reset}          ${C.bold}${C.cyan}_${C.reset}                          ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}  ${C.bold}${C.cyan}/___\\${C.reset}${C.bold}${C.cyan}_${C.reset}${C.dim}__${C.reset}${C.bold}${C.cyan}   ___ _ __   ${C.bold}${C.cyan}/ _ \\___  ___| | _____${C.reset}               ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset} ${C.bold}${C.cyan}//  //${C.reset}${C.bold}${C.cyan}'_${C.reset}${C.dim}__\\${C.reset}${C.bold}${C.cyan} / _ \\ / _ \\${C.reset}  ${C.bold}${C.cyan}__| |/ / _ \\${C.reset}             ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset} ${C.bold}${C.cyan}/ \\_//${C.reset}${C.bold}${C.cyan}| |_)${C.reset}  ${C.dim}|  __/| | | |${C.bold}${C.cyan}/ __/|   < (_) |${C.reset}            ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset} ${C.bold}${C.cyan}\\___/ | .__/${C.reset}  ${C.dim}\\___|_| |_|${C.bold}${C.cyan}\\___|_|\\_\\___/${C.reset}             ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}      ${C.dim}|_|${C.reset}                                                       ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}                                                                  ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}   ${C.dim}v0.2.1 · CoinGecko-compatible open-source API${C.reset}            ${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}                                                                  ${C.cyan}║${C.reset}`,
+      `${C.cyan}║${' '.repeat(68)}${C.cyan}║${C.reset}`,
+      ...art.map((line) => {
+        const right = 68 - artPad - line.length;
+        return `${C.cyan}║${C.reset}${C.bold}${C.cyan}${' '.repeat(artPad)}${line}${' '.repeat(right)}${C.reset}${C.cyan}║${C.reset}`;
+      }),
+      `${C.cyan}║${' '.repeat(68)}${C.cyan}║${C.reset}`,
+      `${C.cyan}║${C.reset}${C.dim}  v0.2.1 \u00b7 CoinGecko-compatible open-source API${' '.repeat(21)}${C.reset}${C.cyan}║${C.reset}`,
+      `${C.cyan}║${' '.repeat(68)}${C.cyan}║${C.reset}`,
       `${C.cyan}╚${'═'.repeat(68)}╝${C.reset}`,
     ].join('\n');
 
@@ -152,19 +158,16 @@ export function createStartupProgressTracker(
         : `\n  ${C.cyan}${BLOCK}${C.reset}  Starting... ${completedCount}/${INITIAL_STARTUP_STEPS.length}`;
 
     const frame = `\n${header}\n${stepLines.join('\n')}${footer}\n`;
-    const clearAndFrame = hasRendered ? `\x1b[2J\x1b[H${frame}` : frame;
-    write(clearAndFrame);
+    const lines = frame.split('\n').length;
+    const moveUp = hasRendered ? `\x1b[${previousLines}A` : '';
+    write(`${moveUp}${frame}`);
     hasRendered = true;
+    previousLines = lines;
   }
 
   return {
     start(port?: number) {
       listeningPort = port;
-      // If all steps are done, re-render without the clear sequence
-      // so the final "Listening on :port" frame stays on screen
-      if (INITIAL_STARTUP_STEPS.every((step) => statuses.get(step.id) === 'done')) {
-        hasRendered = false;
-      }
       render(port);
     },
     begin(stepId, nextOhlcvProgress) {
