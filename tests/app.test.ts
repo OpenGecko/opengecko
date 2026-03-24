@@ -908,6 +908,264 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('returns onchain simple token prices with optional field gating and network scoping', async () => {
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/eth/token_price/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48,0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
+    });
+    const includedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/eth/token_price/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?include_market_cap=true&include_24hr_vol=true&include_24hr_price_change=true&include_total_reserve_in_usd=true',
+    });
+    const mixedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/eth/token_price/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48,0x0000000000000000000000000000000000000001',
+    });
+    const wrongNetworkResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/solana/token_price/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(baselineResponse.json()).toMatchObject({
+      data: {
+        id: 'eth',
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '1',
+          },
+        },
+      },
+    });
+    expect(baselineResponse.json().data.attributes).not.toHaveProperty('market_cap_usd');
+    expect(baselineResponse.json().data.attributes).not.toHaveProperty('h24_volume_usd');
+    expect(baselineResponse.json().data.attributes).not.toHaveProperty('h24_price_change_percentage');
+    expect(baselineResponse.json().data.attributes).not.toHaveProperty('total_reserve_in_usd');
+
+    expect(includedResponse.statusCode).toBe(200);
+    expect(includedResponse.json()).toMatchObject({
+      data: {
+        id: 'eth',
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '1',
+          },
+          market_cap_usd: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': expect.any(String),
+          },
+          h24_volume_usd: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': expect.any(String),
+          },
+          h24_price_change_percentage: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': expect.any(String),
+          },
+          total_reserve_in_usd: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': expect.any(String),
+          },
+        },
+      },
+    });
+
+    expect(mixedResponse.statusCode).toBe(200);
+    expect(mixedResponse.json()).toMatchObject({
+      data: {
+        id: 'eth',
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: {
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '1',
+          },
+        },
+      },
+    });
+
+    expect(wrongNetworkResponse.statusCode).toBe(200);
+    expect(wrongNetworkResponse.json()).toEqual({
+      data: {
+        id: 'solana',
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: {},
+        },
+      },
+    });
+  });
+
+  it('validates malformed addresses and include flags for onchain simple token prices', async () => {
+    const malformedAddressResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/eth/token_price/not-an-address',
+    });
+    const invalidMarketCapFlagResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/simple/networks/eth/token_price/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?include_market_cap=yes',
+    });
+
+    expect(malformedAddressResponse.statusCode).toBe(400);
+    expect(malformedAddressResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid onchain address: not-an-address',
+    });
+
+    expect(invalidMarketCapFlagResponse.statusCode).toBe(400);
+    expect(invalidMarketCapFlagResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid boolean query value: yes',
+    });
+  });
+
+  it('returns metadata-focused onchain token info, pool info, and recently updated token info', async () => {
+    const tokenInfoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/info',
+    });
+    const poolInfoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info',
+    });
+    const poolInfoIncludedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info?include=pool',
+    });
+    const recentlyUpdatedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/tokens/info_recently_updated',
+    });
+    const recentlyUpdatedWithNetworkResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/tokens/info_recently_updated?include=network&network=eth',
+    });
+
+    expect(tokenInfoResponse.statusCode).toBe(200);
+    expect(tokenInfoResponse.json()).toMatchObject({
+      data: {
+        id: 'eth_0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        type: 'token_info',
+        attributes: {
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          name: 'USDC',
+          symbol: 'USDC',
+          coingecko_coin_id: 'usd-coin',
+          decimals: 6,
+          image_url: null,
+        },
+        relationships: {
+          network: {
+            data: {
+              type: 'network',
+              id: 'eth',
+            },
+          },
+        },
+      },
+    });
+
+    expect(poolInfoResponse.statusCode).toBe(200);
+    expect(poolInfoResponse.json().data).toHaveLength(2);
+    expect(poolInfoResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('eth_0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
+    expect(poolInfoResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('eth_0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2');
+    expect(poolInfoResponse.json().data[0]).toMatchObject({
+      type: 'token_info',
+      attributes: {
+        address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        symbol: 'USDC',
+      },
+    });
+    expect(poolInfoResponse.json().data[1]).toMatchObject({
+      type: 'token_info',
+      attributes: {
+        address: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+        symbol: 'WETH',
+      },
+    });
+
+    expect(poolInfoIncludedResponse.statusCode).toBe(200);
+    expect(poolInfoIncludedResponse.json()).toMatchObject({
+      data: expect.any(Array),
+      included: [
+        expect.objectContaining({
+          id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          type: 'pool',
+        }),
+      ],
+    });
+
+    expect(recentlyUpdatedResponse.statusCode).toBe(200);
+    expect(recentlyUpdatedResponse.json().meta).toEqual({ page: 1 });
+    expect(recentlyUpdatedResponse.json().data.length).toBeGreaterThanOrEqual(4);
+    expect(recentlyUpdatedResponse.json().data[0]).toMatchObject({
+      type: 'token_info',
+      attributes: {
+        symbol: 'USDC',
+      },
+    });
+    expect(recentlyUpdatedResponse.json().data.some((entry: { attributes: { symbol: string } }) => entry.attributes.symbol === 'USDC')).toBe(true);
+    expect(recentlyUpdatedResponse.json().data[0].attributes.updated_at).toBeGreaterThanOrEqual(
+      recentlyUpdatedResponse.json().data[1].attributes.updated_at,
+    );
+
+    expect(recentlyUpdatedWithNetworkResponse.statusCode).toBe(200);
+    expect(recentlyUpdatedWithNetworkResponse.json()).toMatchObject({
+      data: expect.any(Array),
+      included: [
+        {
+          id: 'eth',
+          type: 'network',
+          attributes: expect.objectContaining({
+            name: 'Ethereum',
+          }),
+        },
+      ],
+    });
+    expect(recentlyUpdatedWithNetworkResponse.json().data.every((entry: { relationships: { network: { data: { id: string } } } }) =>
+      entry.relationships.network.data.id === 'eth')).toBe(true);
+  });
+
+  it('validates onchain token info and recently updated token info parameters explicitly', async () => {
+    const unknownTokenInfoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/tokens/0x0000000000000000000000000000000000000001/info',
+    });
+    const invalidPoolInfoIncludeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info?include=dex',
+    });
+    const invalidRecentlyUpdatedIncludeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/tokens/info_recently_updated?include=dex',
+    });
+    const invalidRecentlyUpdatedNetworkResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/tokens/info_recently_updated?network=not-a-network',
+    });
+
+    expect(unknownTokenInfoResponse.statusCode).toBe(404);
+    expect(unknownTokenInfoResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain token not found: 0x0000000000000000000000000000000000000001',
+    });
+
+    expect(invalidPoolInfoIncludeResponse.statusCode).toBe(400);
+    expect(invalidPoolInfoIncludeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported include value: dex',
+    });
+
+    expect(invalidRecentlyUpdatedIncludeResponse.statusCode).toBe(400);
+    expect(invalidRecentlyUpdatedIncludeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported include value: dex',
+    });
+
+    expect(invalidRecentlyUpdatedNetworkResponse.statusCode).toBe(400);
+    expect(invalidRecentlyUpdatedNetworkResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unknown onchain network: not-a-network',
+    });
+  });
+
   it('returns token list data for an asset platform', async () => {
     const response = await getApp().inject({
       method: 'GET',

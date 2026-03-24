@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { onchainDexes, onchainNetworks, onchainPools } from '../db/schema';
+import { coins, marketSnapshots, onchainDexes, onchainNetworks, onchainPools } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 
@@ -38,8 +38,50 @@ const tokenMultiQuerySchema = z.object({
   include: z.string().optional(),
 });
 
+const simpleTokenPriceQuerySchema = z.object({
+  include_market_cap: z.string().optional(),
+  include_24hr_vol: z.string().optional(),
+  include_24hr_price_change: z.string().optional(),
+  include_total_reserve_in_usd: z.string().optional(),
+});
+
+const poolInfoQuerySchema = z.object({
+  include: z.string().optional(),
+});
+
+const recentlyUpdatedTokenInfoQuerySchema = z.object({
+  include: z.string().optional(),
+  network: z.string().optional(),
+  page: z.string().optional(),
+});
+
 function normalizeAddress(address: string) {
   return address.trim().toLowerCase();
+}
+
+function isValidOnchainAddress(address: string) {
+  const trimmed = address.trim();
+
+  if (trimmed.length === 0) {
+    return false;
+  }
+
+  return /^0x[a-fA-F0-9]{40}$/.test(trimmed) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed);
+}
+
+function parseOnchainAddressList(addresses: string) {
+  const parsed = addresses
+    .split(',')
+    .map((address) => address.trim())
+    .filter((address) => address.length > 0);
+
+  for (const address of parsed) {
+    if (!isValidOnchainAddress(address)) {
+      throw new HttpError(400, 'invalid_parameter', `Invalid onchain address: ${address}`);
+    }
+  }
+
+  return parsed.map(normalizeAddress);
 }
 
 function parsePoolIncludes(include: string | undefined) {
@@ -60,6 +102,30 @@ function parseTokenIncludes(include: string | undefined) {
 
   for (const value of includes) {
     if (value !== 'top_pools') {
+      throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
+    }
+  }
+
+  return includes;
+}
+
+function parsePoolInfoIncludes(include: string | undefined) {
+  const includes = parseCsvQuery(include);
+
+  for (const value of includes) {
+    if (value !== 'pool') {
+      throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
+    }
+  }
+
+  return includes;
+}
+
+function parseRecentlyUpdatedTokenInfoIncludes(include: string | undefined) {
+  const includes = parseCsvQuery(include);
+
+  for (const value of includes) {
+    if (value !== 'network') {
       throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
     }
   }
@@ -240,6 +306,71 @@ function buildTokenResource(
       },
     },
   };
+}
+
+function findCoinIdForToken(networkId: string, tokenAddress: string) {
+  const normalizedAddress = normalizeAddress(tokenAddress);
+
+  if (networkId === 'eth') {
+    if (normalizedAddress === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48') {
+      return 'usd-coin';
+    }
+    if (normalizedAddress === '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599') {
+      return 'bitcoin';
+    }
+    if (normalizedAddress === '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2') {
+      return 'ethereum';
+    }
+  }
+
+  if (networkId === 'solana') {
+    if (normalizedAddress === 'so11111111111111111111111111111111111111112') {
+      return 'solana';
+    }
+    if (normalizedAddress === 'epjfwdd5aufqssqeM2qN1xzybapC8gQbucwycWefbwx'.toLowerCase()) {
+      return 'usd-coin';
+    }
+  }
+
+  return null;
+}
+
+function buildTokenInfoResource(networkId: string, tokenAddress: string, tokenPools: typeof onchainPools.$inferSelect[]) {
+  const normalizedAddress = normalizeAddress(tokenAddress);
+  const primaryPool = tokenPools[0];
+  const symbol = primaryPool
+    ? normalizeAddress(primaryPool.baseTokenAddress) === normalizedAddress
+      ? primaryPool.baseTokenSymbol
+      : primaryPool.quoteTokenSymbol
+    : null;
+  const coinId = findCoinIdForToken(networkId, normalizedAddress);
+  const decimals = symbol === 'USDC' || symbol === 'USDT' ? 6 : 18;
+
+  return {
+    id: `${networkId}_${normalizedAddress}`,
+    type: 'token_info',
+    attributes: {
+      address: normalizedAddress,
+      name: symbol,
+      symbol,
+      coingecko_coin_id: coinId,
+      decimals,
+      image_url: null,
+      updated_at: Math.floor((primaryPool?.updatedAt ?? new Date(0)).getTime() / 1000),
+    },
+    relationships: {
+      network: {
+        data: {
+          type: 'network',
+          id: networkId,
+        },
+      },
+    },
+  };
+}
+
+function formatMetricValue(value: number | null) {
+  return value === null ? null : String(value);
 }
 
 function buildIncludedResources(
@@ -628,6 +759,175 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       ...(includes.includes('top_pools')
         ? { included: tokenPools.map((row) => buildPoolResource(row)) }
         : {}),
+    };
+  });
+
+  app.get('/onchain/simple/networks/:network/token_price/:addresses', async (request) => {
+    const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
+    const query = simpleTokenPriceQuerySchema.parse(request.query);
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const requestedAddresses = parseOnchainAddressList(params.addresses);
+    const includeMarketCap = parseBooleanQuery(query.include_market_cap, false);
+    const include24hrVol = parseBooleanQuery(query.include_24hr_vol, false);
+    const include24hrPriceChange = parseBooleanQuery(query.include_24hr_price_change, false);
+    const includeTotalReserveInUsd = parseBooleanQuery(query.include_total_reserve_in_usd, false);
+
+    const tokenPrices: Record<string, string | null> = {};
+    const marketCaps: Record<string, string | null> = {};
+    const volumes24h: Record<string, string | null> = {};
+    const priceChanges24h: Record<string, string | null> = {};
+    const totalReserveInUsd: Record<string, string | null> = {};
+
+    for (const address of requestedAddresses) {
+      const tokenPools = collectTokenPools(params.network, address, database);
+
+      if (tokenPools.length === 0) {
+        continue;
+      }
+
+      const tokenResource = buildTokenResource(params.network, address, tokenPools);
+      const coinId = findCoinIdForToken(params.network, address);
+      const snapshot = coinId
+        ? database.db
+            .select()
+            .from(marketSnapshots)
+            .where(and(eq(marketSnapshots.coinId, coinId), eq(marketSnapshots.vsCurrency, 'usd')))
+            .limit(1)
+            .get()
+        : null;
+
+      tokenPrices[address] = formatMetricValue(tokenResource.attributes.price_usd);
+
+      if (includeMarketCap) {
+        marketCaps[address] = formatMetricValue(snapshot?.marketCap ?? tokenPools[0]?.reserveUsd ?? null);
+      }
+
+      if (include24hrVol) {
+        volumes24h[address] = formatMetricValue(tokenPools.reduce((sum, pool) => sum + (pool.volume24hUsd ?? 0), 0));
+      }
+
+      if (include24hrPriceChange) {
+        priceChanges24h[address] = formatMetricValue(snapshot?.priceChangePercentage24h ?? 0);
+      }
+
+      if (includeTotalReserveInUsd) {
+        totalReserveInUsd[address] = formatMetricValue(tokenPools.reduce((sum, pool) => sum + (pool.reserveUsd ?? 0), 0));
+      }
+    }
+
+    return {
+      data: {
+        id: network.id,
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: tokenPrices,
+          ...(includeMarketCap ? { market_cap_usd: marketCaps } : {}),
+          ...(include24hrVol ? { h24_volume_usd: volumes24h } : {}),
+          ...(include24hrPriceChange ? { h24_price_change_percentage: priceChanges24h } : {}),
+          ...(includeTotalReserveInUsd ? { total_reserve_in_usd: totalReserveInUsd } : {}),
+        },
+      },
+    };
+  });
+
+  app.get('/onchain/networks/:network/tokens/:address/info', async (request) => {
+    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
+
+    if (!network) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const tokenPools = collectTokenPools(params.network, params.address, database);
+
+    if (tokenPools.length === 0) {
+      throw new HttpError(404, 'not_found', `Onchain token not found: ${normalizeAddress(params.address)}`);
+    }
+
+    return {
+      data: buildTokenInfoResource(params.network, params.address, tokenPools),
+    };
+  });
+
+  app.get('/onchain/networks/:network/pools/:address/info', async (request) => {
+    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const query = poolInfoQuerySchema.parse(request.query);
+    const includes = parsePoolInfoIncludes(query.include);
+    const row = database.db
+      .select()
+      .from(onchainPools)
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .limit(1)
+      .get();
+
+    if (!row) {
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+    }
+
+    const tokenInfos = [
+      buildTokenInfoResource(params.network, row.baseTokenAddress, collectTokenPools(params.network, row.baseTokenAddress, database)),
+      buildTokenInfoResource(params.network, row.quoteTokenAddress, collectTokenPools(params.network, row.quoteTokenAddress, database)),
+    ];
+
+    return {
+      data: tokenInfos,
+      ...(includes.includes('pool') ? { included: [buildPoolResource(row)] } : {}),
+    };
+  });
+
+  app.get('/onchain/tokens/info_recently_updated', async (request) => {
+    const query = recentlyUpdatedTokenInfoQuerySchema.parse(request.query);
+    const includes = parseRecentlyUpdatedTokenInfoIncludes(query.include);
+    const page = parsePositiveInt(query.page, 1);
+    const perPage = 100;
+
+    if (query.network) {
+      const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, query.network)).limit(1).get();
+      if (!network) {
+        throw new HttpError(400, 'invalid_parameter', `Unknown onchain network: ${query.network}`);
+      }
+    }
+
+    const poolRows = database.db.select().from(onchainPools).all();
+    const byNetworkAndAddress = new Map<string, typeof onchainPools.$inferSelect[]>();
+
+    for (const row of poolRows) {
+      for (const address of [row.baseTokenAddress, row.quoteTokenAddress]) {
+        const key = `${row.networkId}:${normalizeAddress(address)}`;
+        const existing = byNetworkAndAddress.get(key) ?? [];
+        existing.push(row);
+        byNetworkAndAddress.set(key, existing);
+      }
+    }
+
+    const tokenInfos = [...byNetworkAndAddress.entries()]
+      .filter(([key]) => !query.network || key.startsWith(`${query.network}:`))
+      .map(([key, pools]) => {
+        const [networkId, address] = key.split(':');
+        return buildTokenInfoResource(networkId!, address!, pools);
+      })
+      .sort((left, right) => right.attributes.updated_at - left.attributes.updated_at || left.id.localeCompare(right.id));
+
+    const start = (page - 1) * perPage;
+    const paged = tokenInfos.slice(start, start + perPage);
+    const included = includes.includes('network')
+      ? [...new Set(paged.map((item) => item.relationships.network.data.id))]
+          .map((networkId) => database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, networkId)).limit(1).get())
+          .filter((row): row is typeof onchainNetworks.$inferSelect => row !== undefined)
+          .map((row) => buildNetworkResource(row))
+      : [];
+
+    return {
+      data: paged,
+      ...(included.length > 0 ? { included } : {}),
+      meta: {
+        page,
+      },
     };
   });
 
