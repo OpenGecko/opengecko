@@ -636,6 +636,34 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('returns global defi aggregates in a data envelope with stable finite-or-null fields', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/global/decentralized_finance_defi',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty('data');
+    expect(typeof body.data.defi_market_cap).toBe('number');
+    expect(typeof body.data.eth_market_cap).toBe('number');
+    expect(typeof body.data.trading_volume_24h).toBe('number');
+    expect(body.data.top_coin_name === null || typeof body.data.top_coin_name === 'string').toBe(true);
+    expect(body.data.defi_to_eth_ratio === null || typeof body.data.defi_to_eth_ratio === 'number').toBe(true);
+    expect(body.data.defi_dominance === null || typeof body.data.defi_dominance === 'number').toBe(true);
+    expect(body.data.top_coin_defi_dominance === null || typeof body.data.top_coin_defi_dominance === 'number').toBe(true);
+
+    for (const [key, value] of Object.entries(body.data)) {
+      if (typeof value === 'number') {
+        expect(Number.isFinite(value)).toBe(true);
+      } else {
+        expect(value === null || typeof value === 'string').toBe(true);
+      }
+
+      expect(key).not.toBe('');
+    }
+  });
+
   it('returns coin market rows', async () => {
     const response = await getApp().inject({
       method: 'GET',

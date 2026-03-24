@@ -1,12 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { count } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import type { MarketSnapshotRow } from '../db/schema';
 import { getConversionRate, SUPPORTED_VS_CURRENCIES } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { exchanges } from '../db/schema';
-import { getMarketRows } from './catalog';
+import { getCategories, getMarketRows, parseJsonArray } from './catalog';
 import { getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 
 function computeMarketCapChangePercentage24hUsd(
@@ -37,6 +36,47 @@ export function registerGlobalRoutes(
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
 ) {
+  app.get('/global/decentralized_finance_defi', async () => {
+    const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+    const marketRows = getMarketRows(database, 'usd', { status: 'active' })
+      .map((row) => ({
+        coin: row.coin,
+        snapshot: getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy),
+      }));
+
+    const stablecoinCategoryIds = new Set(
+      getCategories(database)
+        .filter((category) => category.id === 'stablecoins')
+        .map((category) => category.id),
+    );
+
+    const activeMarketRows = marketRows
+      .filter((row): row is typeof row & { snapshot: NonNullable<typeof row.snapshot> } => row.snapshot !== null);
+    const defiMarketRows = activeMarketRows.filter((row) => !parseJsonArray<string>(row.coin.categoriesJson)
+      .map((categoryId) => categoryId.toLowerCase())
+      .some((categoryId) => stablecoinCategoryIds.has(categoryId)));
+
+    const defiMarketCap = defiMarketRows.reduce((sum, row) => sum + (row.snapshot.marketCap ?? 0), 0);
+    const tradingVolume24h = defiMarketRows.reduce((sum, row) => sum + (row.snapshot.totalVolume ?? 0), 0);
+    const ethMarketCap = activeMarketRows.find((row) => row.coin.id === 'ethereum')?.snapshot.marketCap ?? 0;
+    const totalMarketCapUsd = activeMarketRows.reduce((sum, row) => sum + (row.snapshot.marketCap ?? 0), 0);
+    const topCoin = [...defiMarketRows]
+      .sort((left, right) => (right.snapshot.marketCap ?? 0) - (left.snapshot.marketCap ?? 0))[0];
+    const topCoinMarketCap = topCoin?.snapshot.marketCap ?? 0;
+
+    return {
+      data: {
+        defi_market_cap: defiMarketCap,
+        eth_market_cap: ethMarketCap,
+        defi_to_eth_ratio: ethMarketCap > 0 ? defiMarketCap / ethMarketCap : null,
+        trading_volume_24h: tradingVolume24h,
+        defi_dominance: totalMarketCapUsd > 0 ? (defiMarketCap / totalMarketCapUsd) * 100 : null,
+        top_coin_name: topCoin?.coin.name ?? null,
+        top_coin_defi_dominance: defiMarketCap > 0 ? (topCoinMarketCap / defiMarketCap) * 100 : null,
+      },
+    };
+  });
+
   app.get('/global', async () => {
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
     const marketRows = getMarketRows(database, 'usd', { status: 'active' })
@@ -46,7 +86,7 @@ export function registerGlobalRoutes(
       }))
       .filter((row): row is typeof row & { snapshot: NonNullable<typeof row.snapshot> } => row.snapshot !== null);
     const activeCoinCount = getMarketRows(database, 'usd', { status: 'active' }).length;
-    const [{ value: exchangeCount }] = database.db.select({ value: count() }).from(exchanges).all();
+    const exchangeCount = database.db.select().from(exchanges).all().length;
     const totalMarketCapUsd = marketRows.reduce((sum, row) => sum + (row.snapshot?.marketCap ?? 0), 0);
     const totalVolumeUsd = marketRows.reduce((sum, row) => sum + (row.snapshot?.totalVolume ?? 0), 0);
     const totalMarketCap = Object.fromEntries(
