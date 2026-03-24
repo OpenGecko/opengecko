@@ -1049,6 +1049,110 @@ describe('OpenGecko app scaffold', () => {
     ));
   });
 
+
+  it('returns megafilter pool rows for valid filter sets with numeric bounds, conjunctive filtering, deterministic sorting, and empty results', async () => {
+    const validResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?networks=eth&dexes=uniswap_v3&min_reserve_in_usd=300000000&min_volume_usd_h24=60000000&sort=reserve_in_usd_desc&page=1',
+    });
+    const maxBoundResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?max_reserve_in_usd=330000000&sort=reserve_in_usd_desc&page=1',
+    });
+    const conjunctiveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?networks=eth&dexes=uniswap_v3&min_tx_count_h24=25000&sort=tx_count_h24_desc&page=1',
+    });
+    const emptyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?networks=solana&dexes=raydium&min_volume_usd_h24=50000000&sort=volume_usd_h24_desc&page=1',
+    });
+
+    expect(validResponse.statusCode).toBe(200);
+    expect(validResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        sort: 'reserve_in_usd_desc',
+        total_count: 2,
+        applied_filters: {
+          networks: ['eth'],
+          dexes: ['uniswap_v3'],
+          min_reserve_in_usd: 300000000,
+          min_volume_usd_h24: 60000000,
+        },
+      },
+    });
+    expect(validResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    ]);
+    expect(validResponse.json().data.every((pool: {
+      attributes: {
+        reserve_in_usd: number;
+        volume_usd_h24: number;
+      };
+      relationships: {
+        network: { data: { id: string } };
+        dex: { data: { id: string } };
+      };
+    }) => (
+      pool.relationships.network.data.id === 'eth'
+      && pool.relationships.dex.data.id === 'uniswap_v3'
+      && pool.attributes.reserve_in_usd >= 300000000
+      && pool.attributes.volume_usd_h24 >= 60000000
+    ))).toBe(true);
+    const sortedReserves = validResponse.json().data.map((pool: { attributes: { reserve_in_usd: number } }) => pool.attributes.reserve_in_usd);
+    expect(sortedReserves).toEqual([...sortedReserves].sort((left, right) => right - left));
+
+    expect(maxBoundResponse.statusCode).toBe(200);
+    expect(maxBoundResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+    ]);
+    expect(maxBoundResponse.json().data.every((pool: { attributes: { reserve_in_usd: number } }) =>
+      pool.attributes.reserve_in_usd <= 330000000)).toBe(true);
+
+    expect(conjunctiveResponse.statusCode).toBe(200);
+    expect(conjunctiveResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        sort: 'tx_count_h24_desc',
+      },
+    });
+    expect(conjunctiveResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    ]);
+    expect(conjunctiveResponse.json().data.every((pool: {
+      attributes: { tx_count_h24: number };
+      relationships: {
+        network: { data: { id: string } };
+        dex: { data: { id: string } };
+      };
+    }) => (
+      pool.relationships.network.data.id === 'eth'
+      && pool.relationships.dex.data.id === 'uniswap_v3'
+      && pool.attributes.tx_count_h24 >= 25000
+    ))).toBe(true);
+    const txCounts = conjunctiveResponse.json().data.map((pool: { attributes: { tx_count_h24: number } }) => pool.attributes.tx_count_h24);
+    expect(txCounts).toEqual([...txCounts].sort((left, right) => right - left));
+
+    expect(emptyResponse.statusCode).toBe(200);
+    expect(emptyResponse.json()).toMatchObject({
+      data: [],
+      meta: {
+        page: 1,
+        sort: 'volume_usd_h24_desc',
+        total_count: 0,
+        applied_filters: {
+          networks: ['solana'],
+          dexes: ['raydium'],
+          min_volume_usd_h24: 50000000,
+        },
+      },
+    });
+  });
+
   it('returns onchain pools by multi-address lookup', async () => {
     const response = await getApp().inject({
       method: 'GET',

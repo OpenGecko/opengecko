@@ -51,6 +51,20 @@ const trendingSearchQuerySchema = z.object({
   pools: z.string().optional(),
 });
 
+const megafilterQuerySchema = z.object({
+  page: z.string().optional(),
+  per_page: z.string().optional(),
+  networks: z.string().optional(),
+  dexes: z.string().optional(),
+  min_reserve_in_usd: z.string().optional(),
+  max_reserve_in_usd: z.string().optional(),
+  min_volume_usd_h24: z.string().optional(),
+  max_volume_usd_h24: z.string().optional(),
+  min_tx_count_h24: z.string().optional(),
+  max_tx_count_h24: z.string().optional(),
+  sort: z.string().optional(),
+});
+
 const tokenDetailQuerySchema = z.object({
   include: z.string().optional(),
   include_inactive_source: z.string().optional(),
@@ -1005,6 +1019,143 @@ function searchPoolRows(
     .map(({ row }) => row);
 }
 
+
+const megafilterSortValues = [
+  'reserve_in_usd_desc',
+  'reserve_in_usd_asc',
+  'volume_usd_h24_desc',
+  'volume_usd_h24_asc',
+  'tx_count_h24_desc',
+  'tx_count_h24_asc',
+] as const;
+
+type MegafilterSort = (typeof megafilterSortValues)[number];
+
+function parseMegafilterSort(value: string | undefined): MegafilterSort {
+  if (value === undefined) {
+    return 'volume_usd_h24_desc';
+  }
+
+  if ((megafilterSortValues as readonly string[]).includes(value)) {
+    return value as MegafilterSort;
+  }
+
+  throw new HttpError(400, 'invalid_parameter', `Unsupported sort value: ${value}`);
+}
+
+function parseOptionalFiniteNumber(value: string | undefined, parameterName: string) {
+  if (value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new HttpError(400, 'invalid_parameter', `Invalid ${parameterName} value: ${value}`);
+  }
+
+  return parsed;
+}
+
+function parseMegafilterNetworks(value: string | undefined, database: AppDatabase) {
+  const networks = parseCsvQuery(value);
+  if (networks.length === 0) {
+    return [];
+  }
+
+  const knownNetworks = new Set(database.db.select().from(onchainNetworks).all().map((row) => row.id));
+  for (const network of networks) {
+    if (!knownNetworks.has(network)) {
+      throw new HttpError(400, 'invalid_parameter', `Unknown onchain network: ${network}`);
+    }
+  }
+
+  return networks;
+}
+
+function parseMegafilterDexes(value: string | undefined, database: AppDatabase) {
+  const dexes = parseCsvQuery(value);
+  if (dexes.length === 0) {
+    return [];
+  }
+
+  const knownDexes = new Set(database.db.select().from(onchainDexes).all().map((row) => row.id));
+  for (const dex of dexes) {
+    if (!knownDexes.has(dex)) {
+      throw new HttpError(400, 'invalid_parameter', `Unknown onchain dex: ${dex}`);
+    }
+  }
+
+  return dexes;
+}
+
+function buildMegafilterRow(row: typeof onchainPools.$inferSelect) {
+  const txCount = row.transactions24hBuys + row.transactions24hSells;
+
+  return {
+    id: row.address,
+    type: 'pool',
+    attributes: {
+      name: row.name,
+      address: row.address,
+      reserve_in_usd: row.reserveUsd ?? 0,
+      volume_usd_h24: row.volume24hUsd ?? 0,
+      tx_count_h24: txCount,
+      price_usd: row.priceUsd,
+      pool_created_at: row.createdAtTimestamp ? Math.floor(row.createdAtTimestamp.getTime() / 1000) : null,
+      base_token_address: row.baseTokenAddress,
+      base_token_symbol: row.baseTokenSymbol,
+      quote_token_address: row.quoteTokenAddress,
+      quote_token_symbol: row.quoteTokenSymbol,
+    },
+    relationships: {
+      network: {
+        data: {
+          type: 'network',
+          id: row.networkId,
+        },
+      },
+      dex: {
+        data: {
+          type: 'dex',
+          id: row.dexId,
+        },
+      },
+    },
+  };
+}
+
+function sortMegafilterRows(rows: typeof onchainPools.$inferSelect[], sort: MegafilterSort) {
+  const descending = sort.endsWith('_desc');
+
+  const metric = (row: typeof onchainPools.$inferSelect) => {
+    switch (sort) {
+      case 'reserve_in_usd_desc':
+      case 'reserve_in_usd_asc':
+        return row.reserveUsd ?? 0;
+      case 'volume_usd_h24_desc':
+      case 'volume_usd_h24_asc':
+        return row.volume24hUsd ?? 0;
+      case 'tx_count_h24_desc':
+      case 'tx_count_h24_asc':
+        return row.transactions24hBuys + row.transactions24hSells;
+    }
+  };
+
+  return [...rows].sort((left, right) => {
+    const primary = descending ? metric(right) - metric(left) : metric(left) - metric(right);
+    if (primary !== 0) {
+      return primary;
+    }
+
+    const reserveTie = (right.reserveUsd ?? 0) - (left.reserveUsd ?? 0);
+    if (reserveTie !== 0) {
+      return reserveTie;
+    }
+
+    return left.address.localeCompare(right.address);
+  });
+}
+
 function parseTrendingSearchCandidates(
   pools: string | undefined,
   rows: typeof onchainPools.$inferSelect[],
@@ -1299,6 +1450,69 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         page,
         query: rawQuery,
         ...(query.network !== undefined ? { network: query.network } : {}),
+      },
+    };
+  });
+
+
+  app.get('/onchain/pools/megafilter', async (request) => {
+    const query = megafilterQuerySchema.parse(request.query);
+    const page = parsePositiveInt(query.page, 1);
+    const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);
+    const networks = parseMegafilterNetworks(query.networks, database);
+    const dexes = parseMegafilterDexes(query.dexes, database);
+    const minReserveInUsd = parseOptionalFiniteNumber(query.min_reserve_in_usd, 'min_reserve_in_usd');
+    const maxReserveInUsd = parseOptionalFiniteNumber(query.max_reserve_in_usd, 'max_reserve_in_usd');
+    const minVolumeUsdH24 = parseOptionalFiniteNumber(query.min_volume_usd_h24, 'min_volume_usd_h24');
+    const maxVolumeUsdH24 = parseOptionalFiniteNumber(query.max_volume_usd_h24, 'max_volume_usd_h24');
+    const minTxCountH24 = parseOptionalFiniteNumber(query.min_tx_count_h24, 'min_tx_count_h24');
+    const maxTxCountH24 = parseOptionalFiniteNumber(query.max_tx_count_h24, 'max_tx_count_h24');
+    const sort = parseMegafilterSort(query.sort);
+
+    let rows = database.db.select().from(onchainPools).all();
+
+    if (networks.length > 0) {
+      const networkSet = new Set(networks);
+      rows = rows.filter((row) => networkSet.has(row.networkId));
+    }
+
+    if (dexes.length > 0) {
+      const dexSet = new Set(dexes);
+      rows = rows.filter((row) => dexSet.has(row.dexId));
+    }
+
+    rows = rows.filter((row) => {
+      const reserve = row.reserveUsd ?? 0;
+      const volume = row.volume24hUsd ?? 0;
+      const txCount = row.transactions24hBuys + row.transactions24hSells;
+
+      return (minReserveInUsd === null || reserve >= minReserveInUsd)
+        && (maxReserveInUsd === null || reserve <= maxReserveInUsd)
+        && (minVolumeUsdH24 === null || volume >= minVolumeUsdH24)
+        && (maxVolumeUsdH24 === null || volume <= maxVolumeUsdH24)
+        && (minTxCountH24 === null || txCount >= minTxCountH24)
+        && (maxTxCountH24 === null || txCount <= maxTxCountH24);
+    });
+
+    const sortedRows = sortMegafilterRows(rows, sort);
+    const start = (page - 1) * perPage;
+    const pagedRows = sortedRows.slice(start, start + perPage);
+
+    return {
+      data: pagedRows.map((row) => buildMegafilterRow(row)),
+      meta: {
+        ...buildPaginationMeta(page, perPage, sortedRows.length),
+        sort,
+        applied_filters: {
+          ...(networks.length > 0 ? { networks } : {}),
+          ...(dexes.length > 0 ? { dexes } : {}),
+          ...(minReserveInUsd !== null ? { min_reserve_in_usd: minReserveInUsd } : {}),
+          ...(maxReserveInUsd !== null ? { max_reserve_in_usd: maxReserveInUsd } : {}),
+          ...(minVolumeUsdH24 !== null ? { min_volume_usd_h24: minVolumeUsdH24 } : {}),
+          ...(maxVolumeUsdH24 !== null ? { max_volume_usd_h24: maxVolumeUsdH24 } : {}),
+          ...(minTxCountH24 !== null ? { min_tx_count_h24: minTxCountH24 } : {}),
+          ...(maxTxCountH24 !== null ? { max_tx_count_h24: maxTxCountH24 } : {}),
+        },
       },
     };
   });

@@ -293,6 +293,40 @@ describe('OpenGecko invalid parameter handling', () => {
     });
   });
 
+
+  it('rejects malformed filters and invalid sort values on onchain megafilter explicitly', async () => {
+    const malformedNumericResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?min_reserve_in_usd=abc',
+    });
+    const invalidSortResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?sort=unsupported',
+    });
+    const invalidNetworkResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?networks=bitcoin',
+    });
+
+    expect(malformedNumericResponse.statusCode).toBe(400);
+    expect(malformedNumericResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid min_reserve_in_usd value: abc',
+    });
+
+    expect(invalidSortResponse.statusCode).toBe(400);
+    expect(invalidSortResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported sort value: unsupported',
+    });
+
+    expect(invalidNetworkResponse.statusCode).toBe(400);
+    expect(invalidNetworkResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unknown onchain network: bitcoin',
+    });
+  });
+
   it('rejects invalid exchange volume chart day values', async () => {
     const response = await app!.inject({
       method: 'GET',
