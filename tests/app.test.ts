@@ -908,6 +908,147 @@ describe('OpenGecko app scaffold', () => {
     expect(networkCreatedAt).toEqual([...networkCreatedAt].sort((left, right) => (right ?? 0) - (left ?? 0)));
   });
 
+  it('returns pool search results with exact matches ranked ahead of partial matches and supports network filtering', async () => {
+    const exactAddressResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/search/pools?query=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b&page=1',
+    });
+    const exactNameResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/search/pools?query=USDC&page=1',
+    });
+    const partialResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/search/pools?query=usdc&page=1',
+    });
+    const networkFilteredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/search/pools?query=usdc&network=solana&page=1',
+    });
+
+    expect(exactAddressResponse.statusCode).toBe(200);
+    expect(exactAddressResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        query: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      },
+    });
+    expect(exactAddressResponse.json().data[0]).toMatchObject({
+      id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      relationships: {
+        network: { data: { id: 'eth', type: 'network' } },
+      },
+    });
+
+    expect(exactNameResponse.statusCode).toBe(200);
+    expect(exactNameResponse.json().data.length).toBeGreaterThan(0);
+    expect(exactNameResponse.json().data[0].id).toBe('0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b');
+
+    expect(partialResponse.statusCode).toBe(200);
+    expect(partialResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+      '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+    ]);
+
+    expect(networkFilteredResponse.statusCode).toBe(200);
+    expect(networkFilteredResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        network: 'solana',
+      },
+    });
+    expect(networkFilteredResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+    ]);
+    expect(networkFilteredResponse.json().data.every((pool: { relationships: { network: { data: { id: string } } } }) =>
+      pool.relationships.network.data.id === 'solana')).toBe(true);
+  });
+
+  it('returns trending search rows constrained to requested subsets and paginates deterministically', async () => {
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/trending_search?page=1',
+    });
+    const subsetResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+    });
+    const invalidSubsetResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x0000000000000000000000000000000000000000',
+    });
+    const pageOneResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/trending_search?page=1&per_page=2',
+    });
+    const pageTwoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/trending_search?page=2&per_page=2',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(baselineResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+      '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+    ]);
+
+    expect(subsetResponse.statusCode).toBe(200);
+    expect(subsetResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        candidate_count: 2,
+      },
+    });
+    expect(subsetResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+    ]);
+
+    expect(invalidSubsetResponse.statusCode).toBe(200);
+    expect(invalidSubsetResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        candidate_count: 1,
+        ignored_candidates: [
+          '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          '0x0000000000000000000000000000000000000000',
+        ],
+      },
+    });
+    expect(invalidSubsetResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    ]);
+
+    expect(pageOneResponse.statusCode).toBe(200);
+    expect(pageTwoResponse.statusCode).toBe(200);
+    expect(pageOneResponse.json()).toMatchObject({
+      meta: {
+        page: 1,
+        per_page: 2,
+      },
+    });
+    expect(pageTwoResponse.json()).toMatchObject({
+      meta: {
+        page: 2,
+        per_page: 2,
+      },
+    });
+    expect(pageOneResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    ]);
+    expect(pageTwoResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+      '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+    ]);
+    expect(pageTwoResponse.json().data).not.toEqual(expect.arrayContaining(
+      pageOneResponse.json().data.map((pool: { id: string }) => expect.objectContaining({ id: pool.id })),
+    ));
+  });
+
   it('returns onchain pools by multi-address lookup', async () => {
     const response = await getApp().inject({
       method: 'GET',
