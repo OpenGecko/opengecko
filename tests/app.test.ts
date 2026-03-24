@@ -1077,6 +1077,74 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('returns named circulating and total supply chart series for rolling windows', async () => {
+    const circulatingResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/circulating_supply_chart?days=30',
+    });
+    const totalResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/total_supply_chart?days=30',
+    });
+
+    expect(circulatingResponse.statusCode).toBe(200);
+    expect(totalResponse.statusCode).toBe(200);
+
+    const circulatingBody = circulatingResponse.json();
+    const totalBody = totalResponse.json();
+
+    expect(circulatingBody).toEqual({
+      circulating_supply: expect.any(Array),
+    });
+    expect(totalBody).toEqual({
+      total_supply: expect.any(Array),
+    });
+
+    for (const [seriesKey, body] of [
+      ['circulating_supply', circulatingBody] as const,
+      ['total_supply', totalBody] as const,
+    ]) {
+      expect(body[seriesKey].length).toBeGreaterThan(0);
+      const timestamps = body[seriesKey].map((sample: number[]) => sample[0]);
+      expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
+
+      for (const sample of body[seriesKey]) {
+        expect(sample).toHaveLength(2);
+        expect(typeof sample[0]).toBe('number');
+        expect(typeof sample[1]).toBe('number');
+        expect(Number.isFinite(sample[1])).toBe(true);
+      }
+    }
+  });
+
+  it('returns named supply chart series constrained to explicit ranges', async () => {
+    const from = 1773792000;
+    const to = 1774310400;
+    const circulatingResponse = await getApp().inject({
+      method: 'GET',
+      url: `/coins/bitcoin/circulating_supply_chart/range?from=${from}&to=${to}`,
+    });
+    const totalResponse = await getApp().inject({
+      method: 'GET',
+      url: `/coins/bitcoin/total_supply_chart/range?from=${from}&to=${to}`,
+    });
+
+    expect(circulatingResponse.statusCode).toBe(200);
+    expect(totalResponse.statusCode).toBe(200);
+
+    for (const [seriesKey, body] of [
+      ['circulating_supply', circulatingResponse.json()] as const,
+      ['total_supply', totalResponse.json()] as const,
+    ]) {
+      expect(body).toHaveProperty(seriesKey);
+      expect(body[seriesKey].length).toBeGreaterThan(0);
+      const timestamps = body[seriesKey].map((sample: number[]) => sample[0]);
+      expect(timestamps[0]).toBeGreaterThanOrEqual(from * 1000);
+      expect(timestamps.at(-1)).toBeLessThanOrEqual(to * 1000);
+      expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
+    }
+  });
+
   it('returns categories and contract-address variants', async () => {
     const categoriesListResponse = await getApp().inject({
       method: 'GET',

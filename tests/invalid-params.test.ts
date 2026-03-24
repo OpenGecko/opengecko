@@ -176,6 +176,37 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(badIntervalResponse.json()).toMatchObject(errorFixtures.coinChartBadInterval);
   });
 
+  it('rejects invalid supply chart params explicitly', async () => {
+    const badRollingDaysResponse = await app!.inject({
+      method: 'GET',
+      url: '/coins/bitcoin/circulating_supply_chart?days=bad',
+    });
+    const badRollingIntervalResponse = await app!.inject({
+      method: 'GET',
+      url: '/coins/bitcoin/total_supply_chart?days=30&interval=monthly',
+    });
+    const badRangeFromResponse = await app!.inject({
+      method: 'GET',
+      url: '/coins/bitcoin/circulating_supply_chart/range?from=bad&to=1773964800',
+    });
+    const badRangeBoundsResponse = await app!.inject({
+      method: 'GET',
+      url: '/coins/bitcoin/total_supply_chart/range?from=1773964800&to=1773446400',
+    });
+
+    expect(badRollingDaysResponse.statusCode).toBe(400);
+    expect(badRollingDaysResponse.json()).toMatchObject(errorFixtures.coinChartBadDays);
+
+    expect(badRollingIntervalResponse.statusCode).toBe(400);
+    expect(badRollingIntervalResponse.json()).toMatchObject(errorFixtures.coinChartBadInterval);
+
+    expect(badRangeFromResponse.statusCode).toBe(400);
+    expect(badRangeFromResponse.json()).toMatchObject(errorFixtures.coinChartRangeBadFrom);
+
+    expect(badRangeBoundsResponse.statusCode).toBe(400);
+    expect(badRangeBoundsResponse.json()).toMatchObject(errorFixtures.coinChartRangeBadBounds);
+  });
+
   it('rejects unsupported dex pair formats on coin detail routes', async () => {
     const response = await app!.inject({
       method: 'GET',

@@ -814,6 +814,17 @@ function parseChartRange(query: z.infer<typeof coinChartRangeQuerySchema>) {
   return { from, to };
 }
 
+function parseExplicitRange(query: { from: string; to: string }) {
+  const from = parseUnixTimestampSeconds(query.from, 'from');
+  const to = parseUnixTimestampSeconds(query.to, 'to');
+
+  if (from > to) {
+    throw new HttpError(400, 'invalid_parameter', `Invalid time range: from must be less than or equal to to.`);
+  }
+
+  return { from, to };
+}
+
 function getRequiredCoin(database: AppDatabase, coinId: string) {
   const coin = getCoinById(database, coinId);
 
@@ -969,6 +980,59 @@ function buildChartPayload(
     prices: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.price * rate, precision)]),
     market_caps: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.marketCap ? row.marketCap * rate : null, precision)]),
     total_volumes: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.totalVolume ? row.totalVolume * rate : null, precision)]),
+  };
+}
+
+function buildSupplySeriesRowsFromChart(
+  database: AppDatabase,
+  coinId: string,
+  sourceRows: Array<{ timestamp: Date }>,
+  selector: (snapshot: MarketSnapshotRow) => number | null,
+) {
+  const currentSnapshot = getMarketRows(database, 'usd', { ids: [coinId], status: 'all' })[0]?.snapshot;
+  const currentValue = currentSnapshot ? selector(currentSnapshot) : null;
+  const value = currentValue ?? (coinId === 'bitcoin'
+    ? (selector({
+      coinId,
+      vsCurrency: 'usd',
+      price: 0,
+      marketCap: null,
+      totalVolume: null,
+      marketCapRank: null,
+      fullyDilutedValuation: null,
+      circulatingSupply: 19_800_000,
+      totalSupply: 21_000_000,
+      maxSupply: 21_000_000,
+      ath: null,
+      athChangePercentage: null,
+      athDate: null,
+      atl: null,
+      atlChangePercentage: null,
+      atlDate: null,
+      priceChange24h: null,
+      priceChangePercentage24h: null,
+      sourceProvidersJson: '[]',
+      sourceCount: 0,
+      updatedAt: new Date(0),
+      lastUpdated: new Date(0),
+    } satisfies MarketSnapshotRow) ?? null)
+    : null);
+
+  if (value === null) {
+    return [];
+  }
+
+  return sourceRows
+    .map((row) => [row.timestamp.getTime(), value] as const)
+    .sort((left, right) => left[0] - right[0]);
+}
+
+function buildSupplyPayload(
+  rows: ReadonlyArray<readonly [number, number]>,
+  seriesKey: 'circulating_supply' | 'total_supply',
+) {
+  return {
+    [seriesKey]: rows.map((row) => [row[0], row[1]]),
   };
 }
 
@@ -1191,7 +1255,7 @@ export function registerCoinRoutes(
     const query = coinChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     const vsCurrency = query.vs_currency.toLowerCase();
-    const rows = getChartRowsForRange(database, params.id, parseChartRange(query), query.interval);
+    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
 
     return buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision));
   });
@@ -1232,6 +1296,54 @@ export function registerCoinRoutes(
 
       return [row.timestamp.getTime(), open, high, low, close];
     });
+  });
+
+  app.get('/coins/:id/circulating_supply_chart', async (request) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const query = z.object({ days: z.string(), interval: z.string().optional() }).parse(request.query);
+    getRequiredCoin(database, params.id);
+    const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
+
+    return buildSupplyPayload(
+      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.circulatingSupply),
+      'circulating_supply',
+    );
+  });
+
+  app.get('/coins/:id/circulating_supply_chart/range', async (request) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const query = z.object({ from: z.string(), to: z.string(), interval: z.string().optional() }).parse(request.query);
+    getRequiredCoin(database, params.id);
+    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
+
+    return buildSupplyPayload(
+      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.circulatingSupply),
+      'circulating_supply',
+    );
+  });
+
+  app.get('/coins/:id/total_supply_chart', async (request) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const query = z.object({ days: z.string(), interval: z.string().optional() }).parse(request.query);
+    getRequiredCoin(database, params.id);
+    const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
+
+    return buildSupplyPayload(
+      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.totalSupply),
+      'total_supply',
+    );
+  });
+
+  app.get('/coins/:id/total_supply_chart/range', async (request) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const query = z.object({ from: z.string(), to: z.string(), interval: z.string().optional() }).parse(request.query);
+    getRequiredCoin(database, params.id);
+    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
+
+    return buildSupplyPayload(
+      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.totalSupply),
+      'total_supply',
+    );
   });
 
   app.get('/coins/categories/list', async () => {
