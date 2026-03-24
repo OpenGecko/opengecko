@@ -1,0 +1,30 @@
+commands:
+  install: bun install --frozen-lockfile
+  build: bun run build
+  typecheck: bun run typecheck
+  test: bun run test -- --maxWorkers=3
+  test_app: bun test tests/app.test.ts
+  test_invalid_params: bun test tests/invalid-params.test.ts
+  endpoint_simple: bash scripts/modules/simple/simple.sh
+
+services:
+  api:
+    start: PORT=3100 bun run src/server.ts
+    stop: sh -c 'pids=$(lsof -ti :3100); [ -n "$pids" ] && kill $pids || true'
+    healthcheck: curl -sf http://127.0.0.1:3100/ping
+    port: 3100
+    depends_on: []
+
+  worker:
+    start: PORT=3101 bun run src/jobs/run-ohlcv-worker.ts
+    stop: sh -c 'pids=$(lsof -ti :3101); [ -n "$pids" ] && kill $pids || true'
+    healthcheck: sh -c 'pids=$(lsof -ti :3101); [ -n "$pids" ]'
+    port: 3101
+    depends_on: []
+
+  validation-api:
+    start: PORT=3102 bun run src/server.ts
+    stop: sh -c 'pids=$(lsof -ti :3102); [ -n "$pids" ] && kill $pids || true'
+    healthcheck: curl -sf http://127.0.0.1:3102/ping
+    port: 3102
+    depends_on: []
