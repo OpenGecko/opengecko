@@ -664,6 +664,45 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('returns a named global market cap chart series payload for the requested window', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/global/market_cap_chart?vs_currency=usd&days=7',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toEqual({
+      market_cap_chart: expect.any(Array),
+    });
+    expect(body.market_cap_chart.length).toBeGreaterThan(0);
+    expect(body.market_cap_chart[0]).toHaveLength(2);
+    expect(typeof body.market_cap_chart[0][0]).toBe('number');
+    expect(typeof body.market_cap_chart[0][1]).toBe('number');
+    expect(body.market_cap_chart.at(-1)[0]).toBeGreaterThanOrEqual(body.market_cap_chart[0][0]);
+  });
+
+  it('validates missing required params for global market cap chart', async () => {
+    const missingVsCurrencyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/global/market_cap_chart?days=7',
+    });
+    const missingDaysResponse = await getApp().inject({
+      method: 'GET',
+      url: '/global/market_cap_chart?vs_currency=usd',
+    });
+
+    expect(missingVsCurrencyResponse.statusCode).toBe(400);
+    expect(missingVsCurrencyResponse.json()).toMatchObject({
+      error: 'invalid_request',
+    });
+
+    expect(missingDaysResponse.statusCode).toBe(400);
+    expect(missingDaysResponse.json()).toMatchObject({
+      error: 'invalid_request',
+    });
+  });
+
   it('returns coin market rows', async () => {
     const response = await getApp().inject({
       method: 'GET',

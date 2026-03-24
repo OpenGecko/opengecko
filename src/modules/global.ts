@@ -1,12 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
-import type { MarketSnapshotRow } from '../db/schema';
+import { chartPoints, type MarketSnapshotRow } from '../db/schema';
+import { asc } from 'drizzle-orm';
 import { getConversionRate, SUPPORTED_VS_CURRENCIES } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { exchanges } from '../db/schema';
 import { getCategories, getMarketRows, parseJsonArray } from './catalog';
 import { getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+import { HttpError } from '../http/errors';
+import { getChartGranularityMs, downsampleTimeSeries } from './chart-semantics';
+import { z } from 'zod';
 
 function computeMarketCapChangePercentage24hUsd(
   marketRows: Array<{ snapshot: MarketSnapshotRow }>,
@@ -30,12 +34,75 @@ function computeMarketCapChangePercentage24hUsd(
   return ((currentMarketCapUsd - previousMarketCapUsd) / previousMarketCapUsd) * 100;
 }
 
+const globalMarketCapChartQuerySchema = z.object({
+  vs_currency: z.string(),
+  days: z.string(),
+});
+
+function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
+  if (days === 'max') {
+    const rows = database.db
+      .select()
+      .from(chartPoints)
+      .orderBy(asc(chartPoints.timestamp))
+      .all();
+
+    return rows;
+  }
+
+  const parsedDays = Number(days);
+
+  if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
+    throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
+  }
+
+  const cutoffMs = Date.now() - parsedDays * 24 * 60 * 60 * 1000;
+
+  return database.db
+    .select()
+    .from(chartPoints)
+    .orderBy(asc(chartPoints.timestamp))
+    .all()
+    .filter((row) => row.timestamp.getTime() >= cutoffMs);
+}
+
 export function registerGlobalRoutes(
   app: FastifyInstance,
   database: AppDatabase,
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
 ) {
+  app.get('/global/market_cap_chart', async (request) => {
+    const query = globalMarketCapChartQuerySchema.parse(request.query);
+    const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+    const vsCurrency = query.vs_currency.toLowerCase();
+    const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+    const rows = getGlobalMarketCapChartRows(database, query.days);
+
+    const groupedRows = new Map<number, number>();
+
+    for (const row of rows) {
+      const timestamp = row.timestamp.getTime();
+      groupedRows.set(timestamp, (groupedRows.get(timestamp) ?? 0) + ((row.marketCap ?? 0) * rate));
+    }
+
+    const orderedRows = [...groupedRows.entries()]
+      .sort((left, right) => left[0] - right[0])
+      .map(([timestamp, marketCap]) => ({
+        timestamp: new Date(timestamp),
+        marketCap,
+      }));
+
+    const downsampledRows = downsampleTimeSeries(
+      orderedRows,
+      getChartGranularityMs(orderedRows.length > 1 ? orderedRows.at(-1)!.timestamp.getTime() - orderedRows[0]!.timestamp.getTime() : 0),
+    );
+
+    return {
+      market_cap_chart: downsampledRows.map((row) => [row.timestamp.getTime(), row.marketCap]),
+    };
+  });
+
   app.get('/global/decentralized_finance_defi', async () => {
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
     const marketRows = getMarketRows(database, 'usd', { status: 'active' })
