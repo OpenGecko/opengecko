@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AppDatabase } from '../db/client';
 import { onchainDexes, onchainNetworks, onchainPools } from '../db/schema';
 import { HttpError } from '../http/errors';
-import { parsePositiveInt } from '../http/params';
+import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 
 const paginationQuerySchema = z.object({
   page: z.string().optional(),
@@ -15,6 +15,31 @@ const poolListQuerySchema = z.object({
   page: z.string().optional(),
   sort: z.enum(['h24_volume_usd_liquidity_desc', 'h24_tx_count_desc', 'reserve_in_usd_desc']).optional(),
 });
+
+const poolIncludeSchema = z.enum(['network', 'dex']);
+
+const poolDetailQuerySchema = z.object({
+  include: z.string().optional(),
+  include_volume_breakdown: z.string().optional(),
+  include_composition: z.string().optional(),
+});
+
+const poolMultiQuerySchema = z.object({
+  include: z.string().optional(),
+});
+
+function parsePoolIncludes(include: string | undefined) {
+  const includes = parseCsvQuery(include);
+
+  for (const value of includes) {
+    const result = poolIncludeSchema.safeParse(value);
+    if (!result.success) {
+      throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
+    }
+  }
+
+  return includes;
+}
 
 function buildNetworkResource(row: typeof onchainNetworks.$inferSelect) {
   return {
@@ -50,7 +75,25 @@ function buildDexResource(row: typeof onchainDexes.$inferSelect) {
   };
 }
 
-function buildPoolResource(row: typeof onchainPools.$inferSelect) {
+function buildPoolResource(
+  row: typeof onchainPools.$inferSelect,
+  options?: {
+    includeVolumeBreakdown?: boolean;
+    includeComposition?: boolean;
+  },
+) {
+  const includeVolumeBreakdown = options?.includeVolumeBreakdown ?? false;
+  const includeComposition = options?.includeComposition ?? false;
+  const volumeUsd = includeVolumeBreakdown
+    ? {
+        h24: row.volume24hUsd,
+        h24_buy_usd: row.volume24hUsd === null ? null : row.volume24hUsd / 2,
+        h24_sell_usd: row.volume24hUsd === null ? null : row.volume24hUsd / 2,
+      }
+    : {
+        h24: row.volume24hUsd,
+      };
+
   return {
     id: row.address,
     type: 'pool',
@@ -63,9 +106,7 @@ function buildPoolResource(row: typeof onchainPools.$inferSelect) {
       quote_token_symbol: row.quoteTokenSymbol,
       price_usd: row.priceUsd,
       reserve_usd: row.reserveUsd,
-      volume_usd: {
-        h24: row.volume24hUsd,
-      },
+      volume_usd: volumeUsd,
       transactions: {
         h24: {
           buys: row.transactions24hBuys,
@@ -73,6 +114,20 @@ function buildPoolResource(row: typeof onchainPools.$inferSelect) {
         },
       },
       pool_created_at: row.createdAtTimestamp ? Math.floor(row.createdAtTimestamp.getTime() / 1000) : null,
+      ...(includeComposition
+        ? {
+            composition: {
+              base_token: {
+                address: row.baseTokenAddress,
+                symbol: row.baseTokenSymbol,
+              },
+              quote_token: {
+                address: row.quoteTokenAddress,
+                symbol: row.quoteTokenSymbol,
+              },
+            },
+          }
+        : {}),
     },
     relationships: {
       network: {
@@ -89,6 +144,57 @@ function buildPoolResource(row: typeof onchainPools.$inferSelect) {
       },
     },
   };
+}
+
+function buildIncludedResources(
+  includes: string[],
+  rows: typeof onchainPools.$inferSelect[],
+  database: AppDatabase,
+) {
+  const included: Array<ReturnType<typeof buildNetworkResource> | ReturnType<typeof buildDexResource>> = [];
+  const seen = new Set<string>();
+
+  if (includes.includes('network')) {
+    const networkIds = [...new Set(rows.map((row) => row.networkId))];
+    const networkRows = networkIds.length
+      ? database.db.select().from(onchainNetworks).where(inArray(onchainNetworks.id, networkIds)).all()
+      : [];
+
+    for (const row of networkRows) {
+      const key = `network:${row.id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        included.push(buildNetworkResource(row));
+      }
+    }
+  }
+
+  if (includes.includes('dex')) {
+    const dexKeys = [...new Set(rows.map((row) => `${row.networkId}:${row.dexId}`))];
+    const dexRows = dexKeys.length
+      ? database.db
+          .select()
+          .from(onchainDexes)
+          .where(
+            inArray(
+              onchainDexes.id,
+              dexKeys.map((entry) => entry.split(':')[1] as string),
+            ),
+          )
+          .all()
+          .filter((row) => dexKeys.includes(`${row.networkId}:${row.id}`))
+      : [];
+
+    for (const row of dexRows) {
+      const key = `dex:${row.networkId}:${row.id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        included.push(buildDexResource(row));
+      }
+    }
+  }
+
+  return included;
 }
 
 function resolvePoolOrder(sort: z.infer<typeof poolListQuerySchema>['sort']) {
@@ -180,7 +286,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const start = (page - 1) * perPage;
 
     return {
-      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      data: rows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
       },
@@ -222,7 +328,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const start = (page - 1) * perPage;
 
     return {
-      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      data: rows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
         dex: dex.id,
@@ -252,7 +358,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const start = (page - 1) * perPage;
 
     return {
-      data: rows.slice(start, start + perPage).map(buildPoolResource),
+      data: rows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
       },
@@ -261,14 +367,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
   app.get('/onchain/networks/:network/pools/multi/:addresses', async (request) => {
     const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
-    const requestedAddresses = params.addresses
+    const query = poolMultiQuerySchema.parse(request.query);
+    const includes = parsePoolIncludes(query.include);
+    const requestedAddresses = [...new Set(params.addresses
       .split(',')
       .map((address) => address.trim())
-      .filter((address) => address.length > 0);
+      .filter((address) => address.length > 0))];
 
     if (requestedAddresses.length === 0) {
       return {
-        data: [],
+      data: [],
+      ...(includes.length > 0 ? { included: [] } : {}),
       };
     }
 
@@ -282,15 +391,27 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       .select()
       .from(onchainPools)
       .where(and(eq(onchainPools.networkId, params.network), inArray(onchainPools.address, requestedAddresses)))
+      .orderBy(asc(onchainPools.address))
       .all();
 
+    const rowsByAddress = new Map(rows.map((row) => [row.address, row]));
+    const orderedRows = requestedAddresses
+      .map((address) => rowsByAddress.get(address))
+      .filter((row): row is typeof onchainPools.$inferSelect => row !== undefined);
+    const included = buildIncludedResources(includes, orderedRows, database);
+
     return {
-      data: rows.map(buildPoolResource),
+      data: orderedRows.map((row) => buildPoolResource(row)),
+      ...(included.length > 0 ? { included } : {}),
     };
   });
 
   app.get('/onchain/networks/:network/pools/:address', async (request) => {
     const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const query = poolDetailQuerySchema.parse(request.query);
+    const includes = parsePoolIncludes(query.include);
+    const includeVolumeBreakdown = parseBooleanQuery(query.include_volume_breakdown, false);
+    const includeComposition = parseBooleanQuery(query.include_composition, false);
 
     const row = database.db
       .select()
@@ -303,8 +424,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
     }
 
+    const included = buildIncludedResources(includes, [row], database);
+
     return {
-      data: buildPoolResource(row),
+      data: buildPoolResource(row, {
+        includeVolumeBreakdown,
+        includeComposition,
+      }),
+      ...(included.length > 0 ? { included } : {}),
     };
   });
 }

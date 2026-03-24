@@ -616,6 +616,55 @@ describe('OpenGecko app scaffold', () => {
     expect(poolDetailResponse.json()).toMatchObject(contractFixtures.onchainPoolEthDetail);
   });
 
+  it('keeps onchain pool detail scoped to the requested network and supports explicit includes/toggles', async () => {
+    const includedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include=network,dex&include_volume_breakdown=true&include_composition=true',
+    });
+    const wrongNetworkResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/solana/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    });
+
+    expect(includedResponse.statusCode).toBe(200);
+    expect(includedResponse.json()).toMatchObject({
+      data: {
+        id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+        relationships: {
+          network: { data: { id: 'eth', type: 'network' } },
+          dex: { data: { id: 'uniswap_v3', type: 'dex' } },
+        },
+        attributes: {
+          volume_usd: {
+            h24: 64500000,
+            h24_buy_usd: 32250000,
+            h24_sell_usd: 32250000,
+          },
+          composition: {
+            base_token: {
+              address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              symbol: 'USDC',
+            },
+            quote_token: {
+              address: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+              symbol: 'WETH',
+            },
+          },
+        },
+      },
+      included: expect.arrayContaining([
+        expect.objectContaining({ id: 'eth', type: 'network' }),
+        expect.objectContaining({ id: 'uniswap_v3', type: 'dex' }),
+      ]),
+    });
+
+    expect(wrongNetworkResponse.statusCode).toBe(404);
+    expect(wrongNetworkResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain pool not found: 0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    });
+  });
+
   it('returns onchain pools scoped by dex', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -628,6 +677,32 @@ describe('OpenGecko app scaffold', () => {
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data.length).toBeGreaterThan(0);
     expect(body.data[0]).toHaveProperty('relationships.dex.data.id', 'uniswap_v3');
+  });
+
+  it('keeps dex-scoped pools aligned to the requested dex and network', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/dexes/uniswap_v3/pools?page=1&sort=reserve_in_usd_desc',
+    });
+    const mismatchedDexResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/dexes/raydium/pools',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toEqual([
+      expect.objectContaining({ id: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36' }),
+      expect.objectContaining({ id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b' }),
+    ]);
+    expect(response.json().data).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7' })]),
+    );
+
+    expect(mismatchedDexResponse.statusCode).toBe(404);
+    expect(mismatchedDexResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain dex not found: raydium',
+    });
   });
 
   it('returns newest onchain pools for a network', async () => {
@@ -644,6 +719,26 @@ describe('OpenGecko app scaffold', () => {
     expect(body.data[0]).toHaveProperty('type', 'pool');
   });
 
+  it('orders network new pools by recency while preserving pool/dex continuity', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/new_pools?page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+    ]);
+    expect(response.json().data[0]).toMatchObject({
+      relationships: {
+        network: { data: { id: 'eth', type: 'network' } },
+        dex: { data: { id: 'uniswap_v3', type: 'dex' } },
+      },
+    });
+  });
+
   it('returns onchain pools by multi-address lookup', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -656,6 +751,27 @@ describe('OpenGecko app scaffold', () => {
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data).toHaveLength(2);
     expect(body.data[0]).toHaveProperty('type', 'pool');
+  });
+
+  it('returns deterministic pool-multi results for requested addresses only with deduplicated includes', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36?include=network,dex',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: [
+        expect.objectContaining({ id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b' }),
+        expect.objectContaining({ id: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36' }),
+      ],
+      included: expect.arrayContaining([
+        expect.objectContaining({ id: 'eth', type: 'network' }),
+        expect.objectContaining({ id: 'uniswap_v3', type: 'dex' }),
+      ]),
+    });
+    expect(response.json().data).toHaveLength(2);
+    expect(response.json().included).toHaveLength(2);
   });
 
   it('returns token list data for an asset platform', async () => {

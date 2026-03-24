@@ -476,6 +476,37 @@ describe('OpenGecko invalid parameter handling', () => {
     });
   });
 
+  it('rejects unsupported onchain pool include, toggle, and sort parameters explicitly', async () => {
+    const invalidIncludeResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include=token',
+    });
+    const invalidToggleResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include_volume_breakdown=yes',
+    });
+    const invalidSortResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools?sort=market_cap_desc',
+    });
+
+    expect(invalidIncludeResponse.statusCode).toBe(400);
+    expect(invalidIncludeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
+
+    expect(invalidToggleResponse.statusCode).toBe(400);
+    expect(invalidToggleResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid boolean query value: yes',
+    });
+
+    expect(invalidSortResponse.statusCode).toBe(400);
+    expect(invalidSortResponse.json()).toMatchObject({
+      error: 'invalid_request',
+    });
+  });
+
   it('returns not found for unknown exchange tickers', async () => {
     const response = await app!.inject({
       method: 'GET',
