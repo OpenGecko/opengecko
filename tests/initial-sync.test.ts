@@ -20,6 +20,11 @@ vi.mock('../src/providers/ccxt', () => ({
 
 import { fetchExchangeMarkets, fetchExchangeTickers, fetchExchangeOHLCV, fetchExchangeNetworks } from '../src/providers/ccxt';
 
+const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.fn>;
+const mockedFetchExchangeTickers = fetchExchangeTickers as ReturnType<typeof vi.fn>;
+const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+const mockedFetchExchangeNetworks = fetchExchangeNetworks as ReturnType<typeof vi.fn>;
+
 describe('initial market sync', () => {
   let tempDir: string;
   let database: ReturnType<typeof createDatabase>;
@@ -29,11 +34,11 @@ describe('initial market sync', () => {
     database = createDatabase(join(tempDir, 'test.db'));
     migrateDatabase(database);
     seedStaticReferenceData(database);
-    vi.mocked(fetchExchangeMarkets).mockReset();
-    vi.mocked(fetchExchangeTickers).mockReset();
-    vi.mocked(fetchExchangeOHLCV).mockReset();
-    vi.mocked(fetchExchangeNetworks).mockReset();
-    vi.mocked(fetchExchangeNetworks).mockResolvedValue([]);
+    mockedFetchExchangeMarkets.mockReset();
+    mockedFetchExchangeTickers.mockReset();
+    mockedFetchExchangeOHLCV.mockReset();
+    mockedFetchExchangeNetworks.mockReset();
+    mockedFetchExchangeNetworks.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -42,14 +47,14 @@ describe('initial market sync', () => {
   });
 
   it('discovers coins and populates market snapshots from CCXT exchanges', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
         { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
         { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, spot: true, baseName: 'Ethereum', raw: {} },
       ];
       return [];
     });
-    vi.mocked(fetchExchangeTickers).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [{
         exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT',
         last: 90_000, bid: 89_950, ask: 90_050, high: 91_000, low: 89_000,
@@ -58,7 +63,7 @@ describe('initial market sync', () => {
       }];
       return [];
     });
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance', 'coinbase', 'kraken'],
@@ -81,7 +86,7 @@ describe('initial market sync', () => {
   });
 
   it('creates exchange records from CCXT metadata', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
         { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
       ];
@@ -93,8 +98,8 @@ describe('initial market sync', () => {
       ];
       return [];
     });
-    vi.mocked(fetchExchangeTickers).mockResolvedValue([]);
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn().mockReturnThis() };
     await syncExchangesFromCCXT(database, ['binance', 'coinbase', 'kraken'], mockLogger as never);
@@ -109,13 +114,13 @@ describe('initial market sync', () => {
   });
 
   it('defers OHLCV history work to the background worker after snapshot sync', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
         { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
       ];
       return [];
     });
-    vi.mocked(fetchExchangeTickers).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [{
         exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT',
         last: 90_000, bid: null, ask: null, high: null, low: null,
@@ -124,7 +129,7 @@ describe('initial market sync', () => {
       }];
       return [];
     });
-    vi.mocked(fetchExchangeOHLCV).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeOHLCV.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
         { exchangeId: 'binance', symbol: 'BTC/USDT', timeframe: '1d', timestamp: Date.parse('2026-03-01T00:00:00Z'), open: 80_000, high: 82_000, low: 79_000, close: 81_000, volume: 1_000, raw: [0, 0, 0, 0, 0, 0] },
         { exchangeId: 'binance', symbol: 'BTC/USDT', timeframe: '1d', timestamp: Date.parse('2026-03-02T00:00:00Z'), open: 81_000, high: 83_000, low: 80_500, close: 82_500, volume: 1_200, raw: [0, 0, 0, 0, 0, 0] },
@@ -142,9 +147,9 @@ describe('initial market sync', () => {
   });
 
   it('starts serving without waiting for full ohlcv history backfill', async () => {
-    vi.mocked(fetchExchangeMarkets).mockResolvedValue([]);
-    vi.mocked(fetchExchangeTickers).mockResolvedValue([]);
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance'],
@@ -156,7 +161,7 @@ describe('initial market sync', () => {
   });
 
   it('continues initial sync when one exchange market discovery times out', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'gate') {
         const timeoutError = new Error('gate GET https://api.gateio.ws/api/v4/spot/currencies request timed out (10000 ms)');
         timeoutError.name = 'RequestTimeout';
@@ -172,7 +177,7 @@ describe('initial market sync', () => {
       return [];
     });
 
-    vi.mocked(fetchExchangeTickers).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') {
         return [{
           exchangeId: 'binance',
@@ -195,7 +200,7 @@ describe('initial market sync', () => {
       return [];
     });
 
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     await expect(runInitialMarketSync(database, {
       ccxtExchanges: ['gate', 'binance'],
@@ -209,10 +214,10 @@ describe('initial market sync', () => {
   });
 
   it('discovers and upserts chain catalogs from exchange network metadata', async () => {
-    vi.mocked(fetchExchangeMarkets).mockResolvedValue([]);
-    vi.mocked(fetchExchangeTickers).mockResolvedValue([]);
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([]);
-    vi.mocked(fetchExchangeNetworks).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
+    mockedFetchExchangeNetworks.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') {
         return [
           { exchangeId: 'binance', networkId: 'eth', networkName: 'Ethereum', chainIdentifier: 1 },
@@ -235,7 +240,7 @@ describe('initial market sync', () => {
     expect(result.chainsDiscovered).toBe(3);
 
     const platformRows = database.db
-      .select({ id: assetPlatforms.id })
+      .select()
       .from(assetPlatforms)
       .all();
 
