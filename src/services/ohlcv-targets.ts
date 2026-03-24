@@ -36,13 +36,9 @@ export async function buildOhlcvSyncTargets(
     }
   }
 
-  const rows = database.db.select({
-    id: coins.id,
-    symbol: coins.symbol,
-    marketCapRank: coins.marketCapRank,
-  }).from(coins).all();
+  const rows = database.db.select().from(coins).all();
 
-  return rows.flatMap((row) => {
+  return rows.flatMap((row): OhlcvSyncTargetSeed[] => {
     const base = row.symbol.toUpperCase();
 
     for (const exchangeId of enabledExchanges) {

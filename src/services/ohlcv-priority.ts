@@ -1,16 +1,13 @@
-import { and, asc, eq, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, lte } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { marketSnapshots, ohlcvSyncTargets } from '../db/schema';
 
 export function selectTopOhlcvCoins(database: AppDatabase, limit: number) {
   return database.db
-    .select({ coinId: marketSnapshots.coinId })
+    .select()
     .from(marketSnapshots)
-    .where(and(
-      eq(marketSnapshots.vsCurrency, 'usd'),
-      or(isNull(marketSnapshots.marketCapRank), eq(marketSnapshots.sourceCount, 0), eq(marketSnapshots.sourceCount, 1), eq(marketSnapshots.sourceCount, 2), eq(marketSnapshots.sourceCount, 3), eq(marketSnapshots.sourceCount, 4), eq(marketSnapshots.sourceCount, 5), eq(marketSnapshots.sourceCount, 6), eq(marketSnapshots.sourceCount, 7), eq(marketSnapshots.sourceCount, 8), eq(marketSnapshots.sourceCount, 9), eq(marketSnapshots.sourceCount, 10)),
-    ))
+    .where(and(eq(marketSnapshots.vsCurrency, 'usd'), lte(marketSnapshots.marketCapRank, limit)))
     .orderBy(asc(marketSnapshots.marketCapRank), asc(marketSnapshots.coinId))
     .limit(limit)
     .all()

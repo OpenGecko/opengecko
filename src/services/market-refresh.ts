@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lte, or } from 'drizzle-orm';
 
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
@@ -39,7 +39,11 @@ type PendingCoinTicker = {
 
 function buildRequestedSymbolIndex(database: AppDatabase) {
   const symbolEntries: Array<[string, SymbolIndexEntry]> = [];
-  const databaseCoinsForRefresh = database.db.select({ id: coins.id, symbol: coins.symbol }).from(coins).all();
+  const databaseCoinsForRefresh = database.db
+    .select()
+    .from(coins)
+    .where(or(eq(coins.status, 'active'), lte(coins.marketCapRank, 100)))
+    .all();
 
   for (const coin of databaseCoinsForRefresh) {
     const symbol = coin.symbol.toUpperCase();
@@ -157,7 +161,7 @@ export async function runMarketRefreshOnce(
   const pendingCoinTickers: PendingCoinTicker[] = [];
   const exchangeQuoteVolumes = new Map<string, number>(); // normalizedExchangeId -> total quote volume
   const exchangeTrustScoreById = new Map(
-    database.db.select({ id: exchanges.id, trustScore: exchanges.trustScore }).from(exchanges).all().map((row) => [row.id, row.trustScore]),
+    database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
   );
 
   for (const exchangeId of exchangeIds) {
@@ -362,7 +366,7 @@ export async function runMarketRefreshOnce(
   const eurPerUsd = currencySnapshot.usdt.eur / currencySnapshot.usdt.usd;
   const btcUsdPrice = usdPriceByCoinId.get('bitcoin')
     ?? database.db
-      .select({ price: marketSnapshots.price })
+      .select()
       .from(marketSnapshots)
       .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
       .limit(1)

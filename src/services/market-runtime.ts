@@ -83,12 +83,8 @@ export function createMarketRuntime(
       return;
     }
 
-    const { count } = await import('drizzle-orm');
     const { marketSnapshots } = await import('../db/schema');
-    const [{ value: snapshotCount }] = queryDb
-      .select({ value: count() })
-      .from(marketSnapshots)
-      .all();
+    const snapshotCount = queryDb.select().from(marketSnapshots).all().length;
 
     if (snapshotCount > 0) {
       state.allowStaleLiveService = true;

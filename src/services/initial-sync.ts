@@ -96,12 +96,8 @@ export async function runInitialMarketSync(
   await runMarketRefreshOnce(database, { ccxtExchanges: exchangeIds }, syncLogger);
 
   // Step 4: Count live snapshots
-  const { count } = await import('drizzle-orm');
   const { marketSnapshots } = await import('../db/schema');
-  const [{ value: snapshotCount }] = database.db
-    .select({ value: count() })
-    .from(marketSnapshots)
-    .all();
+  const snapshotCount = database.db.select().from(marketSnapshots).all().length;
 
   progress?.onStepChange?.('start_ohlcv_worker');
   const ohlcvCandlesWritten = 0;

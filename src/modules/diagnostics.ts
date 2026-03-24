@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, not } from 'drizzle-orm';
+import { and, eq, isNull, not } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
@@ -7,28 +7,25 @@ import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
 
 export function registerDiagnosticsRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/diagnostics/chain_coverage', async () => {
-    const [{ value: totalPlatforms }] = database.db
-      .select({ value: count() })
-      .from(assetPlatforms)
-      .all();
+    const totalPlatforms = database.db.select().from(assetPlatforms).all().length;
 
-    const [{ value: platformsWithChainId }] = database.db
-      .select({ value: count() })
+    const platformsWithChainId = database.db
+      .select()
       .from(assetPlatforms)
       .where(not(isNull(assetPlatforms.chainIdentifier)))
-      .all();
+      .all().length;
 
-    const [{ value: contractMappedCoins }] = database.db
-      .select({ value: count() })
+    const contractMappedCoins = database.db
+      .select()
       .from(coins)
       .where(and(eq(coins.status, 'active'), not(isNull(coins.platformsJson)), not(eq(coins.platformsJson, '{}'))))
-      .all();
+      .all().length;
 
-    const [{ value: activeCoins }] = database.db
-      .select({ value: count() })
+    const activeCoins = database.db
+      .select()
       .from(coins)
       .where(eq(coins.status, 'active'))
-      .all();
+      .all().length;
 
     return {
       data: {

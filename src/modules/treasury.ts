@@ -7,6 +7,17 @@ import { chartPoints, coins, marketSnapshots, treasuryEntities, treasuryHoldings
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 
+type TreasuryHoldingWithCoinSnapshotRow = {
+  treasury_holdings: typeof treasuryHoldings.$inferSelect;
+  coins: typeof coins.$inferSelect;
+  market_snapshots: typeof marketSnapshots.$inferSelect | null;
+};
+
+type TreasuryEntityHoldingRow = {
+  treasury_entities: typeof treasuryEntities.$inferSelect;
+  treasury_holdings: typeof treasuryHoldings.$inferSelect;
+};
+
 const entitiesListQuerySchema = z.object({
   entity_type: z.enum(['companies', 'governments', 'countries']).optional(),
   per_page: z.string().optional(),
@@ -194,24 +205,25 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
       .limit(1)
       .get();
     const rows = database.db
-      .select({
-        entity: treasuryEntities,
-        holding: treasuryHoldings,
-      })
+      .select()
       .from(treasuryHoldings)
       .innerJoin(treasuryEntities, eq(treasuryEntities.id, treasuryHoldings.entityId))
       .where(and(eq(treasuryHoldings.coinId, params.coin_id), eq(treasuryEntities.entityType, mapEntitySegmentToType(params.entity))))
       .all()
+      .map((row): TreasuryEntityHoldingRow => ({
+        treasury_entities: row.treasury_entities,
+        treasury_holdings: row.treasury_holdings,
+      }))
       .map((row) => ({
-        entityId: row.entity.id,
-        name: row.entity.name,
-        symbol: row.entity.symbol,
-        country: row.entity.country,
-        amount: row.holding.amount,
-        currentValueUsd: snapshot ? row.holding.amount * snapshot.price : null,
-        entryValueUsd: row.holding.entryValueUsd,
-        reportedAt: row.holding.reportedAt,
-        sourceUrl: row.holding.sourceUrl,
+        entityId: row.treasury_entities.id,
+        name: row.treasury_entities.name,
+        symbol: row.treasury_entities.symbol,
+        country: row.treasury_entities.country,
+        amount: row.treasury_holdings.amount,
+        currentValueUsd: snapshot ? row.treasury_holdings.amount * snapshot.price : null,
+        entryValueUsd: row.treasury_holdings.entryValueUsd,
+        reportedAt: row.treasury_holdings.reportedAt,
+        sourceUrl: row.treasury_holdings.sourceUrl,
       }));
     const sortedRows = sortTreasuryRows(rows, query.order);
     const start = (page - 1) * perPage;
@@ -244,11 +256,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
     const entity = getTreasuryEntityOrThrow(database, params.entity_id);
 
     const holdings = database.db
-      .select({
-        holding: treasuryHoldings,
-        coin: coins,
-        snapshot: marketSnapshots,
-      })
+      .select()
       .from(treasuryHoldings)
       .innerJoin(coins, eq(coins.id, treasuryHoldings.coinId))
       .leftJoin(
@@ -257,22 +265,27 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
       )
       .where(eq(treasuryHoldings.entityId, params.entity_id))
       .all()
+      .map((row): TreasuryHoldingWithCoinSnapshotRow => ({
+        treasury_holdings: row.treasury_holdings,
+        coins: row.coins,
+        market_snapshots: row.market_snapshots,
+      }))
       .map((row) => ({
-        coin_id: row.coin.id,
-        symbol: row.coin.symbol,
-        name: row.coin.name,
-        current_price_usd: row.snapshot?.price ?? null,
-        amount: row.holding.amount,
-        average_entry_value_usd: row.holding.entryValueUsd && row.holding.amount > 0
-          ? row.holding.entryValueUsd / row.holding.amount
+        coin_id: row.coins.id,
+        symbol: row.coins.symbol,
+        name: row.coins.name,
+        current_price_usd: row.market_snapshots?.price ?? null,
+        amount: row.treasury_holdings.amount,
+        average_entry_value_usd: row.treasury_holdings.entryValueUsd && row.treasury_holdings.amount > 0
+          ? row.treasury_holdings.entryValueUsd / row.treasury_holdings.amount
           : null,
-        entry_value_usd: row.holding.entryValueUsd,
-        current_value_usd: row.snapshot ? row.holding.amount * row.snapshot.price : null,
-        unrealized_pnl_usd: row.snapshot && row.holding.entryValueUsd !== null
-          ? row.holding.amount * row.snapshot.price - row.holding.entryValueUsd
+        entry_value_usd: row.treasury_holdings.entryValueUsd,
+        current_value_usd: row.market_snapshots ? row.treasury_holdings.amount * row.market_snapshots.price : null,
+        unrealized_pnl_usd: row.market_snapshots && row.treasury_holdings.entryValueUsd !== null
+          ? row.treasury_holdings.amount * row.market_snapshots.price - row.treasury_holdings.entryValueUsd
           : null,
-        reported_at: row.holding.reportedAt.toISOString(),
-        source_url: row.holding.sourceUrl,
+        reported_at: row.treasury_holdings.reportedAt.toISOString(),
+        source_url: row.treasury_holdings.sourceUrl,
       }));
     const totalEntryValueUsd = holdings.reduce((sum, holding) => sum + (holding.entry_value_usd ?? 0), 0);
     const totalCurrentValueUsd = holdings.reduce((sum, holding) => sum + (holding.current_value_usd ?? 0), 0);

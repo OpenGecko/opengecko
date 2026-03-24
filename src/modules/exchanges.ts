@@ -134,16 +134,23 @@ function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string
   return Object.values(parseJsonObject<Record<string, string>>(coin.platformsJson))[0] ?? symbol;
 }
 
-function getExchangeTickerRows(database: AppDatabase, exchangeId: string, coinIds?: string[]) {
+type ExchangeTickerRow = {
+  coin_tickers: typeof coinTickers.$inferSelect;
+  exchanges: ExchangeRow;
+};
+
+type DerivativeTickerWithExchangeRow = {
+  derivative_tickers: DerivativeTickerRow;
+  derivatives_exchanges: DerivativesExchangeRow;
+};
+
+function getExchangeTickerRows(database: AppDatabase, exchangeId: string, coinIds?: string[]): ExchangeTickerRow[] {
   const whereCondition = coinIds?.length
     ? and(eq(coinTickers.exchangeId, exchangeId), inArray(coinTickers.coinId, coinIds))
     : eq(coinTickers.exchangeId, exchangeId);
 
   return database.db
-    .select({
-      ticker: coinTickers,
-      exchange: exchanges,
-    })
+    .select()
     .from(coinTickers)
     .innerJoin(exchanges, eq(exchanges.id, coinTickers.exchangeId))
     .where(whereCondition)
@@ -160,9 +167,9 @@ function sortExchangeTickerRows(
   switch (normalizedOrder) {
     case 'trust_score_desc':
     case 'volume_desc':
-      return sortableRows.sort((left, right) => sortNumber(right.ticker.convertedVolumeUsd, -1) - sortNumber(left.ticker.convertedVolumeUsd, -1));
+      return sortableRows.sort((left, right) => sortNumber(right.coin_tickers.convertedVolumeUsd, -1) - sortNumber(left.coin_tickers.convertedVolumeUsd, -1));
     case 'volume_asc':
-      return sortableRows.sort((left, right) => sortNumber(left.ticker.convertedVolumeUsd, Number.MAX_SAFE_INTEGER) - sortNumber(right.ticker.convertedVolumeUsd, Number.MAX_SAFE_INTEGER));
+      return sortableRows.sort((left, right) => sortNumber(left.coin_tickers.convertedVolumeUsd, Number.MAX_SAFE_INTEGER) - sortNumber(right.coin_tickers.convertedVolumeUsd, Number.MAX_SAFE_INTEGER));
     default:
       throw new HttpError(400, 'invalid_parameter', `Unsupported order value: ${order}`);
   }
@@ -179,42 +186,42 @@ function buildExchangeTickerPayload(
   },
 ) {
   return {
-    base: formatTickerAsset(database, row.ticker.base, row.ticker.coinId, options.dexPairFormat),
-    target: row.ticker.target,
+    base: formatTickerAsset(database, row.coin_tickers.base, row.coin_tickers.coinId, options.dexPairFormat),
+    target: row.coin_tickers.target,
     market: {
-      name: row.exchange.name,
-      identifier: row.exchange.id,
-      has_trading_incentive: row.exchange.hasTradingIncentive,
-      ...(options.includeExchangeLogo ? { logo: row.exchange.imageUrl } : {}),
+      name: row.exchanges.name,
+      identifier: row.exchanges.id,
+      has_trading_incentive: row.exchanges.hasTradingIncentive,
+      ...(options.includeExchangeLogo ? { logo: row.exchanges.imageUrl } : {}),
     },
-    last: row.ticker.last,
-    volume: row.ticker.volume,
+    last: row.coin_tickers.last,
+    volume: row.coin_tickers.volume,
     converted_last: {
-      btc: row.ticker.convertedLastUsd === null ? null : row.ticker.convertedLastUsd * conversionRates.btc,
-      usd: row.ticker.convertedLastUsd,
-      eth: row.ticker.convertedLastUsd === null ? null : row.ticker.convertedLastUsd * conversionRates.eth,
+      btc: row.coin_tickers.convertedLastUsd === null ? null : row.coin_tickers.convertedLastUsd * conversionRates.btc,
+      usd: row.coin_tickers.convertedLastUsd,
+      eth: row.coin_tickers.convertedLastUsd === null ? null : row.coin_tickers.convertedLastUsd * conversionRates.eth,
     },
     converted_volume: {
-      btc: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd * conversionRates.btc,
-      usd: row.ticker.convertedVolumeUsd,
-      eth: row.ticker.convertedVolumeUsd === null ? null : row.ticker.convertedVolumeUsd * conversionRates.eth,
+      btc: row.coin_tickers.convertedVolumeUsd === null ? null : row.coin_tickers.convertedVolumeUsd * conversionRates.btc,
+      usd: row.coin_tickers.convertedVolumeUsd,
+      eth: row.coin_tickers.convertedVolumeUsd === null ? null : row.coin_tickers.convertedVolumeUsd * conversionRates.eth,
     },
-    trust_score: row.ticker.trustScore,
-    bid_ask_spread_percentage: row.ticker.bidAskSpreadPercentage,
-    timestamp: row.ticker.lastTradedAt?.getTime() ?? null,
-    last_traded_at: row.ticker.lastTradedAt?.toISOString() ?? null,
-    last_fetch_at: row.ticker.lastFetchAt?.toISOString() ?? null,
-    is_anomaly: row.ticker.isAnomaly,
-    is_stale: row.ticker.isStale,
-    trade_url: row.ticker.tradeUrl,
-    token_info_url: row.ticker.tokenInfoUrl,
+    trust_score: row.coin_tickers.trustScore,
+    bid_ask_spread_percentage: row.coin_tickers.bidAskSpreadPercentage,
+    timestamp: row.coin_tickers.lastTradedAt?.getTime() ?? null,
+    last_traded_at: row.coin_tickers.lastTradedAt?.toISOString() ?? null,
+    last_fetch_at: row.coin_tickers.lastFetchAt?.toISOString() ?? null,
+    is_anomaly: row.coin_tickers.isAnomaly,
+    is_stale: row.coin_tickers.isStale,
+    trade_url: row.coin_tickers.tradeUrl,
+    token_info_url: row.coin_tickers.tokenInfoUrl,
     ...(options.includeDepth
       ? {
-          cost_to_move_up_usd: row.ticker.convertedVolumeUsd === null ? null : Number((row.ticker.convertedVolumeUsd * 0.001).toFixed(2)),
-          cost_to_move_down_usd: row.ticker.convertedVolumeUsd === null ? null : Number((row.ticker.convertedVolumeUsd * 0.0008).toFixed(2)),
+          cost_to_move_up_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.001).toFixed(2)),
+          cost_to_move_down_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.0008).toFixed(2)),
         }
       : {}),
-    coin_id: row.ticker.coinId,
+    coin_id: row.coin_tickers.coinId,
     target_coin_id: null,
   };
 }
@@ -316,38 +323,35 @@ function sortDerivativesExchangeRows(rows: DerivativesExchangeRow[], order: stri
   }
 }
 
-function getDerivativeRows(database: AppDatabase) {
+function getDerivativeRows(database: AppDatabase): DerivativeTickerWithExchangeRow[] {
   return database.db
-    .select({
-      ticker: derivativeTickers,
-      exchange: derivativesExchanges,
-    })
+    .select()
     .from(derivativeTickers)
     .innerJoin(derivativesExchanges, eq(derivativesExchanges.id, derivativeTickers.exchangeId))
     .all();
 }
 
-function sortDerivativeRows(rows: Array<{ ticker: DerivativeTickerRow; exchange: DerivativesExchangeRow }>) {
-  return [...rows].sort((left, right) => sortNumber(right.ticker.tradeVolume24hBtc, -1) - sortNumber(left.ticker.tradeVolume24hBtc, -1));
+function sortDerivativeRows(rows: DerivativeTickerWithExchangeRow[]) {
+  return [...rows].sort((left, right) => sortNumber(right.derivative_tickers.tradeVolume24hBtc, -1) - sortNumber(left.derivative_tickers.tradeVolume24hBtc, -1));
 }
 
-function buildDerivativeTickerPayload(row: { ticker: DerivativeTickerRow; exchange: DerivativesExchangeRow }) {
+function buildDerivativeTickerPayload(row: DerivativeTickerWithExchangeRow) {
   return {
-    market: row.exchange.name,
-    market_id: row.exchange.id,
-    symbol: row.ticker.symbol,
-    index_id: row.ticker.indexId,
-    price: row.ticker.price,
-    price_percentage_change_24h: row.ticker.pricePercentageChange24h,
-    contract_type: row.ticker.contractType,
-    index: row.ticker.indexValue,
-    basis: row.ticker.basis,
-    spread: row.ticker.spread,
-    funding_rate: row.ticker.fundingRate,
-    open_interest_btc: row.ticker.openInterestBtc,
-    trade_volume_24h_btc: row.ticker.tradeVolume24hBtc,
-    last_traded_at: row.ticker.lastTradedAt?.toISOString() ?? null,
-    expired_at: row.ticker.expiredAt?.toISOString() ?? null,
+    market: row.derivatives_exchanges.name,
+    market_id: row.derivatives_exchanges.id,
+    symbol: row.derivative_tickers.symbol,
+    index_id: row.derivative_tickers.indexId,
+    price: row.derivative_tickers.price,
+    price_percentage_change_24h: row.derivative_tickers.pricePercentageChange24h,
+    contract_type: row.derivative_tickers.contractType,
+    index: row.derivative_tickers.indexValue,
+    basis: row.derivative_tickers.basis,
+    spread: row.derivative_tickers.spread,
+    funding_rate: row.derivative_tickers.fundingRate,
+    open_interest_btc: row.derivative_tickers.openInterestBtc,
+    trade_volume_24h_btc: row.derivative_tickers.tradeVolume24hBtc,
+    last_traded_at: row.derivative_tickers.lastTradedAt?.toISOString() ?? null,
+    expired_at: row.derivative_tickers.expiredAt?.toISOString() ?? null,
   };
 }
 
