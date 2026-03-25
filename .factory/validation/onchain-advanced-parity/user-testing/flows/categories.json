@@ -1,0 +1,98 @@
+{
+  "groupId": "categories",
+  "testedAt": "2026-03-25T00:00:00.000Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3102",
+    "port": 3102,
+    "auth": "none"
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-ONCHAIN-ADV-025",
+      "title": "Categories index returns category resources with supported sort",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories", "expected": "Returns 200 with category resources", "observed": "Returns 200 with data containing category resources" },
+        { "action": "GET /onchain/categories?sort=reserve_in_usd_desc", "expected": "Honors supported sort", "observed": "Default sort works - returns sorted by reserve_in_usd" },
+        { "action": "GET /onchain/categories?sort=pool_count_desc", "expected": "Explicit rejection for unsupported sort", "observed": "Returns 400 with 'Unsupported sort value: pool_count_desc'" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories -> 200",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-025-categories.json", "onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-025-categories-sorted.json"]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-026",
+      "title": "Categories pagination is stable and non-duplicative",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories?page=1", "expected": "Returns page 1 categories", "observed": "Returns category 'stablecoins' on page 1" },
+        { "action": "GET /onchain/categories?page=2", "expected": "Returns page 2 categories without duplicates", "observed": "Returns category 'smart-contract-platform' on page 2 - no duplicates" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories?page=1 -> 200, GET /onchain/categories?page=2 -> 200",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-025-categories.json", "onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-026-categories-page2.json"]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-027",
+      "title": "Category pools endpoint scopes to requested category",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories/stablecoins/pools", "expected": "Returns only pools associated with stablecoins category", "observed": "Returns 4 pools - all scoped to stablecoins category, meta shows category_id='stablecoins'" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories/stablecoins/pools -> 200",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-027-category-pools.json"]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-028",
+      "title": "Category pools honors requested sort",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories/stablecoins/pools", "expected": "Default sort is h24_volume_usd_desc", "observed": "meta shows sort: 'h24_volume_usd_desc'" },
+        { "action": "GET /onchain/categories/stablecoins/pools?sort=liquidity_desc", "expected": "Explicit rejection for unsupported sort", "observed": "Returns 400 with 'Unsupported sort value: liquidity_desc'" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories/stablecoins/pools -> 200, GET /onchain/categories/stablecoins/pools?sort=liquidity_desc -> 400",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-027-category-pools.json", "onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-028-category-pools-sorted.json"]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-029",
+      "title": "Category pools include related entities correctly",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories/stablecoins/pools?include=network", "expected": "Pools in data[], networks in included[]", "observed": "Returns pools in data[] and network entities in included[]" },
+        { "action": "GET /onchain/categories/stablecoins/pools?include=dex", "expected": "Pools in data[], dexes in included[]", "observed": "Returns pools in data[] and dex entities in included[]" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories/stablecoins/pools?include=network -> 200, GET /onchain/categories/stablecoins/pools?include=dex -> 200",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-029-category-pools-include.json", "onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-029-category-pools-include-dex.json"]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-029A",
+      "title": "Category pools rejects unsupported include values explicitly",
+      "status": "pass",
+      "steps": [
+        { "action": "GET /onchain/categories/stablecoins/pools?include=invalid_include_value", "expected": "Returns 400 validation error", "observed": "Returns 400 with 'Unsupported include value: invalid_include_value'" }
+      ],
+      "evidence": {
+        "network": "GET /onchain/categories/stablecoins/pools?include=invalid_include_value -> 400",
+        "files": ["onchain-advanced-parity/categories/VAL-ONCHAIN-ADV-029A-category-pools-invalid-include.json"]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 6 assertions: 6 passed. All category endpoints work as specified: GET /onchain/categories returns category list with pagination, GET /onchain/categories/{category_id}/pools returns category-specific pools with include param support, and invalid sort/include values are rejected with explicit validation errors."
+}

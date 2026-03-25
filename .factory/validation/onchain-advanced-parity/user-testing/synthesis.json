@@ -1,0 +1,73 @@
+{
+  "milestone": "onchain-advanced-parity",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 39,
+    "passed": 33,
+    "failed": 4,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-ONCHAIN-ADV-001", "VAL-ONCHAIN-ADV-002", "VAL-ONCHAIN-ADV-003", "VAL-ONCHAIN-ADV-004",
+    "VAL-ONCHAIN-ADV-005", "VAL-ONCHAIN-ADV-005A", "VAL-ONCHAIN-ADV-006", "VAL-ONCHAIN-ADV-007",
+    "VAL-ONCHAIN-ADV-007A", "VAL-ONCHAIN-ADV-008", "VAL-ONCHAIN-ADV-009", "VAL-ONCHAIN-ADV-009A",
+    "VAL-ONCHAIN-ADV-010", "VAL-ONCHAIN-ADV-011", "VAL-ONCHAIN-ADV-012", "VAL-ONCHAIN-ADV-013",
+    "VAL-ONCHAIN-ADV-014", "VAL-ONCHAIN-ADV-015A", "VAL-ONCHAIN-ADV-016", "VAL-ONCHAIN-ADV-017",
+    "VAL-ONCHAIN-ADV-018", "VAL-ONCHAIN-ADV-018A", "VAL-ONCHAIN-ADV-019", "VAL-ONCHAIN-ADV-020",
+    "VAL-ONCHAIN-ADV-022", "VAL-ONCHAIN-ADV-024", "VAL-ONCHAIN-ADV-024A", "VAL-ONCHAIN-ADV-025",
+    "VAL-ONCHAIN-ADV-026", "VAL-ONCHAIN-ADV-027", "VAL-ONCHAIN-ADV-028", "VAL-ONCHAIN-ADV-029",
+    "VAL-ONCHAIN-ADV-029A"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-ONCHAIN-ADV-015",
+      "reason": "include parameter not implemented for megafilter endpoint - include=base_token,quote_token does not add 'included' array to response"
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-021",
+      "reason": "is_whale field missing from top traders response - trader attributes include address, volume_usd, buy_volume_usd, sell_volume_usd, realized_pnl_usd, trade_count but not is_whale"
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-021A",
+      "reason": "is_whale field not implemented - whale classification based on volume threshold is missing"
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-023",
+      "reason": "include parameter not implemented for top holders - include=token does not add relationships to 'included' array, invalid include values are silently ignored"
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "implementationGaps": [
+    {
+      "gap_id": "GAP-001",
+      "description": "Megafilter 'include' parameter not implemented",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-015"],
+      "current_behavior": "include parameter is not in the query schema and is ignored. Relationships for network and dex are included in the relationships object by default, but base_token and quote_token are not included as separate resources.",
+      "expected_behavior": "include=base_token,quote_token should add token relationships to 'included' array per JSON:API spec"
+    },
+    {
+      "gap_id": "GAP-002",
+      "description": "Top holders 'include' parameter not implemented",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-023"],
+      "current_behavior": "include parameter is silently ignored. Invalid include values do not trigger validation errors.",
+      "expected_behavior": "include=token,network should add relationships to 'included' array, invalid values should return 400"
+    },
+    {
+      "gap_id": "GAP-003",
+      "description": "Top traders 'is_whale' field missing",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-021", "VAL-ONCHAIN-ADV-021A"],
+      "current_behavior": "Trader attributes include: address, volume_usd, buy_volume_usd, sell_volume_usd, realized_pnl_usd, trade_count. No is_whale field.",
+      "expected_behavior": "Response should include is_whale boolean field based on volume threshold"
+    },
+    {
+      "gap_id": "GAP-004",
+      "description": "Top traders include parameter not implemented",
+      "affected_assertions": [],
+      "current_behavior": "include parameter is silently ignored",
+      "expected_behavior": "include=token should add token relationship to 'included' array"
+    }
+  ]
+}

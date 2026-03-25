@@ -1,0 +1,208 @@
+{
+  "milestone": "onchain-advanced-parity",
+  "flow": "megafilter_analytics",
+  "tested_at": "2026-03-25T00:00:00Z",
+  "validator_version": "1.0.0",
+  "server_endpoint": "http://127.0.0.1:3102",
+  "summary": {
+    "total_assertions": 18,
+    "passed": 14,
+    "partial": 3,
+    "failed": 1,
+    "notes": "Most assertions pass. Implementation gaps noted for include parameter and is_whale field."
+  },
+  "assertions": {
+    "VAL-ONCHAIN-ADV-011": {
+      "description": "Megafilter GET /onchain/pools/megafilter returns pools with multi-criteria filtering",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter",
+      "method": "GET",
+      "evidence": "Returns data array with pool objects containing attributes: name, address, reserve_in_usd, volume_usd_h24, tx_count_h24, price_usd, pool_created_at, base_token_address, base_token_symbol, quote_token_address, quote_token_symbol",
+      "test_command": "curl -s http://127.0.0.1:3102/onchain/pools/megafilter"
+    },
+    "VAL-ONCHAIN-ADV-012": {
+      "description": "Megafilter network param scopes results to specified network",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter?networks=eth",
+      "method": "GET",
+      "evidence": "All returned pools have network='eth' in relationships",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/pools/megafilter?networks=eth'"
+    },
+    "VAL-ONCHAIN-ADV-013": {
+      "description": "Megafilter exchange filter narrows results to specified dex",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter?dexes=uniswap_v3",
+      "method": "GET",
+      "evidence": "All returned pools have dex='uniswap_v3' in relationships",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/pools/megafilter?dexes=uniswap_v3'"
+    },
+    "VAL-ONCHAIN-ADV-014": {
+      "description": "Megafilter range filters: tx_count, pool_age_hours, liquidity_usd",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter?min_tx_count_h24=25000&min_reserve_in_usd=300000000",
+      "method": "GET",
+      "evidence": "Range filters work: min_tx_count_h24 and min_reserve_in_usd correctly filter results. pool_age_hours not available (uses pool_created_at timestamp)",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/pools/megafilter?min_tx_count_h24=25000&min_reserve_in_usd=300000000'"
+    },
+    "VAL-ONCHAIN-ADV-015": {
+      "description": "Megafilter include param includes relationships (network, dex, base_token, quote_token)",
+      "status": "partial",
+      "endpoint": "/onchain/pools/megafilter?include=network,dex,base_token,quote_token",
+      "method": "GET",
+      "evidence": "INCLUDE PARAM NOT IMPLEMENTED - The include parameter is not in the schema and does not add 'included' array to response. Network and dex relationships ARE included in each pool's relationships object by default, but base_token and quote_token relationships are NOT included as separate included resources.",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/pools/megafilter?include=network,dex,base_token,quote_token'",
+      "issue": "include parameter support missing"
+    },
+    "VAL-ONCHAIN-ADV-015A": {
+      "description": "Megafilter rejects malformed filters and invalid sort values with 400 error",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter?sort=invalid_sort",
+      "method": "GET",
+      "evidence": "Returns 400 error with message: 'Unsupported sort value: invalid_sort'",
+      "test_command": "curl -s -w '%{http_code}' 'http://127.0.0.1:3102/onchain/pools/megafilter?sort=invalid_sort'"
+    },
+    "VAL-ONCHAIN-ADV-016": {
+      "description": "Megafilter pagination works correctly",
+      "status": "pass",
+      "endpoint": "/onchain/pools/megafilter?per_page=2&page=1 and /onchain/pools/megafilter?per_page=2&page=2",
+      "method": "GET",
+      "evidence": "page and per_page parameters work correctly, returning different data on different pages",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/pools/megafilter?per_page=2&page=1'"
+    },
+    "VAL-ONCHAIN-ADV-017": {
+      "description": "Top holders GET /onchain/networks/{network}/tokens/{address}/top_holders returns holder list",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders",
+      "method": "GET",
+      "evidence": "Returns data array with holder objects",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders'"
+    },
+    "VAL-ONCHAIN-ADV-018": {
+      "description": "Holder data structure includes address, balance, share_of_supply",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders",
+      "method": "GET",
+      "evidence": "Holder attributes include: address, balance, share_of_supply",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders'"
+    },
+    "VAL-ONCHAIN-ADV-018A": {
+      "description": "Holder percentage sum validated to be <=100%",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders",
+      "method": "GET",
+      "evidence": "Total share_of_supply is 0.45 (45%), which is <= 100%",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders'"
+    },
+    "VAL-ONCHAIN-ADV-019": {
+      "description": "Top holders network scoping works via URL path",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/.../top_holders",
+      "method": "GET",
+      "evidence": "meta includes 'network': 'eth'",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders'"
+    },
+    "VAL-ONCHAIN-ADV-023": {
+      "description": "Include param for top holders relationships",
+      "status": "partial",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?include=token",
+      "method": "GET",
+      "evidence": "INCLUDE PARAM NOT IMPLEMENTED - include parameter does not add 'included' array to response. Also, invalid include values are silently ignored (no 400 error)",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?include=token'",
+      "issue": "include parameter support missing"
+    },
+    "VAL-ONCHAIN-ADV-024": {
+      "description": "Pagination for top holders via holders parameter",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?holders=2",
+      "method": "GET",
+      "evidence": "holders parameter limits results to specified count",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?holders=2'"
+    },
+    "VAL-ONCHAIN-ADV-024A": {
+      "description": "Sort options for top holders (holdings, token_amount)",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?sort=holdings",
+      "method": "GET",
+      "evidence": "Sort parameters (holdings, token_amount) accepted without error. Invalid sort returns 400.",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?sort=holdings'"
+    },
+    "VAL-ONCHAIN-ADV-020": {
+      "description": "Top traders GET /onchain/networks/{network}/tokens/{address}/top_traders returns trader list",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders",
+      "method": "GET",
+      "evidence": "Returns data array with trader objects",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders'"
+    },
+    "VAL-ONCHAIN-ADV-021": {
+      "description": "Trader data structure includes address, volume_usd, trade_count, is_whale",
+      "status": "partial",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders",
+      "method": "GET",
+      "evidence": "Trader attributes include: address, volume_usd, buy_volume_usd, sell_volume_usd, realized_pnl_usd, trade_count. MISSING: is_whale field",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders'",
+      "issue": "is_whale field missing from response"
+    },
+    "VAL-ONCHAIN-ADV-021A": {
+      "description": "Trader whale flag classification based on volume",
+      "status": "failed",
+      "endpoint": "/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders",
+      "method": "GET",
+      "evidence": "is_whale field does not exist in trader attributes",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders'",
+      "issue": "is_whale field not implemented"
+    },
+    "VAL-ONCHAIN-ADV-022": {
+      "description": "Top traders network scoping via URL path",
+      "status": "pass",
+      "endpoint": "/onchain/networks/eth/tokens/.../top_traders",
+      "method": "GET",
+      "evidence": "meta includes 'network': 'eth'. Also supports include_address_label parameter.",
+      "test_command": "curl -s 'http://127.0.0.1:3102/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders'"
+    }
+  },
+  "implementation_gaps": [
+    {
+      "gap_id": "GAP-001",
+      "description": "Megafilter 'include' parameter not implemented",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-015"],
+      "current_behavior": "include parameter is not in the query schema and is ignored. Relationships for network and dex are included in the relationships object by default, but base_token and quote_token are not included as separate resources.",
+      "expected_behavior": "include=base_token,quote_token should add token relationships to 'included' array per JSON:API spec"
+    },
+    {
+      "gap_id": "GAP-002",
+      "description": "Top holders 'include' parameter not implemented",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-023"],
+      "current_behavior": "include parameter is silently ignored. Invalid include values do not trigger validation errors.",
+      "expected_behavior": "include=token,network should add relationships to 'included' array, invalid values should return 400"
+    },
+    {
+      "gap_id": "GAP-003",
+      "description": "Top traders 'is_whale' field missing",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-021", "VAL-ONCHAIN-ADV-021A"],
+      "current_behavior": "Trader attributes include: address, volume_usd, buy_volume_usd, sell_volume_usd, realized_pnl_usd, trade_count. No is_whale field.",
+      "expected_behavior": "Response should include is_whale boolean field based on volume threshold"
+    },
+    {
+      "gap_id": "GAP-004",
+      "description": "Top traders include parameter not implemented",
+      "affected_assertions": ["VAL-ONCHAIN-ADV-020"],
+      "current_behavior": "include parameter is silently ignored",
+      "expected_behavior": "include=token should add token relationship to 'included' array"
+    }
+  ],
+  "endpoint_notes": [
+    {
+      "note": "Endpoint path differs from validation contract",
+      "detail": "Validation contract specifies /onchain/pools/{pool_address}/top_holders but actual implementation is /onchain/networks/{network}/tokens/{address}/top_holders"
+    },
+    {
+      "note": "Megafilter pool_age_hours",
+      "detail": "The pool_age_hours field is not available in megafilter. Instead, pool_created_at timestamp is provided which can be used to calculate age."
+    },
+    {
+      "note": "Invalid include values silently ignored",
+      "detail": "Unlike invalid sort values which return 400, invalid include values are silently accepted without returning an error."
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "testMilestone": "onchain-advanced-parity",
+  "testSuite": "trending_new_search",
+  "testedAt": "2026-03-25T00:00:00Z",
+  "assertions": [
+    {
+      "id": "VAL-ONCHAIN-ADV-001",
+      "status": "passed",
+      "description": "Global trending pools returns JSON:API pool resources with stable ranking",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-001-global-trending.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/trending_pools",
+        "httpStatus": 200,
+        "responseStructure": "data[] contains pool resources, meta.page and meta.duration present",
+        "rankingStability": "Confirmed - first 3 pool IDs consistent across requests"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-002",
+      "status": "passed",
+      "description": "Network-scoped trending pools enforces network filtering",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-002-network-scoped.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/eth/trending_pools",
+        "httpStatus": 200,
+        "networkFilter": "All results have relationships.network.data.id='eth'"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-003",
+      "status": "passed",
+      "description": "Duration parameter changes ranking window and affects result ordering",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-003-duration-comparison.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/trending_pools?duration=1h",
+        "httpStatus": 200,
+        "durationAccepted": "meta.duration reflects requested value (1h, 24h)",
+        "rankingChanges": "Different top-3 ordering for 24h vs 1h windows confirmed"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-004",
+      "status": "passed",
+      "description": "Include parameter adds included[] with related entities, keeps pools in data[]",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-004-include-comparison.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/trending_pools?include=network",
+        "httpStatus": 200,
+        "withoutInclude": "data+meta only (4 pools in data[])",
+        "withInclude": "data+included+meta (4 pools in data[], 2 network entities in included[])"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-005",
+      "status": "passed",
+      "description": "Global new pools returns cross-network results ordered newest-first",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-005-global-new-pools.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/new_pools",
+        "httpStatus": 200,
+        "crossNetwork": "Returns eth and solana pools",
+        "ordering": "pool_created_at descending (newest first): 1721001600, 1714694400, 1712707200, 1707609600"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-005A",
+      "status": "passed",
+      "description": "Global new pools is distinct cross-network route vs network-scoped",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-005A-route-comparison.json",
+      "testDetails": {
+        "globalEndpoint": "GET /onchain/networks/new_pools - returns eth+solana",
+        "scopedEndpoint": "GET /onchain/networks/eth/new_pools - returns eth only",
+        "confirmedDistinctRoutes": "Global /new_pools includes both networks, /eth/new_pools is network-scoped"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-006",
+      "status": "passed",
+      "description": "Network new pools enforces network scoping and maintains newest-first ordering",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-006-network-new-pools.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/eth/new_pools",
+        "httpStatus": 200,
+        "networkScope": "All results have network=eth",
+        "ordering": "pool_created_at descending: 1714694400 > 1712707200 > 1707609600"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-007",
+      "status": "passed",
+      "description": "Pool search returns exact address match as first result",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-007-exact-search.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/search/pools?query=0x4e68ccd3e89f51c3074ca5072bbac773960dfa36",
+        "httpStatus": 200,
+        "exactMatch": "First result is exact match"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-007A",
+      "status": "passed",
+      "description": "Search ranking shows exact and partial matches work",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-007A-search-ranking.json",
+      "testDetails": {
+        "partialAddress": "query=0x4e68 returns exact match as first result",
+        "symbolSearch": "query=USDT returns multiple results including pool with that token"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-008",
+      "status": "passed",
+      "description": "Pool search network filter narrows results to requested network",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-008-network-filter.json",
+      "testDetails": {
+        "endpointWithoutFilter": "GET /onchain/search/pools?query=USDC - returns eth+solana",
+        "endpointWithFilter": "GET /onchain/search/pools?query=USDC&network=eth - returns eth only"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-009",
+      "status": "passed",
+      "description": "Trending search subset parameter limits output to requested pools",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-009-subset.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/pools/trending_search?pools=0x4e68ccd3e89f51c3074ca5072bbac773960dfa36,0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7",
+        "httpStatus": 200,
+        "subsetBehavior": "Returns only the requested pools (2 from baseline of 4)"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-009A",
+      "status": "passed",
+      "description": "Trending search handles invalid/duplicate candidates with explicit rejection in meta",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-009A-invalid-candidates.json",
+      "testDetails": {
+        "duplicateIds": "Deduplicated to single result",
+        "invalidIds": "Returns empty data[] with meta.ignored_candidates array showing rejected IDs",
+        "exampleInvalidResponse": "{\"data\":[],\"meta\":{\"ignored_candidates\":[\"0xinvalid123\"]}}"
+      }
+    },
+    {
+      "id": "VAL-ONCHAIN-ADV-010",
+      "status": "passed",
+      "description": "Pagination works with page parameter",
+      "evidence": "onchain-advanced-parity/trending_new_search/VAL-ONCHAIN-ADV-010-pagination.json",
+      "testDetails": {
+        "endpoint": "GET /onchain/networks/trending_pools?page=N",
+        "page1": "Returns 4 pools, meta.page=1",
+        "page2": "Returns empty data[], meta.page=2 (only 4 total pools in fixture)"
+      }
+    }
+  ],
+  "summary": {
+    "totalTested": 13,
+    "passed": 13,
+    "failed": 0,
+    "allEndpointsResponsive": true,
+    "jsonapiStructure": "Verified for all endpoints",
+    "networkScoping": "Working for trending and new pools",
+    "pagination": "Working with meta.page field",
+    "includeParam": "Working with included[] array",
+    "searchRanking": "Exact matches prioritized",
+    "invalidHandling": "Graceful with explicit ignored_candidates"
+  }
+}
