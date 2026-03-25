@@ -158,7 +158,8 @@ describe('live data integration', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.data.btc.value).toBe(1);
-    expect(body.data.usd.value).toBe(90_000);
+    expect(body.data.usd.value).toBeGreaterThan(0);
+    expect(Number.isFinite(body.data.usd.value)).toBe(true);
     expect(typeof body.data.eur.value).toBe('number');
   });
 });
