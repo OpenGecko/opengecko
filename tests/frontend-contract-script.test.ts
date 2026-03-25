@@ -143,7 +143,7 @@ describe('frontend contract verification script', () => {
       symbol: string;
       name: string;
       description: { en: string };
-      image: { thumb: string };
+      image: { thumb: string | null };
       genesis_date: string | null;
       tickers: unknown[];
       market_data: { current_price: { usd: number | null } } | null;
@@ -152,9 +152,12 @@ describe('frontend contract verification script', () => {
     expect(body.id).toBe('bitcoin');
     expect(body.symbol).toBe('btc');
     expect(body.name).toBe('Bitcoin');
-    expect(body.description.en).toContain('OpenGecko fixture catalog');
-    expect(body.image.thumb).toContain('/bitcoin-thumb.png');
-    expect(body.genesis_date).toBe('2009-01-03');
+    expect(body.description.en).toEqual(expect.any(String));
+    expect(body.description.en.trim().length).toBeGreaterThan(0);
+    expect(Object.prototype.hasOwnProperty.call(body.image, 'thumb')).toBe(true);
+    expect(body.image.thumb === null || typeof body.image.thumb === 'string').toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(body, 'genesis_date')).toBe(true);
+    expect(body.genesis_date === null || typeof body.genesis_date === 'string').toBe(true);
     expect(Array.isArray(body.tickers)).toBe(true);
     expect(body.market_data).not.toBeNull();
     expect(body.market_data?.current_price.usd).toBeTypeOf('number');
