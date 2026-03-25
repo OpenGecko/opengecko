@@ -51,7 +51,7 @@ function runScript(command: string, env: NodeJS.ProcessEnv) {
   });
 }
 
-describe('frontend contract verification script', () => {
+describe('module contract verification scripts', () => {
   let app: FastifyInstance;
   let tempDir: string;
 
@@ -65,6 +65,7 @@ describe('frontend contract verification script', () => {
         { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
         { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, spot: true, baseName: 'Ethereum', raw: {} },
         { exchangeId: 'binance', symbol: 'SOL/USDT', base: 'SOL', quote: 'USDT', active: true, spot: true, baseName: 'Solana', raw: {} },
+        { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', active: true, spot: true, baseName: 'USD Coin', raw: {} },
       ];
       if (exchangeId === 'coinbase') return [
         { exchangeId: 'coinbase', symbol: 'BTC/USD', base: 'BTC', quote: 'USD', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
@@ -77,6 +78,7 @@ describe('frontend contract verification script', () => {
         { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: Date.now(), raw: {} as never },
         { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: Date.now(), raw: {} as never },
         { exchangeId: 'binance', symbol: 'SOL/USDT', base: 'SOL', quote: 'USDT', last: 175, bid: 174.5, ask: 175.5, high: 180, low: 170, baseVolume: 100000, quoteVolume: 17500000, percentage: 4.0, timestamp: Date.now(), raw: {} as never },
+        { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', last: 1.0, bid: 0.9999, ask: 1.0001, high: 1.001, low: 0.999, baseVolume: 10000000, quoteVolume: 10000000, percentage: 0.01, timestamp: Date.now(), raw: {} as never },
       ];
       if (exchangeId === 'coinbase') return [
         { exchangeId: 'coinbase', symbol: 'BTC/USD', base: 'BTC', quote: 'USD', last: 85100, bid: 85050, ask: 85150, high: 86100, low: 84100, baseVolume: 3000, quoteVolume: 255300000, percentage: 1.7, timestamp: Date.now(), raw: {} as never },
@@ -108,26 +110,99 @@ describe('frontend contract verification script', () => {
     }
   });
 
-  it('passes frontend minimum contract checks for markets, detail, and chart endpoints', async () => {
+  async function expectScriptToPass(command: string, title: string, checks: string[]) {
     const address = app.server.address();
 
     if (!address || typeof address === 'string') {
       throw new Error('expected Fastify to listen on an ephemeral TCP port');
     }
 
-    const result = await runScript('scripts/modules/mr-market-frontend/mr-market-frontend.sh', {
+    const result = await runScript(command, {
       BASE_URL: `http://127.0.0.1:${address.port}`,
     });
 
     if (result.code !== 0) {
-      throw new Error(`frontend contract script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+      throw new Error(`module contract script failed (${command})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     }
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('OpenGecko Mr.Market Frontend Contract Checks');
-    expect(result.stdout).toContain('markets returns frontend-required list fields');
-    expect(result.stdout).toContain('coin detail returns frontend-required header and info fields');
-    expect(result.stdout).toContain('market chart returns frontend-required prices series');
+    expect(result.stdout).toContain(title);
+
+    for (const check of checks) {
+      expect(result.stdout).toContain(check);
+    }
+  }
+
+  it('passes frontend minimum contract checks for markets, detail, and chart endpoints', async () => {
+    await expectScriptToPass(
+      'scripts/modules/mr-market-frontend/mr-market-frontend.sh',
+      'OpenGecko Mr.Market Frontend Contract Checks',
+      [
+        'markets returns frontend-required list fields',
+        'coin detail returns frontend-required header and info fields',
+        'market chart returns frontend-required prices series',
+      ],
+    );
+  });
+
+  it('passes exchanges contract checks for spot and derivatives endpoints', async () => {
+    await expectScriptToPass(
+      'scripts/modules/exchanges/exchanges.sh',
+      'OpenGecko Exchanges Module Checks',
+      [
+        'exchange list returns exchange identifiers',
+        'exchange detail returns overview fields and ticker array',
+        'derivatives exchange detail can include ticker payloads',
+      ],
+    );
+  });
+
+  it('passes global contract checks for aggregate market endpoints', async () => {
+    await expectScriptToPass(
+      'scripts/modules/global/global.sh',
+      'OpenGecko Global Module Checks',
+      [
+        'global response returns aggregate market fields',
+        'market cap chart returns timestamp/value pairs',
+        'defi response returns aggregate defi fields',
+      ],
+    );
+  });
+
+  it('passes search contract checks for query and trending endpoints', async () => {
+    await expectScriptToPass(
+      'scripts/modules/search/search.sh',
+      'OpenGecko Search Module Checks',
+      [
+        'search response groups results by resource family',
+        'search query bitcoin returns at least one coin hit',
+        'trending show_max limits both coin and category groups',
+      ],
+    );
+  });
+
+  it('passes assets contract checks for platforms and token lists', async () => {
+    await expectScriptToPass(
+      'scripts/modules/assets/assets.sh',
+      'OpenGecko Assets Module Checks',
+      [
+        'asset platforms include ethereum',
+        'token list returns uniswap-style metadata envelope',
+        'ethereum token list includes the seeded USDC contract',
+      ],
+    );
+  });
+
+  it('passes coins contract checks for registry, market, and chart endpoints', async () => {
+    await expectScriptToPass(
+      'scripts/modules/coins/coins.sh',
+      'OpenGecko Coins Module Checks',
+      [
+        'coin list includes platform data when requested',
+        'coin detail includes market data and ticker arrays by default',
+        'contract route resolves the seeded USDC contract',
+      ],
+    );
   });
 
   it('returns the frontend minimum detail fields directly from /coins/:id', async () => {

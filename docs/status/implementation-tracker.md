@@ -49,13 +49,13 @@ Use this tracker for current status, active priorities, completed milestones, an
 | --- | --- | --- | --- |
 | `/ping` | R0 | done | CoinGecko-style ping response implemented and tested |
 | `/simple/*` | R0 | done | `/simple/supported_vs_currencies`, `/simple/price`, `/simple/token_price/{id}`, and `/exchange_rates` are implemented and tested |
-| `/asset_platforms` | R0 | done | Seeded platform registry route implemented and tested |
-| `/token_lists/{asset_platform_id}/all.json` | R1 | done | Seeded token-list endpoint implemented and tested for Ethereum |
-| `/search` | R0 | done | FTS5-backed grouped search route implemented and tested |
-| `/global` | R0 | done | Aggregate market snapshot route implemented and tested |
-| `/coins/list` | R0 | done | Seeded coin registry route implemented and tested |
-| Core coin market endpoints | R1 | done | `/coins/markets`, `/coins/{id}`, history, chart, OHLC, categories, token lists, and contract-address chart/detail routes are implemented and validated with seeded compatibility coverage, including category filters/details, category ordering, richer history payloads, and interval-aware chart semantics |
-| Exchanges / derivatives | R2 | done | `/exchanges/list`, `/exchanges`, `/exchanges/{id}`, `/exchanges/{id}/tickers`, `/exchanges/{id}/volume_chart`, `/derivatives/exchanges/list`, `/derivatives/exchanges`, and `/derivatives` are implemented and validated with seeded compatibility coverage, including exchange status filtering, dex pair formatting, ticker depth toggles, derivatives venue ordering, and seeded contract-level derivatives rows |
+| `/asset_platforms` | R0 | done | Seeded platform registry route implemented and tested, with dedicated module smoke coverage in `scripts/modules/assets/assets.sh` |
+| `/token_lists/{asset_platform_id}/all.json` | R1 | done | Seeded token-list endpoint implemented and tested for Ethereum, with dedicated module smoke coverage in `scripts/modules/assets/assets.sh` |
+| `/search` | R0 | done | FTS5-backed grouped search route implemented and tested, with dedicated module smoke coverage in `scripts/modules/search/search.sh` |
+| `/global` | R0 | done | Aggregate market snapshot route implemented and tested, with dedicated module smoke coverage in `scripts/modules/global/global.sh` |
+| `/coins/list` | R0 | done | Seeded coin registry route implemented and tested, with dedicated module smoke coverage in `scripts/modules/coins/coins.sh` |
+| Core coin market endpoints | R1 | done | `/coins/markets`, `/coins/{id}`, history, chart, OHLC, categories, token lists, and contract-address chart/detail routes are implemented and validated with seeded compatibility coverage, including category filters/details, category ordering, richer history payloads, interval-aware chart semantics, and dedicated module smoke coverage in `scripts/modules/coins/coins.sh` |
+| Exchanges / derivatives | R2 | done | `/exchanges/list`, `/exchanges`, `/exchanges/{id}`, `/exchanges/{id}/tickers`, `/exchanges/{id}/volume_chart`, `/derivatives/exchanges/list`, `/derivatives/exchanges`, and `/derivatives` are implemented and validated with seeded compatibility coverage, including exchange status filtering, dex pair formatting, ticker depth toggles, derivatives venue ordering, seeded contract-level derivatives rows, and dedicated module smoke coverage in `scripts/modules/exchanges/exchanges.sh` |
 | NFTs | removed | removed | removed from the active roadmap |
 | Public treasury | R3 | done | `/entities/list`, grouped `/:entity/public_treasury/:coin_id`, `/public_treasury/{entity_id}`, `/public_treasury/{entity_id}/{coin_id}/holding_chart`, and `/public_treasury/{entity_id}/transaction_history` are implemented from seeded curated holdings and transaction data |
 | Onchain DEX | R4 | partial | `/onchain/networks` and `/onchain/networks/{network}/dexes` are implemented from seeded network and DEX catalog data |
@@ -128,6 +128,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Added the remaining seeded public treasury endpoints for `/public_treasury/{entity_id}/{coin_id}/holding_chart` and `/public_treasury/{entity_id}/transaction_history`, backed by a treasury transaction ledger and reconstructed daily holdings/value series.
 - Added seeded onchain catalog support for `/onchain/networks` and `/onchain/networks/{network}/dexes`.
 - Added passing tests for `/ping`, `/simple/*`, `/asset_platforms`, `/search`, `/global`, `/coins/list`, and the first seeded `/coins/*` market endpoints.
+- Added dedicated module smoke scripts for exchanges, global, search, assets, and coins under `scripts/modules/*`, plus package scripts to run each family directly.
 - Extracted shared coin-id utilities (buildCoinId, buildCoinName, COIN_ID_OVERRIDES) into src/lib/coin-id.ts.
 - Split seedReferenceData into seedStaticReferenceData (non-market) and seedMarketData (market).
 - Created initial-sync service that boot-time syncs exchanges, coins, chains, and hot market snapshots from the active CCXT exchange set.
