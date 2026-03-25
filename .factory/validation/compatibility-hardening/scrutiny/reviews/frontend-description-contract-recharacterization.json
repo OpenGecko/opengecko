@@ -1,0 +1,15 @@
+{
+  "featureId": "frontend-description-contract-recharacterization",
+  "reviewedAt": "2026-03-25T03:22:00.000Z",
+  "commitId": "1c3b1e16cfe388d9e538302d24511f9e0a1e9045",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Successfully recharacterized the frontend detail contract test to align with the shell script's actual minimum requirements. The test now checks for non-empty description.en, presence of image.thumb with nullable string type, and presence of genesis_date with nullable string type - matching the contract defined in scripts/modules/mr-market-frontend/mr-market-frontend.sh:19.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "The worker correctly recharacterized the frontend contract test by relaxing stale exact-fixture assertions (description text 'OpenGecko fixture catalog', image.thumb '/bitcoin-thumb.png', genesis_date '2009-01-03') to match the shell script's actual minimum contract: non-empty description.en, present image.thumb (nullable string), and present genesis_date (nullable string). All tests pass (271/271), typecheck is clean, and the work was explicitly tracked in AGENTS.md as a known pre-existing issue to address."
+}

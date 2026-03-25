@@ -1,0 +1,15 @@
+{
+  "featureId": "onchain-array-matcher-hardening",
+  "reviewedAt": "2026-03-25T11:22:50.000Z",
+  "commitId": "2d4b51aae25605345ff05b67edd565325bac02b2",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Successfully hardened three brittle onchain array matchers in tests/app.test.ts. The changes replace brittle `toMatchObject(expect.arrayContaining(...))` composition with robust `toEqual(expect.arrayContaining([...]))` with nested `expect.objectContaining(...)` on the relationships object. This allows assertions to verify required network/pool/token linkages while tolerating additional relationship members or attributes in semantically correct responses. The fix applies to: (1) trending-pools network-duration assertion around line 893, (2) pool trades assertion around line 1993, and (3) token trades assertion around line 2031. No changes were made to src/modules/onchain/ as the issue was test matcher brittleness rather than implementation.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature 'onchain-array-matcher-hardening' hardened the brittle onchain array assertions in tests/app.test.ts for trending pools and pool trades. The commit 2d4b51a modified only the test file with robust matcher forms that preserve relationship coverage while tolerating semantically correct extra fields. Full test suite passes (29 files, 271 tests) and typecheck passes. No changes to src/modules/onchain/ were required as the issue was test brittle matchers against correct API responses."
+}

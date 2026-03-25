@@ -1,0 +1,116 @@
+{
+  "featureId": "startup-live-data-readiness-hardening",
+  "milestone": "compatibility-hardening",
+  "workerSessionId": "49378ed7-f638-4ce4-bd80-c03a3b60b3f0",
+  "commitId": "621568d",
+  "reviewTimestamp": "2026-03-25T11:25:00.000Z",
+  "status": "pass",
+  "overallAssessment": "The implementation correctly hardens startup readiness semantics. The whenReady() API properly blocks Fastify's ready state until initial sync, OHLCV worker startup, and live snapshot availability complete. Tests have been recharacterized to verify deterministic post-ready live snapshot behavior while preserving previously restored shutdown semantics.",
+  "codeReview": {
+    "implementationCorrectness": "pass",
+    "findings": [
+      {
+        "file": "src/services/market-runtime.ts",
+        "change": "Added whenReady() method to MarketRuntime type and implementation",
+        "assessment": "Correct - properly awaits startupTask if present; returns immediately if startupTask is undefined (edge case handled)",
+        "lineNumbers": "52-53 (type), 184-188 (implementation)"
+      },
+      {
+        "file": "src/app.ts",
+        "change": "Added await runtime.whenReady() after runtime.start()",
+        "assessment": "Correct - ensures Fastify ready state does not resolve before initial sync completes",
+        "lineNumbers": "106"
+      },
+      {
+        "file": "tests/integration-live-data.test.ts",
+        "change": "Added new test case verifying await app.ready waits for initial live snapshot bootstrap",
+        "assessment": "Correct - verifies /simple/price returns live data (bitcoin: {usd: 90_000}) after app.ready() completes with startBackgroundJobs: true",
+        "lineNumbers": "165-181"
+      },
+      {
+        "file": "tests/market-runtime.test.ts",
+        "change": "Renamed and recharacterized test to verify whenReady() stays pending until initial sync releases",
+        "assessment": "Correct - verifies readyPromise stays pending until releaseInitialSync() is called, startOhlcvRuntime called after readiness, and shutdown still works",
+        "lineNumbers": "120-167"
+      },
+      {
+        "file": "tests/stale-data.test.ts",
+        "change": "Renamed and recharacterized test from stale-data contract to fresh-data-after-ready contract",
+        "assessment": "Correct - now calls releaseTickerFetch() and await app.ready() before HTTP request, verifies fresh data (85000) available immediately after app.ready() resolves",
+        "lineNumbers": "120-175"
+      }
+    ],
+    "edgeCasesHandled": [
+      "whenReady() returns immediately if startupTask is undefined (no blocking when sync already complete)",
+      "startOhlcvRuntime called only after whenReady() resolves (verified in market-runtime.test.ts)",
+      "Shutdown still works correctly after whenReady() resolves (verified in market-runtime.test.ts)"
+    ]
+  },
+  "sharedStateObservations": {
+    "conventions": "Aligned with AGENTS.md - tests appropriately recharacterized rather than deleted, implementation preserves existing runtime shutdown fixes",
+    "services": "MarketRuntime service now exposes whenReady() as part of its public API, consistent with start/stop lifecycle pattern",
+    "knowledge": "No gaps identified - the feature correctly addresses the startup live-data readiness contract"
+  },
+  "verificationResults": {
+    "typecheck": {
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "passed": true
+    },
+    "marketRuntimeTests": {
+      "command": "bun test tests/market-runtime.test.ts -- --maxWorkers=1",
+      "exitCode": 0,
+      "passed": true,
+      "testsRun": 7,
+      "testsPassed": 7,
+      "testsFailed": 0
+    },
+    "integrationLiveDataTests": {
+      "command": "bun test tests/integration-live-data.test.ts -- --maxWorkers=1",
+      "exitCode": 0,
+      "passed": true,
+      "testsRun": 7,
+      "testsPassed": 7,
+      "testsFailed": 0
+    },
+    "staleDataTests": {
+      "command": "bun test tests/stale-data.test.ts -- --maxWorkers=1",
+      "exitCode": 0,
+      "passed": true,
+      "testsRun": 3,
+      "testsPassed": 3,
+      "testsFailed": 0
+    },
+    "compareCoingeckoTests": {
+      "command": "bun test tests/compare-coingecko.test.ts -- --maxWorkers=1",
+      "exitCode": 0,
+      "passed": true,
+      "testsRun": 50,
+      "testsPassed": 50,
+      "testsFailed": 0
+    }
+  },
+  "testCoverage": {
+    "runtimeLayer": "market-runtime.test.ts verifies whenReady() blocks until startupTask completes",
+    "httpLayer": "integration-live-data.test.ts verifies /simple/price, /coins/markets, /coins/:id return live data after app.ready()",
+    "staleDataRecharacterization": "stale-data.test.ts verifies fresh data after background bootstrap completes (no longer depends on pre-ready stale data contract)",
+    "compatibility": "compare-coingecko.test.ts verifies all CoinGecko-compatible routes still expose expected contracts"
+  },
+  "preExistingIssuesNoted": [
+    {
+      "severity": "non_blocking",
+      "file": "tests/frontend-contract-script.test.ts",
+      "description": "Expects old seeded description text instead of current live-imported description - unrelated to this feature"
+    },
+    {
+      "severity": "non_blocking",
+      "file": "tests/app.test.ts",
+      "description": "Brittle trending-pools and pool-trades array matcher failures - tracked as pending compatibility-hardening follow-up, unrelated to this feature"
+    }
+  ],
+  "skillFeedback": {
+    "followedProcedure": true,
+    "deviations": [],
+    "suggestedChanges": []
+  }
+}

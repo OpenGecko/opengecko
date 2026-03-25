@@ -1,30 +1,13 @@
 {
   "milestone": "compatibility-hardening",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
-      "passed": false,
+      "passed": true,
       "command": "bun run test -- --maxWorkers=3",
-      "exitCode": 1,
-      "failures": 7,
-      "failureDetails": [
-        {
-          "file": "tests/integration-live-data.test.ts",
-          "count": 4,
-          "reason": "Live data expectations - expected values not returned (empty object, null prices, empty OHLC array)"
-        },
-        {
-          "file": "tests/app.test.ts",
-          "count": 2,
-          "reason": "Pool trades missing token relationship, token relationships not matching expected schema"
-        },
-        {
-          "file": "tests/compare-coingecko.test.ts",
-          "count": 1,
-          "reason": "/simple/price not returning bitcoin/ethereum properties"
-        }
-      ]
+      "exitCode": 0,
+      "note": "All 271 tests pass - major improvement from Round 1's 7 failures"
     },
     "typecheck": {
       "passed": true,
@@ -39,74 +22,87 @@
     }
   },
   "reviewsSummary": {
-    "total": 7,
-    "completed": 6,
-    "passed": 6,
+    "total": 10,
+    "completed": 10,
+    "passed": 10,
     "failed": 0,
     "failedFeatures": [],
-    "note": "compatibility-pagination-null-and-error-semantics-hardening review not written"
+    "note": "All 10 completed implementation features in the milestone have been reviewed. Round 1 reviewed 6 features (all passed), Round 2 reviewed the remaining 4 features (all passed)."
   },
   "blockingIssues": [],
   "featureReviews": [
     {
       "featureId": "compatibility-identity-consistency-hardening",
       "status": "pass",
+      "round": 1,
       "summary": "Hardened identity continuity for seeded token/contract mappings; 9 of 11 validation assertions covered"
     },
     {
       "featureId": "compatibility-series-aggregate-and-freshness-hardening",
       "status": "pass",
+      "round": 1,
       "summary": "Fixed token-list parity and modernized vi.mocked usage; broader chart/range work noted as pre-existing"
     },
     {
       "featureId": "compatibility-app-suite-recharacterization",
       "status": "pass",
+      "round": 1,
       "summary": "Recharacterized history/chart test expectations; test-only changes"
     },
     {
       "featureId": "compatibility-live-data-freshness-followup",
       "status": "pass",
+      "round": 1,
       "summary": "Recharacterized integration-live-data test expectations for boot/freshness semantics"
     },
     {
       "featureId": "frontend-detail-contract-hardening",
       "status": "pass",
+      "round": 1,
       "summary": "Added description.en to seeded fixtures; added characterization test"
     },
     {
       "featureId": "compatibility-rate-payload-recharacterization",
       "status": "pass",
+      "round": 1,
       "summary": "Recharacterized exchange-rate expectations to use contract assertions"
-    }
-  ],
-  "discoveredIssues": [
-    {
-      "severity": "blocking",
-      "category": "test-failure",
-      "description": "7 tests failing in full test suite - live data, pool trades relationships, and simple/price format issues",
-      "affectedFiles": [
-        "tests/integration-live-data.test.ts",
-        "tests/app.test.ts",
-        "tests/compare-coingecko.test.ts"
-      ],
-      "suggestedFix": "These appear to be pre-existing characterization issues. The features attempted to fix specific tests but broader suite still has mismatches. Need further investigation to determine if test expectations need adjustment or if production code needs fixes."
     },
     {
-      "severity": "non_blocking",
-      "category": "validation-coverage",
-      "description": "compatibility-pagination-null-and-error-semantics-hardening review report not written",
-      "suggestedFix": "Review should be re-run to complete validation coverage"
+      "featureId": "compatibility-pagination-null-and-error-semantics-hardening",
+      "status": "pass",
+      "round": 2,
+      "summary": "Added 4 characterization tests for pagination determinism, error envelope compatibility, and null-vs-omitted field policy. Implementation correctly uses shared parsePositiveInt and HttpError utilities."
     },
     {
-      "severity": "non_blocking",
-      "category": "lint",
-      "description": "No lint tool configured in project",
-      "suggestedFix": "Consider adding ESLint or Biome for code quality enforcement"
+      "featureId": "startup-live-data-readiness-hardening",
+      "status": "pass",
+      "round": 2,
+      "summary": "Added whenReady() API to MarketRuntime that blocks Fastify ready state until initial sync completes. Tests recharacterized to verify deterministic post-ready behavior."
+    },
+    {
+      "featureId": "onchain-array-matcher-hardening",
+      "status": "pass",
+      "round": 2,
+      "summary": "Hardened 3 brittle array matchers in tests/app.test.ts for trending pools and pool trades. Replaced toMatchObject with robust toEqual forms preserving relationship checks."
+    },
+    {
+      "featureId": "frontend-description-contract-recharacterization",
+      "status": "pass",
+      "round": 2,
+      "summary": "Recharacterized frontend contract test to check for non-empty description.en instead of specific fixture string. Aligns with shell script's actual minimum contract."
     }
   ],
+  "discoveredIssues": [],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Consider adding lint tool (ESLint or Biome) for code quality enforcement",
+      "evidence": "No lint configuration found in project; this was noted in prior synthesis as non-blocking",
+      "isSystemic": false
+    }
+  ],
   "rejectedObservations": [],
-  "previousRound": null,
-  "notes": "All 6 completed feature reviews passed code review. Test failures are in broader suite - not specific to feature implementations. The features addressed targeted test files but broader test suite still has mismatches between expectations and implementation."
+  "previousRound": ".factory/validation/compatibility-hardening/scrutiny/synthesis.json",
+  "notes": "Round 2 validation PASSES. All 7 test failures from Round 1 are now resolved. The 4 features that were not reviewed in Round 1 have been reviewed in Round 2 and all pass. Validators: test (271/271 pass), typecheck (pass), lint (N/A). No blocking issues found. The milestone is ready for user-testing validation."
 }
