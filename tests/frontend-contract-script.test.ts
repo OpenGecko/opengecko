@@ -129,4 +129,34 @@ describe('frontend contract verification script', () => {
     expect(result.stdout).toContain('coin detail returns frontend-required header and info fields');
     expect(result.stdout).toContain('market chart returns frontend-required prices series');
   });
+
+  it('returns the frontend minimum detail fields directly from /coins/:id', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/bitcoin',
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const body = response.json() as {
+      id: string;
+      symbol: string;
+      name: string;
+      description: { en: string };
+      image: { thumb: string };
+      genesis_date: string | null;
+      tickers: unknown[];
+      market_data: { current_price: { usd: number | null } } | null;
+    };
+
+    expect(body.id).toBe('bitcoin');
+    expect(body.symbol).toBe('btc');
+    expect(body.name).toBe('Bitcoin');
+    expect(body.description.en).toContain('OpenGecko fixture catalog');
+    expect(body.image.thumb).toContain('/bitcoin-thumb.png');
+    expect(body.genesis_date).toBe('2009-01-03');
+    expect(Array.isArray(body.tickers)).toBe(true);
+    expect(body.market_data).not.toBeNull();
+    expect(body.market_data?.current_price.usd).toBeTypeOf('number');
+  });
 });
