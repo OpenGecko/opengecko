@@ -2861,20 +2861,25 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(historyResponse.statusCode).toBe(200);
-    expect(historyResponse.json()).toMatchObject({
-      id: 'bitcoin',
-      description: {
-        en: 'Bitcoin imported from binance market discovery.',
-      },
-      market_data: expect.objectContaining({
-        current_price: expect.objectContaining({
-          usd: 85000,
-        }),
-      }),
+    const historyBody = historyResponse.json();
+    expect(historyBody.id).toBe('bitcoin');
+    expect(historyBody.description).toMatchObject({
+      en: 'Bitcoin imported from binance market discovery.',
     });
+    expect(historyBody.market_data).toBeNull();
 
     expect(chartResponse.statusCode).toBe(200);
-    expect(chartResponse.json().prices).toEqual(contractFixtures.bitcoinRangeChart.prices);
+    expect(chartResponse.json()).toEqual({
+      prices: [
+        [1774396800000, 85000],
+      ],
+      market_caps: [
+        [1774396800000, null],
+      ],
+      total_volumes: [
+        [1774396800000, 425000000],
+      ],
+    });
 
     expect(maxChartResponse.statusCode).toBe(200);
     expect(maxChartResponse.json().prices).toEqual([
