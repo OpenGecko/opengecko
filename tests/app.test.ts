@@ -1153,6 +1153,45 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('returns megafilter included token resources for supported include values', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?networks=eth&sort=reserve_in_usd_desc&include=base_token,quote_token&page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+      '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+    ]);
+    expect(response.json()).toMatchObject({
+      included: expect.arrayContaining([
+        expect.objectContaining({
+          id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          type: 'token',
+          relationships: {
+            network: {
+              data: {
+                type: 'network',
+                id: 'eth',
+              },
+            },
+          },
+        }),
+        expect.objectContaining({
+          id: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+          type: 'token',
+        }),
+        expect.objectContaining({
+          id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+          type: 'token',
+        }),
+      ]),
+    });
+    expect(response.json().included).toHaveLength(3);
+  });
+
   it('returns onchain pools by multi-address lookup', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -1414,7 +1453,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const topHoldersLimitedResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?holders=2&include_pnl_details=true',
+      url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?holders=2&include_pnl_details=true&include=token,network',
     });
     const topTradersResponse = await getApp().inject({
       method: 'GET',
@@ -1475,6 +1514,19 @@ describe('OpenGecko app scaffold', () => {
         }),
       }),
     ]);
+    expect(topHoldersLimitedResponse.json()).toMatchObject({
+      included: expect.arrayContaining([
+        expect.objectContaining({
+          id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          type: 'token',
+        }),
+        expect.objectContaining({
+          id: 'eth',
+          type: 'network',
+        }),
+      ]),
+    });
+    expect(topHoldersLimitedResponse.json().included).toHaveLength(2);
 
     expect(topTradersResponse.statusCode).toBe(200);
     expect(topTradersResponse.json().meta).toMatchObject({
@@ -1487,6 +1539,11 @@ describe('OpenGecko app scaffold', () => {
       '0xtrader000000000000000000000000000000000002',
       '0xtrader000000000000000000000000000000000001',
       '0xtrader000000000000000000000000000000000003',
+    ]);
+    expect(topTradersResponse.json().data.map((trader: { attributes: { is_whale: boolean } }) => trader.attributes.is_whale)).toEqual([
+      true,
+      false,
+      false,
     ]);
     expect(topTradersResponse.json().data.map((trader: { attributes: { volume_usd: string } }) => Number(trader.attributes.volume_usd))).toEqual([
       12500000,

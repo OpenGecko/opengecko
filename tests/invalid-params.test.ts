@@ -307,6 +307,10 @@ describe('OpenGecko invalid parameter handling', () => {
       method: 'GET',
       url: '/onchain/pools/megafilter?networks=bitcoin',
     });
+    const invalidIncludeResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/pools/megafilter?include=network',
+    });
 
     expect(malformedNumericResponse.statusCode).toBe(400);
     expect(malformedNumericResponse.json()).toMatchObject({
@@ -325,6 +329,12 @@ describe('OpenGecko invalid parameter handling', () => {
       error: 'invalid_parameter',
       message: 'Unknown onchain network: bitcoin',
     });
+
+    expect(invalidIncludeResponse.statusCode).toBe(400);
+    expect(invalidIncludeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported include value: network',
+    });
   });
 
   it('rejects invalid holder and trader analytics params explicitly', async () => {
@@ -335,6 +345,10 @@ describe('OpenGecko invalid parameter handling', () => {
     const badHoldersFlagResponse = await app!.inject({
       method: 'GET',
       url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?include_pnl_details=yes',
+    });
+    const badHoldersIncludeResponse = await app!.inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders?include=dex',
     });
     const badTradersCountResponse = await app!.inject({
       method: 'GET',
@@ -363,6 +377,12 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(badHoldersFlagResponse.json()).toMatchObject({
       error: 'invalid_parameter',
       message: 'Invalid boolean query value: yes',
+    });
+
+    expect(badHoldersIncludeResponse.statusCode).toBe(400);
+    expect(badHoldersIncludeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported include value: dex',
     });
 
     expect(badTradersCountResponse.statusCode).toBe(400);

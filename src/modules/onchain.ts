@@ -54,6 +54,7 @@ const trendingSearchQuerySchema = z.object({
 const megafilterQuerySchema = z.object({
   page: z.string().optional(),
   per_page: z.string().optional(),
+  include: z.string().optional(),
   networks: z.string().optional(),
   dexes: z.string().optional(),
   min_reserve_in_usd: z.string().optional(),
@@ -110,6 +111,7 @@ const onchainOhlcvQuerySchema = z.object({
 const topHoldersQuerySchema = z.object({
   holders: z.string().optional(),
   include_pnl_details: z.string().optional(),
+  include: z.string().optional(),
 });
 
 const topTradersQuerySchema = z.object({
@@ -227,6 +229,30 @@ function parseRecentlyUpdatedTokenInfoIncludes(include: string | undefined) {
 
   for (const value of includes) {
     if (value !== 'network') {
+      throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
+    }
+  }
+
+  return includes;
+}
+
+function parseMegafilterIncludes(include: string | undefined) {
+  const includes = parseCsvQuery(include);
+
+  for (const value of includes) {
+    if (value !== 'base_token' && value !== 'quote_token') {
+      throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
+    }
+  }
+
+  return includes;
+}
+
+function parseTopHoldersIncludes(include: string | undefined) {
+  const includes = parseCsvQuery(include);
+
+  for (const value of includes) {
+    if (value !== 'token' && value !== 'network') {
       throw new HttpError(400, 'invalid_parameter', `Unsupported include value: ${value}`);
     }
   }
@@ -1030,6 +1056,8 @@ function buildTopHolderResource(holder: OnchainHolderRecord, includePnlDetails: 
 }
 
 function buildTopTraderResource(trader: OnchainTraderRecord, includeAddressLabel: boolean) {
+  const whaleVolumeThresholdUsd = 10_000_000;
+
   return {
     id: trader.address,
     type: 'trader',
@@ -1040,6 +1068,7 @@ function buildTopTraderResource(trader: OnchainTraderRecord, includeAddressLabel
       sell_volume_usd: String(trader.sellVolumeUsd),
       realized_pnl_usd: String(trader.realizedPnlUsd),
       trade_count: trader.tradeCount,
+      is_whale: trader.volumeUsd >= whaleVolumeThresholdUsd,
       ...(includeAddressLabel ? { address_label: trader.addressLabel } : {}),
     },
   };
@@ -1245,6 +1274,63 @@ function buildIncludedResources(
         seen.add(key);
         included.push(buildDexResource(row));
       }
+    }
+  }
+
+  return included;
+}
+
+function buildMegafilterIncludedResources(
+  includes: string[],
+  rows: typeof onchainPools.$inferSelect[],
+  database: AppDatabase,
+) {
+  const included: ReturnType<typeof buildTokenResource>[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const tokenAddresses = [
+      ...(includes.includes('base_token') ? [row.baseTokenAddress] : []),
+      ...(includes.includes('quote_token') ? [row.quoteTokenAddress] : []),
+    ];
+
+    for (const tokenAddress of tokenAddresses) {
+      const normalized = normalizeAddress(tokenAddress);
+      const key = `${row.networkId}:${normalized}`;
+      if (seen.has(key)) {
+        continue;
+      }
+
+      const tokenPools = collectTokenPools(row.networkId, normalized, database);
+      if (tokenPools.length === 0) {
+        continue;
+      }
+
+      seen.add(key);
+      included.push(buildTokenResource(row.networkId, normalized, tokenPools));
+    }
+  }
+
+  return included;
+}
+
+function buildTopHoldersIncludedResources(
+  includes: string[],
+  networkId: string,
+  tokenAddress: string,
+  tokenPools: typeof onchainPools.$inferSelect[],
+  database: AppDatabase,
+) {
+  const included: Array<ReturnType<typeof buildTokenResource> | ReturnType<typeof buildNetworkResource>> = [];
+
+  if (includes.includes('token')) {
+    included.push(buildTokenResource(networkId, tokenAddress, tokenPools));
+  }
+
+  if (includes.includes('network')) {
+    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, networkId)).limit(1).get();
+    if (network) {
+      included.push(buildNetworkResource(network));
     }
   }
 
@@ -1841,6 +1927,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const query = megafilterQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);
+    const includes = parseMegafilterIncludes(query.include);
     const networks = parseMegafilterNetworks(query.networks, database);
     const dexes = parseMegafilterDexes(query.dexes, database);
     const minReserveInUsd = parseOptionalFiniteNumber(query.min_reserve_in_usd, 'min_reserve_in_usd');
@@ -1879,9 +1966,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const sortedRows = sortMegafilterRows(rows, sort);
     const start = (page - 1) * perPage;
     const pagedRows = sortedRows.slice(start, start + perPage);
+    const included = buildMegafilterIncludedResources(includes, pagedRows, database);
 
     return {
       data: pagedRows.map((row) => buildMegafilterRow(row)),
+      ...(included.length > 0 ? { included } : {}),
       meta: {
         ...buildPaginationMeta(page, perPage, sortedRows.length),
         sort,
@@ -2313,6 +2402,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
     const query = topHoldersQuerySchema.parse(request.query);
     const includePnlDetails = parseBooleanQuery(query.include_pnl_details, false);
+    const includes = parseTopHoldersIncludes(query.include);
     const holders = parseAnalyticsCount(query.holders, 'holders', 3);
     const tokenAddress = normalizeAddress(params.address);
 
@@ -2329,9 +2419,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const holdersRows = buildTopHolderFixtures(params.network, tokenAddress)
       .sort((left, right) => right.balance - left.balance || right.shareOfSupply - left.shareOfSupply || left.address.localeCompare(right.address))
       .slice(0, holders);
+    const included = buildTopHoldersIncludedResources(includes, params.network, tokenAddress, tokenPools, database);
 
     return {
       data: holdersRows.map((holder) => buildTopHolderResource(holder, includePnlDetails)),
+      ...(included.length > 0 ? { included } : {}),
       meta: {
         network: params.network,
         token_address: tokenAddress,
