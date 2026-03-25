@@ -52,6 +52,7 @@ function createSerializedJob(name: string, logger: RuntimeLogger, runner: JobRun
 export type MarketRuntime = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
+  whenReady: () => Promise<void>;
 };
 
 type MarketRuntimeOverrides = {
@@ -179,6 +180,11 @@ export function createMarketRuntime(
       void startupTask.finally(() => {
         startupSettled = true;
       });
+    },
+    async whenReady() {
+      if (startupTask) {
+        await startupTask;
+      }
     },
     async stop() {
       stopRequested = true;

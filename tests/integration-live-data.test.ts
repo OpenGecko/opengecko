@@ -162,4 +162,20 @@ describe('live data integration', () => {
     expect(Number.isFinite(body.data.usd.value)).toBe(true);
     expect(typeof body.data.eur.value).toBe('number');
   });
+
+  it('await app.ready waits for the initial live snapshot bootstrap when background jobs are enabled', async () => {
+    expect(mockedFetchExchangeTickers).toHaveBeenCalled();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      bitcoin: {
+        usd: 90_000,
+      },
+    });
+  });
 });

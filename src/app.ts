@@ -103,6 +103,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     // Always run initial market sync (live data from CCXT)
     if (runtime) {
       await runtime.start();
+      await runtime.whenReady();
       seedStaticReferenceData(database);
       rebuildSearchIndex(database);
     } else {

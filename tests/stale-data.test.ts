@@ -31,8 +31,10 @@ describe('stale market snapshot behavior', () => {
   let tempDir: string;
   let database: AppDatabase | undefined;
   let databaseUrl: string;
+  let mockedFetchExchangeTickers: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    mockedFetchExchangeTickers = fetchExchangeTickers as unknown as ReturnType<typeof vi.fn>;
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-stale-'));
     databaseUrl = join(tempDir, 'test.db');
     app = buildApp({
@@ -115,7 +117,7 @@ describe('stale market snapshot behavior', () => {
     });
   });
 
-  it('serves stale live snapshots during background bootstrap until fresh data arrives', async () => {
+  it('returns fresh live price after background bootstrap completes', async () => {
     await app!.inject({ method: 'GET', url: '/ping' });
 
     await app!.close();
@@ -126,9 +128,12 @@ describe('stale market snapshot behavior', () => {
     const bootstrapSourceTime = new Date('2026-03-20T00:00:00.000Z');
     let releaseTickerFetch!: () => void;
     const blockedTickerFetch = new Promise<Awaited<ReturnType<typeof fetchExchangeTickers>>>((resolve) => {
-      releaseTickerFetch = () => resolve([]);
+      releaseTickerFetch = () => resolve([
+        { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: Date.now(), raw: {} as never },
+        { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: Date.now(), raw: {} as never },
+      ]);
     });
-    vi.mocked(fetchExchangeTickers).mockReturnValueOnce(blockedTickerFetch);
+    mockedFetchExchangeTickers.mockReturnValueOnce(blockedTickerFetch);
     app = buildApp({
       config: {
         databaseUrl,
@@ -140,8 +145,6 @@ describe('stale market snapshot behavior', () => {
 
     database = createDatabase(databaseUrl);
 
-    await app.inject({ method: 'GET', url: '/ping' });
-
     database.db
       .update(marketSnapshots)
       .set({
@@ -152,18 +155,19 @@ describe('stale market snapshot behavior', () => {
       .where(eq(marketSnapshots.coinId, 'bitcoin'))
       .run();
 
-    const response = await app.inject({
+    releaseTickerFetch();
+    await app.ready();
+
+    const readyResponse = await app.inject({
       method: 'GET',
       url: '/simple/price?ids=bitcoin&vs_currencies=usd',
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(readyResponse.statusCode).toBe(200);
+    expect(readyResponse.json()).toEqual({
       bitcoin: {
         usd: 85000,
       },
     });
-
-    releaseTickerFetch();
   });
 });

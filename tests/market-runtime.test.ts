@@ -117,7 +117,7 @@ describe('market runtime', () => {
     await runtime.stop();
   });
 
-  it('does not block startup on a long-running initial sync', async () => {
+  it('waits for a long-running initial sync before reporting readiness', async () => {
     let releaseInitialSync!: () => void;
     const runInitialMarketSync = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
       releaseInitialSync = resolve;
@@ -125,6 +125,7 @@ describe('market runtime', () => {
     const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
     const runMarketRefreshOnce = vi.fn().mockResolvedValue(undefined);
     const runSearchRebuildOnce = vi.fn().mockResolvedValue(undefined);
+    const startOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
     const stopOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
     const state = createState();
     const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
@@ -132,26 +133,41 @@ describe('market runtime', () => {
       runCurrencyRefreshOnce,
       runMarketRefreshOnce,
       runSearchRebuildOnce,
+      startOhlcvRuntime,
       stopOhlcvRuntime,
     });
 
     const startPromise = runtime.start();
     await flushMicrotasks();
+    const readyPromise = runtime.whenReady();
+    await flushMicrotasks();
 
     expect(runInitialMarketSync).toHaveBeenCalledTimes(1);
+    let readySettled = false;
+    void readyPromise.then(() => {
+      readySettled = true;
+    });
+    await flushMicrotasks();
+    expect(readySettled).toBe(false);
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(0);
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
-
-    const stopPromise = runtime.stop();
-    expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(0);
-    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
-    expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
-    expect(state.initialSyncCompleted).toBe(false);
 
     releaseInitialSync();
-    await stopPromise;
+    await readyPromise;
+
+    expect(readySettled).toBe(true);
+    expect(startOhlcvRuntime).toHaveBeenCalledTimes(1);
+    expect(state.initialSyncCompleted).toBe(true);
+    await eventually(() => {
+      expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    });
+
+    const stopPromise = runtime.stop();
+    await flushMicrotasks();
     expect(stopOhlcvRuntime).toHaveBeenCalledTimes(1);
     await startPromise;
+    await stopPromise;
   });
 
   it('allows stop to finish before a pending initial sync settles', async () => {
