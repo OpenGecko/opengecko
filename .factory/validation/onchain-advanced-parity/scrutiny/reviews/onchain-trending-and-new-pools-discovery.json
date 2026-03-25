@@ -1,0 +1,15 @@
+{
+  "featureId": "onchain-trending-and-new-pools-discovery",
+  "reviewedAt": "2026-03-25T00:00:00.000Z",
+  "commitId": "4487f39",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation successfully adds four discovery endpoints (global/network trending-pools and new-pools) with proper JSON:API resource shapes, stable ranking semantics, duration support (1h/6h/24h), include handling for network/dex relationships, and explicit network scoping. The weighted scoring algorithm for trending uses sensible duration-based weights (volume, transactions, reserve) with deterministic tie-breaking. All negative cases (invalid duration, unsupported include values) return explicit 400 validation responses.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature 'onchain-trending-and-new-pools-discovery' is fully implemented and tested. The commit adds 172 lines to src/modules/onchain.ts implementing the four discovery routes with proper ranking, duration support, include handling, and network scoping. Tests in tests/app.test.ts (169 lines added) cover happy paths for global/network trending pools with stable ranking verification, duration variants (1h, 6h, 24h), include handling for network/dex resources, and recency-ordered new pools. Negative tests in tests/invalid-params.test.ts (33 lines added) verify explicit 400 responses for unsupported include values and invalid duration values. All seven fulfilled assertions (VAL-ONCHAIN-ADV-001 through VAL-ONCHAIN-ADV-006) are addressed by the implementation."
+}

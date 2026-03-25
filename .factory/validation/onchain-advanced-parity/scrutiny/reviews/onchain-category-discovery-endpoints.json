@@ -1,0 +1,44 @@
+{
+  "featureId": "onchain-category-discovery-endpoints",
+  "reviewedAt": "2026-03-25T00:00:00.000Z",
+  "commitId": "e18dbae",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The onchain category discovery endpoints implementation is correct and complete. The worker added `/onchain/categories` (index with sorting/pagination) and `/onchain/categories/:categoryId/pools` (category-scoped pool listing with include support). Implementation follows JSON:API conventions, validates parameters explicitly, and includes comprehensive test coverage.",
+    "issues": [
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 1118,
+        "severity": "non_blocking",
+        "description": "Dead code: `void categoryRows;` and `void categoriesById;` are no-op statements left from development. These don't affect functionality but should be cleaned up."
+      },
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 1931,
+        "severity": "non_blocking",
+        "description": "Hardcoded perPage=1 for categories index is very low for production use. Appears intentional for pagination testing but may need adjustment for real workloads."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The implementation correctly follows the JSON:API conventions documented in .factory/library/onchain.md - using data/included/relationships/meta structures consistently.",
+      "evidence": "src/modules/onchain.ts:1175-1195 buildOnchainCategoryResource creates proper JSON:API shape with relationships for networks/dexes"
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed the onchain-api-worker skill procedure correctly. Transcript shows: read skill → wrote failing tests → implemented routes → verified with tests and curl → typecheck passed.",
+      "evidence": "handoff.skillFeedback.followedProcedure: true, verification.commandsRun shows test-typecheck-manual verification sequence"
+    },
+    {
+      "area": "conventions",
+      "observation": "Category membership is derived heuristically from pool token symbols (USDC/USDT/DAI = stablecoins, WETH/ETH/SOL = smart-contract-platform) rather than using a formal taxonomy table. This is acceptable for current scope but should be documented for future category additions.",
+      "evidence": "src/modules/onchain.ts:1103-1115 resolvePoolCategoryIds function implements the heuristic categorization"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation is complete and correct. The categories index and category-pools endpoints provide deterministic sorting, stable pagination, explicit include validation, and proper category scoping. All 80 tests pass including the new category discovery assertions. Two minor non-blocking issues: dead code (void statements) in buildOnchainCategorySummaries and hardcoded perPage=1 that may need tuning for production."
+}

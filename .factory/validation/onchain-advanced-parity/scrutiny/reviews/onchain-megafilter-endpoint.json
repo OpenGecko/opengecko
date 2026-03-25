@@ -1,0 +1,15 @@
+{
+  "featureId": "onchain-megafilter-endpoint",
+  "reviewedAt": "2026-03-25T08:20:00Z",
+  "commitId": "e912a70",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The megafilter endpoint implementation is complete and well-structured. It adds `/onchain/pools/megafilter` with proper conjunctive filtering, numeric bound enforcement, deterministic sorting, empty-result handling, and explicit invalid-filter validation. The implementation follows the established patterns in the onchain module.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "The onchain megafilter endpoint implementation fully satisfies the feature requirements:\n\n1. **Conjunctive filtering**: Network, dex, and metric filters (min/max for reserve, volume, tx_count) are applied conjunctively using chained filter operations.\n\n2. **Numeric bound enforcement**: `parseOptionalFiniteNumber` validates all numeric bounds, rejecting non-finite values with explicit 400 errors.\n\n3. **Deterministic sort behavior**: `sortMegafilterRows` provides stable sorting with primary sort key, secondary reserve tie-breaker (descending), and final address tie-breaker (ascending).\n\n4. **Empty-result shape**: Empty results return 200 with `data: []` and proper meta including applied_filters, matching the expected contract.\n\n5. **Invalid filter validation**: Unknown networks, unknown dexes, and unsupported sort values all return 400 with explicit `invalid_parameter` error messages.\n\n6. **Test coverage**: Comprehensive tests cover valid filter combinations, numeric bounds, conjunctive filtering, sorting, empty results, and all invalid input cases.\n\nThe worker followed procedure (skillFeedback.followedProcedure: true), passed all validators (typecheck clean, targeted tests passed), and committed cleanly with only the expected 3 files changed."
+}

@@ -1,0 +1,31 @@
+{
+  "featureId": "market-runtime-hanging-test-restabilization",
+  "reviewedAt": "2026-03-25T08:21:00.000Z",
+  "commitId": "e0def82",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation successfully re-stabilizes the hanging market runtime test harness. The fix adds deterministic shutdown behavior when `stop()` is called while initial sync is still pending, without changing production runtime semantics. Two new state flags (`startupSettled` and `stopRequested`) track the startup/shutdown state, and the `stop()` method now skips awaiting the unresolved startup task when a stop has been requested. The test file adds characterization coverage for the stop-before-sync-settles path.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The worker followed the established pattern of using dependency injection overrides for testability (e.g., `stopOhlcvRuntime`, `runInitialMarketSync`) which is already well-established in the codebase.",
+      "evidence": "tests/market-runtime.test.ts:30-37 - mocks are passed via overrides parameter to createMarketRuntime"
+    },
+    {
+      "area": "conventions",
+      "observation": "The worker correctly used `vi.useFakeTimers()` and `vi.useRealTimers()` in beforeEach/afterEach hooks as documented in AGENTS.md for Bun/Vitest compatibility.",
+      "evidence": "tests/market-runtime.test.ts:46-52 - proper timer lifecycle management"
+    },
+    {
+      "area": "skills",
+      "observation": "Worker followed the compatibility-hardening-worker skill procedure correctly: read mission docs first, identified the affected test file, wrote characterization tests for the failing scenario, made minimal production changes to fix the issue, and verified with targeted tests.",
+      "evidence": "Transcript shows proper sequence: Read AGENTS.md → run initial failing test → analyze code → add characterization coverage → make minimal fix → verify determinism with multiple runs"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "This feature successfully fixes the hanging 'does not block startup on a long-running initial sync' test case under Bun/Vitest fake timers. The implementation adds minimal, focused changes to `src/services/market-runtime.ts` (24 lines) introducing `startupSettled` and `stopRequested` flags that make shutdown deterministic when startup is still pending. The test file enhancements (40 lines) add explicit characterization coverage for the stop-before-sync-settles path. All 7 market-runtime tests pass reliably (verified with two consecutive runs), adjacent initial-sync tests show no regressions, and typecheck passes. The fix preserves all production semantics while making the test harness deterministic."
+}

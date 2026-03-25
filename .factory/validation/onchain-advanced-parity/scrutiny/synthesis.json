@@ -1,0 +1,99 @@
+{
+  "milestone": "onchain-advanced-parity",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --run",
+      "exitCode": 0,
+      "summary": "57 tests passed across 6 test files"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "note": "Fixed vitest/globals types issue in tsconfig.json - removed @types/vitest dependency that was not installed"
+    },
+    "lint": {
+      "passed": true,
+      "note": "No lint command defined in package.json - skipping"
+    }
+  },
+  "reviewsSummary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "tsconfig.json",
+      "description": "Removed 'vitest/globals' from types array since @types/vitest is not installed and tests explicitly import vitest functions",
+      "sourceFeature": "scrutiny-validator-onchain-advanced-parity"
+    }
+  ],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "nonBlockingIssuesSummary": [
+    {
+      "featureId": "onchain-category-discovery-endpoints",
+      "severity": "non_blocking",
+      "description": "Dead code: `void categoryRows;` and `void categoriesById;` are no-op statements left from development at src/modules/onchain.ts:~1118"
+    },
+    {
+      "featureId": "onchain-category-discovery-endpoints",
+      "severity": "non_blocking",
+      "description": "Hardcoded perPage=1 for categories index is very low for production use - may need tuning for real workloads at src/modules/onchain.ts:~1931"
+    },
+    {
+      "featureId": "onchain-holder-and-trader-analytics-endpoints",
+      "severity": "non_blocking",
+      "description": "parseAnalyticsCount caps values at 100 but lacks documented rationale - consider adding comment explaining the limit at src/modules/onchain.ts:~898"
+    },
+    {
+      "featureId": "onchain-holder-and-trader-analytics-endpoints",
+      "severity": "non_blocking",
+      "description": "Top holders sorting uses tie-breakers not explicitly tested for edge cases with identical balances/shares at src/modules/onchain.ts:~2289"
+    },
+    {
+      "featureId": "onchain-holder-and-trader-analytics-endpoints",
+      "severity": "non_blocking",
+      "description": "Test case for holders chart covers 'days <= 7' but doesn't test boundary condition (days=7 exactly) at tests/app.test.ts:~1407"
+    }
+  ],
+  "featureReviewDetails": [
+    {
+      "featureId": "onchain-trending-and-new-pools-discovery",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-ONCHAIN-ADV-001", "VAL-ONCHAIN-ADV-002", "VAL-ONCHAIN-ADV-003", "VAL-ONCHAIN-ADV-004", "VAL-ONCHAIN-ADV-005", "VAL-ONCHAIN-ADV-006"]
+    },
+    {
+      "featureId": "onchain-search-and-trending-search-endpoints",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-ONCHAIN-ADV-007", "VAL-ONCHAIN-ADV-007A", "VAL-ONCHAIN-ADV-008", "VAL-ONCHAIN-ADV-009", "VAL-ONCHAIN-ADV-009A"]
+    },
+    {
+      "featureId": "onchain-megafilter-endpoint",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-ONCHAIN-ADV-010", "VAL-ONCHAIN-ADV-011", "VAL-ONCHAIN-ADV-012", "VAL-ONCHAIN-ADV-013", "VAL-ONCHAIN-ADV-014"]
+    },
+    {
+      "featureId": "onchain-holder-and-trader-analytics-endpoints",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-ONCHAIN-ADV-015", "VAL-ONCHAIN-ADV-015A", "VAL-ONCHAIN-ADV-016", "VAL-ONCHAIN-ADV-017", "VAL-ONCHAIN-ADV-018", "VAL-ONCHAIN-ADV-018A", "VAL-ONCHAIN-ADV-019", "VAL-ONCHAIN-ADV-020", "VAL-ONCHAIN-ADV-021", "VAL-ONCHAIN-ADV-021A"]
+    },
+    {
+      "featureId": "onchain-category-discovery-endpoints",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-ONCHAIN-ADV-022", "VAL-ONCHAIN-ADV-023", "VAL-ONCHAIN-ADV-024", "VAL-ONCHAIN-ADV-024A", "VAL-ONCHAIN-ADV-025", "VAL-ONCHAIN-ADV-026", "VAL-ONCHAIN-ADV-027", "VAL-ONCHAIN-ADV-028"]
+    },
+    {
+      "featureId": "market-runtime-hanging-test-restabilization",
+      "status": "pass",
+      "fulfilledAssertions": ["VAL-CROSS-018", "VAL-CROSS-019", "VAL-CROSS-020", "VAL-CROSS-020A", "VAL-CROSS-021", "VAL-CROSS-022", "VAL-CROSS-023"]
+    }
+  ],
+  "previousRound": null
+}

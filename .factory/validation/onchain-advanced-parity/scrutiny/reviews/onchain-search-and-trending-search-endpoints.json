@@ -1,0 +1,15 @@
+{
+  "featureId": "onchain-search-and-trending-search-endpoints",
+  "reviewedAt": "2026-03-25T08:00:00.000Z",
+  "commitId": "66af6bb",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Implementation is complete and correct. The worker added two new endpoints (`/onchain/search/pools` and `/onchain/pools/trending_search`) with proper exact-match ranking semantics, network filtering, subset handling, deterministic invalid-candidate behavior, and page-based pagination. All feature requirements from the feature description and fulfills assertions are met.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "The onchain pool search and trending-search endpoints are correctly implemented with all required semantics. The scoring system properly prioritizes exact matches (address: 10k, name: 9k, symbol: 8k) before partial matches. Network filtering validates the network exists and returns a 400 error for unknown networks. The trending-search subset handling correctly tracks duplicates and invalid addresses in `ignored_candidates`. Pagination works correctly with proper meta fields. Tests in `tests/app.test.ts` comprehensively verify all functionality including exact vs partial ordering, network filtering, subset handling with duplicate/invalid candidates, and page boundaries."
+}

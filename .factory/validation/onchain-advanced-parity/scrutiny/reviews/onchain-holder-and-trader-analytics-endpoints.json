@@ -1,0 +1,55 @@
+{
+  "featureId": "onchain-holder-and-trader-analytics-endpoints",
+  "reviewedAt": "2026-03-25T00:00:00.000Z",
+  "commitId": "f2498cbdee0039b84811da5bdba6af92dab72db5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation successfully adds three onchain analytics endpoints (/top_holders, /top_traders, /holders_chart) with proper deterministic ordering, enrichment gating, row-count limits, and explicit invalid-param validation. The code follows existing patterns in the codebase, uses shared helpers from src/http/params.ts for boolean parsing, and maintains JSON:API response shapes consistent with other onchain endpoints.",
+    "issues": [
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 898,
+        "severity": "non_blocking",
+        "description": "The parseAnalyticsCount function caps values at 100 (Math.min), but there's no documented rationale for this limit in comments. Consider adding a comment explaining why 100 is the maximum, or make it a named constant."
+      },
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 2289,
+        "severity": "non_blocking",
+        "description": "Top holders sorting uses tie-breakers (shareOfSupply, address) that are not explicitly tested. While the test verifies final order, edge cases with identical balances/shares aren't covered. The deterministic behavior is correct but could benefit from explicit test coverage."
+      },
+      {
+        "file": "tests/app.test.ts",
+        "line": 1407,
+        "severity": "non_blocking",
+        "description": "Test case covers the 'days <= 7' branch for holders chart, but doesn't test the boundary condition (days=7 exactly). The implementation is correct but the test could be more explicit about boundary behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Worker correctly used existing shared helpers (parseBooleanQuery from src/http/params.ts) rather than implementing custom boolean parsing, demonstrating good pattern adherence.",
+      "evidence": "Line 2279 uses parseBooleanQuery(query.include_pnl_details, false) consistent with AGENTS.md guidance."
+    },
+    {
+      "area": "conventions",
+      "observation": "Worker followed the established pattern of using parsePositiveInt for integer validation, and created a new parseAnalyticsCount wrapper that adds the 100-row limit enforcement for analytics endpoints.",
+      "evidence": "New function parseAnalyticsCount at line 518 wraps the count parsing with Math.min(parsed, 100)."
+    },
+    {
+      "area": "services",
+      "observation": "No new services or commands were introduced - the feature adds only route handlers following existing patterns.",
+      "evidence": "Verification commands in handoff show manual HTTP testing using existing validation server on port 3102."
+    },
+    {
+      "area": "knowledge",
+      "observation": "The implementation uses deterministic sorting with multiple tie-breakers (balance -> shareOfSupply -> address for holders; primary sort -> volume -> address for traders). This pattern could be documented in .factory/library/onchain.md for future analytics endpoints.",
+      "evidence": "Lines 2289-2291 and 2327-2341 show the tie-breaker sorting logic that ensures stable ordering."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Feature implementation is complete and correct. The worker successfully implemented top-holders, top-traders, and holders-chart endpoints with deterministic leaderboard ordering (using balance/shareOfSupply/address tie-breakers for holders, and sort/volume/address for traders), optional enrichment gating (include_pnl_details, include_address_label), 100-row hard limit with configurable count, and explicit 400 validation for all invalid parameters. Test coverage in app.test.ts and invalid-params.test.ts comprehensively verifies happy paths and error cases. All targeted tests pass, typecheck passes, and manual HTTP verification confirms correct behavior."
+}
