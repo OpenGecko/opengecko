@@ -2065,7 +2065,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includes = parsePoolIncludes(query.include);
     const requestedAddresses = [...new Set(params.addresses
       .split(',')
-      .map((address) => address.trim())
+      .map((address) => normalizeAddress(address))
       .filter((address) => address.length > 0))];
 
     if (requestedAddresses.length === 0) {
@@ -2106,16 +2106,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includes = parsePoolIncludes(query.include);
     const includeVolumeBreakdown = parseBooleanQuery(query.include_volume_breakdown, false);
     const includeComposition = parseBooleanQuery(query.include_composition, false);
+    const normalizedAddress = normalizeAddress(params.address);
 
     const row = database.db
       .select()
       .from(onchainPools)
-      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, normalizedAddress)))
       .limit(1)
       .get();
 
     if (!row) {
-      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
 
     const included = buildIncludedResources(includes, [row], database);
@@ -2325,15 +2326,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
     const query = poolInfoQuerySchema.parse(request.query);
     const includes = parsePoolInfoIncludes(query.include);
+    const normalizedAddress = normalizeAddress(params.address);
     const row = database.db
       .select()
       .from(onchainPools)
-      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, normalizedAddress)))
       .limit(1)
       .get();
 
     if (!row) {
-      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
 
     const tokenInfos = [
@@ -2515,16 +2517,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
     const query = tradesQuerySchema.parse(request.query);
     const threshold = parseTradeVolumeThreshold(query.trade_volume_in_usd_greater_than);
+    const normalizedAddress = normalizeAddress(params.address);
 
     const pool = database.db
       .select()
       .from(onchainPools)
-      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, normalizedAddress)))
       .limit(1)
       .get();
 
     if (!pool) {
-      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
 
     let filteredToken: string | null = null;
@@ -2598,6 +2601,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includeEmptyIntervals = parseBooleanQuery(query.include_empty_intervals, false);
     const currency = (query.currency ?? 'usd').trim().toLowerCase();
 
+    const normalizedAddress = normalizeAddress(params.address);
     if (!['usd', 'token'].includes(currency)) {
       throw new HttpError(400, 'invalid_parameter', `Unsupported currency value: ${query.currency}`);
     }
@@ -2605,12 +2609,12 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pool = database.db
       .select()
       .from(onchainPools)
-      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, params.address)))
+      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, normalizedAddress)))
       .limit(1)
       .get();
 
     if (!pool) {
-      throw new HttpError(404, 'not_found', `Onchain pool not found: ${params.address}`);
+      throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
 
     let tokenSelection: string | null = null;

@@ -665,6 +665,58 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('normalizes mixed-case onchain pool addresses before detail and multi lookups without changing canonical response ids', async () => {
+    const lowercaseAddress = '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b';
+    const mixedCaseAddress = '0x88E6A0c2dDD26FCe6B7C8F1EC5feF66F5f8f2B4B';
+    const lowercaseSecondAddress = '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36';
+    const mixedCaseSecondAddress = '0x4E68CCD3E89F51C3074CA5072BBAC773960DFA36';
+
+    const lowercaseDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/eth/pools/${lowercaseAddress}`,
+    });
+    const mixedCaseDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/eth/pools/${mixedCaseAddress}`,
+    });
+    const lowercaseMultiResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/eth/pools/multi/${lowercaseAddress},${lowercaseSecondAddress}`,
+    });
+    const mixedCaseMultiResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/eth/pools/multi/${mixedCaseAddress},${mixedCaseSecondAddress}`,
+    });
+    const unknownMixedCaseResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x00000000000000000000000000000000000000AA',
+    });
+
+    expect(lowercaseDetailResponse.statusCode).toBe(200);
+    expect(mixedCaseDetailResponse.statusCode).toBe(200);
+    expect(lowercaseDetailResponse.json().data).toMatchObject({
+      id: lowercaseAddress,
+      attributes: {
+        address: lowercaseAddress,
+      },
+    });
+    expect(mixedCaseDetailResponse.json()).toEqual(lowercaseDetailResponse.json());
+
+    expect(lowercaseMultiResponse.statusCode).toBe(200);
+    expect(mixedCaseMultiResponse.statusCode).toBe(200);
+    expect(mixedCaseMultiResponse.json()).toEqual(lowercaseMultiResponse.json());
+    expect(mixedCaseMultiResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
+      lowercaseAddress,
+      lowercaseSecondAddress,
+    ]);
+
+    expect(unknownMixedCaseResponse.statusCode).toBe(404);
+    expect(unknownMixedCaseResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Onchain pool not found: 0x00000000000000000000000000000000000000aa',
+    });
+  });
+
   it('returns onchain pools scoped by dex', async () => {
     const response = await getApp().inject({
       method: 'GET',
