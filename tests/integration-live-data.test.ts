@@ -86,7 +86,11 @@ describe('live data integration', () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.bitcoin.usd).toBe(90_000);
+    expect(body).toEqual({
+      bitcoin: {
+        usd: 90_000,
+      },
+    });
   });
 
   it('serves live data from /coins/markets', async () => {
@@ -125,7 +129,7 @@ describe('live data integration', () => {
     expect(body.name).toBe('Binance');
   });
 
-  it('serves OHLCV data from backfill', async () => {
+  it('serves OHLCV tuples from the mocked backfill candles', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/coins/bitcoin/ohlc?vs_currency=usd&days=30',
@@ -136,9 +140,16 @@ describe('live data integration', () => {
     expect(body.length).toBeGreaterThan(0);
     // Each OHLC entry should be [timestamp, open, high, low, close]
     expect(body[0]).toHaveLength(5);
+    expect(body[0]).toEqual([
+      Date.parse('2026-03-20T00:00:00Z'),
+      88_000,
+      91_000,
+      87_000,
+      90_000,
+    ]);
   });
 
-  it('returns live bitcoin price in /exchange_rates', async () => {
+  it('returns exchange rates with btc as the base unit and a finite usd conversion', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/exchange_rates',
@@ -146,6 +157,8 @@ describe('live data integration', () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
+    expect(body.data.btc.value).toBe(1);
     expect(body.data.usd.value).toBe(90_000);
+    expect(typeof body.data.eur.value).toBe('number');
   });
 });
