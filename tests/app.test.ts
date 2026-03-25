@@ -2231,6 +2231,114 @@ describe('OpenGecko app scaffold', () => {
     expect(inactiveBody.ohlcv_list.length).toBeGreaterThan(0);
   });
 
+  it('keeps canonical identity aligned across coin list, search, market, detail, contract, treasury, and registry routes', async () => {
+    const [coinsListResponse, searchResponse, marketsResponse, detailResponse, contractResponse, treasuryByCoinResponse, treasuryDetailResponse, exchangesListResponse, exchangeDetailResponse, derivativesListResponse, derivativesDetailResponse] = await Promise.all([
+      getApp().inject({ method: 'GET', url: '/coins/list?include_platform=true' }),
+      getApp().inject({ method: 'GET', url: '/search?query=eth' }),
+      getApp().inject({ method: 'GET', url: '/coins/markets?vs_currency=usd&ids=ethereum,bitcoin' }),
+      getApp().inject({ method: 'GET', url: '/coins/ethereum?localization=false&tickers=false&community_data=false&developer_data=false' }),
+      getApp().inject({ method: 'GET', url: '/coins/ethereum/contract/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?localization=false&tickers=false&community_data=false&developer_data=false' }),
+      getApp().inject({ method: 'GET', url: '/companies/public_treasury/bitcoin' }),
+      getApp().inject({ method: 'GET', url: '/public_treasury/strategy' }),
+      getApp().inject({ method: 'GET', url: '/exchanges/list' }),
+      getApp().inject({ method: 'GET', url: '/exchanges/binance' }),
+      getApp().inject({ method: 'GET', url: '/derivatives/exchanges/list' }),
+      getApp().inject({ method: 'GET', url: '/derivatives/exchanges/binance_futures' }),
+    ]);
+
+    expect(coinsListResponse.statusCode).toBe(200);
+    expect(searchResponse.statusCode).toBe(200);
+    expect(marketsResponse.statusCode).toBe(200);
+    expect(detailResponse.statusCode).toBe(200);
+    expect(contractResponse.statusCode).toBe(200);
+    expect(treasuryByCoinResponse.statusCode).toBe(200);
+    expect(treasuryDetailResponse.statusCode).toBe(200);
+    expect(exchangesListResponse.statusCode).toBe(200);
+    expect(exchangeDetailResponse.statusCode).toBe(200);
+    expect(derivativesListResponse.statusCode).toBe(200);
+    expect(derivativesDetailResponse.statusCode).toBe(200);
+
+    const coinsListBody = coinsListResponse.json();
+    const searchBody = searchResponse.json();
+    const marketsBody = marketsResponse.json();
+    const detailBody = detailResponse.json();
+    const contractBody = contractResponse.json();
+    const treasuryByCoinBody = treasuryByCoinResponse.json();
+    const treasuryDetailBody = treasuryDetailResponse.json();
+    const exchangesListBody = exchangesListResponse.json();
+    const exchangeDetailBody = exchangeDetailResponse.json();
+    const derivativesListBody = derivativesListResponse.json();
+    const derivativesDetailBody = derivativesDetailResponse.json();
+
+    const ethereumListRow = coinsListBody.find((coin: { id: string }) => coin.id === 'ethereum');
+    expect(ethereumListRow).toMatchObject({
+      id: 'ethereum',
+      symbol: 'eth',
+      name: 'Ethereum',
+    });
+    expect(ethereumListRow.platforms).toEqual(expect.any(Object));
+
+    expect(searchBody.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'ethereum', symbol: 'eth', name: 'Ethereum' }),
+    ]));
+    expect(marketsBody).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'ethereum', symbol: 'eth', name: 'Ethereum' }),
+      expect.objectContaining({ id: 'bitcoin', symbol: 'btc', name: 'Bitcoin' }),
+    ]));
+    expect(detailBody).toMatchObject({ id: 'ethereum', symbol: 'eth', name: 'Ethereum' });
+    expect(contractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(treasuryByCoinBody).toMatchObject({ coin_id: 'bitcoin' });
+    expect(treasuryByCoinBody.companies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entity_id: 'strategy' }),
+    ]));
+    expect(treasuryDetailBody).toMatchObject({ id: 'strategy' });
+    expect(treasuryDetailBody.holdings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ coin_id: 'bitcoin', symbol: 'btc', name: 'Bitcoin' }),
+    ]));
+    expect(exchangesListBody).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'binance', name: 'Binance' }),
+    ]));
+    expect(exchangeDetailBody).toMatchObject({ id: 'binance', name: 'Binance' });
+    expect(derivativesListBody).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'binance_futures', name: 'Binance Futures' }),
+    ]));
+    expect(derivativesDetailBody).toMatchObject({ id: 'binance_futures', name: 'Binance Futures' });
+  });
+
+  it('aligns token lists, contract routes, and address casing with canonical coin identity', async () => {
+    const [tokenListResponse, coinsListResponse, lowercaseContractResponse, uppercaseContractResponse] = await Promise.all([
+      getApp().inject({ method: 'GET', url: '/token_lists/ethereum/all.json' }),
+      getApp().inject({ method: 'GET', url: '/coins/list?include_platform=true' }),
+      getApp().inject({ method: 'GET', url: '/coins/ethereum/contract/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?localization=false&tickers=false&community_data=false&developer_data=false' }),
+      getApp().inject({ method: 'GET', url: '/coins/ethereum/contract/0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48?localization=false&tickers=false&community_data=false&developer_data=false' }),
+    ]);
+
+    expect(tokenListResponse.statusCode).toBe(200);
+    expect(coinsListResponse.statusCode).toBe(200);
+    expect(lowercaseContractResponse.statusCode).toBe(200);
+    expect(uppercaseContractResponse.statusCode).toBe(200);
+
+    const tokenListBody = tokenListResponse.json();
+    const coinsListBody = coinsListResponse.json();
+    const lowercaseContractBody = lowercaseContractResponse.json();
+    const uppercaseContractBody = uppercaseContractResponse.json();
+
+    expect(Array.isArray(tokenListBody.tokens)).toBe(true);
+    const usdcToken = tokenListBody.tokens.find((token: { extensions?: { geckoId?: string } }) => token.extensions?.geckoId === 'usd-coin');
+    expect(usdcToken).toBeDefined();
+
+    const usdcCoin = coinsListBody.find((coin: { id: string }) => coin.id === 'usd-coin');
+    expect(usdcCoin).toBeDefined();
+    expect(usdcCoin.platforms).toEqual(expect.any(Object));
+
+    expect(lowercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(uppercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(uppercaseContractBody.id).toBe(lowercaseContractBody.id);
+    expect(uppercaseContractBody.symbol).toBe(lowercaseContractBody.symbol);
+    expect(uppercaseContractBody.name).toBe(lowercaseContractBody.name);
+    expect(usdcToken.extensions.geckoId).toBe(lowercaseContractBody.id);
+  });
+
   it('returns token list data for an asset platform', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -2240,7 +2348,14 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       name: 'OpenGecko Ethereum Token List',
-      tokens: [],
+      tokens: [
+        expect.objectContaining({
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          name: 'USD Coin',
+          symbol: 'USDC',
+          extensions: { geckoId: 'usd-coin' },
+        }),
+      ],
     });
   });
 

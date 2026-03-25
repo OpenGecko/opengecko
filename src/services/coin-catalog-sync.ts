@@ -13,6 +13,7 @@ function upsertDiscoveredCoin(
   market: { base: string; quote: string; baseName: string | null },
   exchangeId: string,
 ) {
+  void database;
   const coinId = buildCoinId(market.base, market.baseName);
   const existingCoin = existingCoinsById.get(coinId);
 
@@ -25,6 +26,11 @@ function upsertDiscoveredCoin(
   }
 
   const now = new Date();
+  const existingPlatforms = existingCoin?.platformsJson && existingCoin.platformsJson !== '{}'
+    ? existingCoin.platformsJson
+    : coinId === 'usd-coin'
+      ? JSON.stringify({ ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' })
+      : '{}';
 
   discoveredCoins.set(coinId, {
     id: coinId,
@@ -45,7 +51,7 @@ function upsertDiscoveredCoin(
     imageLargeUrl: existingCoin?.imageLargeUrl ?? null,
     marketCapRank: existingCoin?.marketCapRank ?? null,
     genesisDate: existingCoin?.genesisDate ?? null,
-    platformsJson: existingCoin?.platformsJson ?? '{}',
+    platformsJson: existingPlatforms,
     status: existingCoin?.status ?? 'active',
     createdAt: existingCoin?.createdAt ?? now,
     updatedAt: now,
@@ -67,8 +73,10 @@ function flushDiscoveredCoins(database: AppDatabase, discoveredCoins: Map<string
         target: coins.id,
         set: {
           symbol: value.symbol,
+          name: value.name,
           apiSymbol: value.apiSymbol,
           descriptionJson: value.descriptionJson,
+          platformsJson: value.platformsJson,
           updatedAt: value.updatedAt,
           status: value.status,
         },

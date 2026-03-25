@@ -632,7 +632,7 @@ const seededMinimalCoins = [
   { id: 'ripple', symbol: 'xrp', name: 'XRP' },
   { id: 'solana', symbol: 'sol', name: 'Solana' },
   { id: 'dogecoin', symbol: 'doge', name: 'Dogecoin' },
-  { id: 'usd-coin', symbol: 'usdc', name: 'USDC' },
+  { id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' },
   { id: 'cardano', symbol: 'ada', name: 'Cardano' },
   { id: 'chainlink', symbol: 'link', name: 'Chainlink' },
 ].map((coin, index) => ({
@@ -648,7 +648,7 @@ const seededMinimalCoins = [
   imageLargeUrl: null,
   marketCapRank: index + 1,
   genesisDate: null,
-  platformsJson: '{}',
+  platformsJson: coin.id === 'usd-coin' ? JSON.stringify({ ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' }) : '{}',
   status: 'active' as const,
   createdAt: new Date(seedTimestamp),
   updatedAt: new Date(seedTimestamp),
