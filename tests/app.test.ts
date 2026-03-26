@@ -121,6 +121,41 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json().data).toHaveProperty('lag.oldest_recent_sync_ms');
   });
 
+  it('returns machine-readable runtime diagnostics for ready live service', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        readiness: {
+          state: 'ready',
+          listener_bound: false,
+          initial_sync_completed: true,
+        },
+        degraded: {
+          active: false,
+          stale_live_enabled: false,
+          reason: null,
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            available: true,
+            source_class: 'fresh_live',
+            freshness: {
+              threshold_seconds: 300,
+              is_stale: false,
+            },
+          },
+        },
+      },
+    });
+    expect(typeof response.json().data.hot_paths.shared_market_snapshot.freshness.age_seconds).toBe('number');
+    expect(Array.isArray(response.json().data.hot_paths.shared_market_snapshot.providers)).toBe(true);
+  });
+
   it('returns supported quote currencies', async () => {
     const response = await getApp().inject({
       method: 'GET',

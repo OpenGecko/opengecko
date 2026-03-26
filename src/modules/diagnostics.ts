@@ -2,10 +2,15 @@ import { and, eq, isNull, not } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
-import { assetPlatforms, coins } from '../db/schema';
+import { assetPlatforms, coins, marketSnapshots } from '../db/schema';
 import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
+import { buildRuntimeDiagnostics } from '../services/runtime-diagnostics';
 
-export function registerDiagnosticsRoutes(app: FastifyInstance, database: AppDatabase) {
+export function registerDiagnosticsRoutes(
+  app: FastifyInstance,
+  database: AppDatabase,
+  marketFreshnessThresholdSeconds: number,
+) {
   app.get('/diagnostics/chain_coverage', async () => {
     const totalPlatforms = database.db.select().from(assetPlatforms).all().length;
 
@@ -46,6 +51,20 @@ export function registerDiagnosticsRoutes(app: FastifyInstance, database: AppDat
   app.get('/diagnostics/ohlcv_sync', async () => {
     return {
       data: summarizeOhlcvSyncStatus(database, new Date()),
+    };
+  });
+
+  app.get('/diagnostics/runtime', async () => {
+    const latestUsdSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(eq(marketSnapshots.vsCurrency, 'usd'))
+      .orderBy(marketSnapshots.lastUpdated)
+      .all()
+      .at(-1) ?? null;
+
+    return {
+      data: buildRuntimeDiagnostics(app.marketDataRuntimeState, latestUsdSnapshot, marketFreshnessThresholdSeconds),
     };
   });
 }

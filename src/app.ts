@@ -99,7 +99,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   registerErrorHandler(app);
   registerHealthRoutes(app);
-  registerDiagnosticsRoutes(app, database);
+  registerDiagnosticsRoutes(app, database, config.marketFreshnessThresholdSeconds);
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerAssetPlatformRoutes(app, database);
   registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
