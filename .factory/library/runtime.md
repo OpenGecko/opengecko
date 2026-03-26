@@ -13,7 +13,9 @@ Runtime-specific facts and guidance for the runtime hardening mission.
   - `src/services/initial-sync.ts`
   - catalog sync paths that still fan out across exchanges
 - Startup currently performs heavy initial sync before the listener becomes reachable; readiness must be reasoned about separately from process existence.
+- Fastify transport hooks cannot reliably infer JSON response size from `reply.getHeader('content-length')` inside `onSend`; many JSON replies have no `Content-Length` yet at that stage, so compression thresholds must inspect the payload bytes directly if they need size-based gating.
 - The shared HTTP app test fixture auto-completes bootstrap before `inject`, so route-level tests cannot model a true pre-ready startup listener state; use runtime-state/diagnostics-focused tests for pre-ready assertions instead of expecting `app.inject()` to observe the pre-bind phase.
+- Operational-controls follow-up validation confirmed a live server started via `src/server.ts` exposes `/metrics` and `/diagnostics/runtime` after readiness; validators should still verify live-server route availability explicitly instead of assuming parity with `app.inject()` coverage.
 - Existing runtime state already tracks:
   - `initialSyncCompleted`
   - `allowStaleLiveService`

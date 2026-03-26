@@ -1,0 +1,21 @@
+{
+  "featureId": "runtime-metrics-observability",
+  "reviewedAt": "2026-03-26T12:03:30.570412+00:00",
+  "commitId": "c8b58d5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The original metrics feature commit correctly introduced an in-process metrics registry, routed `/metrics` through the same `buildApp()` path used by `src/server.ts`, and instrumented request, cache, and provider-refresh activity. The prior blocking concern was a live-verification mismatch rather than a remaining code defect: subsequent fix-feature evidence shows a freshly launched server now serves `/metrics` and `/diagnostics/runtime` on the live runtime path and those metrics change after representative hot-endpoint traffic.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "`.factory/library/runtime.md` still records the earlier claim that a live `src/server.ts` process served 404 for `/metrics` and `/diagnostics/runtime`, but the later reconciliation feature verified that this is no longer reproducible on the current branch and that live traffic updates the metrics surface correctly.",
+      "evidence": "`.factory/library/runtime.md:18` documents the old 404 mismatch; handoff `2026-03-26T11-59-57-112Z__live-metrics-route-runtime-path-fix__29181a63-bb4f-4470-98bc-27ee52db1623.json` reports `/metrics` and `/diagnostics/runtime` both returned 200 after readiness and reflected live request/cache activity."
+    }
+  ],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/operational-controls/scrutiny/reviews/runtime-metrics-observability.json",
+  "summary": "Pass: `/metrics` is implemented on the live runtime path, linked to request/cache/provider activity, and the later live-path reconciliation evidence adequately resolves the prior 404 concern. No blocking or non-blocking code issues remain for this feature based on the reviewed diffs, transcript skeletons, and fix evidence."
+}
