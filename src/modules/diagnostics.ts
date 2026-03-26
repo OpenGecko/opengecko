@@ -11,6 +11,9 @@ export function registerDiagnosticsRoutes(
   app: FastifyInstance,
   database: AppDatabase,
   marketFreshnessThresholdSeconds: number,
+  metrics: {
+    renderPrometheus: () => string;
+  },
   transport: {
     requestTimeoutMs: number;
     responseCompressionThresholdBytes: number;
@@ -79,6 +82,11 @@ export function registerDiagnosticsRoutes(
         },
       },
     };
+  });
+
+  app.get('/metrics', async (_request, reply) => {
+    reply.header('content-type', 'text/plain; version=0.0.4; charset=utf-8');
+    return reply.send(metrics.renderPrometheus());
   });
 
   app.post('/diagnostics/runtime/provider_failure', async (request, reply) => {

@@ -18,12 +18,14 @@ import { registerTreasuryRoutes } from './modules/treasury';
 import { closeExchangePool } from './providers/ccxt';
 import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
+import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
 import type { StartupProgressReporter } from './services/startup-progress';
 
 declare module 'fastify' {
   interface FastifyInstance {
     marketDataRuntimeState: AppLifecycleState;
     marketRuntime: MarketRuntime | null;
+    metrics: MetricsRegistry;
   }
 }
 
@@ -93,8 +95,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.log.info(getDatabaseStartupLogContext(database), 'database initialized');
   const shouldStartBackgroundJobs = options.startBackgroundJobs ?? false;
   const marketDataRuntimeState = createMarketDataRuntimeState();
+  const metrics = createMetricsRegistry();
   const runtime = shouldStartBackgroundJobs
-    ? createMarketRuntime(database, config, app.log, marketDataRuntimeState, {}, options.startupProgress)
+    ? createMarketRuntime(database, config, app.log, marketDataRuntimeState, metrics, {}, options.startupProgress)
     : null;
 
   migrateDatabase(database);
@@ -109,6 +112,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     app,
     database,
     config.marketFreshnessThresholdSeconds,
+    metrics,
     {
       requestTimeoutMs: config.requestTimeoutMs,
       responseCompressionThresholdBytes: config.responseCompressionThresholdBytes,
@@ -175,6 +179,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate('marketDataRuntimeState', marketDataRuntimeState);
   app.decorate('marketRuntime', runtime);
+  app.decorate('metrics', metrics);
+
+  app.addHook('onResponse', (request, reply, done) => {
+    const route = request.routeOptions.url || request.url.split('?')[0] || 'unknown';
+    app.metrics.recordRequest(route, request.method, reply.statusCode, reply.elapsedTime);
+    done();
+  });
 
   return app;
 }

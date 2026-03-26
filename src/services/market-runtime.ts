@@ -7,6 +7,7 @@ import { refreshCurrencyApiRatesOnce } from './currency-rates';
 import type { MarketDataRuntimeState } from './market-runtime-state';
 import { runInitialMarketSync } from './initial-sync';
 import { runMarketRefreshOnce } from './market-refresh';
+import type { MetricsRegistry } from './metrics';
 import { createOhlcvRuntime } from './ohlcv-runtime';
 import { runSearchRebuildOnce } from './search-rebuild';
 import type { StartupProgressReporter } from './startup-progress';
@@ -88,6 +89,7 @@ export function createMarketRuntime(
   config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency'>,
   logger: RuntimeLogger,
   state: MarketDataRuntimeState,
+  metrics: MetricsRegistry,
   overrides: MarketRuntimeOverrides = {},
   startupProgress?: StartupProgressReporter,
 ): MarketRuntime {
@@ -118,7 +120,7 @@ export function createMarketRuntime(
     await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
   });
   const runMarketJob = createSerializedJob('market_refresh', logger, state, async () => {
-    await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config, undefined, state)))();
+    await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config, undefined, state, metrics)))();
   });
   const runSearchJob = createSerializedJob('search_rebuild', logger, state, async () => {
     await (overrides.runSearchRebuildOnce ?? (() => runSearchRebuildOnce(database)))();

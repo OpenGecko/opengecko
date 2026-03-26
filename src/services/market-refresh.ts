@@ -12,6 +12,7 @@ import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCand
 import { getCurrencyApiSnapshot } from './currency-rates';
 import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
 import type { MarketDataRuntimeState } from './market-runtime-state';
+import type { MetricsRegistry } from './metrics';
 
 const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
 
@@ -147,6 +148,7 @@ export async function runMarketRefreshOnce(
   config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
   logger?: Logger,
   runtimeState?: MarketDataRuntimeState,
+  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh'>,
 ) {
   const refreshLogger = logger?.child({ operation: 'market_refresh' });
   const startTime = Date.now();
@@ -158,10 +160,12 @@ export async function runMarketRefreshOnce(
   }
 
   if (runtimeState?.forcedProviderFailure.active) {
+    metrics?.recordProviderRefresh('forced_failure', exchangeIds.length, exchangeIds.length);
     throw new Error(runtimeState.forcedProviderFailure.reason ?? 'forced provider failure active');
   }
 
   if (cooldownUntil !== null && cooldownUntil > startTime) {
+    metrics?.recordProviderRefresh('cooldown_skip', exchangeIds.length, 0);
     refreshLogger?.warn({
       cooldownUntil: new Date(cooldownUntil).toISOString(),
       remainingCooldownMs: cooldownUntil - startTime,
@@ -300,6 +304,7 @@ export async function runMarketRefreshOnce(
       runtimeState.providerFailureCooldownUntil = startTime + PROVIDER_FAILURE_COOLDOWN_MS;
     }
 
+    metrics?.recordProviderRefresh('failure', exchangeIds.length, failedExchanges);
     refreshLogger?.warn({
       failedExchangeCount: failedExchanges,
       exchangeCount: exchangeIds.length,
@@ -311,6 +316,12 @@ export async function runMarketRefreshOnce(
   if (runtimeState) {
     runtimeState.providerFailureCooldownUntil = null;
   }
+
+  metrics?.recordProviderRefresh(
+    failedExchanges > 0 ? 'partial_failure' : 'success',
+    exchangeIds.length,
+    failedExchanges,
+  );
 
   const now = new Date();
   const usdPriceByCoinId = new Map<string, number>();

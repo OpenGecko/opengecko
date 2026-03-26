@@ -150,8 +150,11 @@ export function registerSimpleRoutes(
     const now = Date.now();
 
     if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
+      app.metrics.recordCacheHit('simple_price');
       return cloneSimplePriceResponse(cached.value);
     }
+
+    app.metrics.recordCacheMiss('simple_price');
 
     const precision = parsePrecision(query.precision);
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);

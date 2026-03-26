@@ -1071,8 +1071,11 @@ export function registerCoinRoutes(
     const now = Date.now();
 
     if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
+      app.metrics.recordCacheHit('coins_markets');
       return cloneCoinMarketsResponse(cached.value);
     }
+
+    app.metrics.recordCacheMiss('coins_markets');
 
     const page = parsePositiveInt(query.page, 1);
     const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);

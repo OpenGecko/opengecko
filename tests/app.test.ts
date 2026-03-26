@@ -287,6 +287,51 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('exposes scrapeable metrics that change after hot-path traffic', async () => {
+    const beforeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+
+    expect(beforeResponse.statusCode).toBe(200);
+    expect(beforeResponse.headers['content-type']).toContain('text/plain');
+    const beforeBody = beforeResponse.body;
+    expect(beforeBody).toEqual('\n');
+
+    await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=2&page=1',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?per_page=2&page=1&vs_currency=usd',
+    });
+
+    const afterResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+
+    expect(afterResponse.statusCode).toBe(200);
+    const afterBody = afterResponse.body;
+    expect(afterBody).toContain('opengecko_cache_events_total{outcome="miss",surface="simple_price"} 1');
+    expect(afterBody).toContain('opengecko_cache_events_total{outcome="hit",surface="simple_price"} 1');
+    expect(afterBody).toContain('opengecko_cache_events_total{outcome="miss",surface="coins_markets"} 1');
+    expect(afterBody).toContain('opengecko_cache_events_total{outcome="hit",surface="coins_markets"} 1');
+    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/simple/price",status_code="200"} 2');
+    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/coins/markets",status_code="200"} 2');
+    expect(afterBody).toContain('opengecko_http_request_duration_ms_count{method="GET",route="/simple/price",status_code="200"} 2');
+    expect(afterBody).not.toEqual(beforeBody);
+  });
+
   it('returns simple prices with optional market fields', async () => {
     const response = await getApp().inject({
       method: 'GET',

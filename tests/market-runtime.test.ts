@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMarketRuntime } from '../src/services/market-runtime';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
+import { createMetricsRegistry } from '../src/services/metrics';
 
 vi.mock('../src/db/client', () => ({
   seedStaticReferenceData: vi.fn(),
@@ -81,6 +82,8 @@ describe('market runtime', () => {
     providerFanoutConcurrency: 2,
   };
 
+  const metrics = createMetricsRegistry();
+
   it('runs initial sync before starting refresh loop', async () => {
     const runInitialMarketSync = vi.fn().mockResolvedValue({});
     const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
@@ -88,7 +91,7 @@ describe('market runtime', () => {
     const runSearchRebuildOnce = vi.fn().mockResolvedValue(undefined);
     const startOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
     const state = createState();
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, metrics, {
       runInitialMarketSync,
       runCurrencyRefreshOnce,
       runMarketRefreshOnce,
@@ -142,7 +145,7 @@ describe('market runtime', () => {
     const startOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
     const stopOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
     const state = createState();
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, metrics, {
       runInitialMarketSync,
       runCurrencyRefreshOnce,
       runMarketRefreshOnce,
@@ -192,7 +195,7 @@ describe('market runtime', () => {
       releaseInitialSync = resolve;
     }));
     const stopOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), metrics, {
       runInitialMarketSync,
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
@@ -229,7 +232,7 @@ describe('market runtime', () => {
         }),
       },
     };
-    const runtime = createMarketRuntime(mockDb as never, baseConfig as never, logger, state, {
+    const runtime = createMarketRuntime(mockDb as never, baseConfig as never, logger, state, metrics, {
       runInitialMarketSync,
       runCurrencyRefreshOnce,
       runMarketRefreshOnce,
@@ -269,7 +272,7 @@ describe('market runtime', () => {
     const runtime = createMarketRuntime({} as never, {
       ...baseConfig,
       currencyRefreshIntervalSeconds: 1,
-    } as never, logger, createState(), {
+    } as never, logger, createState(), metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce,
       runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
@@ -303,7 +306,7 @@ describe('market runtime', () => {
     const runMarketRefreshOnce = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
       releaseMarketRefresh = resolve;
     }));
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce,
@@ -343,7 +346,7 @@ describe('market runtime', () => {
     const runtime = createMarketRuntime({} as never, {
       ...baseConfig,
       marketRefreshIntervalSeconds: 1,
-    } as never, logger, createState(), {
+    } as never, logger, createState(), metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce,
@@ -374,7 +377,7 @@ describe('market runtime', () => {
 
   it('tracks listener bind state separately from initial sync readiness and clears it on stop', async () => {
     const state = createState();
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
@@ -410,7 +413,7 @@ describe('market runtime', () => {
     const runtime = createMarketRuntime({} as never, {
       ...baseConfig,
       marketRefreshIntervalSeconds: 1,
-    } as never, logger, state, {
+    } as never, logger, state, metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce,
@@ -465,7 +468,7 @@ describe('market runtime', () => {
     const runtime = createMarketRuntime({} as never, {
       ...baseConfig,
       marketRefreshIntervalSeconds: 1,
-    } as never, logger, state, {
+    } as never, logger, state, metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce,
@@ -495,6 +498,18 @@ describe('market runtime', () => {
     await runtime.stop();
   });
 
+  it('records provider refresh metrics for failures and recovery', async () => {
+    const isolatedMetrics = createMetricsRegistry();
+    isolatedMetrics.recordProviderRefresh('failure', 4, 4);
+    isolatedMetrics.recordProviderRefresh('success', 4, 0);
+
+    const metricsText = isolatedMetrics.renderPrometheus();
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="failure"} 1');
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="success"} 1');
+    expect(metricsText).toContain('opengecko_provider_exchange_count 4');
+    expect(metricsText).toContain('opengecko_provider_failed_exchange_count 0');
+  });
+
   it('clears stale refresh failure state on a successful first market refresh after startup recovery', async () => {
     const state = createState({
       initialSyncCompleted: true,
@@ -502,7 +517,7 @@ describe('market runtime', () => {
       syncFailureReason: 'provider timeout',
       hotDataRevision: 7,
     });
-    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, metrics, {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
       runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
