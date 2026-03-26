@@ -1,0 +1,21 @@
+{
+  "featureId": "targeted-runtime-indexes-migration-fix",
+  "reviewedAt": "2026-03-26T09:04:58.026327+00:00",
+  "commitId": "5cfcd6a4cc9428eac10d62345cffa41c3f9a1925",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix correctly repairs fresh-database migration replay by splitting the targeted index SQL at a Drizzle statement breakpoint, and the companion OHLCV worker entrypoint guard prevents tests from importing the worker module and triggering a second migration pass. The intended two-index set is preserved and the reviewed evidence shows the fresh migration path now succeeds.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The api-runtime-worker skill still frames step 3 as universally requiring new failing characterization tests first, but this migration-only repair was reasonably validated by reproducing the existing failure and then re-running the suite plus a fresh-db replay.",
+      "evidence": "api-runtime-worker/SKILL.md step 3 requires failing characterization tests first; the worker transcript and handoff for session 2074d08c-102f-4772-9988-47dfb76fc3f1 document a justified deviation because the existing suite already reproduced the multi-statement migration bug and the duplicate-index import side effect."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit 5cfcd6a4cc9428eac10d62345cffa41c3f9a1925, the handoff, transcript skeleton, and shared-state docs. The feature passes: it makes the shipped migration executable under the current SQLite/Drizzle runner while keeping the intended indexes intact."
+}

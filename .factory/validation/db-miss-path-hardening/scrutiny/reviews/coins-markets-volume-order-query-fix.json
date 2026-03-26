@@ -1,0 +1,15 @@
+{
+  "featureId": "coins-markets-volume-order-query-fix",
+  "reviewedAt": "2026-03-26T09:04:58.026348+00:00",
+  "commitId": "2747711c6534ee82fa8f99b4e2af05e06481ab0a",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix cleanly repairs the broken `/coins/markets` volume ordering path by mapping `volume_desc|volume_asc` to `marketSnapshots.totalVolume`, which is already available on the stabilized `getMarketRows()` join shape. The added regression test covers both directions and repeated-request determinism, matching the feature requirements without reintroducing broad in-memory sorting.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit 2747711c6534ee82fa8f99b4e2af05e06481ab0a, the handoff, transcript skeleton, and shared-state docs. The feature passes: `/coins/markets?order=volume_desc|volume_asc` now orders on a valid SQL column source with deterministic tie-breaking."
+}
