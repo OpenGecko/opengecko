@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
+import * as candleStore from '../src/services/candle-store';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -2593,6 +2594,18 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(0);
     expect(response.json()).toEqual([]);
+  });
+
+  it('reuses preloaded chart series for market rows', async () => {
+    const getCanonicalCloseSeriesSpy = vi.spyOn(candleStore, 'getCanonicalCloseSeries');
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=3&page=1&sparkline=true&price_change_percentage=24h,7d',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(3);
+    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(3);
   });
 
   it('returns dual top movers payloads with stable polarity and explicit arrays', async () => {

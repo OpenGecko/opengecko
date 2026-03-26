@@ -297,15 +297,8 @@ function sortMarketRows(
   }
 }
 
-function buildSparkline(
-  database: AppDatabase,
-  coinId: string,
-  vsCurrency: string,
-  marketFreshnessThresholdSeconds: number,
-  snapshotAccessPolicy: SnapshotAccessPolicy,
-) {
-  const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
-  const rows = downsampleTimeSeries(getChartSeries(database, coinId, 'usd'), getChartGranularityMs(7 * 24 * 60 * 60 * 1000));
+function buildSparkline(chartSeries: ReturnType<typeof getChartSeries>, rate: number) {
+  const rows = downsampleTimeSeries(chartSeries, getChartGranularityMs(7 * 24 * 60 * 60 * 1000));
 
   return {
     price: rows.map((point) => point.price * rate),
@@ -313,25 +306,19 @@ function buildSparkline(
 }
 
 function getSeriesChangePercentageForWindowDays(
-  database: AppDatabase,
-  coinId: string,
-  vsCurrency: string,
-  marketFreshnessThresholdSeconds: number,
-  snapshotAccessPolicy: SnapshotAccessPolicy,
+  chartSeries: ReturnType<typeof getChartSeries>,
+  rate: number,
   windowDays: number,
 ) {
-  const rows = getChartSeries(database, coinId, 'usd');
-
-  if (rows.length < 2) {
+  if (chartSeries.length < 2) {
     return null;
   }
 
-  const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
-  const latestTimestamp = rows.at(-1)!.timestamp.getTime();
+  const latestTimestamp = chartSeries.at(-1)!.timestamp.getTime();
   const cutoff = latestTimestamp - windowDays * 24 * 60 * 60 * 1000;
-  const firstRow = rows.find((row) => row.timestamp.getTime() >= cutoff) ?? rows[0]!;
+  const firstRow = chartSeries.find((row) => row.timestamp.getTime() >= cutoff) ?? chartSeries[0]!;
   const first = firstRow.price * rate;
-  const last = rows.at(-1)!.price * rate;
+  const last = chartSeries.at(-1)!.price * rate;
 
   if (first === 0) {
     return null;
@@ -341,11 +328,8 @@ function getSeriesChangePercentageForWindowDays(
 }
 
 function buildMarketPriceChangeFields(
-  database: AppDatabase,
-  coinId: string,
-  vsCurrency: string,
-  marketFreshnessThresholdSeconds: number,
-  snapshotAccessPolicy: SnapshotAccessPolicy,
+  chartSeries: ReturnType<typeof getChartSeries>,
+  rate: number,
   requestedWindows: string[],
   precision: number | 'full',
 ) {
@@ -363,17 +347,7 @@ function buildMarketPriceChangeFields(
       .filter((window) => requestedWindows.includes(window.input))
       .map((window) => [
         window.field,
-        toNumberOrNull(
-          getSeriesChangePercentageForWindowDays(
-            database,
-            coinId,
-            vsCurrency,
-            marketFreshnessThresholdSeconds,
-            snapshotAccessPolicy,
-            window.days,
-          ),
-          precision,
-        ),
+        toNumberOrNull(getSeriesChangePercentageForWindowDays(chartSeries, rate, window.days), precision),
       ]),
   );
 }
@@ -418,18 +392,8 @@ function buildMarketRow(
     atl_date: snapshot?.atlDate?.toISOString() ?? null,
     roi: null,
     last_updated: snapshot?.lastUpdated?.toISOString() ?? null,
-    ...buildMarketPriceChangeFields(
-        database,
-        row.coin.id,
-        vsCurrency,
-        marketFreshnessThresholdSeconds,
-        snapshotAccessPolicy,
-        options.priceChangePercentages,
-        options.precision,
-      ),
-    sparkline_in_7d: options.sparkline
-      ? buildSparkline(database, row.coin.id, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy)
-      : null,
+    ...buildMarketPriceChangeFields(chartSeries, rate, options.priceChangePercentages, options.precision),
+    sparkline_in_7d: options.sparkline ? buildSparkline(chartSeries, rate) : null,
   };
 }
 
