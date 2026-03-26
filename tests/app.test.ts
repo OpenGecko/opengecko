@@ -2732,6 +2732,103 @@ describe('OpenGecko app scaffold', () => {
     expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
   });
 
+  it('isolates coins markets cache entries by pagination, ordering, filters, sparkline windows, and precision-sensitive flags', async () => {
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const marketsCallCount = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => {
+        if (vsCurrency !== 'usd' && vsCurrency !== 'btc') {
+          return false;
+        }
+
+        return !filters?.status;
+      },
+    ).length;
+
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+    });
+    const baselineCalls = marketsCallCount();
+    const repeatedBaselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?ids=ethereum,cardano,bitcoin&order=market_cap_desc&vs_currency=usd',
+    });
+    const pageOneResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=1',
+    });
+    const repeatedPageOneResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?order=market_cap_desc&page=1&vs_currency=usd&per_page=2',
+    });
+    const pageTwoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=2',
+    });
+    const sparklineWindowResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=1&page=1&sparkline=true&price_change_percentage=24h,7d',
+    });
+    const noSparklineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=1&page=1',
+    });
+    const precisionResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=btc&ids=usd-coin&precision=2',
+    });
+    const categoryResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&category=smart-contract-platform&price_change_percentage=24h,7d',
+    });
+    const repeatedCategoryResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?price_change_percentage=7d,24h&category=smart-contract-platform&vs_currency=usd',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(repeatedBaselineResponse.statusCode).toBe(200);
+    expect(pageOneResponse.statusCode).toBe(200);
+    expect(repeatedPageOneResponse.statusCode).toBe(200);
+    expect(pageTwoResponse.statusCode).toBe(200);
+    expect(sparklineWindowResponse.statusCode).toBe(200);
+    expect(noSparklineResponse.statusCode).toBe(200);
+    expect(precisionResponse.statusCode).toBe(200);
+    expect(categoryResponse.statusCode).toBe(200);
+    expect(repeatedCategoryResponse.statusCode).toBe(200);
+
+    expect(repeatedBaselineResponse.json()).toEqual(baselineResponse.json());
+    expect(baselineResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano', 'ethereum']);
+    expect(repeatedPageOneResponse.json()).toEqual(pageOneResponse.json());
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
+    expect(new Set([
+      ...pageOneResponse.json().map((row: { id: string }) => row.id),
+      ...pageTwoResponse.json().map((row: { id: string }) => row.id),
+    ]).size).toBe(4);
+
+    const sparklineRow = sparklineWindowResponse.json()[0];
+    const noSparklineRow = noSparklineResponse.json()[0];
+    expect(sparklineRow).toHaveProperty('sparkline_in_7d');
+    expect(sparklineRow.sparkline_in_7d).toHaveProperty('price');
+    expect(sparklineRow).toHaveProperty('price_change_percentage_24h_in_currency');
+    expect(sparklineRow).toHaveProperty('price_change_percentage_7d_in_currency');
+    expect(noSparklineRow.sparkline_in_7d).toBeNull();
+    expect('price_change_percentage_24h_in_currency' in noSparklineRow).toBe(false);
+    expect('price_change_percentage_7d_in_currency' in noSparklineRow).toBe(false);
+
+    expect(precisionResponse.json()).toEqual([
+      expect.objectContaining({
+        id: 'usd-coin',
+        current_price: 0,
+      }),
+    ]);
+    expect(repeatedCategoryResponse.json()).toEqual(categoryResponse.json());
+    expect(categoryResponse.json()).toEqual([]);
+    expect(baselineCalls).toBeGreaterThan(0);
+    expect(marketsCallCount() - baselineCalls).toBe(6);
+  });
+
   it('reuses preloaded chart series for market rows', async () => {
     const getCanonicalCloseSeriesSpy = vi.spyOn(candleStore, 'getCanonicalCloseSeries');
     const response = await getApp().inject({

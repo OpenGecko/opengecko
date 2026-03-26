@@ -82,6 +82,14 @@ const topGainersLosersQuerySchema = z.object({
   price_change_percentage: z.string().optional(),
 });
 
+type CoinMarketsResponseRow = ReturnType<typeof buildMarketRow>;
+type CoinMarketsCacheEntry = {
+  value: CoinMarketsResponseRow[];
+  expiresAt: number;
+};
+
+const COINS_MARKETS_CACHE_TTL_MS = 5_000;
+
 function toNumberOrNull(value: number | null | undefined, precision: number | 'full') {
   if (value === null || value === undefined) {
     return null;
@@ -387,6 +395,30 @@ function buildMarketRow(
     ...buildMarketPriceChangeFields(chartSeries, rate, options.priceChangePercentages, options.precision),
     sparkline_in_7d: options.sparkline ? buildSparkline(chartSeries, rate) : null,
   };
+}
+
+function normalizeSelector(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function createCoinMarketsCacheKey(query: z.infer<typeof coinMarketsQuerySchema>) {
+  return JSON.stringify({
+    vsCurrency: query.vs_currency.toLowerCase(),
+    ids: normalizeSelector(parseCsvQuery(query.ids)),
+    names: normalizeSelector(parseCsvQuery(query.names)),
+    symbols: normalizeSelector(parseCsvQuery(query.symbols)),
+    category: query.category ? normalizeCategoryId(query.category) : null,
+    order: query.order?.toLowerCase() ?? null,
+    perPage: Math.min(parsePositiveInt(query.per_page, 100), 250),
+    page: parsePositiveInt(query.page, 1),
+    priceChangePercentages: normalizeSelector(parseCsvQuery(query.price_change_percentage).map((value) => value.toLowerCase())),
+    sparkline: parseBooleanQuery(query.sparkline, false),
+    precision: parsePrecision(query.precision),
+  });
+}
+
+function cloneCoinMarketsResponse(value: CoinMarketsResponseRow[]) {
+  return JSON.parse(JSON.stringify(value)) as CoinMarketsResponseRow[];
 }
 
 function parseMoverDuration(value: string | undefined) {
@@ -1006,6 +1038,8 @@ export function registerCoinRoutes(
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
 ) {
+  const coinMarketsCache = new Map<string, CoinMarketsCacheEntry>();
+
   app.get('/coins/list', async (request) => {
     const query = coinsListQuerySchema.parse(request.query);
     const includePlatforms = parseBooleanQuery(query.include_platform, false);
@@ -1031,6 +1065,14 @@ export function registerCoinRoutes(
 
   app.get('/coins/markets', async (request) => {
     const query = coinMarketsQuerySchema.parse(request.query);
+    const cacheKey = createCoinMarketsCacheKey(query);
+    const cached = coinMarketsCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && cached.expiresAt > now) {
+      return cloneCoinMarketsResponse(cached.value);
+    }
+
     const page = parsePositiveInt(query.page, 1);
     const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);
     const precision = parsePrecision(query.precision);
@@ -1051,11 +1093,18 @@ export function registerCoinRoutes(
     }));
     const start = (page - 1) * perPage;
 
-    return rows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    const payload = rows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       sparkline,
       precision,
       priceChangePercentages,
     }));
+
+    coinMarketsCache.set(cacheKey, {
+      value: cloneCoinMarketsResponse(payload),
+      expiresAt: now + COINS_MARKETS_CACHE_TTL_MS,
+    });
+
+    return payload;
   });
 
   app.get('/coins/top_gainers_losers', async (request) => {
