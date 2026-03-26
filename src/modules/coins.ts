@@ -394,7 +394,7 @@ function buildMarketRow(
     roi: null,
     last_updated: snapshot?.lastUpdated?.toISOString() ?? null,
     ...buildMarketPriceChangeFields(chartSeries, rate, options.priceChangePercentages, options.precision),
-    sparkline_in_7d: options.sparkline ? buildSparkline(chartSeries, rate) : null,
+    ...(options.sparkline ? { sparkline_in_7d: buildSparkline(chartSeries, rate) } : {}),
   };
 }
 

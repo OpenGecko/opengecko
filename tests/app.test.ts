@@ -2691,6 +2691,16 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('omits sparkline_in_7d when sparkline is false on coin market rows', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&sparkline=false',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect('sparkline_in_7d' in response.json()[0]).toBe(false);
+  });
+
   it('preserves sub-cent current_price values by default', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -2829,7 +2839,7 @@ describe('OpenGecko app scaffold', () => {
     expect(sparklineRow.sparkline_in_7d).toHaveProperty('price');
     expect(sparklineRow).toHaveProperty('price_change_percentage_24h_in_currency');
     expect(sparklineRow).toHaveProperty('price_change_percentage_7d_in_currency');
-    expect(noSparklineRow.sparkline_in_7d).toBeNull();
+    expect('sparkline_in_7d' in noSparklineRow).toBe(false);
     expect('price_change_percentage_24h_in_currency' in noSparklineRow).toBe(false);
     expect('price_change_percentage_7d_in_currency' in noSparklineRow).toBe(false);
 
