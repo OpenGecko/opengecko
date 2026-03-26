@@ -66,6 +66,7 @@ Each assertion should capture:
 
 - The dedicated validation API on port `3102` is already declared in `.factory/services.yaml`; use it consistently for manual verification instead of ad hoc ports.
 - Prefer the validation API on port `3102` for manual curl checks if port `3100` is occupied by a stale server.
+- Treat port `3102` as disposable validation infrastructure: before starting a new validation API instance, stop any existing listener on `3102` so validator evidence never comes from stale pre-fix code.
 - Bun/Vitest fake-timer-heavy tests may need explicit microtask flushing between timer advances to avoid apparent hangs.
 - The service may not bind until initial sync finishes; connection-refused before readiness is expected and must not be treated as immediate mission failure without a readiness wait.
 - Hot-endpoint-cache validation recorded a false-negative for `VAL-SIMPLE-001`: the synthesis says `/simple/price?vs_currencies=usd` failed because it used `{error,message}`, but the captured `expectedBody` and `actualBody` are identical and that exact envelope is the intended contract.

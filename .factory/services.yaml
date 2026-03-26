@@ -19,7 +19,7 @@ services:
     depends_on: []
 
   validation-api:
-    start: PORT=3102 LOG_LEVEL=error bun run src/server.ts
+    start: sh -c 'pids=$(lsof -ti :3102); [ -n "$pids" ] && kill $pids || true; PORT=3102 LOG_LEVEL=error bun run src/server.ts'
     stop: sh -c 'pids=$(lsof -ti :3102); [ -n "$pids" ] && kill $pids || true'
     healthcheck: curl -sf http://127.0.0.1:3102/ping
     port: 3102
