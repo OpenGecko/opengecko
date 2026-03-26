@@ -24,7 +24,7 @@ None.
 
 1. Read `mission.md`, `AGENTS.md`, `validation-contract.md`, the assigned feature, and the relevant `.factory/library/` notes.
 2. Inventory the exact request parameters, field sets, and degraded semantics that must remain stable for the touched route family. Do not assume route behavior from memory—read the current handler and nearby tests first.
-3. Write failing characterization tests first for the concrete behaviors claimed by the feature:
+3. Write failing characterization tests first for the concrete behaviors claimed by the feature when the feature changes user-visible behavior or fills a missing behavior gap. For behavior-preserving query-shaping, index-only, or migration-only fixes, an existing failing repro, query-plan failure, or validator-discovered regression may serve as the initial red signal, but you must still add or tighten automated coverage before finishing:
    - invalid-parameter contract
    - ordered ids / pagination behavior
    - optional field presence and absence
@@ -38,14 +38,15 @@ None.
 6. For transport work:
    - keep operational surfaces explicit
    - do not change unrelated endpoint bodies while adding compression, timeout, or metrics behavior
-7. Re-run targeted route tests and any adjacent regression tests touched by shared helpers.
+7. Re-run the required targeted route tests and any adjacent regression tests touched by shared helpers. Do not report success if the feature's own documented targeted suite is still failing; either fix the remaining failures, narrow scope only when AGENTS.md explicitly treats the failures as unrelated pre-existing issues, or return to the orchestrator.
 8. Run `bun run typecheck` before finishing.
 9. Manually verify with `curl` on the declared API port:
    - a baseline request
    - a parameter-varied request that should differ
    - a semantically equivalent request that should match
    - one unrelated endpoint if transport behavior changed
-10. If you discover a broader cross-endpoint inconsistency rather than a single-route problem, record it and return to the orchestrator if it exceeds the assigned feature.
+10. If the assigned reconciliation or validation cleanup is already satisfied by the current branch state and the documented target suite passes, do not manufacture an empty code change just to create a commit. Return to the orchestrator with the evidence so the feature can be marked completed or cancelled appropriately.
+11. If you discover a broader cross-endpoint inconsistency rather than a single-route problem, record it and return to the orchestrator if it exceeds the assigned feature.
 
 ## Example Handoff
 
@@ -100,3 +101,4 @@ None.
 - The feature requires broad contract changes for a route family that are not covered by the validation contract.
 - Query/index work reveals an architectural bottleneck that cannot be solved within the assigned slice without re-scoping the mission.
 - A cache or transport change would require new infrastructure or a dependency trade-off that needs human judgment.
+- The assigned task is already satisfied in the current branch state and there is no legitimate diff to commit.
