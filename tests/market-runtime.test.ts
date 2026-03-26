@@ -457,11 +457,7 @@ describe('market runtime', () => {
             label: 'Simple price BTC/USD',
             endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
           },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-          },
+
         ],
         completedAt: 250,
         totalDurationMs: 250,
@@ -476,16 +472,7 @@ describe('market runtime', () => {
             warmCacheRevision: 1,
             firstObservedRequest: null,
           },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-            status: 'skipped_budget',
-            durationMs: 0,
-            cacheSurface: 'coins_markets',
-            warmCacheRevision: null,
-            firstObservedRequest: null,
-          },
+
         ],
       };
 
@@ -522,10 +509,6 @@ describe('market runtime', () => {
         {
           id: 'simple_price_bitcoin_usd',
           status: 'completed',
-        },
-        {
-          id: 'coins_markets_bitcoin_usd',
-          status: 'skipped_budget',
         },
       ]);
 

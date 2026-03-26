@@ -19,12 +19,6 @@ export const STARTUP_PREWARM_TARGETS: StartupPrewarmTarget[] = [
     endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
     cacheSurface: 'simple_price',
   },
-  {
-    id: 'coins_markets_bitcoin_usd',
-    label: 'Coins markets BTC/USD',
-    endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-    cacheSurface: 'coins_markets',
-  },
 ];
 
 function normalizePrewarmQueryValue(value: string) {

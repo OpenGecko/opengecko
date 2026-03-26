@@ -552,11 +552,6 @@ describe('OpenGecko app scaffold', () => {
             label: 'Simple price BTC/USD',
             endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
           },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-          },
         ],
       });
       expect(typeof response.json().data.startup_prewarm.readyWithinBudget).toBe('boolean');
@@ -600,11 +595,6 @@ describe('OpenGecko app scaffold', () => {
             id: 'simple_price_bitcoin_usd',
             label: 'Simple price BTC/USD',
             endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
-          },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
           },
         ],
       });
@@ -918,25 +908,16 @@ describe('OpenGecko app scaffold', () => {
       method: 'GET',
       url: '/simple/price?ids=bitcoin&vs_currencies=usd',
     });
-    expect(injectMock).toHaveBeenNthCalledWith(2, {
-      method: 'GET',
-      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
-    });
-    expect(runtimeState.startupPrewarm.readyWithinBudget).toBe(true);
+        expect(runtimeState.startupPrewarm.readyWithinBudget).toBe(true);
     expect(runtimeState.startupPrewarm.targetResults).toMatchObject([
       {
         id: 'simple_price_bitcoin_usd',
         status: 'failed',
         warmCacheRevision: null,
       },
-      {
-        id: 'coins_markets_bitcoin_usd',
-        status: 'completed',
-        warmCacheRevision: 7,
-      },
+
     ]);
     expect(metrics.recordStartupPrewarmTarget).toHaveBeenCalledWith('simple_price_bitcoin_usd', 'failed', expect.any(Number));
-    expect(metrics.recordStartupPrewarmTarget).toHaveBeenCalledWith('coins_markets_bitcoin_usd', 'completed', expect.any(Number));
   });
 
   it('warms the simple-price startup target directly without self-injecting that endpoint', async () => {
@@ -973,7 +954,7 @@ describe('OpenGecko app scaffold', () => {
       });
 
       expect(simplePriceInjectCalls).toHaveLength(0);
-      expect(coinsMarketsInjectCalls.length).toBeGreaterThanOrEqual(1);
+      expect(coinsMarketsInjectCalls).toHaveLength(0);
 
       const diagnostics = await prewarmApp.inject({
         method: 'GET',
@@ -1044,13 +1025,8 @@ describe('OpenGecko app scaffold', () => {
         status: 'completed',
         warmCacheRevision: 0,
       });
-      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[1]).toMatchObject({
-        id: 'coins_markets_bitcoin_usd',
-        durationMs: expect.any(Number),
-        warmCacheRevision: null,
-      });
-      expect(['timeout', 'skipped_budget']).toContain(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[1]?.status);
-      expect(injectMock).toHaveBeenCalledTimes(1);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toHaveLength(1);
+      expect(injectMock).toHaveBeenCalledTimes(0);
     } finally {
       await prewarmApp.close();
     }
@@ -1078,21 +1054,15 @@ describe('OpenGecko app scaffold', () => {
       await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 250);
 
       expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
-      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(250);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(0);
       expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toMatchObject([
         {
           id: 'simple_price_bitcoin_usd',
           status: 'completed',
           warmCacheRevision: 0,
         },
-        {
-          id: 'coins_markets_bitcoin_usd',
-          status: 'timeout',
-          durationMs: expect.any(Number),
-          warmCacheRevision: null,
-        },
       ]);
-      expect(injectMock).toHaveBeenCalledTimes(1);
+      expect(injectMock).toHaveBeenCalledTimes(0);
     } finally {
       dateNowSpy.mockRestore();
       await prewarmApp.close();
@@ -1143,12 +1113,6 @@ describe('OpenGecko app scaffold', () => {
           status: 'completed',
           warmCacheRevision: 0,
         },
-        {
-          id: 'coins_markets_bitcoin_usd',
-          status: 'skipped_budget',
-          durationMs: 0,
-          warmCacheRevision: null,
-        },
       ]);
       expect(injectSpy).not.toHaveBeenCalled();
     } finally {
@@ -1179,11 +1143,6 @@ describe('OpenGecko app scaffold', () => {
             label: 'Simple price BTC/USD',
             endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
           },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-          },
         ],
         completedAt: Date.now(),
         totalDurationMs: 12,
@@ -1198,20 +1157,10 @@ describe('OpenGecko app scaffold', () => {
             warmCacheRevision: null,
             firstObservedRequest: null,
           },
-          {
-            id: 'coins_markets_bitcoin_usd',
-            label: 'Coins markets BTC/USD',
-            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
-            status: 'completed',
-            durationMs: 4,
-            cacheSurface: 'coins_markets',
-            warmCacheRevision: runtimeState.hotDataRevision,
-            firstObservedRequest: null,
-          },
+
         ],
       };
       metrics.recordStartupPrewarmTarget('simple_price_bitcoin_usd', 'failed', 5);
-      metrics.recordStartupPrewarmTarget('coins_markets_bitcoin_usd', 'completed', 4);
     });
 
     try {
@@ -1225,16 +1174,11 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnostics.statusCode).toBe(200);
       const prewarm = diagnostics.json().data.startup_prewarm;
       expect(prewarm.readyWithinBudget).toBe(true);
-      expect(prewarm.targetResults).toHaveLength(2);
+      expect(prewarm.targetResults).toHaveLength(1);
       expect(prewarm.targetResults[0]).toMatchObject({
         id: 'simple_price_bitcoin_usd',
         status: 'failed',
         warmCacheRevision: null,
-      });
-      expect(prewarm.targetResults[1]).toMatchObject({
-        id: 'coins_markets_bitcoin_usd',
-        status: 'completed',
-        warmCacheRevision: expect.any(Number),
       });
 
       const metricsResponse = await prewarmApp.inject({
@@ -1244,7 +1188,6 @@ describe('OpenGecko app scaffold', () => {
 
       expect(metricsResponse.statusCode).toBe(200);
       expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total{outcome="failed",target="simple_price_bitcoin_usd"} 1');
-      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total{outcome="completed",target="coins_markets_bitcoin_usd"} 1');
       expect(metricsResponse.body).not.toContain('opengecko_startup_prewarm_targets_total{outcome="timeout",target="simple_price_bitcoin_usd"}');
     } finally {
       prewarmSpy.mockRestore();
@@ -1293,7 +1236,7 @@ describe('OpenGecko app scaffold', () => {
     expect(afterBody).toContain('surface="simple_price"');
     expect(afterBody).toContain('surface="coins_markets"');
     expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/simple/price",status_code="200"} 2');
-    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/coins/markets",status_code="200"} 3');
+    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/coins/markets",status_code="200"} 2');
     expect(afterBody).toContain('opengecko_http_request_duration_ms_count{method="GET",route="/simple/price",status_code="200"} 2');
     expect(afterBody).not.toEqual(beforeBody);
   });
@@ -4303,7 +4246,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(3);
-    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(4);
+    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(3);
   });
 
   it('returns dual top movers payloads with stable polarity and explicit arrays', async () => {
