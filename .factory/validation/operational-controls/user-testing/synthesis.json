@@ -1,0 +1,22 @@
+{
+  "milestone": "operational-controls",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-OPS-003",
+    "VAL-OPS-004",
+    "VAL-OPS-005",
+    "VAL-OPS-008"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "generatedAt": "2026-03-26T12:09:31.621288Z"
+}

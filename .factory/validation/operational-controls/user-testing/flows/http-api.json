@@ -1,0 +1,108 @@
+{
+  "milestone": "operational-controls",
+  "surface": "HTTP API",
+  "baseUrl": "http://127.0.0.1:3102",
+  "tool": "curl/urllib",
+  "assertions": [
+    {
+      "id": "VAL-OPS-003",
+      "status": "pass",
+      "evidence": {
+        "timeoutBudgetMs": 15000,
+        "budgetSource": "/diagnostics/runtime data.transport.request_timeout_ms",
+        "runs": [
+          {
+            "index": 0,
+            "exitCode": 0,
+            "httpCode": "200",
+            "elapsedMs": 8.73
+          },
+          {
+            "index": 1,
+            "exitCode": 0,
+            "httpCode": "200",
+            "elapsedMs": 8.08
+          }
+        ],
+        "observation": "Repeated large /coins/markets requests completed in well under the 15000ms declared timeout budget and did not hang."
+      }
+    },
+    {
+      "id": "VAL-OPS-004",
+      "status": "pass",
+      "evidence": {
+        "path": "/coins/markets?vs_currency=usd&per_page=250&page=1&sparkline=true&price_change_percentage=1h,24h,7d,14d,30d,200d,1y",
+        "plainStatus": 200,
+        "gzipStatus": 200,
+        "plainContentEncoding": null,
+        "gzipContentEncoding": "gzip",
+        "vary": "Accept-Encoding",
+        "plainBytes": 363812,
+        "gzipBytes": 72039,
+        "decompressedEquivalent": true,
+        "sampleIds": [
+          "00-token",
+          "0g",
+          "0g3l",
+          "0g3s",
+          "0x-protocol"
+        ]
+      }
+    },
+    {
+      "id": "VAL-OPS-005",
+      "status": "pass",
+      "evidence": {
+        "metricsEndpointStatus": 200,
+        "metricsContentType": "text/plain; version=0.0.4; charset=utf-8",
+        "requestLines": [
+          "opengecko_http_requests_total{method=\"GET\",route=\"/ping\",status_code=\"200\"} 7",
+          "opengecko_http_requests_total{method=\"GET\",route=\"/diagnostics/runtime\",status_code=\"200\"} 4",
+          "opengecko_http_requests_total{method=\"GET\",route=\"/coins/markets\",status_code=\"200\"} 12",
+          "opengecko_http_requests_total{method=\"GET\",route=\"/metrics\",status_code=\"200\"} 4",
+          "opengecko_http_requests_total{method=\"GET\",route=\"/simple/price\",status_code=\"200\"} 6",
+          "opengecko_http_requests_total{method=\"GET\",route=\"/exchange_rates\",status_code=\"200\"} 4"
+        ],
+        "cacheLines": [
+          "opengecko_cache_events_total{outcome=\"miss\",surface=\"coins_markets\"} 5",
+          "opengecko_cache_events_total{outcome=\"hit\",surface=\"coins_markets\"} 7",
+          "opengecko_cache_events_total{outcome=\"miss\",surface=\"simple_price\"} 3",
+          "opengecko_cache_events_total{outcome=\"hit\",surface=\"simple_price\"} 3"
+        ],
+        "providerLines": [
+          "opengecko_provider_exchange_count 5",
+          "opengecko_provider_failed_exchange_count 0",
+          "opengecko_provider_refresh_total{outcome=\"success\"} 2"
+        ],
+        "observation": "After representative traffic, request totals increased and cache hit/miss counters for simple_price and coins_markets were present on /metrics."
+      }
+    },
+    {
+      "id": "VAL-OPS-008",
+      "status": "pass",
+      "evidence": {
+        "pingPlain": {
+          "gecko_says": "(V3) To the Moon!"
+        },
+        "pingGzip": {
+          "gecko_says": "(V3) To the Moon!"
+        },
+        "pingGzipEncoding": null,
+        "exchangeRatesSameJson": true,
+        "exchangeRatesGzipEncoding": "gzip",
+        "exchangeRatesTopLevelKeys": [
+          "data"
+        ],
+        "observation": "/ping kept the exact CoinGecko liveness body with and without Accept-Encoding, and /exchange_rates preserved the same JSON body while only transport headers changed."
+      }
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "toolsUsed": [
+    "curl",
+    "urllib",
+    "/metrics",
+    "/diagnostics/runtime"
+  ]
+}
