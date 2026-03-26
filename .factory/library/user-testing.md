@@ -71,6 +71,11 @@ Each assertion should capture:
 - The service may not bind until initial sync finishes; connection-refused before readiness is expected and must not be treated as immediate mission failure without a readiness wait.
 - Provider-resilience runtime-health validation on 2026-03-26 observed the validation API stay unreachable for roughly 75 seconds before `/ping` became reachable on port `3102`; use a long readiness poll window before concluding startup failed.
 - The current public HTTP surface exposes `/diagnostics/runtime` for machine-readable readiness/freshness/source-class state, but it does not expose a validator-usable fault-injection hook to force provider outages or recoveries from outside the process.
+- Validation-only runtime control routes on port `3102` are:
+  - `POST /diagnostics/runtime/provider_failure`
+  - `POST /diagnostics/runtime/degraded_state`
+- Do not use `/__validation/degraded-state`; that path is not part of the current branch surface.
+- For availability-polish validation, the only declared startup-prewarm target is `simple_price_bitcoin_usd`; validate `VAL-OPS-006` against that target's diagnostics/metrics and first-hit behavior, not against a removed `coins_markets` target.
 - Hot-endpoint-cache validation recorded a false-negative for `VAL-SIMPLE-001`: the synthesis says `/simple/price?vs_currencies=usd` failed because it used `{error,message}`, but the captured `expectedBody` and `actualBody` are identical and that exact envelope is the intended contract.
 - Treat the source of truth for `VAL-SIMPLE-001` as: HTTP `400` plus exact JSON `{ "error": "invalid_parameter", "message": "One of ids, names, or symbols must be provided." }`.
 - Characterization coverage for that contract now exists in both `tests/invalid-params.test.ts` and `tests/app.test.ts`; if a future validator still flags the assertion while those tests and manual curl evidence pass, the ambiguity is validator-side rather than product-side.
