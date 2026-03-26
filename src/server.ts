@@ -20,6 +20,8 @@ async function start() {
       host: config.host,
       port: config.port,
     });
+    app.marketRuntime?.markListenerBound();
+    app.marketDataRuntimeState.listenerBound = true;
     startupProgress.complete('start_http_listener');
     startupProgress.start(config.port);
   } catch (error) {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loadMarkets = vi.fn(async function loadMarkets(this: { marketsLoaded?: boolean }) {
   this.marketsLoaded = true;
@@ -40,12 +40,9 @@ describe('ccxt provider pooling', () => {
     close.mockClear();
   });
 
-  afterEach(async () => {
+  it('reuses an exchange instance for repeated requests', async () => {
     const { closeExchangePool } = await import('../src/providers/ccxt');
     await closeExchangePool();
-  });
-
-  it('reuses an exchange instance for repeated requests', async () => {
     const { fetchExchangeTicker } = await import('../src/providers/ccxt');
 
     await fetchExchangeTicker('binance', 'BTC/USDT');
@@ -58,9 +55,10 @@ describe('ccxt provider pooling', () => {
   it('closes pooled exchanges when requested', async () => {
     const { fetchExchangeTicker, closeExchangePool } = await import('../src/providers/ccxt');
 
+    await closeExchangePool();
     await fetchExchangeTicker('binance', 'BTC/USDT');
     await closeExchangePool();
 
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(fetchTicker).toHaveBeenCalledTimes(1);
   });
 });

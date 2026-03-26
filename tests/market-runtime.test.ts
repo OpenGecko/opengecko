@@ -39,6 +39,7 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     initialSyncCompleted: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
+    listenerBound: false,
     ...overrides,
   };
 }
@@ -93,6 +94,7 @@ describe('market runtime', () => {
     expect(runInitialMarketSync).toHaveBeenCalledTimes(1);
     expect(startOhlcvRuntime).toHaveBeenCalledTimes(1);
     expect(state.initialSyncCompleted).toBe(true);
+    expect(state.listenerBound).toBe(false);
     expect(state.syncFailureReason).toBeNull();
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
 
@@ -166,6 +168,7 @@ describe('market runtime', () => {
     const stopPromise = runtime.stop();
     await flushMicrotasks();
     expect(stopOhlcvRuntime).toHaveBeenCalledTimes(1);
+    expect(state.listenerBound).toBe(false);
     await startPromise;
     await stopPromise;
   });
@@ -344,5 +347,29 @@ describe('market runtime', () => {
 
     releaseMarketJob();
     await runtime.stop();
+  });
+
+  it('tracks listener bind state separately from initial sync readiness and clears it on stop', async () => {
+    const state = createState();
+    const runtime = createMarketRuntime({} as never, baseConfig as never, logger, state, {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
+      runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await runtime.whenReady();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.listenerBound).toBe(false);
+
+    runtime.markListenerBound();
+    expect(state.listenerBound).toBe(true);
+
+    await runtime.stop();
+    expect(state.listenerBound).toBe(false);
   });
 });

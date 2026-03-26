@@ -19,6 +19,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeTickers: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string => ['binance'].includes(value),
 }));
 

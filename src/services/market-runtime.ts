@@ -53,6 +53,7 @@ export type MarketRuntime = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   whenReady: () => Promise<void>;
+  markListenerBound: () => void;
 };
 
 type MarketRuntimeOverrides = {
@@ -187,8 +188,12 @@ export function createMarketRuntime(
         await startupTask;
       }
     },
+    markListenerBound() {
+      state.listenerBound = true;
+    },
     async stop() {
       stopRequested = true;
+      state.listenerBound = false;
 
       if (currencyTimer) {
         clearInterval(currencyTimer);

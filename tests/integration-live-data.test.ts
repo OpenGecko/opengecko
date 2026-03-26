@@ -12,6 +12,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeTickers: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
@@ -177,5 +178,10 @@ describe('live data integration', () => {
         usd: 90_000,
       },
     });
+  });
+
+  it('keeps listener-bound state false for app.ready bootstrap-only initialization', async () => {
+    expect(app.marketDataRuntimeState.initialSyncCompleted).toBe(true);
+    expect(app.marketDataRuntimeState.listenerBound).toBe(false);
   });
 });

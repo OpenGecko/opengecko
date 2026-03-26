@@ -15,9 +15,16 @@ import { registerSearchRoutes } from './modules/search';
 import { registerSimpleRoutes } from './modules/simple';
 import { registerTreasuryRoutes } from './modules/treasury';
 import { closeExchangePool } from './providers/ccxt';
-import { createMarketRuntime } from './services/market-runtime';
+import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import type { StartupProgressReporter } from './services/startup-progress';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    marketDataRuntimeState: AppLifecycleState;
+    marketRuntime: MarketRuntime | null;
+  }
+}
 
 export type BuildAppOptions = {
   config?: Partial<AppConfig>;
@@ -25,6 +32,8 @@ export type BuildAppOptions = {
   pluginTimeout?: number;
   startupProgress?: StartupProgressReporter;
 };
+
+export type AppLifecycleState = ReturnType<typeof createMarketDataRuntimeState>;
 
 export function getDatabaseStartupLogContext(database: { runtime: 'bun' | 'node'; url: string }) {
   return {
@@ -138,6 +147,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     await closeExchangePool();
     database.client.close();
   });
+
+  app.decorate('marketDataRuntimeState', marketDataRuntimeState);
+  app.decorate('marketRuntime', runtime);
 
   return app;
 }

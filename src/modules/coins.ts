@@ -465,12 +465,12 @@ function getSeriesChangePercentageForWindow(
     return marketRow?.snapshot?.priceChangePercentage24h ?? null;
   }
 
+  const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const chartSeries = getChartSeries(database, coinId, 'usd');
+
   return getSeriesChangePercentageForWindowDays(
-    database,
-    coinId,
-    vsCurrency,
-    marketFreshnessThresholdSeconds,
-    snapshotAccessPolicy,
+    chartSeries,
+    rate,
     durationDays,
   );
 }
@@ -537,7 +537,15 @@ function buildCoinDetail(
   const description = parseJsonObject<Record<string, string>>(coin.descriptionJson);
   const links = parseJsonObject<Record<string, unknown>>(coin.linksJson);
   const seriesExtremes = getSeriesExtremes(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
-  const priceChangePercentage7d = getSeriesChangePercentage(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const priceChangePercentage7d = getSeriesChangePercentage(
+    database,
+    coin.id,
+    'usd',
+    marketFreshnessThresholdSeconds,
+    snapshotAccessPolicy,
+  );
+  const sparklineRate = getConversionRate(database, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const sparklineSeries = getChartSeries(database, coin.id, 'usd');
   const conversionRates = getConversionRates(database, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
 
   function toMultiCurrency(value: number | null | undefined) {
@@ -587,7 +595,7 @@ function buildCoinDetail(
         market_cap_rank: snapshot.marketCapRank,
         last_updated: snapshot.lastUpdated.toISOString(),
         sparkline_7d: options.includeSparkline
-          ? buildSparkline(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy)
+          ? buildSparkline(sparklineSeries, sparklineRate)
           : null,
       };
 
