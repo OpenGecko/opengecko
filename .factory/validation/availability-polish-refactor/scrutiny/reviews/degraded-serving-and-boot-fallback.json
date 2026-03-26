@@ -1,15 +1,21 @@
 {
   "featureId": "degraded-serving-and-boot-fallback",
-  "reviewedAt": "2026-03-26T13:44:29.153817+00:00",
-  "commitId": "b0e5fba",
+  "reviewedAt": "2026-03-26T16:10:17Z",
+  "commitId": "b0e5fba583cead53f88ae70768d488b6b3cc8794",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "Reviewed commit b0e5fba, the worker handoff, transcript skeleton, and the touched runtime/coins/tests files. The implementation consistently carries runtime degraded state through bootstrap refresh failure, keeps `/coins/markets` rows present while nulling degraded market-value fields for seeded residual bootstrap snapshots, and makes `/diagnostics/runtime` classify failed bootstrap with residual seeded data as degraded rather than ready/fresh. The updated stale-data and existing runtime-diagnostics coverage are sufficient for the feature contract.",
+    "summary": "Reviewed the degraded-serving fix commit, handoff, transcript skeleton, and touched runtime/coins/diagnostics code. The implementation consistently threads runtime state through bootstrap refresh, preserves seeded-bootstrap degraded row semantics on /coins/markets, and aligns diagnostics/source-class reporting with the selected degraded-boot policy covered by targeted stale-data regressions.",
     "issues": []
   },
-  "sharedStateObservations": [],
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The worker repeatedly hit a missing README at /home/whoami/dev/openGecko/README.md because the repo-level README was absent during the worker session, but the current environment now has one. Mission shared state does not explain this recent README movement, so future workers may repeat the same confusion when following the mandated README-first exploration rule.",
+      "evidence": "Transcript skeleton for worker session 022f786d-c8d2-4f2f-927b-3599545e9a4c shows `Read /home/whoami/dev/openGecko/README.md` returning ENOENT early in the run, while the current repo root now contains README.md per session context and review reads."
+    }
+  ],
   "addressesFailureFrom": null,
-  "summary": "Pass. The feature aligns degraded boot fallback semantics across `/simple/price`, `/coins/markets`, and `/diagnostics/runtime`, and the reviewed tests characterize the chosen residual-seeded bootstrap policy without finding contract drift or missing blocking coverage."
+  "summary": "Pass. The fix brings /simple/price, /coins/markets, and runtime diagnostics into agreement for stale-live and degraded-bootstrap fallback scenarios, and I found no blocking contract or edge-case gaps in the reviewed change set."
 }

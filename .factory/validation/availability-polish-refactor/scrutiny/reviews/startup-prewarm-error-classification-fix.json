@@ -1,40 +1,15 @@
 {
   "featureId": "startup-prewarm-error-classification-fix",
-  "reviewedAt": "2026-03-26T15:53:08Z",
-  "commitId": "84c94b02951b6c0810713ace6306777fb1c10812",
+  "reviewedAt": "2026-03-26T16:09:02Z",
+  "commitId": "fd3c6ff0730062087cdbd17159f36577c1395f9c",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "fail",
+  "status": "pass",
   "codeReview": {
-    "summary": "The follow-up commit fixes the original path/query attribution bug for first-observed prewarm evidence, but it does not address the original blocking failure about misclassifying non-2xx prewarm responses as timeouts that abort the remaining declared targets.",
-    "issues": [
-      {
-        "file": "src/services/startup-prewarm.ts",
-        "line": 117,
-        "severity": "blocking",
-        "description": "`runStartupPrewarm()` still maps every non-2xx injected response to `status: 'timeout'` instead of distinguishing handler/contract failures from true budget exhaustion. The original scrutiny blocker required accurate diagnostics/metrics classification for non-success responses; this fix leaves that misclassification intact."
-      },
-      {
-        "file": "src/services/startup-prewarm.ts",
-        "line": 136,
-        "severity": "blocking",
-        "description": "The loop still `break`s whenever the mapped outcome is `'timeout'`. Because non-2xx responses are still coerced to `'timeout'`, a real failure on the first declared target continues to prevent later declared targets from being prewarmed, so the declared target set is still not reliably attempted."
-      },
-      {
-        "file": "tests/app.test.ts",
-        "line": 415,
-        "severity": "non_blocking",
-        "description": "The new regression test is conditional on the target's runtime status and never forces a genuine non-2xx prewarm response. As written, it proves query-aware attribution for later requests but does not cover the original failure mode where a handler error is mislabeled as a timeout and short-circuits the remaining targets."
-      }
-    ]
+    "summary": "The fix directly addresses the prior blocking defect: startup prewarm now preserves non-2xx handler outcomes as `failed`, only stops on true budget timeout, and the updated diagnostics/metrics tests verify that later declared targets still run after a handler failure.",
+    "issues": []
   },
-  "sharedStateObservations": [
-    {
-      "area": "skills",
-      "observation": "The fix feature appears to have been delivered via an untracked commit rather than a mission feature entry/handoff, which makes scrutiny evidence discovery harder for reruns.",
-      "evidence": "`features.json` in the mission has no `startup-prewarm-error-classification-fix` entry, `worker-transcripts.jsonl` has no matching worker session, and no handoff file exists for that feature ID, while the reviewed code change is present in commit `84c94b0` on the branch."
-    }
-  ],
+  "sharedStateObservations": [],
   "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/startup-prewarm-hot-endpoints.json",
-  "summary": "Reviewed the prior failed scrutiny report, the original startup prewarm feature diff (`f5bde92`/handoff commit lineage), the follow-up fix commit `84c94b0`, the available transcript skeleton for the original feature, and the added tests. The rerun fix improves warm-path attribution by matching full request semantics, but it does not resolve the original blocking issue: non-2xx prewarm responses are still reported as `timeout` and still abort later declared targets."
+  "summary": "Reviewed the prior failed scrutiny report, the fix feature metadata/handoff/transcript skeleton, the original and fix commit diffs, and the touched runtime/tests. The fix correctly separates handler failures from budget timeouts in startup prewarm, preserves later-target execution after non-timeout failures, and keeps diagnostics/Prometheus evidence aligned with the corrected outcome classes."
 }

@@ -1,6 +1,6 @@
 {
   "milestone": "availability-polish-refactor",
-  "round": 3,
+  "round": 4,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,26 +20,34 @@
     }
   },
   "reviewsSummary": {
-    "total": 8,
-    "passed": 7,
+    "total": 5,
+    "passed": 4,
     "failed": 1,
     "failedFeatures": [
-      "startup-prewarm-error-classification-fix"
+      "refactor-coins-module-with-characterization"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "startup-prewarm-error-classification-fix",
+      "featureId": "refactor-coins-module-with-characterization",
       "severity": "blocking",
-      "description": "`runStartupPrewarm()` still maps every non-2xx injected response to `status: 'timeout'` and still breaks the loop on that status. Real handler or contract failures are therefore mislabeled as budget timeouts and can still prevent later declared targets from running, so startup prewarm does not yet reliably attempt the declared target set or expose accurate diagnostics and metrics evidence."
+      "description": "`parseMoverPriceChangePercentage()` no longer preserves pre-refactor behavior for inputs with empty CSV segments. Before the refactor, the route used `parseCsvQuery()`, which ignored a trailing comma; after extraction, `value.split(',')` plus the explicit empty-entry check turns `/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,` into HTTP 400. This is contract drift in a refactor-only feature, and the updated test in `tests/app.test.ts` now codifies the new behavior instead of characterizing the old one."
     }
   ],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [],
   "rejectedObservations": [
     {
-      "observation": "The fix feature appears to have been delivered via an untracked commit rather than a mission feature entry/handoff, which makes scrutiny evidence discovery harder for reruns.",
-      "reason": "normative-orchestrator-decision"
+      "observation": "The worker repeatedly hit a missing README at /home/whoami/dev/openGecko/README.md because the repo-level README was absent during the worker session, but the current environment now has one. Mission shared state does not explain this recent README movement, so future workers may repeat the same confusion when following the mandated README-first exploration rule.",
+      "reason": "ambiguous"
+    },
+    {
+      "observation": "Startup prewarm behavior is now important shared runtime knowledge: validators depend on `/diagnostics/runtime` startup prewarm fields and `opengecko_startup_prewarm_*` metrics to prove warm-start benefit, so this needs to stay documented for future runtime or validation work.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "The mission library documents that final refactors must be characterization-first, but it does not capture a practical warning that shared query parsers like `parseCsvQuery()` intentionally tolerate empty trailing CSV segments on some routes. That subtle contract detail was easy to lose during extraction.",
+      "reason": "already-documented"
     }
   ],
   "previousRound": ".factory/validation/availability-polish-refactor/scrutiny/synthesis.json"

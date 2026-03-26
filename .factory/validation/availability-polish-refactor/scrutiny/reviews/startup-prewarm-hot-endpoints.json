@@ -1,33 +1,21 @@
 {
   "featureId": "startup-prewarm-hot-endpoints",
-  "reviewedAt": "2026-03-26T21:50:00Z",
+  "reviewedAt": "2026-03-26T16:09:18.920640Z",
   "commitId": "c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "fail",
+  "status": "pass",
   "codeReview": {
-    "summary": "The feature adds startup prewarm wiring, diagnostics, and metrics surfaces, but the implementation can mark non-2xx prewarm responses as timeouts and then stop prewarming later declared targets, which means the declared hot endpoint target set is not reliably prewarmed and diagnostics/metrics can misclassify actual failures as budget overruns.",
-    "issues": [
-      {
-        "file": "src/services/startup-prewarm.ts",
-        "line": 126,
-        "severity": "blocking",
-        "description": "`runStartupPrewarm()` collapses every non-2xx inject result into `status: 'timeout'` via the inline `.then(...)` mapper, and the loop then breaks on that status. A real handler error or contract failure on the first target is therefore reported as a budget timeout and prevents later declared targets from running at all, so the implementation does not reliably prewarm the declared target set or expose accurate diagnostics/metrics evidence for validators."
-      }
-    ]
+    "summary": "The current branch state covers the startup prewarm requirements: declared hot targets are prewarmed during bootstrap-only startup, readiness budget and target outcomes are surfaced through diagnostics, first-request warm observations are tracked in metrics, and targeted tests exercise attribution and non-2xx failure classification without regressing runtime behavior.",
+    "issues": []
   },
   "sharedStateObservations": [
     {
-      "area": "skills",
-      "observation": "The worker used the assigned feature skill path, but shared guidance does not mention startup prewarm work or the need to inspect prewarm-specific metrics and diagnostics surfaces when implementing startup-latency features.",
-      "evidence": "Feature metadata for `startup-prewarm-hot-endpoints` assigns a runtime/api skill workflow; the transcript skeleton shows the worker loaded a runtime/api worker skill and then had to discover `src/services/startup-prewarm.ts`, `src/services/metrics.ts`, and diagnostics routes ad hoc. No `.factory/library/` note mentions prewarm surfaces or target attribution."
-    },
-    {
       "area": "knowledge",
-      "observation": "Shared library notes do not currently record the startup prewarm surfaces, declared targets, or metrics names added by this feature, even though future validators and workers now need to know where prewarm evidence is exposed.",
-      "evidence": "`src/services/startup-prewarm.ts` declares `STARTUP_PREWARM_TARGETS`, `src/modules/diagnostics.ts` exposes `data.startup_prewarm`, and `src/services/metrics.ts` emits `opengecko_startup_prewarm_*` metrics, but `.factory/library/runtime.md` has no prewarm-related guidance (grep for 'prewarm' returned no matches)."
+      "observation": "Startup prewarm behavior is now important shared runtime knowledge: validators depend on `/diagnostics/runtime` startup prewarm fields and `opengecko_startup_prewarm_*` metrics to prove warm-start benefit, so this needs to stay documented for future runtime or validation work.",
+      "evidence": "`.factory/library/runtime.md` now documents that `/diagnostics/runtime` exposes `startup_prewarm` fields and Prometheus emits `opengecko_startup_prewarm_*` series; implementation lives in `src/modules/diagnostics.ts:68-72`, `src/services/metrics.ts:153-174`, and `src/services/startup-prewarm.ts:13-150`."
     }
   ],
   "addressesFailureFrom": null,
-  "summary": "Reviewed the feature metadata, handoff, transcript skeleton, commit context, implementation files, and targeted tests. The feature is not ready to pass scrutiny because startup prewarm currently mislabels handler failures as timeouts and aborts remaining targets, which undermines both declared-target coverage and validator-facing evidence."
+  "summary": "Reviewed the feature metadata, worker handoff, transcript skeleton, runtime/api skill guidance, implementation files, and the current commit context. In the present branch state the startup prewarm feature passes scrutiny: the earlier failure mode has been addressed by explicit failed-vs-timeout classification and continued target processing, and the diagnostics/metrics surfaces now provide the validator-facing evidence described by the feature."
 }

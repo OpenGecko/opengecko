@@ -1,15 +1,28 @@
 {
   "featureId": "refactor-coins-module-with-characterization",
-  "reviewedAt": "2026-03-26T13:44:33.197404+00:00",
+  "reviewedAt": "2026-03-26T16:09:21Z",
   "commitId": "860c2051aa66ce2f2c43b38a1eb90e1596d4c3ff",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "pass",
+  "status": "fail",
   "codeReview": {
-    "summary": "Reviewed the refactor commit, handoff, transcript skeleton, and the coins route characterization coverage. The refactor cleanly split the oversized module into focused helpers/detail/chart/market-data units while preserving the route surface and key contract paths covered by app, compatibility, and stale-data tests. I did not find evidence of contract drift or correctness regressions in the reviewed implementation.",
-    "issues": []
+    "summary": "The coins module was structurally split as intended, but the refactor changed `/coins/top_gainers_losers` validation semantics by rejecting a trailing-comma `price_change_percentage` query that the pre-refactor route accepted and that the updated characterization test now locks in.",
+    "issues": [
+      {
+        "file": "src/modules/coins/helpers.ts",
+        "line": 184,
+        "severity": "blocking",
+        "description": "`parseMoverPriceChangePercentage()` no longer preserves pre-refactor behavior for inputs with empty CSV segments. Before the refactor, the route used `parseCsvQuery()`, which ignored a trailing comma; after extraction, `value.split(',')` plus the explicit empty-entry check turns `/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,` into HTTP 400. This is contract drift in a refactor-only feature, and the updated test in `tests/app.test.ts` now codifies the new behavior instead of characterizing the old one."
+      }
+    ]
   },
-  "sharedStateObservations": [],
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The mission library documents that final refactors must be characterization-first, but it does not capture a practical warning that shared query parsers like `parseCsvQuery()` intentionally tolerate empty trailing CSV segments on some routes. That subtle contract detail was easy to lose during extraction.",
+      "evidence": "Pre-refactor `src/modules/coins.ts` parsed mover `price_change_percentage` with `parseCsvQuery(value).map(...)`; post-refactor `src/modules/coins/helpers.ts:184-197` replaced it with manual `split(',')` handling that rejects empty segments, changing `/coins/top_gainers_losers?price_change_percentage=24h,` from 200 to 400."
+    }
+  ],
   "addressesFailureFrom": null,
-  "summary": "Pass. The coins module refactor appears behavior-preserving, follows the safe-refactor procedure, and remains protected by representative characterization coverage for markets, detail, contract, chart/OHLC, movers, categories, and stale/degraded paths. No shared-state gaps were identified from the reviewed evidence."
+  "summary": "Review failed: the refactor successfully split `src/modules/coins.ts`, but it introduced route-contract drift for `/coins/top_gainers_losers` by changing how trailing-comma `price_change_percentage` values are parsed. Review report written for validator follow-up."
 }
