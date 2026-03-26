@@ -26,6 +26,8 @@ import {
 
 const MIGRATIONS_FOLDER = resolve(process.cwd(), 'drizzle');
 const MIGRATION_JOURNAL = resolve(MIGRATIONS_FOLDER, 'meta', '_journal.json');
+const TARGETED_RUNTIME_INDEX_MIGRATION_HASH = '8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e';
+const TARGETED_RUNTIME_INDEX_MIGRATION_CREATED_AT = 1774800000000;
 
 const schema = {
   assetPlatforms,
@@ -159,6 +161,38 @@ export function createDatabase(databaseUrl: string): AppDatabase {
 }
 
 export function migrateDatabase(database: AppDatabase) {
+  database.client.exec(`
+    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+      id SERIAL PRIMARY KEY,
+      hash text NOT NULL,
+      created_at numeric
+    )
+  `);
+
+  const targetedRuntimeIndexes = [
+    'coins_status_market_cap_rank_id_idx',
+    'market_snapshots_vs_currency_market_cap_rank_coin_id_idx',
+  ] as const;
+  const targetedIndexesExist = database.client.prepare<{ name: string }>(
+    `SELECT name
+     FROM sqlite_master
+     WHERE type = 'index'
+       AND name IN (${targetedRuntimeIndexes.map(() => '?').join(', ')})
+     ORDER BY name`,
+  ).all(...targetedRuntimeIndexes);
+
+  if (targetedIndexesExist.length === targetedRuntimeIndexes.length) {
+    const targetedMigrationRecorded = database.client.prepare<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM __drizzle_migrations WHERE hash = ?',
+    ).get(TARGETED_RUNTIME_INDEX_MIGRATION_HASH);
+
+    if ((targetedMigrationRecorded?.count ?? 0) === 0) {
+      database.client.prepare(
+        'INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)',
+      ).run(TARGETED_RUNTIME_INDEX_MIGRATION_HASH, TARGETED_RUNTIME_INDEX_MIGRATION_CREATED_AT);
+    }
+  }
+
   if (database.runtime === 'bun') {
     const { migrate } = require('drizzle-orm/bun-sqlite/migrator') as {
       migrate: (db: BunSQLiteDatabase<AppSchema>, config: { migrationsFolder: string }) => void;

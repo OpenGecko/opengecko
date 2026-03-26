@@ -155,6 +155,31 @@ describe('catalog repository helpers', () => {
     ]);
   });
 
+  it('records the targeted runtime index migration when the indexes already exist on a persistent database', () => {
+    database.client.exec('DELETE FROM __drizzle_migrations WHERE hash = \'8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e\'');
+    database.client.exec(`
+      DROP INDEX IF EXISTS coins_status_market_cap_rank_id_idx;
+      DROP INDEX IF EXISTS market_snapshots_vs_currency_market_cap_rank_coin_id_idx;
+      CREATE INDEX coins_status_market_cap_rank_id_idx
+      ON coins (status, market_cap_rank, id);
+      CREATE INDEX market_snapshots_vs_currency_market_cap_rank_coin_id_idx
+      ON market_snapshots (vs_currency, market_cap_rank, coin_id);
+    `);
+
+    expect(() => migrateDatabase(database)).not.toThrow();
+
+    const migrationRows = database.client.prepare<{ hash: string; createdAt: number }>(
+      'SELECT hash, created_at AS createdAt FROM __drizzle_migrations WHERE hash = ?',
+    ).all('8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e');
+
+    expect(migrationRows).toEqual([
+      {
+        hash: '8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e',
+        createdAt: 1774800000000,
+      },
+    ]);
+  });
+
   it('uses the new indexes for active market ordering and ranked snapshot lookups', () => {
     const activePlan = database.client.prepare<{ detail: string }>(`
       EXPLAIN QUERY PLAN
