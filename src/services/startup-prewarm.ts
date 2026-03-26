@@ -1,5 +1,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 
+import { warmSimplePriceCache } from '../modules/simple';
+
 import type { MetricsRegistry } from './metrics';
 import type { MarketDataRuntimeState } from './market-runtime-state';
 
@@ -106,18 +108,74 @@ function isSuccessfulPrewarmResponse(response: LightMyRequestResponse) {
 type StartupPrewarmOutcome =
   | { status: 'completed' }
   | { status: 'failed'; statusCode: number }
-  | { status: 'timeout' };
+  | { status: 'timeout' }
+  | { status: 'skipped_budget' };
 
-async function runPrewarmTargetWithinBudget(
+function parseSimplePricePrewarmQuery(endpoint: string) {
+  const parsed = new URL(endpoint, 'http://opengecko.local');
+  const booleanQueryValue = (key: string): 'true' | 'false' | undefined => {
+    const value = parsed.searchParams.get(key);
+
+    return value === 'true' || value === 'false' ? value : undefined;
+  };
+
+  return {
+    ids: parsed.searchParams.get('ids') ?? undefined,
+    names: parsed.searchParams.get('names') ?? undefined,
+    symbols: parsed.searchParams.get('symbols') ?? undefined,
+    vs_currencies: parsed.searchParams.get('vs_currencies') ?? '',
+    include_market_cap: booleanQueryValue('include_market_cap'),
+    include_24hr_vol: booleanQueryValue('include_24hr_vol'),
+    include_24hr_change: booleanQueryValue('include_24hr_change'),
+    include_last_updated_at: booleanQueryValue('include_last_updated_at'),
+    precision: parsed.searchParams.get('precision') ?? undefined,
+  };
+}
+
+async function runDirectSimplePricePrewarmWithinBudget(
   app: FastifyInstance,
   endpoint: string,
   remainingBudgetMs: number,
 ): Promise<StartupPrewarmOutcome> {
+  if (!('simplePriceCache' in app) || !app.simplePriceCache) {
+    return runPrewarmInjectWithinBudget(app, endpoint, remainingBudgetMs);
+  }
+
+  const prewarmStartedAt = Date.now();
+  const warmPromise = Promise.resolve().then(() => warmSimplePriceCache(
+    app.simplePriceCache,
+    parseSimplePricePrewarmQuery(endpoint),
+    app.db,
+    app.marketFreshnessThresholdSeconds,
+    app.marketDataRuntimeState,
+  ));
+  const result = await raceWithBudget(warmPromise, remainingBudgetMs);
+
+  if (isBudgetTimeoutResult(result)) {
+    return result;
+  }
+
+  const totalDurationMs = Date.now() - prewarmStartedAt;
+  if (totalDurationMs >= remainingBudgetMs) {
+    return { status: 'timeout' };
+  }
+
+  return { status: 'completed' };
+}
+
+async function runPrewarmInjectWithinBudget(
+  app: FastifyInstance,
+  endpoint: string,
+  remainingBudgetMs: number,
+): Promise<StartupPrewarmOutcome> {
+  const prewarmStartedAt = Date.now();
+  const injectPromise = app.inject({
+    method: 'GET',
+    url: endpoint,
+  });
+
   const result = await raceWithBudget<LightMyRequestResponse>(
-    app.inject({
-      method: 'GET',
-      url: endpoint,
-    }),
+    injectPromise,
     remainingBudgetMs,
   );
 
@@ -125,9 +183,54 @@ async function runPrewarmTargetWithinBudget(
     return result;
   }
 
+  const totalDurationMs = Date.now() - prewarmStartedAt;
+  if (totalDurationMs >= remainingBudgetMs) {
+    return { status: 'timeout' };
+  }
+
   return isSuccessfulPrewarmResponse(result)
     ? { status: 'completed' }
     : { status: 'failed', statusCode: result.statusCode };
+}
+
+async function runPrewarmTargetWithinBudget(
+  app: FastifyInstance,
+  cacheSurface: StartupPrewarmTarget['cacheSurface'],
+  endpoint: string,
+  remainingBudgetMs: number,
+): Promise<StartupPrewarmOutcome> {
+  if (cacheSurface === 'simple_price') {
+    return runDirectSimplePricePrewarmWithinBudget(app, endpoint, remainingBudgetMs);
+  }
+
+  return runPrewarmInjectWithinBudget(app, endpoint, remainingBudgetMs);
+}
+
+function finalizeStartupPrewarm(
+  runtimeState: MarketDataRuntimeState,
+  startedAt: number,
+  budgetMs: number,
+) {
+  const wallClockCompletedAt = Date.now();
+  runtimeState.startupPrewarm.completedAt = Math.min(wallClockCompletedAt, startedAt + budgetMs);
+  runtimeState.startupPrewarm.totalDurationMs = runtimeState.startupPrewarm.completedAt - startedAt;
+  runtimeState.startupPrewarm.readyWithinBudget = runtimeState.startupPrewarm.totalDurationMs <= budgetMs;
+}
+
+function recordSkippedBudgetTarget(
+  runtimeState: MarketDataRuntimeState,
+  metrics: MetricsRegistry,
+  target: StartupPrewarmTarget,
+) {
+  runtimeState.startupPrewarm.targetResults.push({
+    ...target,
+    status: 'skipped_budget',
+    durationMs: 0,
+    cacheSurface: target.cacheSurface,
+    warmCacheRevision: null,
+    firstObservedRequest: null,
+  });
+  metrics.recordStartupPrewarmTarget(target.id, 'timeout', 0);
 }
 
 export async function runStartupPrewarm(
@@ -153,27 +256,37 @@ export async function runStartupPrewarm(
   for (const target of targets) {
     const elapsedMs = Date.now() - startedAt;
     const remainingBudgetMs = budgetMs - elapsedMs;
+    if (remainingBudgetMs <= 0) {
+      recordSkippedBudgetTarget(runtimeState, metrics, target);
+      continue;
+    }
+
     const targetStartedAt = Date.now();
-    const outcome = await runPrewarmTargetWithinBudget(app, target.endpoint, remainingBudgetMs);
+    const outcome = await runPrewarmTargetWithinBudget(app, target.cacheSurface, target.endpoint, remainingBudgetMs);
     const durationMs = Date.now() - targetStartedAt;
+    const completedWithinBudget = durationMs < remainingBudgetMs;
+    const status = outcome.status === 'timeout' && completedWithinBudget ? 'skipped_budget' : outcome.status;
 
     runtimeState.startupPrewarm.targetResults.push({
       ...target,
-      status: outcome.status,
+      status,
       durationMs,
       cacheSurface: target.cacheSurface,
-      warmCacheRevision: outcome.status === 'completed' ? runtimeState.hotDataRevision : null,
+      warmCacheRevision: status === 'completed' ? runtimeState.hotDataRevision : null,
       firstObservedRequest: null,
     });
-    metrics.recordStartupPrewarmTarget(target.id, outcome.status, durationMs);
+    metrics.recordStartupPrewarmTarget(target.id, status === 'skipped_budget' ? 'timeout' : status, durationMs);
 
-    if (outcome.status === 'timeout') {
-      runtimeState.startupPrewarm.readyWithinBudget = false;
-      break;
+    if (status === 'timeout') {
+      finalizeStartupPrewarm(runtimeState, startedAt, budgetMs);
+
+      const targetIndex = targets.findIndex((candidate) => candidate.id === target.id);
+      for (const trailingTarget of targets.slice(targetIndex + 1)) {
+        recordSkippedBudgetTarget(runtimeState, metrics, trailingTarget);
+      }
+      return;
     }
   }
 
-  runtimeState.startupPrewarm.completedAt = Date.now();
-  runtimeState.startupPrewarm.totalDurationMs = runtimeState.startupPrewarm.completedAt - startedAt;
-  runtimeState.startupPrewarm.readyWithinBudget = runtimeState.startupPrewarm.totalDurationMs <= budgetMs;
+  finalizeStartupPrewarm(runtimeState, startedAt, budgetMs);
 }

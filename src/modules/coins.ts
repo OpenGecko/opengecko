@@ -199,7 +199,7 @@ export function registerCoinRoutes(
     const { snapshotAccessPolicy, rows } = parseMarketRowsRequest(database, runtimeState, marketFreshnessThresholdSeconds, query);
     const start = (page - 1) * perPage;
 
-    const payload = rows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    const payload = rows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, runtimeState, {
       sparkline,
       precision,
       priceChangePercentages,
@@ -256,13 +256,13 @@ export function registerCoinRoutes(
       .filter((entry) => (entry.change ?? 0) > 0)
       .sort((left, right) => (right.change ?? Number.NEGATIVE_INFINITY) - (left.change ?? Number.NEGATIVE_INFINITY))
       .slice(0, 30)
-      .map((entry) => buildMoverRow(database, entry.row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, duration.days, requestedWindows));
+      .map((entry) => buildMoverRow(database, entry.row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, runtimeState, duration.days, requestedWindows));
 
     const topLosers = movers
       .filter((entry) => (entry.change ?? 0) < 0)
       .sort((left, right) => (left.change ?? Number.POSITIVE_INFINITY) - (right.change ?? Number.POSITIVE_INFINITY))
       .slice(0, 30)
-      .map((entry) => buildMoverRow(database, entry.row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, duration.days, requestedWindows));
+      .map((entry) => buildMoverRow(database, entry.row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, runtimeState, duration.days, requestedWindows));
 
     return {
       top_gainers: topGainers,

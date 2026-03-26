@@ -50,6 +50,8 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     validationOverride: {
       mode: 'off',
       reason: null,
+      snapshotTimestampOverride: null,
+      snapshotSourceCountOverride: null,
     },
     providerFailureCooldownUntil: null,
     forcedProviderFailure: {
