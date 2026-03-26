@@ -103,6 +103,7 @@ export function createMarketRuntime(
   let marketTimer: NodeJS.Timeout | null = null;
   let searchTimer: NodeJS.Timeout | null = null;
   let startupTask: Promise<void> | null = null;
+  let readinessTask: Promise<void> | null = null;
   let startupSettled = true;
   let stopRequested = false;
   const ohlcvRuntime = createOhlcvRuntime(database, { ccxtExchanges: config.ccxtExchanges }, logger);
@@ -172,7 +173,8 @@ export function createMarketRuntime(
           startupProgress?.begin('rebuild_search_index');
           rebuildSearchIndex(database);
           startupProgress?.complete('rebuild_search_index');
-          await runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
+          readinessTask = runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
+          await readinessTask;
           startupProgress?.begin('start_http_listener');
           startupProgress?.complete('start_http_listener');
 
@@ -215,7 +217,9 @@ export function createMarketRuntime(
       });
     },
     async whenReady() {
-      if (startupTask) {
+      if (readinessTask) {
+        await readinessTask;
+      } else if (startupTask) {
         await startupTask;
       }
     },

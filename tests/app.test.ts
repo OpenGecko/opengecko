@@ -754,7 +754,7 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
-  it('treats over-budget inject completion as a startup prewarm timeout for non-direct targets', async () => {
+  it('skips trailing startup prewarm targets once an earlier target has exhausted the remaining budget', async () => {
     const prewarmApp = buildApp({
       config: {
         databaseUrl: join(tempDir, 'prewarm-direct-timeout.db'),
@@ -775,7 +775,48 @@ describe('OpenGecko app scaffold', () => {
       prewarmApp.inject = injectMock as never;
       await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 5);
 
-      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(false);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBeLessThanOrEqual(5);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'completed',
+        warmCacheRevision: 0,
+      });
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[1]).toMatchObject({
+        id: 'coins_markets_bitcoin_usd',
+        durationMs: expect.any(Number),
+        warmCacheRevision: null,
+      });
+      expect(['timeout', 'skipped_budget']).toContain(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[1]?.status);
+      expect(injectMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('clamps startup prewarm readiness timing to the configured budget when a trailing target times out after it has started', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-budget-clamp.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const dateNowSpy = vi.spyOn(Date, 'now');
+    let currentNow = 0;
+    dateNowSpy.mockImplementation(() => currentNow);
+    const injectMock = vi.fn(async () => {
+      currentNow = 260;
+      return { statusCode: 200 } as never;
+    });
+
+    try {
+      prewarmApp.inject = injectMock as never;
+      await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 250);
+
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(250);
       expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toMatchObject([
         {
           id: 'simple_price_bitcoin_usd',
@@ -785,11 +826,72 @@ describe('OpenGecko app scaffold', () => {
         {
           id: 'coins_markets_bitcoin_usd',
           status: 'timeout',
+          durationMs: expect.any(Number),
           warmCacheRevision: null,
         },
       ]);
       expect(injectMock).toHaveBeenCalledTimes(1);
     } finally {
+      dateNowSpy.mockRestore();
+      await prewarmApp.close();
+    }
+  });
+
+  it('skips later startup prewarm targets at the budget boundary without failing readiness when an earlier target completed in budget', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-budget-boundary.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const dateNowSpy = vi.spyOn(Date, 'now');
+    const nowValues = [
+      0, // startedAt
+      0, // elapsed before simple_price
+      0, // targetStartedAt simple_price
+      100, // prewarm started at direct simple price
+      150, // totalDuration simple price
+      250, // durationMs simple_price
+      250, // elapsed before coins_markets -> no remaining budget
+      250, // completedAt
+    ];
+    let fallbackNow = 250;
+    dateNowSpy.mockImplementation(() => {
+      const value = nowValues.shift();
+      if (value !== undefined) {
+        fallbackNow = value;
+        return value;
+      }
+
+      return fallbackNow;
+    });
+
+    const injectSpy = vi.spyOn(prewarmApp, 'inject');
+
+    try {
+      await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 250);
+
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(250);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toMatchObject([
+        {
+          id: 'simple_price_bitcoin_usd',
+          status: 'completed',
+          warmCacheRevision: 0,
+        },
+        {
+          id: 'coins_markets_bitcoin_usd',
+          status: 'skipped_budget',
+          durationMs: 0,
+          warmCacheRevision: null,
+        },
+      ]);
+      expect(injectSpy).not.toHaveBeenCalled();
+    } finally {
+      injectSpy.mockRestore();
+      dateNowSpy.mockRestore();
       await prewarmApp.close();
     }
   });

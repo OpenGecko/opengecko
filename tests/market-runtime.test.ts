@@ -436,6 +436,104 @@ describe('market runtime', () => {
     }
   });
 
+  it('resolves background runtime readiness at the prewarm budget boundary and defers trailing timed-out work', async () => {
+    const state = createState();
+    let releaseTrailingPrewarm!: () => void;
+    const runStartupPrewarmSpy = vi.spyOn(startupPrewarmModule, 'runStartupPrewarm').mockImplementation(async (_app, runtimeState) => {
+      runtimeState.startupPrewarm = {
+        enabled: true,
+        budgetMs: 250,
+        readyWithinBudget: true,
+        firstRequestWarmBenefitsObserved: false,
+        targets: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          },
+          {
+            id: 'coins_markets_bitcoin_usd',
+            label: 'Coins markets BTC/USD',
+            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
+          },
+        ],
+        completedAt: 250,
+        totalDurationMs: 250,
+        targetResults: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+            status: 'completed',
+            durationMs: 25,
+            cacheSurface: 'simple_price',
+            warmCacheRevision: 1,
+            firstObservedRequest: null,
+          },
+          {
+            id: 'coins_markets_bitcoin_usd',
+            label: 'Coins markets BTC/USD',
+            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
+            status: 'skipped_budget',
+            durationMs: 0,
+            cacheSurface: 'coins_markets',
+            warmCacheRevision: null,
+            firstObservedRequest: null,
+          },
+        ],
+      };
+
+      await new Promise<void>((resolve) => {
+        releaseTrailingPrewarm = resolve;
+      });
+    });
+    const runtime = createMarketRuntime({ inject: vi.fn().mockResolvedValue({ statusCode: 200 }) } as never, {} as never, baseConfig as never, logger, state, metrics, {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
+      runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    try {
+      const startPromise = runtime.start();
+      await flushMicrotasks();
+
+      const readyPromise = runtime.whenReady();
+      await flushMicrotasks();
+
+      let readySettled = false;
+      void readyPromise.then(() => {
+        readySettled = true;
+      });
+      await flushMicrotasks();
+
+      expect(runStartupPrewarmSpy).toHaveBeenCalledTimes(1);
+      expect(readySettled).toBe(false);
+      expect(state.initialSyncCompleted).toBe(true);
+      expect(state.startupPrewarm.targetResults).toMatchObject([
+        {
+          id: 'simple_price_bitcoin_usd',
+          status: 'completed',
+        },
+        {
+          id: 'coins_markets_bitcoin_usd',
+          status: 'skipped_budget',
+        },
+      ]);
+
+      releaseTrailingPrewarm();
+      await readyPromise;
+      await startPromise;
+
+      expect(readySettled).toBe(true);
+    } finally {
+      runStartupPrewarmSpy.mockRestore();
+      await runtime.stop();
+    }
+  });
+
 
   it('marks runtime degraded after repeated market refresh failures and clears failure indicators on recovery', async () => {
     let shouldFailRefresh = true;
