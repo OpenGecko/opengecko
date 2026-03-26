@@ -9,6 +9,7 @@ import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenc
 import { coinTickers, coins, exchanges } from '../src/db/schema';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
 import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
+import { createMetricsRegistry } from '../src/services/metrics';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -380,5 +381,117 @@ describe('market refresh service', () => {
 
     expect(mockedFetchExchangeTickers).not.toHaveBeenCalled();
     expect(mockedFetchExchangeMarkets).not.toHaveBeenCalled();
+  });
+
+  it('records provider refresh outcomes across forced failure, cooldown skip, partial failure, and recovery without changing refresh side effects', async () => {
+    const runtimeState = createMarketDataRuntimeState();
+    const metrics = createMetricsRegistry();
+
+    runtimeState.forcedProviderFailure = {
+      active: true,
+      reason: 'validator forced outage',
+    };
+
+    await expect(runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState, metrics)).rejects.toThrow('validator forced outage');
+
+    runtimeState.forcedProviderFailure.active = false;
+    runtimeState.providerFailureCooldownUntil = Date.now() + 60_000;
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState, metrics);
+
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+    ]);
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
+      if (exchangeId === 'coinbase') {
+        throw new Error('coinbase timeout');
+      }
+
+      return [{
+        exchangeId,
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: 90_000,
+        bid: 89_990,
+        ask: 90_010,
+        high: null,
+        low: null,
+        baseVolume: 1_000,
+        quoteVolume: 90_000_000,
+        percentage: 1,
+        timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+        raw: {} as never,
+      }];
+    });
+    runtimeState.providerFailureCooldownUntil = Date.now() - 1;
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState, metrics);
+
+    mockedFetchExchangeTickers.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: 91_000,
+        bid: 90_990,
+        ask: 91_010,
+        high: null,
+        low: null,
+        baseVolume: 1_100,
+        quoteVolume: 100_100_000,
+        percentage: 2,
+        timestamp: Date.parse('2026-03-21T00:05:00.000Z'),
+        raw: {} as never,
+      },
+    ]);
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState, metrics);
+
+    const metricsText = metrics.renderPrometheus();
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="forced_failure"} 1');
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="cooldown_skip"} 1');
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="partial_failure"} 1');
+    expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="success"} 1');
+
+    const bitcoinBinanceTicker = database.db
+      .select()
+      .from(coinTickers)
+      .where(and(
+        eq(coinTickers.coinId, 'bitcoin'),
+        eq(coinTickers.exchangeId, 'binance'),
+        eq(coinTickers.base, 'BTC'),
+        eq(coinTickers.target, 'USDT'),
+      ))
+      .get();
+
+    expect(bitcoinBinanceTicker).toMatchObject({
+      last: 91_000,
+      convertedLastUsd: 91_000,
+      convertedVolumeUsd: 100_100_000,
+    });
+    expect(runtimeState.providerFailureCooldownUntil).toBeNull();
   });
 });

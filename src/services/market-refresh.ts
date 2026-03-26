@@ -42,6 +42,18 @@ type PendingCoinTicker = {
   vsCurrency: 'usd' | 'eur';
 };
 
+type ConversionContext = {
+  eurPerUsd: number;
+  usdPriceByCoinId: Map<string, number>;
+  btcUsdPrice: number | null;
+};
+
+type RefreshTickerProcessingState = {
+  accumulators: Map<string, { coinId: string; vsCurrency: string; accumulator: MarketQuoteAccumulator }>;
+  pendingCoinTickers: PendingCoinTicker[];
+  exchangeQuoteVolumes: Map<string, number>;
+};
+
 function buildRequestedSymbolIndex(database: AppDatabase) {
   const symbolEntries: Array<[string, SymbolIndexEntry]> = [];
   const databaseCoinsForRefresh = database.db
@@ -84,11 +96,7 @@ function buildTokenInfoUrl(_exchangeId: ExchangeId, _coinId: string) {
 function upsertLiveCoinTicker(
   database: AppDatabase,
   pendingTicker: PendingCoinTicker,
-  conversionContext: {
-    eurPerUsd: number;
-    usdPriceByCoinId: Map<string, number>;
-    btcUsdPrice: number | null;
-  },
+  conversionContext: ConversionContext,
 ) {
   const convertedLastUsd = conversionContext.usdPriceByCoinId.get(pendingTicker.coinId)
     ?? (pendingTicker.vsCurrency === 'eur' ? pendingTicker.last / conversionContext.eurPerUsd : pendingTicker.last);
@@ -143,190 +151,105 @@ function upsertLiveCoinTicker(
     .run();
 }
 
-export async function runMarketRefreshOnce(
-  database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
-  logger?: Logger,
-  runtimeState?: MarketDataRuntimeState,
-  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh'>,
+function createRefreshTickerProcessingState(): RefreshTickerProcessingState {
+  return {
+    accumulators: new Map(),
+    pendingCoinTickers: [],
+    exchangeQuoteVolumes: new Map(),
+  };
+}
+
+function recordExchangeQuoteVolume(exchangeQuoteVolumes: Map<string, number>, exchangeId: string, quoteVolume: number | null) {
+  if (quoteVolume === null) {
+    return;
+  }
+
+  exchangeQuoteVolumes.set(exchangeId, (exchangeQuoteVolumes.get(exchangeId) ?? 0) + quoteVolume);
+}
+
+function recordAccumulatorSample(
+  accumulators: RefreshTickerProcessingState['accumulators'],
+  marketTarget: SymbolIndexEntry,
+  exchangeId: ExchangeId,
+  ticker: Awaited<ReturnType<typeof fetchExchangeTickers>>[number],
 ) {
-  const refreshLogger = logger?.child({ operation: 'market_refresh' });
-  const startTime = Date.now();
-  const exchangeIds = config.ccxtExchanges.filter(isValidExchangeId);
-  const cooldownUntil = runtimeState?.providerFailureCooldownUntil ?? null;
+  const accumulatorKey = `${marketTarget.coinId}:${marketTarget.vsCurrency}`;
+  const accumulator = accumulators.get(accumulatorKey)?.accumulator ?? createMarketQuoteAccumulator();
+  accumulator.priceTotal += ticker.last!;
+  accumulator.priceCount += 1;
 
-  if (exchangeIds.length === 0) {
-    return;
+  if (ticker.quoteVolume !== null) {
+    accumulator.volumeTotal += ticker.quoteVolume;
+    accumulator.volumeCount += 1;
   }
 
-  if (runtimeState?.forcedProviderFailure.active) {
-    metrics?.recordProviderRefresh('forced_failure', exchangeIds.length, exchangeIds.length);
-    throw new Error(runtimeState.forcedProviderFailure.reason ?? 'forced provider failure active');
+  if (ticker.percentage !== null) {
+    accumulator.changeTotal += ticker.percentage;
+    accumulator.changeCount += 1;
   }
 
-  if (cooldownUntil !== null && cooldownUntil > startTime) {
-    metrics?.recordProviderRefresh('cooldown_skip', exchangeIds.length, 0);
-    refreshLogger?.warn({
-      cooldownUntil: new Date(cooldownUntil).toISOString(),
-      remainingCooldownMs: cooldownUntil - startTime,
-      exchangeCount: exchangeIds.length,
-    }, 'market refresh skipped because provider failure cooldown is active');
-    return;
+  if (ticker.timestamp !== null) {
+    accumulator.latestTimestamp = Math.max(accumulator.latestTimestamp, ticker.timestamp);
   }
 
-  refreshLogger?.debug({ exchanges: exchangeIds }, 'starting market refresh');
+  accumulator.providers.add(exchangeId);
+  accumulators.set(accumulatorKey, {
+    coinId: marketTarget.coinId,
+    vsCurrency: marketTarget.vsCurrency,
+    accumulator,
+  });
+}
 
-  await syncCoinCatalogFromExchanges(database, exchangeIds, refreshLogger, config.providerFanoutConcurrency);
+function recordMatchedTicker(
+  database: AppDatabase,
+  exchangeTrustScoreById: Map<string, number | null>,
+  processingState: RefreshTickerProcessingState,
+  exchangeId: ExchangeId,
+  marketTarget: SymbolIndexEntry,
+  ticker: Awaited<ReturnType<typeof fetchExchangeTickers>>[number],
+) {
+  const normalizedExchangeId = exchangeId;
+  const fetchedAt = new Date(ticker.timestamp ?? Date.now());
 
-  const symbolIndex = buildRequestedSymbolIndex(database);
-  const requestedSymbols = [...symbolIndex.keys()];
-  const accumulators = new Map<string, { coinId: string; vsCurrency: string; accumulator: MarketQuoteAccumulator }>();
-  const pendingCoinTickers: PendingCoinTicker[] = [];
-  const exchangeQuoteVolumes = new Map<string, number>(); // normalizedExchangeId -> total quote volume
-  const exchangeTrustScoreById = new Map(
-    database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
-  );
+  recordExchangeQuoteVolume(processingState.exchangeQuoteVolumes, normalizedExchangeId, ticker.quoteVolume);
 
-  // Fetch all exchange tickers in parallel
-  const tickerResults = await mapWithConcurrency(
-    exchangeIds,
-    config.providerFanoutConcurrency,
-    async (exchangeId) => Promise.allSettled([fetchExchangeTickers(exchangeId, requestedSymbols)]).then(([result]) => result),
-  );
-  let failedExchanges = 0;
+  recordQuoteSnapshot(database, {
+    coinId: marketTarget.coinId,
+    vsCurrency: marketTarget.vsCurrency,
+    exchangeId: normalizedExchangeId,
+    symbol: ticker.symbol,
+    fetchedAt,
+    price: ticker.last!,
+    quoteVolume: ticker.quoteVolume,
+    priceChangePercentage24h: ticker.percentage,
+    sourcePayloadJson: JSON.stringify(ticker.raw),
+  });
 
-  for (let i = 0; i < exchangeIds.length; i++) {
-    const exchangeId = exchangeIds[i];
-    const result = tickerResults[i];
-    const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
-    const exchangeStart = Date.now();
+  processingState.pendingCoinTickers.push({
+    coinId: marketTarget.coinId,
+    exchangeId: normalizedExchangeId,
+    base: ticker.base,
+    target: ticker.quote,
+    marketName: ticker.symbol,
+    last: ticker.last!,
+    volume: ticker.baseVolume,
+    quoteVolume: ticker.quoteVolume,
+    bidAskSpreadPercentage: buildBidAskSpreadPercentage(ticker.bid, ticker.ask),
+    lastTradedAt: fetchedAt,
+    lastFetchAt: fetchedAt,
+    trustScore: (exchangeTrustScoreById.get(normalizedExchangeId) ?? 0) >= 7 ? 'green' : null,
+    isAnomaly: false,
+    isStale: false,
+    tradeUrl: buildTradeUrl(exchangeId, ticker.base, ticker.quote),
+    tokenInfoUrl: buildTokenInfoUrl(exchangeId, marketTarget.coinId),
+    coinGeckoUrl: `https://www.coingecko.com/en/coins/${marketTarget.coinId}`,
+    vsCurrency: marketTarget.vsCurrency,
+  });
 
-    if (result.status === 'rejected') {
-      failedExchanges += 1;
-      const errorInfo = result.reason instanceof Error
-        ? { message: result.reason.message, name: result.reason.name }
-        : { message: String(result.reason) };
-      exchangeLogger?.warn({ ...errorInfo, durationMs: Date.now() - exchangeStart }, 'exchange ticker fetch failed');
-      continue;
-    }
+  recordAccumulatorSample(processingState.accumulators, marketTarget, exchangeId, ticker);
+}
 
-    const tickers = result.value;
-    let matchedCount = 0;
-
-    for (const ticker of tickers) {
-      const marketTarget = symbolIndex.get(ticker.symbol);
-
-      if (!marketTarget || ticker.last === null) {
-        continue;
-      }
-
-      matchedCount += 1;
-      const normalizedExchangeId = exchangeId;
-      const fetchedAt = new Date(ticker.timestamp ?? Date.now());
-
-      // Track per-exchange quote volume for volume snapshots
-      if (ticker.quoteVolume !== null) {
-        exchangeQuoteVolumes.set(
-          normalizedExchangeId,
-          (exchangeQuoteVolumes.get(normalizedExchangeId) ?? 0) + ticker.quoteVolume,
-        );
-      }
-
-      recordQuoteSnapshot(database, {
-        coinId: marketTarget.coinId,
-        vsCurrency: marketTarget.vsCurrency,
-        exchangeId: normalizedExchangeId,
-        symbol: ticker.symbol,
-        fetchedAt,
-        price: ticker.last,
-        quoteVolume: ticker.quoteVolume,
-        priceChangePercentage24h: ticker.percentage,
-        sourcePayloadJson: JSON.stringify(ticker.raw),
-      });
-
-      pendingCoinTickers.push({
-        coinId: marketTarget.coinId,
-        exchangeId: normalizedExchangeId,
-        base: ticker.base,
-        target: ticker.quote,
-        marketName: ticker.symbol,
-        last: ticker.last,
-        volume: ticker.baseVolume,
-        quoteVolume: ticker.quoteVolume,
-        bidAskSpreadPercentage: buildBidAskSpreadPercentage(ticker.bid, ticker.ask),
-        lastTradedAt: fetchedAt,
-        lastFetchAt: fetchedAt,
-        trustScore: (exchangeTrustScoreById.get(normalizedExchangeId) ?? 0) >= 7 ? 'green' : null,
-        isAnomaly: false,
-        isStale: false,
-        tradeUrl: buildTradeUrl(exchangeId, ticker.base, ticker.quote),
-        tokenInfoUrl: buildTokenInfoUrl(exchangeId, marketTarget.coinId),
-        coinGeckoUrl: `https://www.coingecko.com/en/coins/${marketTarget.coinId}`,
-        vsCurrency: marketTarget.vsCurrency,
-      });
-
-      const accumulatorKey = `${marketTarget.coinId}:${marketTarget.vsCurrency}`;
-      const accumulator = accumulators.get(accumulatorKey)?.accumulator ?? createMarketQuoteAccumulator();
-      accumulator.priceTotal += ticker.last;
-      accumulator.priceCount += 1;
-
-      if (ticker.quoteVolume !== null) {
-        accumulator.volumeTotal += ticker.quoteVolume;
-        accumulator.volumeCount += 1;
-      }
-
-      if (ticker.percentage !== null) {
-        accumulator.changeTotal += ticker.percentage;
-        accumulator.changeCount += 1;
-      }
-
-      if (ticker.timestamp !== null) {
-        accumulator.latestTimestamp = Math.max(accumulator.latestTimestamp, ticker.timestamp);
-      }
-
-      accumulator.providers.add(exchangeId);
-      accumulators.set(accumulatorKey, {
-        coinId: marketTarget.coinId,
-        vsCurrency: marketTarget.vsCurrency,
-        accumulator,
-      });
-    }
-
-    exchangeLogger?.debug({
-      tickerCount: tickers.length,
-      matchedCount,
-      durationMs: Date.now() - exchangeStart,
-    }, 'exchange ticker fetch complete');
-  }
-
-  if (failedExchanges === exchangeIds.length) {
-    if (runtimeState) {
-      runtimeState.providerFailureCooldownUntil = startTime + PROVIDER_FAILURE_COOLDOWN_MS;
-    }
-
-    metrics?.recordProviderRefresh('failure', exchangeIds.length, failedExchanges);
-    refreshLogger?.warn({
-      failedExchangeCount: failedExchanges,
-      exchangeCount: exchangeIds.length,
-      cooldownMs: PROVIDER_FAILURE_COOLDOWN_MS,
-    }, 'all exchange ticker fetches failed; activating provider failure cooldown');
-    throw new Error('provider failure cooldown active after exchange refresh failure');
-  }
-
-  if (runtimeState) {
-    runtimeState.providerFailureCooldownUntil = null;
-  }
-
-  metrics?.recordProviderRefresh(
-    failedExchanges > 0 ? 'partial_failure' : 'success',
-    exchangeIds.length,
-    failedExchanges,
-  );
-
-  const now = new Date();
-  const usdPriceByCoinId = new Map<string, number>();
-
-  // Write exchange volume snapshots
+function updateExchangeVolumes(database: AppDatabase, exchangeQuoteVolumes: Map<string, number>, now: Date) {
   for (const [normalizedExchangeId, totalQuoteVolume] of exchangeQuoteVolumes) {
     database.db
       .insert(exchangeVolumePoints)
@@ -338,7 +261,6 @@ export async function runMarketRefreshOnce(
       .onConflictDoNothing()
       .run();
 
-    // Update exchange records with live 24h volume
     database.db
       .update(exchanges)
       .set({
@@ -348,6 +270,34 @@ export async function runMarketRefreshOnce(
       .where(eq(exchanges.id, normalizedExchangeId))
       .run();
   }
+}
+
+function buildConversionContext(database: AppDatabase, usdPriceByCoinId: Map<string, number>): ConversionContext {
+  const currencySnapshot = getCurrencyApiSnapshot();
+  const eurPerUsd = currencySnapshot.usdt.eur / currencySnapshot.usdt.usd;
+  const btcUsdPrice = usdPriceByCoinId.get('bitcoin')
+    ?? database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .limit(1)
+      .get()
+      ?.price
+    ?? null;
+
+  return {
+    eurPerUsd,
+    usdPriceByCoinId,
+    btcUsdPrice,
+  };
+}
+
+function writeMarketSnapshots(
+  database: AppDatabase,
+  accumulators: RefreshTickerProcessingState['accumulators'],
+  now: Date,
+) {
+  const usdPriceByCoinId = new Map<string, number>();
 
   for (const { coinId, vsCurrency, accumulator } of accumulators.values()) {
     if (accumulator.priceCount === 0) {
@@ -419,30 +369,139 @@ export async function runMarketRefreshOnce(
     }
   }
 
-  const currencySnapshot = getCurrencyApiSnapshot();
-  const eurPerUsd = currencySnapshot.usdt.eur / currencySnapshot.usdt.usd;
-  const btcUsdPrice = usdPriceByCoinId.get('bitcoin')
-    ?? database.db
-      .select()
-      .from(marketSnapshots)
-      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
-      .limit(1)
-      .get()
-      ?.price
-    ?? null;
+  return usdPriceByCoinId;
+}
 
+function upsertPendingCoinTickers(
+  database: AppDatabase,
+  pendingCoinTickers: PendingCoinTicker[],
+  conversionContext: ConversionContext,
+) {
   for (const pendingTicker of pendingCoinTickers) {
-    upsertLiveCoinTicker(database, pendingTicker, {
-      eurPerUsd,
-      usdPriceByCoinId,
-      btcUsdPrice,
-    });
+    upsertLiveCoinTicker(database, pendingTicker, conversionContext);
   }
+}
+
+export async function runMarketRefreshOnce(
+  database: AppDatabase,
+  config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
+  logger?: Logger,
+  runtimeState?: MarketDataRuntimeState,
+  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh'>,
+) {
+  const refreshLogger = logger?.child({ operation: 'market_refresh' });
+  const startTime = Date.now();
+  const exchangeIds = config.ccxtExchanges.filter(isValidExchangeId);
+  const cooldownUntil = runtimeState?.providerFailureCooldownUntil ?? null;
+
+  if (exchangeIds.length === 0) {
+    return;
+  }
+
+  if (runtimeState?.forcedProviderFailure.active) {
+    metrics?.recordProviderRefresh('forced_failure', exchangeIds.length, exchangeIds.length);
+    throw new Error(runtimeState.forcedProviderFailure.reason ?? 'forced provider failure active');
+  }
+
+  if (cooldownUntil !== null && cooldownUntil > startTime) {
+    metrics?.recordProviderRefresh('cooldown_skip', exchangeIds.length, 0);
+    refreshLogger?.warn({
+      cooldownUntil: new Date(cooldownUntil).toISOString(),
+      remainingCooldownMs: cooldownUntil - startTime,
+      exchangeCount: exchangeIds.length,
+    }, 'market refresh skipped because provider failure cooldown is active');
+    return;
+  }
+
+  refreshLogger?.debug({ exchanges: exchangeIds }, 'starting market refresh');
+
+  await syncCoinCatalogFromExchanges(database, exchangeIds, refreshLogger, config.providerFanoutConcurrency);
+
+  const symbolIndex = buildRequestedSymbolIndex(database);
+  const requestedSymbols = [...symbolIndex.keys()];
+  const processingState = createRefreshTickerProcessingState();
+  const exchangeTrustScoreById = new Map(
+    database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
+  );
+
+  // Fetch all exchange tickers in parallel
+  const tickerResults = await mapWithConcurrency(
+    exchangeIds,
+    config.providerFanoutConcurrency,
+    async (exchangeId) => Promise.allSettled([fetchExchangeTickers(exchangeId, requestedSymbols)]).then(([result]) => result),
+  );
+  let failedExchanges = 0;
+
+  for (let i = 0; i < exchangeIds.length; i++) {
+    const exchangeId = exchangeIds[i];
+    const result = tickerResults[i];
+    const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
+    const exchangeStart = Date.now();
+
+    if (result.status === 'rejected') {
+      failedExchanges += 1;
+      const errorInfo = result.reason instanceof Error
+        ? { message: result.reason.message, name: result.reason.name }
+        : { message: String(result.reason) };
+      exchangeLogger?.warn({ ...errorInfo, durationMs: Date.now() - exchangeStart }, 'exchange ticker fetch failed');
+      continue;
+    }
+
+    const tickers = result.value;
+    let matchedCount = 0;
+
+    for (const ticker of tickers) {
+      const marketTarget = symbolIndex.get(ticker.symbol);
+
+      if (!marketTarget || ticker.last === null) {
+        continue;
+      }
+
+      matchedCount += 1;
+      recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker);
+    }
+
+    exchangeLogger?.debug({
+      tickerCount: tickers.length,
+      matchedCount,
+      durationMs: Date.now() - exchangeStart,
+    }, 'exchange ticker fetch complete');
+  }
+
+  if (failedExchanges === exchangeIds.length) {
+    if (runtimeState) {
+      runtimeState.providerFailureCooldownUntil = startTime + PROVIDER_FAILURE_COOLDOWN_MS;
+    }
+
+    metrics?.recordProviderRefresh('failure', exchangeIds.length, failedExchanges);
+    refreshLogger?.warn({
+      failedExchangeCount: failedExchanges,
+      exchangeCount: exchangeIds.length,
+      cooldownMs: PROVIDER_FAILURE_COOLDOWN_MS,
+    }, 'all exchange ticker fetches failed; activating provider failure cooldown');
+    throw new Error('provider failure cooldown active after exchange refresh failure');
+  }
+
+  if (runtimeState) {
+    runtimeState.providerFailureCooldownUntil = null;
+  }
+
+  metrics?.recordProviderRefresh(
+    failedExchanges > 0 ? 'partial_failure' : 'success',
+    exchangeIds.length,
+    failedExchanges,
+  );
+
+  const now = new Date();
+  updateExchangeVolumes(database, processingState.exchangeQuoteVolumes, now);
+  const usdPriceByCoinId = writeMarketSnapshots(database, processingState.accumulators, now);
+  const conversionContext = buildConversionContext(database, usdPriceByCoinId);
+  upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext);
 
   const durationMs = Date.now() - startTime;
   refreshLogger?.info({
-    snapshotCount: accumulators.size,
-    tickerCount: pendingCoinTickers.length,
+    snapshotCount: processingState.accumulators.size,
+    tickerCount: processingState.pendingCoinTickers.length,
     exchangeCount: exchangeIds.length,
     failedExchangeCount: failedExchanges,
     durationMs,
