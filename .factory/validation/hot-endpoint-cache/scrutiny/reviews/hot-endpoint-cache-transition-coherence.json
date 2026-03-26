@@ -1,0 +1,28 @@
+{
+  "featureId": "hot-endpoint-cache-transition-coherence",
+  "reviewedAt": "2026-03-26T09:32:56.242196+00:00",
+  "commitId": "c36b901",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The revision-based cache invalidation keeps the two hot endpoint caches aligned for the runtime-managed refresh path, but the new coherence mechanism is incomplete because the non-runtime startup path never advances the shared revision, leaving stale cached responses reusable after direct runtime-state policy changes.",
+    "issues": [
+      {
+        "file": "src/app.ts",
+        "line": 129,
+        "severity": "blocking",
+        "description": "The no-runtime startup path still sets `marketDataRuntimeState.initialSyncCompleted = true` directly without advancing `hotDataRevision`. Because `/simple/price` and `/coins/markets` now only invalidate on revision mismatch, any cached responses created before this direct state transition would remain valid for up to the TTL and can contradict the new post-sync policy. The shared invalidation contract should be driven from every state transition that changes hot-endpoint visibility, not only from `createMarketRuntime()`."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The repo now has a cross-endpoint cache coherence invariant centered on `MarketDataRuntimeState.hotDataRevision`, but `.factory/library/runtime.md` still documents only `initialSyncCompleted`, `allowStaleLiveService`, and `syncFailureReason` as runtime state fields.",
+      "evidence": "src/services/market-runtime-state.ts:1-15 adds `hotDataRevision`; src/modules/simple.ts:148-186 and src/modules/coins.ts:1069-1106 depend on it for cache reuse; .factory/library/runtime.md omits the field."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, commit c36b901 diff, transcript skeleton, and targeted tests. Found one blocking gap: the alternate startup path in `src/app.ts` does not bump the new shared hot-data revision, so cache coherence is not guaranteed for all runtime-state transitions that affect the hot endpoints."
+}

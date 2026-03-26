@@ -1,0 +1,47 @@
+{
+  "milestone": "hot-endpoint-cache",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --maxWorkers=3",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "No lint script defined in package.json; per project guidance, no lint command exists.",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 1,
+    "failedFeatures": [
+      "hot-endpoint-cache-transition-coherence"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "hot-endpoint-cache-transition-coherence",
+      "severity": "blocking",
+      "description": "The no-runtime startup path still sets `marketDataRuntimeState.initialSyncCompleted = true` directly without advancing `hotDataRevision`. Because `/simple/price` and `/coins/markets` now only invalidate on revision mismatch, any cached responses created before this direct state transition would remain valid for up to the TTL and can contradict the new post-sync policy. The shared invalidation contract should be driven from every state transition that changes hot-endpoint visibility, not only from `createMarketRuntime()`."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Documented the hotDataRevision runtime-state invariant required for cross-endpoint hot-cache invalidation coherence.",
+      "sourceFeature": "hot-endpoint-cache-transition-coherence"
+    }
+  ],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": null
+}
