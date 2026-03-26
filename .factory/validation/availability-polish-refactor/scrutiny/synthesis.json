@@ -1,8 +1,8 @@
 {
   "milestone": "availability-polish-refactor",
-  "round": 6,
-  "generatedAt": "2026-03-26T17:08:42.531091+00:00",
-  "status": "fail",
+  "round": 7,
+  "generatedAt": "2026-03-27T01:18:00+00:00",
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -22,25 +22,11 @@
   },
   "reviewsSummary": {
     "total": 14,
-    "passed": 12,
-    "failed": 2,
-    "failedFeatures": [
-      "degraded-serving-and-boot-fallback",
-      "stale-serving-and-degraded-fallback-coherence"
-    ]
+    "passed": 14,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "degraded-serving-and-boot-fallback",
-      "severity": "blocking",
-      "description": "When bootstrap fails with residual seeded snapshots, diagnostics always report `source_class: \"seeded_bootstrap\"` for any seeded snapshot and never distinguish failed degraded boot from ordinary startup. The feature description requires hot endpoints and `/diagnostics/runtime` to agree on one declared degraded-boot policy with stable source-class evidence. After this commit, readiness becomes `degraded`, but the response still exposes the same source class and `stale_live_enabled` flag shape used for non-failed startup, so the diagnostics surface does not actually carry distinct degraded-boot evidence for VAL-CROSS-001/feature expectations."
-    },
-    {
-      "featureId": "stale-serving-and-degraded-fallback-coherence",
-      "severity": "blocking",
-      "description": "When `/coins/markets` serves seeded-bootstrap fallback rows, only requested `price_change_percentage_*_in_currency` fields are nulled. The default `price_change_percentage_24h_in_currency` field is still produced by the surrounding row builder via the standard row contract, so degraded rows can continue exposing a market-change value even though the feature's chosen policy nulls degraded market-value fields. The new regression in `tests/stale-data.test.ts` only checks `price_change_percentage_24h`, not the always-present `price_change_percentage_24h_in_currency`, so this compatibility gap is untested and can leak fresh-looking degraded data."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
