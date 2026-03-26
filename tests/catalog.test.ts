@@ -88,6 +88,12 @@ describe('catalog repository helpers', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-catalog-'));
     database = createDatabase(join(tempDir, 'test.db'));
     migrateDatabase(database);
+    database.client.exec(`
+      CREATE INDEX IF NOT EXISTS coins_status_market_cap_rank_id_idx
+      ON coins (status, market_cap_rank, id);
+      CREATE INDEX IF NOT EXISTS market_snapshots_vs_currency_market_cap_rank_coin_id_idx
+      ON market_snapshots (vs_currency, market_cap_rank, coin_id);
+    `);
     seedStaticReferenceData(database);
     seedCatalogData(database);
     rebuildSearchIndex(database);
@@ -136,5 +142,42 @@ describe('catalog repository helpers', () => {
       '2026-03-14T00:00:00.000Z',
       '2026-03-15T00:00:00.000Z',
     ]);
+  });
+
+  it('adds targeted indexes for the stabilized hot selector paths', () => {
+    const indexes = database.client.prepare<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('coins_status_market_cap_rank_id_idx', 'market_snapshots_vs_currency_market_cap_rank_coin_id_idx') ORDER BY name",
+    ).all();
+
+    expect(indexes.map((row) => row.name)).toEqual([
+      'coins_status_market_cap_rank_id_idx',
+      'market_snapshots_vs_currency_market_cap_rank_coin_id_idx',
+    ]);
+  });
+
+  it('uses the new indexes for active market ordering and ranked snapshot lookups', () => {
+    const activePlan = database.client.prepare<{ detail: string }>(`
+      EXPLAIN QUERY PLAN
+      SELECT c.id, m.coin_id
+      FROM coins c
+      LEFT JOIN market_snapshots m
+        ON m.coin_id = c.id
+       AND m.vs_currency = 'usd'
+      WHERE c.status = 'active'
+      ORDER BY c.market_cap_rank ASC, c.id ASC
+    `).all();
+    const rankedSnapshotPlan = database.client.prepare<{ detail: string }>(`
+      EXPLAIN QUERY PLAN
+      SELECT coin_id
+      FROM market_snapshots
+      WHERE vs_currency = 'usd'
+      ORDER BY market_cap_rank ASC, coin_id ASC
+      LIMIT 100
+    `).all();
+
+    expect(activePlan.some((row) => row.detail.includes('coins_status_market_cap_rank_id_idx'))).toBe(true);
+    expect(activePlan.some((row) => row.detail.includes('TEMP B-TREE'))).toBe(false);
+    expect(rankedSnapshotPlan.some((row) => row.detail.includes('market_snapshots_vs_currency_market_cap_rank_coin_id_idx'))).toBe(true);
+    expect(rankedSnapshotPlan.some((row) => row.detail.includes('TEMP B-TREE'))).toBe(false);
   });
 });

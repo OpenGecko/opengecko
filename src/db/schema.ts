@@ -1,4 +1,4 @@
-import { integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const coins = sqliteTable('coins', {
   id: text('id').primaryKey(),
@@ -19,7 +19,9 @@ export const coins = sqliteTable('coins', {
   status: text('status', { enum: ['active', 'inactive'] }).notNull().default('active'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-});
+}, (table) => ({
+  statusRankIdx: index('coins_status_market_cap_rank_id_idx').on(table.status, table.marketCapRank, table.id),
+}));
 
 export const assetPlatforms = sqliteTable('asset_platforms', {
   id: text('id').primaryKey(),
@@ -63,6 +65,11 @@ export const marketSnapshots = sqliteTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.coinId, table.vsCurrency] }),
+    vsCurrencyRankCoinIdx: index('market_snapshots_vs_currency_market_cap_rank_coin_id_idx').on(
+      table.vsCurrency,
+      table.marketCapRank,
+      table.coinId,
+    ),
   }),
 );
 
