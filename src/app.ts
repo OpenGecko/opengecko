@@ -19,7 +19,7 @@ import { closeExchangePool } from './providers/ccxt';
 import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
-import { runStartupPrewarm } from './services/startup-prewarm';
+import { matchStartupPrewarmTarget, runStartupPrewarm } from './services/startup-prewarm';
 import type { StartupProgressReporter } from './services/startup-progress';
 
 declare module 'fastify' {
@@ -41,10 +41,12 @@ export type AppLifecycleState = ReturnType<typeof createMarketDataRuntimeState>;
 
 function recordStartupPrewarmObservation(
   app: FastifyInstance,
-  route: string,
+  url: string,
   durationMs: number,
   statusCode: number,
 ) {
+  const route = url.split('?')[0] || url;
+
   if (route === '/diagnostics/runtime' || route === '/metrics') {
     return;
   }
@@ -55,7 +57,7 @@ function recordStartupPrewarmObservation(
   }
 
   const target = prewarm.targetResults.find((candidate) =>
-    candidate.endpoint.split('?')[0] === route && candidate.firstObservedRequest == null,
+    candidate.firstObservedRequest == null && matchStartupPrewarmTarget(candidate.endpoint, url),
   );
 
   if (!target) {
@@ -223,7 +225,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.addHook('onResponse', (request, reply, done) => {
     const route = request.routeOptions.url || request.url.split('?')[0] || 'unknown';
-    recordStartupPrewarmObservation(app, route, reply.elapsedTime, reply.statusCode);
+    recordStartupPrewarmObservation(app, request.url, reply.elapsedTime, reply.statusCode);
     app.metrics.recordRequest(route, request.method, reply.statusCode, reply.elapsedTime);
     done();
   });

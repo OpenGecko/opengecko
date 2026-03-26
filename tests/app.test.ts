@@ -379,6 +379,110 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('attributes startup prewarm warm-path evidence only to a semantically matching request target', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-attribution.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const mismatchedRequest = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd',
+      });
+
+      expect(mismatchedRequest.statusCode).toBe(200);
+
+      let diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(false);
+
+      const prewarmStateAfterMismatch = diagnostics.json().data.startup_prewarm;
+      const simplePriceTargetAfterMismatch = prewarmStateAfterMismatch.targetResults.find(
+        (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+      );
+
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        expect(simplePriceTargetAfterMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          firstObservedRequest: null,
+        });
+      } else {
+        expect(simplePriceTargetAfterMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          status: 'timeout',
+          firstObservedRequest: {
+            cacheHit: false,
+            durationMs: expect.any(Number),
+          },
+        });
+      }
+
+      const metricsAfterMismatch = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsAfterMismatch.statusCode).toBe(200);
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        expect(metricsAfterMismatch.body).not.toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"}');
+        expect(metricsAfterMismatch.body).not.toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="false",cache_surface="simple_price",target="simple_price_bitcoin_usd"}');
+      } else {
+        expect(metricsAfterMismatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="false",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+      }
+
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        const matchingRequest = await prewarmApp.inject({
+          method: 'GET',
+          url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+        });
+
+        expect(matchingRequest.statusCode).toBe(200);
+
+        diagnostics = await prewarmApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        });
+
+        expect(diagnostics.statusCode).toBe(200);
+        expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(true);
+
+        const simplePriceTargetAfterMatch = diagnostics.json().data.startup_prewarm.targetResults.find(
+          (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+        );
+
+        expect(simplePriceTargetAfterMatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          warmCacheRevision: expect.any(Number),
+          firstObservedRequest: {
+            cacheHit: true,
+            durationMs: expect.any(Number),
+          },
+        });
+
+        const metricsAfterMatch = await prewarmApp.inject({
+          method: 'GET',
+          url: '/metrics',
+        });
+
+        expect(metricsAfterMatch.statusCode).toBe(200);
+        expect(metricsAfterMatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+      }
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
   it('exposes scrapeable metrics that change after hot-path traffic', async () => {
     const beforeResponse = await getApp().inject({
       method: 'GET',

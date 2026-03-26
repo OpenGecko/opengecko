@@ -25,6 +25,60 @@ export const STARTUP_PREWARM_TARGETS: StartupPrewarmTarget[] = [
   },
 ];
 
+function normalizePrewarmQueryValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function normalizePrewarmQueryValues(values: string[]) {
+  return [...new Set(values.map(normalizePrewarmQueryValue).filter((value) => value.length > 0))].sort();
+}
+
+function normalizePrewarmUrl(url: string) {
+  const parsed = new URL(url, 'http://opengecko.local');
+  const queryMap = new Map<string, string[]>();
+
+  for (const [key, value] of parsed.searchParams.entries()) {
+    const normalizedKey = key.trim().toLowerCase();
+    const normalizedValues = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    const existing = queryMap.get(normalizedKey) ?? [];
+    existing.push(...normalizedValues);
+    queryMap.set(normalizedKey, existing);
+  }
+
+  return {
+    pathname: parsed.pathname,
+    query: [...queryMap.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, values]) => [key, normalizePrewarmQueryValues(values)] as const),
+  };
+}
+
+export function matchStartupPrewarmTarget(targetUrl: string, requestUrl: string) {
+  const normalizedTarget = normalizePrewarmUrl(targetUrl);
+  const normalizedRequest = normalizePrewarmUrl(requestUrl);
+
+  if (normalizedTarget.pathname !== normalizedRequest.pathname) {
+    return false;
+  }
+
+  if (normalizedTarget.query.length !== normalizedRequest.query.length) {
+    return false;
+  }
+
+  return normalizedTarget.query.every(([targetKey, targetValues], index) => {
+    const requestEntry = normalizedRequest.query[index];
+
+    if (!requestEntry || requestEntry[0] !== targetKey || requestEntry[1].length !== targetValues.length) {
+      return false;
+    }
+
+    return targetValues.every((value, valueIndex) => requestEntry[1][valueIndex] === value);
+  });
+}
+
 async function raceWithBudget<T>(promise: Promise<T>, remainingBudgetMs: number) {
   if (remainingBudgetMs <= 0) {
     return { status: 'timeout' as const };
