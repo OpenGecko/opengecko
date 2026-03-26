@@ -1,0 +1,8 @@
+{
+  "featureId": "baseline-test-suite-reconciliation",
+  "milestone": "provider-foundation",
+  "status": "pass",
+  "summary": "The rebaseline commit updates stale test expectations and missing provider mock exports to match the current runtime behavior, and the full suite plus typecheck now pass against the provider-foundation branch state.",
+  "issues": [],
+  "sharedStateObservations": []
+}

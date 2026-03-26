@@ -1,0 +1,8 @@
+{
+  "featureId": "provider-startup-lifecycle-hardening",
+  "milestone": "provider-foundation",
+  "status": "pass",
+  "summary": "Startup lifecycle hardening correctly separates bootstrap readiness from listener-bound state, wires runtime lifecycle state onto Fastify, and adds regression coverage for readiness and shutdown semantics without introducing contract drift in the validated suite.",
+  "issues": [],
+  "sharedStateObservations": []
+}
