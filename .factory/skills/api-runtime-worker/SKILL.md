@@ -46,6 +46,7 @@ None.
    - a semantically equivalent request that should match
    - one unrelated endpoint if transport behavior changed
 10. If the assigned reconciliation or validation cleanup is already satisfied by the current branch state and the documented target suite passes, do not manufacture an empty code change just to create a commit. Return to the orchestrator with the evidence so the feature can be marked completed or cancelled appropriately.
+    - If you inherited pre-existing dirty working-tree changes, be explicit about which exact files/commit(s) constitute the feature-attributable implementation. Do not cite an unrelated existing commit as the feature evidence; either isolate the attributable diff into a clean commit or return to the orchestrator explaining why the feature must be finalized separately.
 11. If you discover a broader cross-endpoint inconsistency rather than a single-route problem, record it and return to the orchestrator if it exceeds the assigned feature.
 
 ## Example Handoff
