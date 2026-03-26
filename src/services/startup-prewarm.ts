@@ -85,15 +85,46 @@ async function raceWithBudget<T>(promise: Promise<T>, remainingBudgetMs: number)
   }
 
   return await Promise.race([
-    promise.then(() => ({ status: 'completed' as const })),
+    promise,
     new Promise<{ status: 'timeout' }>((resolve) => {
       setTimeout(() => resolve({ status: 'timeout' }), remainingBudgetMs);
     }),
   ]);
 }
 
+function isBudgetTimeoutResult<T>(result: T | { status: 'timeout' }): result is { status: 'timeout' } {
+  return typeof result === 'object' && result !== null && 'status' in result && result.status === 'timeout';
+}
+
 function isSuccessfulPrewarmResponse(response: LightMyRequestResponse) {
   return response.statusCode >= 200 && response.statusCode < 300;
+}
+
+type StartupPrewarmOutcome =
+  | { status: 'completed' }
+  | { status: 'failed'; statusCode: number }
+  | { status: 'timeout' };
+
+async function runPrewarmTargetWithinBudget(
+  app: FastifyInstance,
+  endpoint: string,
+  remainingBudgetMs: number,
+): Promise<StartupPrewarmOutcome> {
+  const result = await raceWithBudget<LightMyRequestResponse>(
+    app.inject({
+      method: 'GET',
+      url: endpoint,
+    }),
+    remainingBudgetMs,
+  );
+
+  if (isBudgetTimeoutResult(result)) {
+    return result;
+  }
+
+  return isSuccessfulPrewarmResponse(result)
+    ? { status: 'completed' }
+    : { status: 'failed', statusCode: result.statusCode };
 }
 
 export async function runStartupPrewarm(
@@ -120,12 +151,7 @@ export async function runStartupPrewarm(
     const elapsedMs = Date.now() - startedAt;
     const remainingBudgetMs = budgetMs - elapsedMs;
     const targetStartedAt = Date.now();
-    const outcome = await raceWithBudget(app.inject({
-      method: 'GET',
-      url: target.endpoint,
-    }).then((response) => ({
-      status: isSuccessfulPrewarmResponse(response) ? 'completed' as const : 'timeout' as const,
-    })), remainingBudgetMs);
+    const outcome = await runPrewarmTargetWithinBudget(app, target.endpoint, remainingBudgetMs);
     const durationMs = Date.now() - targetStartedAt;
 
     runtimeState.startupPrewarm.targetResults.push({

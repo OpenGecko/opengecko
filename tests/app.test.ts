@@ -8,8 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
+import type { MetricsRegistry } from '../src/services/metrics';
+import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
 import * as catalogModule from '../src/modules/catalog';
+import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -479,6 +482,164 @@ describe('OpenGecko app scaffold', () => {
         expect(metricsAfterMatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
       }
     } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('classifies non-2xx startup prewarm failures distinctly and still attempts later targets', async () => {
+    const injectMock = vi.fn(async (request: { method: string; url: string }) => {
+      if (request.url === '/simple/price?ids=bitcoin&vs_currencies=usd') {
+        return { statusCode: 503 } as never;
+      }
+
+      return { statusCode: 200 } as never;
+    });
+    const mockApp = {
+      inject: injectMock,
+    } as unknown as FastifyInstance;
+    const runtimeState: MarketDataRuntimeState = {
+      initialSyncCompleted: true,
+      allowStaleLiveService: false,
+      syncFailureReason: null,
+      listenerBound: false,
+      hotDataRevision: 7,
+      providerFailureCooldownUntil: null,
+      forcedProviderFailure: {
+        active: false,
+        reason: null,
+      },
+      startupPrewarm: {
+        enabled: false,
+        budgetMs: 0,
+        readyWithinBudget: true,
+        firstRequestWarmBenefitsObserved: false,
+        targets: [],
+        completedAt: null,
+        totalDurationMs: null,
+        targetResults: [],
+      },
+    };
+    const metrics = {
+      recordStartupPrewarmTarget: vi.fn(),
+    } as Pick<MetricsRegistry, 'recordStartupPrewarmTarget'> as MetricsRegistry;
+
+    await startupPrewarmModule.runStartupPrewarm(mockApp, runtimeState, metrics, 500);
+
+    expect(injectMock).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    expect(injectMock).toHaveBeenNthCalledWith(2, {
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+    expect(runtimeState.startupPrewarm.readyWithinBudget).toBe(true);
+    expect(runtimeState.startupPrewarm.targetResults).toMatchObject([
+      {
+        id: 'simple_price_bitcoin_usd',
+        status: 'failed',
+        warmCacheRevision: null,
+      },
+      {
+        id: 'coins_markets_bitcoin_usd',
+        status: 'completed',
+        warmCacheRevision: 7,
+      },
+    ]);
+    expect(metrics.recordStartupPrewarmTarget).toHaveBeenCalledWith('simple_price_bitcoin_usd', 'failed', expect.any(Number));
+    expect(metrics.recordStartupPrewarmTarget).toHaveBeenCalledWith('coins_markets_bitcoin_usd', 'completed', expect.any(Number));
+  });
+
+  it('records failed prewarm outcomes on diagnostics and metrics surfaces without misclassifying them as timeouts', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-failure-classification.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const prewarmSpy = vi.spyOn(startupPrewarmModule, 'runStartupPrewarm').mockImplementation(async (_app, runtimeState, metrics) => {
+      runtimeState.startupPrewarm = {
+        enabled: true,
+        budgetMs: 500,
+        readyWithinBudget: true,
+        firstRequestWarmBenefitsObserved: false,
+        targets: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          },
+          {
+            id: 'coins_markets_bitcoin_usd',
+            label: 'Coins markets BTC/USD',
+            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
+          },
+        ],
+        completedAt: Date.now(),
+        totalDurationMs: 12,
+        targetResults: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+            status: 'failed',
+            durationMs: 5,
+            cacheSurface: 'simple_price',
+            warmCacheRevision: null,
+            firstObservedRequest: null,
+          },
+          {
+            id: 'coins_markets_bitcoin_usd',
+            label: 'Coins markets BTC/USD',
+            endpoint: '/coins/markets?vs_currency=usd&ids=bitcoin',
+            status: 'completed',
+            durationMs: 4,
+            cacheSurface: 'coins_markets',
+            warmCacheRevision: runtimeState.hotDataRevision,
+            firstObservedRequest: null,
+          },
+        ],
+      };
+      metrics.recordStartupPrewarmTarget('simple_price_bitcoin_usd', 'failed', 5);
+      metrics.recordStartupPrewarmTarget('coins_markets_bitcoin_usd', 'completed', 4);
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      const prewarm = diagnostics.json().data.startup_prewarm;
+      expect(prewarm.readyWithinBudget).toBe(true);
+      expect(prewarm.targetResults).toHaveLength(2);
+      expect(prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'failed',
+        warmCacheRevision: null,
+      });
+      expect(prewarm.targetResults[1]).toMatchObject({
+        id: 'coins_markets_bitcoin_usd',
+        status: 'completed',
+        warmCacheRevision: expect.any(Number),
+      });
+
+      const metricsResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsResponse.statusCode).toBe(200);
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total{outcome="failed",target="simple_price_bitcoin_usd"} 1');
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total{outcome="completed",target="coins_markets_bitcoin_usd"} 1');
+      expect(metricsResponse.body).not.toContain('opengecko_startup_prewarm_targets_total{outcome="timeout",target="simple_price_bitcoin_usd"}');
+    } finally {
+      prewarmSpy.mockRestore();
       await prewarmApp.close();
     }
   });

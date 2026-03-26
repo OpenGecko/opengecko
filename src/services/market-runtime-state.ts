@@ -25,7 +25,7 @@ export type MarketDataRuntimeState = {
       id: string;
       label: string;
       endpoint: string;
-      status: 'completed' | 'timeout';
+      status: 'completed' | 'timeout' | 'failed';
       durationMs: number;
       cacheSurface: 'simple_price' | 'coins_markets';
       warmCacheRevision: number | null;
