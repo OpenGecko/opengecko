@@ -59,6 +59,7 @@ describe('OpenGecko app scaffold', () => {
         ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
         logLevel: 'silent',
       },
+      startBackgroundJobs: false,
     });
   });
 
@@ -2833,6 +2834,7 @@ describe('OpenGecko app scaffold', () => {
   it('invalidates simple price and coins markets hot caches together after a shared data revision', async () => {
     const state = getApp().marketDataRuntimeState;
     const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    await getApp().ready();
     const originalRevision = state.hotDataRevision;
 
     const countSharedAssetCalls = () => getMarketRowsSpy.mock.calls.filter(
@@ -2884,6 +2886,64 @@ describe('OpenGecko app scaffold', () => {
     expect(simpleAfterRevision.json()).toEqual(simpleBefore.json());
     expect(marketsAfterRevision.json()).toEqual(marketsBefore.json());
     expect(countSharedAssetCalls()).toBe(callsAfterWarm + 4);
+  });
+
+  it('invalidates hot caches when onReady bootstrap first makes hot data visible without background runtime', async () => {
+    await getApp().close();
+    app = undefined;
+
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'bootstrap-only.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    app = bootstrapApp;
+
+    const state = getApp().marketDataRuntimeState;
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const countSharedAssetCalls = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => vsCurrency === 'usd'
+        && Array.isArray(filters?.ids)
+        && filters.ids.length === 1
+        && filters.ids[0] === 'bitcoin',
+    ).length;
+
+    expect(state.initialSyncCompleted).toBe(false);
+    expect(state.hotDataRevision).toBe(0);
+
+    await getApp().ready();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.hotDataRevision).toBe(1);
+
+    const warmCallCountBeforeRequests = countSharedAssetCalls();
+
+    const simpleAfterBootstrap = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsAfterBootstrap = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(simpleAfterBootstrap.statusCode).toBe(200);
+    expect(simpleAfterBootstrap.json()).toEqual({
+      bitcoin: {
+        usd: marketsAfterBootstrap.json()[0].current_price,
+      },
+    });
+    expect(marketsAfterBootstrap.statusCode).toBe(200);
+    expect(marketsAfterBootstrap.json()).toEqual([
+      expect.objectContaining({
+        id: 'bitcoin',
+        current_price: 85000,
+      }),
+    ]);
+    expect(countSharedAssetCalls()).toBe(warmCallCountBeforeRequests + 4);
   });
 
   it('keeps shared assets coherent across simple price and coins markets when stale-live policy flips', async () => {

@@ -118,6 +118,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       rebuildSearchIndex(database);
     } else {
       const { runInitialMarketSync } = await import('./services/initial-sync');
+      const hotDataWasVisible =
+        marketDataRuntimeState.initialSyncCompleted
+        || marketDataRuntimeState.allowStaleLiveService
+        || marketDataRuntimeState.syncFailureReason !== null;
       await runInitialMarketSync(database, config, undefined, {
         onStepChange: (stepId) => {
           options.startupProgress?.begin(stepId);
@@ -127,6 +131,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         },
       });
       marketDataRuntimeState.initialSyncCompleted = true;
+      marketDataRuntimeState.syncFailureReason = null;
+
+      if (!hotDataWasVisible) {
+        marketDataRuntimeState.hotDataRevision += 1;
+      }
 
       // Seed static reference data (treasury, derivatives, onchain) after coins exist
       options.startupProgress?.begin('seed_reference_data');
