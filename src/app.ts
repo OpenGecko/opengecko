@@ -130,10 +130,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
           options.startupProgress?.updateOhlcvProgress(current, total);
         },
       });
+      const newlyExposedHotData = !hotDataWasVisible;
       marketDataRuntimeState.initialSyncCompleted = true;
+      marketDataRuntimeState.allowStaleLiveService = false;
       marketDataRuntimeState.syncFailureReason = null;
 
-      if (!hotDataWasVisible) {
+      if (newlyExposedHotData || marketDataRuntimeState.hotDataRevision > 0) {
         marketDataRuntimeState.hotDataRevision += 1;
       }
 

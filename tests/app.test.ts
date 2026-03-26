@@ -2946,6 +2946,33 @@ describe('OpenGecko app scaffold', () => {
     expect(countSharedAssetCalls()).toBe(warmCallCountBeforeRequests + 4);
   });
 
+  it('clears stale-live recovery flags and bumps revision when bootstrap-only sync recovers stale-visible state', async () => {
+    await getApp().close();
+    app = undefined;
+
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'bootstrap-recovery.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    app = bootstrapApp;
+
+    const state = getApp().marketDataRuntimeState;
+    state.allowStaleLiveService = true;
+    state.syncFailureReason = 'upstream timeout';
+    state.hotDataRevision = 3;
+
+    await getApp().ready();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.allowStaleLiveService).toBe(false);
+    expect(state.syncFailureReason).toBeNull();
+    expect(state.hotDataRevision).toBe(4);
+  });
+
   it('keeps shared assets coherent across simple price and coins markets when stale-live policy flips', async () => {
     const state = getApp().marketDataRuntimeState;
     const { createDatabase } = await import('../src/db/client');
