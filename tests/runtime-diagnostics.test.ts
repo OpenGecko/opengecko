@@ -10,6 +10,7 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     syncFailureReason: null,
     listenerBound: false,
     hotDataRevision: 0,
+    providerFailureCooldownUntil: null,
     ...overrides,
   };
 }
@@ -37,6 +38,7 @@ describe('runtime diagnostics', () => {
         active: false,
         stale_live_enabled: false,
         reason: null,
+        provider_failure_cooldown_until: null,
       },
       hot_paths: {
         cache_revision: 0,
@@ -82,6 +84,7 @@ describe('runtime diagnostics', () => {
         active: true,
         stale_live_enabled: true,
         reason: 'provider timeout',
+        provider_failure_cooldown_until: null,
       },
       hot_paths: {
         cache_revision: 4,
@@ -127,6 +130,7 @@ describe('runtime diagnostics', () => {
         active: false,
         stale_live_enabled: false,
         reason: null,
+        provider_failure_cooldown_until: null,
       },
       hot_paths: {
         cache_revision: 2,
@@ -167,6 +171,7 @@ describe('runtime diagnostics', () => {
       active: false,
       stale_live_enabled: false,
       reason: null,
+      provider_failure_cooldown_until: null,
     });
     expect(diagnostics.hot_paths.cache_revision).toBe(6);
     expect(diagnostics.hot_paths.shared_market_snapshot.source_class).toBe('fresh_live');
@@ -200,6 +205,7 @@ describe('runtime diagnostics', () => {
         active: true,
         stale_live_enabled: true,
         reason: 'provider timeout',
+        provider_failure_cooldown_until: null,
       },
       hot_paths: {
         cache_revision: 5,
@@ -216,6 +222,33 @@ describe('runtime diagnostics', () => {
           provider_count: 1,
         },
       },
+    });
+  });
+
+  it('reports active provider failure cooldown alongside degraded provider state', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        allowStaleLiveService: true,
+        syncFailureReason: 'provider failure cooldown active after exchange refresh failure',
+        listenerBound: true,
+        hotDataRevision: 7,
+        providerFailureCooldownUntil: new Date('2026-03-26T00:05:00.000Z').getTime(),
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:00:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-26T00:01:00.000Z').getTime(),
+    );
+
+    expect(diagnostics.degraded).toEqual({
+      active: true,
+      stale_live_enabled: true,
+      reason: 'provider failure cooldown active after exchange refresh failure',
+      provider_failure_cooldown_until: '2026-03-26T00:05:00.000Z',
     });
   });
 });

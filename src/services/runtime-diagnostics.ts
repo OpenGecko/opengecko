@@ -13,6 +13,7 @@ export type RuntimeDiagnostics = {
     active: boolean;
     stale_live_enabled: boolean;
     reason: string | null;
+    provider_failure_cooldown_until: string | null;
   };
   hot_paths: {
     shared_market_snapshot: {
@@ -38,6 +39,7 @@ export function buildRuntimeDiagnostics(
   now = Date.now(),
 ): RuntimeDiagnostics {
   const degradedActive = runtimeState.allowStaleLiveService || runtimeState.syncFailureReason !== null;
+  const cooldownUntil = runtimeState.providerFailureCooldownUntil;
   const sourceClass = latestUsdSnapshot
     ? (() => {
       const ownership = getSnapshotOwnership(latestUsdSnapshot);
@@ -97,6 +99,7 @@ export function buildRuntimeDiagnostics(
       active: degradedActive,
       stale_live_enabled: runtimeState.allowStaleLiveService,
       reason: runtimeState.syncFailureReason,
+      provider_failure_cooldown_until: cooldownUntil === null ? null : new Date(cooldownUntil).toISOString(),
     },
     hot_paths: {
       shared_market_snapshot: hotPathSnapshot,

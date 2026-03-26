@@ -45,6 +45,7 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     syncFailureReason: null,
     listenerBound: false,
     hotDataRevision: 0,
+    providerFailureCooldownUntil: null,
     ...overrides,
   };
 }
@@ -419,6 +420,7 @@ describe('market runtime', () => {
 
     expect(state.syncFailureReason).toBe('provider timeout');
     expect(state.allowStaleLiveService).toBe(true);
+    expect(state.providerFailureCooldownUntil).toBeNull();
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.hotDataRevision).toBe(3);
 
@@ -434,6 +436,57 @@ describe('market runtime', () => {
     });
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.hotDataRevision).toBe(4);
+
+    await runtime.stop();
+  });
+
+  it('preserves provider cooldown state across failed refreshes and clears it after successful recovery', async () => {
+    const firstCooldownUntil = Date.now() + 60_000;
+    const state = createState({
+      initialSyncCompleted: true,
+      allowStaleLiveService: true,
+      syncFailureReason: 'provider failure cooldown active after exchange refresh failure',
+      providerFailureCooldownUntil: firstCooldownUntil,
+      hotDataRevision: 5,
+    });
+    let shouldFailRefresh = true;
+    const runMarketRefreshOnce = vi.fn().mockImplementation(async () => {
+      if (shouldFailRefresh) {
+        state.providerFailureCooldownUntil = firstCooldownUntil;
+        throw new Error('provider failure cooldown active after exchange refresh failure');
+      }
+
+      state.providerFailureCooldownUntil = null;
+    });
+    const runtime = createMarketRuntime({} as never, {
+      ...baseConfig,
+      marketRefreshIntervalSeconds: 1,
+    } as never, logger, state, {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
+      runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce,
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await runtime.whenReady();
+
+    expect(state.providerFailureCooldownUntil).toBe(firstCooldownUntil);
+    expect(state.syncFailureReason).toBe('provider failure cooldown active after exchange refresh failure');
+    expect(state.allowStaleLiveService).toBe(true);
+
+    shouldFailRefresh = false;
+    await eventually(() => {
+      vi.advanceTimersByTime(1_000);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
+    });
+    await eventually(() => {
+      expect(state.providerFailureCooldownUntil).toBeNull();
+      expect(state.syncFailureReason).toBeNull();
+      expect(state.allowStaleLiveService).toBe(false);
+    });
 
     await runtime.stop();
   });

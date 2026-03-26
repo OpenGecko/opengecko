@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
 import { coinTickers, coins, exchanges } from '../src/db/schema';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
+import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -331,5 +332,37 @@ describe('market refresh service', () => {
     });
 
     expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+
+  it('activates cooldown after all exchanges fail and short-circuits repeated refreshes until cooldown expires', async () => {
+    const runtimeState = createMarketDataRuntimeState();
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockRejectedValue(new Error('provider timeout'));
+
+    await expect(runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState)).rejects.toThrow('provider failure cooldown active after exchange refresh failure');
+
+    expect(runtimeState.providerFailureCooldownUntil).not.toBeNull();
+    expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(2);
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState);
+
+    expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(2);
+
+    runtimeState.providerFailureCooldownUntil = Date.now() - 1;
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState);
+
+    expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(4);
+    expect(runtimeState.providerFailureCooldownUntil).toBeNull();
   });
 });

@@ -11,6 +11,9 @@ import { mapWithConcurrency } from '../lib/async';
 import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
 import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
+import type { MarketDataRuntimeState } from './market-runtime-state';
+
+const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
 
 type SymbolIndexEntry = {
   coinId: string;
@@ -143,12 +146,23 @@ export async function runMarketRefreshOnce(
   database: AppDatabase,
   config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
   logger?: Logger,
+  runtimeState?: MarketDataRuntimeState,
 ) {
   const refreshLogger = logger?.child({ operation: 'market_refresh' });
   const startTime = Date.now();
   const exchangeIds = config.ccxtExchanges.filter(isValidExchangeId);
+  const cooldownUntil = runtimeState?.providerFailureCooldownUntil ?? null;
 
   if (exchangeIds.length === 0) {
+    return;
+  }
+
+  if (cooldownUntil !== null && cooldownUntil > startTime) {
+    refreshLogger?.warn({
+      cooldownUntil: new Date(cooldownUntil).toISOString(),
+      remainingCooldownMs: cooldownUntil - startTime,
+      exchangeCount: exchangeIds.length,
+    }, 'market refresh skipped because provider failure cooldown is active');
     return;
   }
 
@@ -171,6 +185,7 @@ export async function runMarketRefreshOnce(
     config.providerFanoutConcurrency,
     async (exchangeId) => Promise.allSettled([fetchExchangeTickers(exchangeId, requestedSymbols)]).then(([result]) => result),
   );
+  let failedExchanges = 0;
 
   for (let i = 0; i < exchangeIds.length; i++) {
     const exchangeId = exchangeIds[i];
@@ -179,6 +194,7 @@ export async function runMarketRefreshOnce(
     const exchangeStart = Date.now();
 
     if (result.status === 'rejected') {
+      failedExchanges += 1;
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
         : { message: String(result.reason) };
@@ -273,6 +289,23 @@ export async function runMarketRefreshOnce(
       matchedCount,
       durationMs: Date.now() - exchangeStart,
     }, 'exchange ticker fetch complete');
+  }
+
+  if (failedExchanges === exchangeIds.length) {
+    if (runtimeState) {
+      runtimeState.providerFailureCooldownUntil = startTime + PROVIDER_FAILURE_COOLDOWN_MS;
+    }
+
+    refreshLogger?.warn({
+      failedExchangeCount: failedExchanges,
+      exchangeCount: exchangeIds.length,
+      cooldownMs: PROVIDER_FAILURE_COOLDOWN_MS,
+    }, 'all exchange ticker fetches failed; activating provider failure cooldown');
+    throw new Error('provider failure cooldown active after exchange refresh failure');
+  }
+
+  if (runtimeState) {
+    runtimeState.providerFailureCooldownUntil = null;
   }
 
   const now = new Date();
@@ -396,6 +429,7 @@ export async function runMarketRefreshOnce(
     snapshotCount: accumulators.size,
     tickerCount: pendingCoinTickers.length,
     exchangeCount: exchangeIds.length,
+    failedExchangeCount: failedExchanges,
     durationMs,
   }, 'market refresh complete');
 }

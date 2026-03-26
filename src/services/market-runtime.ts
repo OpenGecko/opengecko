@@ -22,6 +22,7 @@ function bumpHotDataRevision(state: MarketDataRuntimeState) {
 function clearRecoveredDegradedState(state: MarketDataRuntimeState) {
   state.syncFailureReason = null;
   state.allowStaleLiveService = false;
+  state.providerFailureCooldownUntil = null;
 }
 
 function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketDataRuntimeState, runner: JobRunner) {
@@ -117,7 +118,7 @@ export function createMarketRuntime(
     await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
   });
   const runMarketJob = createSerializedJob('market_refresh', logger, state, async () => {
-    await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config)))();
+    await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config, undefined, state)))();
   });
   const runSearchJob = createSerializedJob('search_rebuild', logger, state, async () => {
     await (overrides.runSearchRebuildOnce ?? (() => runSearchRebuildOnce(database)))();
