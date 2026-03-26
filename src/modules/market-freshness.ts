@@ -34,6 +34,29 @@ export function getSnapshotFreshness(
 }
 
 export function getSnapshotAccessPolicy(runtimeState: MarketDataRuntimeState): SnapshotAccessPolicy {
+  const validationOverrideMode = runtimeState.validationOverride?.mode ?? 'off';
+
+  if (validationOverrideMode === 'stale_disallowed') {
+    return {
+      initialSyncCompleted: true,
+      allowStaleLiveService: false,
+    };
+  }
+
+  if (validationOverrideMode === 'stale_allowed') {
+    return {
+      initialSyncCompleted: true,
+      allowStaleLiveService: true,
+    };
+  }
+
+  if (validationOverrideMode === 'degraded_seeded_bootstrap') {
+    return {
+      initialSyncCompleted: false,
+      allowStaleLiveService: true,
+    };
+  }
+
   return {
     initialSyncCompleted: runtimeState.initialSyncCompleted,
     allowStaleLiveService: runtimeState.allowStaleLiveService,

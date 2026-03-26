@@ -95,7 +95,8 @@ export function registerDiagnosticsRoutes(
     const boundPort = typeof boundAddress === 'object' && boundAddress !== null
       ? (boundAddress as AddressInfo).port
       : null;
-    const validationModeEnabled = boundPort === 3102;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
     if (!validationModeEnabled) {
       reply.code(404);
       return {
@@ -128,6 +129,57 @@ export function registerDiagnosticsRoutes(
       data: {
         active,
         reason,
+      },
+    };
+  });
+
+  app.post('/diagnostics/runtime/degraded_state', async (request, reply) => {
+    const boundAddress = app.server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress !== null
+      ? (boundAddress as AddressInfo).port
+      : null;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
+    if (!validationModeEnabled) {
+      reply.code(404);
+      return {
+        error: 'not_found',
+        message: 'Route not found',
+      };
+    }
+
+    const body = (request.body ?? {}) as {
+      mode?: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap';
+      reason?: string | null;
+    };
+    const mode = body.mode ?? 'off';
+    const allowedModes = new Set(['off', 'stale_disallowed', 'stale_allowed', 'degraded_seeded_bootstrap']);
+
+    if (!allowedModes.has(mode)) {
+      reply.code(400);
+      return {
+        error: 'invalid_parameter',
+        message: 'mode must be one of off, stale_disallowed, stale_allowed, degraded_seeded_bootstrap.',
+      };
+    }
+
+    const reason = mode === 'off'
+      ? null
+      : (typeof body.reason === 'string' && body.reason.trim().length > 0
+        ? body.reason.trim()
+        : 'validation degraded state override');
+
+    app.marketDataRuntimeState.validationOverride = {
+      mode,
+      reason,
+    };
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    return {
+      data: {
+        mode,
+        reason,
+        cache_revision: app.marketDataRuntimeState.hotDataRevision,
       },
     };
   });

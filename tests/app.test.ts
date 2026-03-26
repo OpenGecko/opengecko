@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
+import { marketSnapshots } from '../src/db/schema';
 import type { MetricsRegistry } from '../src/services/metrics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
@@ -187,7 +188,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     try {
-      await validationApp.listen({ host: '127.0.0.1', port: 3102 });
+      await validationApp.listen({ host: '127.0.0.1', port: 0 });
       const enableResponse = await validationApp.inject({
         method: 'POST',
         url: '/diagnostics/runtime/provider_failure',
@@ -216,6 +217,11 @@ describe('OpenGecko app scaffold', () => {
         active: true,
         reason: 'validator forced outage',
       });
+      expect(diagnosticsResponse.json().data.degraded.validation_override).toEqual({
+        active: false,
+        mode: 'off',
+        reason: null,
+      });
 
       const clearResponse = await validationApp.inject({
         method: 'POST',
@@ -232,6 +238,238 @@ describe('OpenGecko app scaffold', () => {
           reason: null,
         },
       });
+    } finally {
+      await validationApp.close();
+    }
+  });
+
+  it('exposes degraded-state override only on the validation port and lets validation drive stale/degraded behavior', async () => {
+    const nonValidationResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/degraded_state',
+      payload: {
+        mode: 'stale_allowed',
+        reason: 'validator stale-live allowed',
+      },
+    });
+
+    expect(nonValidationResponse.statusCode).toBe(404);
+
+    const validationApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'validation-degraded-state.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await validationApp.listen({ host: '127.0.0.1', port: 0 });
+      validationApp.marketDataRuntimeState.listenerBound = true;
+      const staleTimestamp = new Date('2025-03-19T00:00:00.000Z');
+
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          lastUpdated: staleTimestamp,
+          sourceProvidersJson: JSON.stringify(['binance']),
+          sourceCount: 1,
+        })
+        .where(eq(marketSnapshots.coinId, 'bitcoin'))
+        .run();
+
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          lastUpdated: staleTimestamp,
+          sourceProvidersJson: JSON.stringify(['binance']),
+          sourceCount: 1,
+        })
+        .where(eq(marketSnapshots.coinId, 'ethereum'))
+        .run();
+
+      const staleDisallowedResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'stale_disallowed',
+          reason: 'validator stale-live disallowed',
+        },
+      });
+
+      expect(staleDisallowedResponse.statusCode).toBe(200);
+      expect(staleDisallowedResponse.json().data.mode).toBe('stale_disallowed');
+
+      const staleDisallowedSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const staleDisallowedMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const staleDisallowedDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(staleDisallowedSimple.statusCode).toBe(200);
+      expect(staleDisallowedSimple.json()).toEqual({});
+      expect(staleDisallowedMarkets.statusCode).toBe(200);
+      expect(staleDisallowedMarkets.json()).toEqual([
+        expect.objectContaining({
+          id: 'bitcoin',
+          current_price: null,
+          market_cap: null,
+          total_volume: null,
+          price_change_percentage_24h: null,
+          price_change_percentage_24h_in_currency: null,
+        }),
+      ]);
+      expect(staleDisallowedDiagnostics.json().data.degraded).toMatchObject({
+        active: false,
+        stale_live_enabled: false,
+        reason: 'validator stale-live disallowed',
+        validation_override: {
+          active: true,
+          mode: 'stale_disallowed',
+          reason: 'validator stale-live disallowed',
+        },
+      });
+
+      const staleAllowedResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'stale_allowed',
+          reason: 'validator stale-live allowed',
+        },
+      });
+
+      expect(staleAllowedResponse.statusCode).toBe(200);
+
+      const staleAllowedSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const staleAllowedMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const staleAllowedDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(staleAllowedSimple.statusCode).toBe(200);
+      expect(staleAllowedSimple.json()).toEqual({
+        bitcoin: {
+          usd: expect.any(Number),
+        },
+      });
+      expect(staleAllowedMarkets.statusCode).toBe(200);
+      expect(staleAllowedMarkets.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: expect.any(Number),
+      });
+      expect(staleAllowedDiagnostics.json().data.degraded).toMatchObject({
+        active: true,
+        stale_live_enabled: true,
+        reason: 'validator stale-live allowed',
+        validation_override: {
+          active: true,
+          mode: 'stale_allowed',
+          reason: 'validator stale-live allowed',
+        },
+      });
+
+      const bootstrapTimestamp = new Date('2026-03-20T00:00:00.000Z');
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          price: 77777,
+          marketCap: null,
+          totalVolume: null,
+          priceChange24h: null,
+          priceChangePercentage24h: null,
+          sourceProvidersJson: JSON.stringify([]),
+          sourceCount: 0,
+          lastUpdated: bootstrapTimestamp,
+        })
+        .where(eq(marketSnapshots.coinId, 'bitcoin'))
+        .run();
+
+      const degradedSeededResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'degraded_seeded_bootstrap',
+          reason: 'validator degraded boot',
+        },
+      });
+
+      expect(degradedSeededResponse.statusCode).toBe(200);
+
+      const degradedSeededSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const degradedSeededMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const degradedSeededDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(degradedSeededSimple.json()).toEqual({
+        bitcoin: {
+          usd: 77777,
+        },
+      });
+      expect(degradedSeededMarkets.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: 77777,
+        market_cap: null,
+        total_volume: null,
+        price_change_percentage_24h: null,
+        price_change_percentage_24h_in_currency: null,
+      });
+      expect(degradedSeededDiagnostics.json().data).toMatchObject({
+        readiness: {
+          state: 'degraded',
+          initial_sync_completed: false,
+        },
+        degraded: {
+          active: true,
+          stale_live_enabled: true,
+          reason: 'validator degraded boot',
+          validation_override: {
+            active: true,
+            mode: 'degraded_seeded_bootstrap',
+            reason: 'validator degraded boot',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'degraded_seeded_bootstrap',
+          },
+        },
+      });
+
+      const clearResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'off',
+        },
+      });
+
+      expect(clearResponse.statusCode).toBe(200);
+      expect(clearResponse.json().data.mode).toBe('off');
     } finally {
       await validationApp.close();
     }
@@ -630,6 +868,10 @@ describe('OpenGecko app scaffold', () => {
       syncFailureReason: null,
       listenerBound: false,
       hotDataRevision: 7,
+      validationOverride: {
+        mode: 'off',
+        reason: null,
+      },
       providerFailureCooldownUntil: null,
       forcedProviderFailure: {
         active: false,

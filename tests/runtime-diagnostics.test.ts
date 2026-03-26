@@ -4,12 +4,16 @@ import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
-  return {
+  const baseState: MarketDataRuntimeState = {
     initialSyncCompleted: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,
     hotDataRevision: 0,
+    validationOverride: {
+      mode: 'off',
+      reason: null,
+    },
     providerFailureCooldownUntil: null,
     forcedProviderFailure: {
       active: false,
@@ -25,7 +29,14 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
       totalDurationMs: null,
       targetResults: [],
     },
+  };
+
+  return {
+    ...baseState,
     ...overrides,
+    validationOverride: overrides.validationOverride ?? baseState.validationOverride,
+    forcedProviderFailure: overrides.forcedProviderFailure ?? baseState.forcedProviderFailure,
+    startupPrewarm: overrides.startupPrewarm ?? baseState.startupPrewarm,
   };
 }
 
@@ -55,6 +66,11 @@ describe('runtime diagnostics', () => {
         provider_failure_cooldown_until: null,
         injected_provider_failure: {
           active: false,
+          reason: null,
+        },
+        validation_override: {
+          active: false,
+          mode: 'off',
           reason: null,
         },
       },
@@ -107,6 +123,11 @@ describe('runtime diagnostics', () => {
           active: false,
           reason: null,
         },
+        validation_override: {
+          active: false,
+          mode: 'off',
+          reason: null,
+        },
       },
       hot_paths: {
         cache_revision: 3,
@@ -155,6 +176,11 @@ describe('runtime diagnostics', () => {
         provider_failure_cooldown_until: null,
         injected_provider_failure: {
           active: false,
+          reason: null,
+        },
+        validation_override: {
+          active: false,
+          mode: 'off',
           reason: null,
         },
       },
@@ -207,6 +233,11 @@ describe('runtime diagnostics', () => {
           active: false,
           reason: null,
         },
+        validation_override: {
+          active: false,
+          mode: 'off',
+          reason: null,
+        },
       },
       hot_paths: {
         cache_revision: 2,
@@ -224,6 +255,65 @@ describe('runtime diagnostics', () => {
         },
       },
     });
+  });
+
+  it('reports validation override state for stale-live and degraded seeded boot scenarios', () => {
+    const staleAllowedDiagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        validationOverride: {
+          mode: 'stale_allowed',
+          reason: 'validator stale-live allowed',
+        },
+      }),
+      {
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-26T00:00:00.000Z').getTime(),
+    );
+
+    expect(staleAllowedDiagnostics.degraded).toMatchObject({
+      active: true,
+      stale_live_enabled: true,
+      reason: 'validator stale-live allowed',
+      validation_override: {
+        active: true,
+        mode: 'stale_allowed',
+        reason: 'validator stale-live allowed',
+      },
+    });
+    expect(staleAllowedDiagnostics.hot_paths.shared_market_snapshot.source_class).toBe('stale_live');
+
+    const seededDiagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        validationOverride: {
+          mode: 'degraded_seeded_bootstrap',
+          reason: 'validator degraded boot',
+        },
+      }),
+      {
+        lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
+        sourceProvidersJson: '[]',
+        sourceCount: 0,
+      },
+      300,
+      new Date('2026-03-26T00:00:00.000Z').getTime(),
+    );
+
+    expect(seededDiagnostics.readiness).toMatchObject({
+      state: 'degraded',
+      initial_sync_completed: false,
+    });
+    expect(seededDiagnostics.degraded.validation_override).toEqual({
+      active: true,
+      mode: 'degraded_seeded_bootstrap',
+      reason: 'validator degraded boot',
+    });
+    expect(seededDiagnostics.hot_paths.shared_market_snapshot.source_class).toBe('degraded_seeded_bootstrap');
   });
 
   it('reports ready state after recovery whenever failure indicators are cleared', () => {
@@ -250,6 +340,11 @@ describe('runtime diagnostics', () => {
       provider_failure_cooldown_until: null,
       injected_provider_failure: {
         active: false,
+        reason: null,
+      },
+      validation_override: {
+        active: false,
+        mode: 'off',
         reason: null,
       },
     });
@@ -288,6 +383,11 @@ describe('runtime diagnostics', () => {
         provider_failure_cooldown_until: null,
         injected_provider_failure: {
           active: false,
+          reason: null,
+        },
+        validation_override: {
+          active: false,
+          mode: 'off',
           reason: null,
         },
       },
@@ -337,6 +437,11 @@ describe('runtime diagnostics', () => {
         active: false,
         reason: null,
       },
+      validation_override: {
+        active: false,
+        mode: 'off',
+        reason: null,
+      },
     });
   });
 
@@ -369,6 +474,11 @@ describe('runtime diagnostics', () => {
       injected_provider_failure: {
         active: true,
         reason: 'validator forced outage',
+      },
+      validation_override: {
+        active: false,
+        mode: 'off',
+        reason: null,
       },
     });
   });

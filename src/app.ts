@@ -27,6 +27,10 @@ declare module 'fastify' {
     marketDataRuntimeState: AppLifecycleState;
     marketRuntime: MarketRuntime | null;
     metrics: MetricsRegistry;
+    db: ReturnType<typeof createDatabase>;
+    appConfig: AppConfig;
+    marketFreshnessThresholdSeconds: number;
+    simplePriceCache: Map<string, { value: Record<string, Record<string, number | null>>; expiresAt: number; revision: number }>;
   }
 }
 
@@ -222,6 +226,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.decorate('marketDataRuntimeState', marketDataRuntimeState);
   app.decorate('marketRuntime', runtime);
   app.decorate('metrics', metrics);
+  app.decorate('db', database);
+  app.decorate('appConfig', config);
+  app.decorate('marketFreshnessThresholdSeconds', config.marketFreshnessThresholdSeconds);
 
   app.addHook('onResponse', (request, reply, done) => {
     const route = request.routeOptions.url || request.url.split('?')[0] || 'unknown';

@@ -18,6 +18,11 @@ export type RuntimeDiagnostics = {
       active: boolean;
       reason: string | null;
     };
+    validation_override: {
+      active: boolean;
+      mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap';
+      reason: string | null;
+    };
   };
   hot_paths: {
     shared_market_snapshot: {
@@ -59,10 +64,44 @@ export function buildRuntimeDiagnostics(
     active: false,
     reason: null,
   };
+  const validationOverride = runtimeState.validationOverride ?? {
+    mode: 'off' as const,
+    reason: null,
+  };
+  const validationOverrideActive = validationOverride.mode !== 'off';
+  const effectiveInitialSyncCompleted = validationOverride.mode === 'degraded_seeded_bootstrap'
+    ? false
+    : validationOverrideActive
+      ? true
+      : runtimeState.initialSyncCompleted;
+  const effectiveAllowStaleLiveService = validationOverride.mode === 'stale_disallowed'
+    ? false
+    : validationOverride.mode === 'stale_allowed' || validationOverride.mode === 'degraded_seeded_bootstrap'
+      ? true
+      : runtimeState.allowStaleLiveService;
+  const effectiveFailureReason = validationOverride.reason ?? runtimeState.syncFailureReason;
+  const effectiveSeededBootstrapFallbackActive = validationOverride.mode === 'degraded_seeded_bootstrap'
+    || (
+      effectiveInitialSyncCompleted === false
+      && latestSnapshotOwnership === 'seeded'
+      && effectiveFailureReason !== null
+    );
+  const effectiveStaleLiveFallbackActive = validationOverride.mode === 'stale_allowed'
+    || effectiveAllowStaleLiveService
+    || (effectiveFailureReason !== null && latestSnapshotFreshness?.isStale === true);
+  const effectiveDegradedActive = effectiveStaleLiveFallbackActive || effectiveSeededBootstrapFallbackActive;
   const sourceClass = latestUsdSnapshot
     ? (() => {
+      if (validationOverride.mode === 'degraded_seeded_bootstrap') {
+        return 'degraded_seeded_bootstrap' as const;
+      }
+
+      if (validationOverride.mode === 'stale_allowed' && latestSnapshotOwnership === 'live' && latestSnapshotFreshness?.isStale) {
+        return 'stale_live' as const;
+      }
+
       if (latestSnapshotOwnership === 'seeded') {
-        if (seededBootstrapFallbackActive) {
+        if (effectiveSeededBootstrapFallbackActive) {
           return 'degraded_seeded_bootstrap' as const;
         }
 
@@ -103,9 +142,9 @@ export function buildRuntimeDiagnostics(
       provider_count: 0,
     };
 
-  const readinessState = degradedActive
+  const readinessState = effectiveDegradedActive
     ? 'degraded'
-    : runtimeState.initialSyncCompleted
+    : effectiveInitialSyncCompleted
       ? 'ready'
       : 'starting';
 
@@ -113,16 +152,21 @@ export function buildRuntimeDiagnostics(
     readiness: {
       state: readinessState,
       listener_bound: runtimeState.listenerBound,
-      initial_sync_completed: runtimeState.initialSyncCompleted,
+      initial_sync_completed: effectiveInitialSyncCompleted,
     },
     degraded: {
-      active: degradedActive,
-      stale_live_enabled: runtimeState.allowStaleLiveService,
-      reason: runtimeState.syncFailureReason,
+      active: effectiveDegradedActive,
+      stale_live_enabled: effectiveAllowStaleLiveService,
+      reason: effectiveFailureReason,
       provider_failure_cooldown_until: cooldownUntil === null ? null : new Date(cooldownUntil).toISOString(),
       injected_provider_failure: {
         active: injectedProviderFailure.active,
         reason: injectedProviderFailure.reason,
+      },
+      validation_override: {
+        active: validationOverrideActive,
+        mode: validationOverride.mode,
+        reason: validationOverride.reason,
       },
     },
     hot_paths: {

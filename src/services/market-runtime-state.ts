@@ -4,6 +4,10 @@ export type MarketDataRuntimeState = {
   syncFailureReason: string | null;
   listenerBound: boolean;
   hotDataRevision: number;
+  validationOverride: {
+    mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap';
+    reason: string | null;
+  };
   providerFailureCooldownUntil: number | null;
   forcedProviderFailure: {
     active: boolean;
@@ -25,7 +29,7 @@ export type MarketDataRuntimeState = {
       id: string;
       label: string;
       endpoint: string;
-      status: 'completed' | 'timeout' | 'failed';
+      status: 'completed' | 'timeout' | 'failed' | 'skipped_budget';
       durationMs: number;
       cacheSurface: 'simple_price' | 'coins_markets';
       warmCacheRevision: number | null;
@@ -44,6 +48,10 @@ export function createMarketDataRuntimeState(): MarketDataRuntimeState {
     syncFailureReason: null,
     listenerBound: false,
     hotDataRevision: 0,
+    validationOverride: {
+      mode: 'off',
+      reason: null,
+    },
     providerFailureCooldownUntil: null,
     forcedProviderFailure: {
       active: false,
