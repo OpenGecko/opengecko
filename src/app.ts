@@ -14,6 +14,7 @@ import { registerOnchainRoutes } from './modules/onchain';
 import { registerSearchRoutes } from './modules/search';
 import { registerSimpleRoutes } from './modules/simple';
 import { registerTreasuryRoutes } from './modules/treasury';
+import { closeExchangePool } from './providers/ccxt';
 import { createMarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import type { StartupProgressReporter } from './services/startup-progress';
@@ -134,6 +135,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       await runtime.stop();
     }
 
+    await closeExchangePool();
     database.client.close();
   });
 

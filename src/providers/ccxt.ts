@@ -52,6 +52,7 @@ export type ExchangeNetworkSnapshot = {
 };
 
 const VALID_EXCHANGE_IDS = new Set(ccxt.exchanges);
+const exchangePool = new Map<ExchangeId, Exchange>();
 
 export function isValidExchangeId(value: string): value is ExchangeId {
   return VALID_EXCHANGE_IDS.has(value);
@@ -73,6 +74,19 @@ function createExchange(exchangeId: ExchangeId): Exchange {
     enableRateLimit: true,
     timeout: 10_000,
   });
+}
+
+function getOrCreateExchange(exchangeId: ExchangeId) {
+  const existing = exchangePool.get(exchangeId);
+
+  if (existing) {
+    return existing;
+  }
+
+  const exchange = createExchange(exchangeId);
+  exchangePool.set(exchangeId, exchange);
+
+  return exchange;
 }
 
 function deriveBaseQuote(symbol: string) {
@@ -245,144 +259,128 @@ function toOhlcvSnapshot(exchangeId: ExchangeId, symbol: string, timeframe: stri
 }
 
 export async function fetchExchangeTicker(exchangeId: ExchangeId, symbol: string) {
-  const exchange = createExchange(exchangeId);
+  const exchange = getOrCreateExchange(exchangeId);
 
-  try {
-    await exchange.loadMarkets();
-    const ticker = await exchange.fetchTicker(symbol);
+  await exchange.loadMarkets();
+  const ticker = await exchange.fetchTicker(symbol);
 
-    return toTickerSnapshot(exchangeId, ticker);
-  } finally {
-    await exchange.close();
-  }
+  return toTickerSnapshot(exchangeId, ticker);
 }
 
 export async function fetchExchangeTickers(exchangeId: ExchangeId, symbols?: string[]) {
-  const exchange = createExchange(exchangeId);
+  const exchange = getOrCreateExchange(exchangeId);
 
-  try {
-    await exchange.loadMarkets();
-    const supportedSymbols = getSupportedSymbols(exchange, symbols);
+  await exchange.loadMarkets();
+  const supportedSymbols = getSupportedSymbols(exchange, symbols);
 
-    if (symbols?.length && (!supportedSymbols || supportedSymbols.length === 0)) {
-      return [];
-    }
-
-    if (exchange.has.fetchTickers) {
-      const targetSymbols = supportedSymbols ?? symbols;
-      const chunkSize = targetSymbols ? getTickerChunkSize(exchangeId) : undefined;
-
-      try {
-        if (chunkSize && targetSymbols && targetSymbols.length > chunkSize) {
-          const tickers = await Promise.all(chunkSymbols(targetSymbols, chunkSize).map((chunk) => exchange.fetchTickers(chunk)));
-
-          return tickers.flatMap((tickerChunk) => Object.values(tickerChunk).map((ticker) => toTickerSnapshot(exchangeId, ticker)));
-        }
-
-        const tickers = await exchange.fetchTickers(supportedSymbols);
-
-        return Object.values(tickers).map((ticker) => toTickerSnapshot(exchangeId, ticker));
-      } catch (error) {
-        if (!targetSymbols?.length) {
-          throw error;
-        }
-
-        const tickers = await Promise.all(
-          targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
-        );
-
-        return tickers;
-      }
-    }
-
-    const targetSymbols = supportedSymbols ?? symbols ?? Object.keys(exchange.markets);
-    const tickers = await Promise.all(
-      targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
-    );
-
-    return tickers;
-  } finally {
-    await exchange.close();
+  if (symbols?.length && (!supportedSymbols || supportedSymbols.length === 0)) {
+    return [];
   }
+
+  if (exchange.has.fetchTickers) {
+    const targetSymbols = supportedSymbols ?? symbols;
+    const chunkSize = targetSymbols ? getTickerChunkSize(exchangeId) : undefined;
+
+    try {
+      if (chunkSize && targetSymbols && targetSymbols.length > chunkSize) {
+        const tickers = await Promise.all(chunkSymbols(targetSymbols, chunkSize).map((chunk) => exchange.fetchTickers(chunk)));
+
+        return tickers.flatMap((tickerChunk) => Object.values(tickerChunk).map((ticker) => toTickerSnapshot(exchangeId, ticker)));
+      }
+
+      const tickers = await exchange.fetchTickers(supportedSymbols);
+
+      return Object.values(tickers).map((ticker) => toTickerSnapshot(exchangeId, ticker));
+    } catch (error) {
+      if (!targetSymbols?.length) {
+        throw error;
+      }
+
+      const tickers = await Promise.all(
+        targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
+      );
+
+      return tickers;
+    }
+  }
+
+  const targetSymbols = supportedSymbols ?? symbols ?? Object.keys(exchange.markets);
+  const tickers = await Promise.all(
+    targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
+  );
+
+  return tickers;
 }
 
 export async function fetchExchangeMarkets(exchangeId: ExchangeId) {
-  const exchange = createExchange(exchangeId);
+  const exchange = getOrCreateExchange(exchangeId);
 
-  try {
-    await exchange.loadMarkets();
+  await exchange.loadMarkets();
 
-    return Object.values(exchange.markets).map((market) =>
-      toMarketSnapshot(
-        exchangeId,
-        market,
-        exchange.currencies?.[market.base]?.name ?? null,
-        collectCurrencyNetworkIds(exchange, market.base),
-      ),
-    );
-  } finally {
-    await exchange.close();
-  }
+  return Object.values(exchange.markets).map((market) =>
+    toMarketSnapshot(
+      exchangeId,
+      market,
+      exchange.currencies?.[market.base]?.name ?? null,
+      collectCurrencyNetworkIds(exchange, market.base),
+    ),
+  );
 }
 
 export async function fetchExchangeNetworks(exchangeId: ExchangeId) {
-  const exchange = createExchange(exchangeId);
+  const exchange = getOrCreateExchange(exchangeId);
 
-  try {
-    await exchange.loadMarkets();
+  await exchange.loadMarkets();
 
-    const byNetworkId = new Map<string, ExchangeNetworkSnapshot>();
-    const currencies = Object.values(exchange.currencies ?? {});
+  const byNetworkId = new Map<string, ExchangeNetworkSnapshot>();
+  const currencies = Object.values(exchange.currencies ?? {});
 
-    for (const currency of currencies) {
-      const networkEntries = currency.networks ? Object.values(currency.networks) : [];
+  for (const currency of currencies) {
+    const networkEntries = currency.networks ? Object.values(currency.networks) : [];
 
-      for (const networkEntry of networkEntries) {
-        if (!networkEntry) {
-          continue;
-        }
+    for (const networkEntry of networkEntries) {
+      if (!networkEntry) {
+        continue;
+      }
 
-        const normalizedId = normalizeNetworkAlias(
-          (typeof networkEntry.id === 'string' && networkEntry.id) ||
-            (typeof networkEntry.network === 'string' && networkEntry.network) ||
-            (typeof networkEntry.name === 'string' && networkEntry.name) ||
-            '',
-        );
-
-        if (!normalizedId) {
-          continue;
-        }
-
-        const rawChainId = networkEntry.info?.chainId;
-        const numericChainId =
-          typeof rawChainId === 'number'
-            ? rawChainId
-            : typeof rawChainId === 'string' && rawChainId.trim().length > 0
-              ? Number(rawChainId)
-              : Number.NaN;
-
-        const chainIdentifier = Number.isFinite(numericChainId) ? numericChainId : null;
-        const networkName =
-          (typeof networkEntry.name === 'string' && networkEntry.name) ||
+      const normalizedId = normalizeNetworkAlias(
+        (typeof networkEntry.id === 'string' && networkEntry.id) ||
           (typeof networkEntry.network === 'string' && networkEntry.network) ||
-          normalizedId;
+          (typeof networkEntry.name === 'string' && networkEntry.name) ||
+          '',
+      );
 
-        if (!byNetworkId.has(normalizedId)) {
-          byNetworkId.set(normalizedId, toNetworkSnapshot(exchangeId, normalizedId, networkName, chainIdentifier));
-          continue;
-        }
+      if (!normalizedId) {
+        continue;
+      }
 
-        const existing = byNetworkId.get(normalizedId);
-        if (existing && existing.chainIdentifier === null && chainIdentifier !== null) {
-          byNetworkId.set(normalizedId, toNetworkSnapshot(exchangeId, normalizedId, networkName, chainIdentifier));
-        }
+      const rawChainId = networkEntry.info?.chainId;
+      const numericChainId =
+        typeof rawChainId === 'number'
+          ? rawChainId
+          : typeof rawChainId === 'string' && rawChainId.trim().length > 0
+            ? Number(rawChainId)
+            : Number.NaN;
+
+      const chainIdentifier = Number.isFinite(numericChainId) ? numericChainId : null;
+      const networkName =
+        (typeof networkEntry.name === 'string' && networkEntry.name) ||
+        (typeof networkEntry.network === 'string' && networkEntry.network) ||
+        normalizedId;
+
+      if (!byNetworkId.has(normalizedId)) {
+        byNetworkId.set(normalizedId, toNetworkSnapshot(exchangeId, normalizedId, networkName, chainIdentifier));
+        continue;
+      }
+
+      const existing = byNetworkId.get(normalizedId);
+      if (existing && existing.chainIdentifier === null && chainIdentifier !== null) {
+        byNetworkId.set(normalizedId, toNetworkSnapshot(exchangeId, normalizedId, networkName, chainIdentifier));
       }
     }
-
-    return [...byNetworkId.values()].sort((a, b) => a.networkId.localeCompare(b.networkId));
-  } finally {
-    await exchange.close();
   }
+
+  return [...byNetworkId.values()].sort((a, b) => a.networkId.localeCompare(b.networkId));
 }
 
 export async function fetchExchangeOHLCV(
@@ -392,19 +390,22 @@ export async function fetchExchangeOHLCV(
   since?: number,
   limit?: number,
 ) {
-  const exchange = createExchange(exchangeId);
+  const exchange = getOrCreateExchange(exchangeId);
 
-  try {
-    await exchange.loadMarkets();
+  await exchange.loadMarkets();
 
-    if (!exchange.has.fetchOHLCV) {
-      return [];
-    }
-
-    const rows = await exchange.fetchOHLCV(symbol, timeframe, since, limit);
-
-    return rows.map((row) => toOhlcvSnapshot(exchangeId, symbol, timeframe, row));
-  } finally {
-    await exchange.close();
+  if (!exchange.has.fetchOHLCV) {
+    return [];
   }
+
+  const rows = await exchange.fetchOHLCV(symbol, timeframe, since, limit);
+
+  return rows.map((row) => toOhlcvSnapshot(exchangeId, symbol, timeframe, row));
+}
+
+export async function closeExchangePool() {
+  const exchanges = [...exchangePool.values()];
+  exchangePool.clear();
+
+  await Promise.all(exchanges.map((exchange) => exchange.close()));
 }
