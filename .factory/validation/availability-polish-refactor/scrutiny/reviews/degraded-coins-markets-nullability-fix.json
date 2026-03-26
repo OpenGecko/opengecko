@@ -1,0 +1,15 @@
+{
+  "featureId": "degraded-coins-markets-nullability-fix",
+  "reviewedAt": "2026-03-26T13:44:47.062327+00:00",
+  "commitId": "4fb3d0768da8ec56fe4529db01130f7d71c69bc5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the original degraded-serving feature commit `b0e5fba` together with fix commit `4fb3d07`. The original feature correctly established degraded seeded-bootstrap semantics for `/coins/markets` and runtime diagnostics but left requested in-currency price-change fields outside the nulling map. The fix closes that gap by centralizing null-field generation for requested price-change windows and extending the degraded regression to request `price_change_percentage=24h`, proving `price_change_percentage_24h_in_currency` stays null while identity and safe fallback fields remain intact.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/degraded-serving-and-boot-fallback.json",
+  "summary": "Pass: the fix adequately closes the prior seeded-bootstrap nullability leak by ensuring requested `/coins/markets` in-currency price-change percentage fields are nulled during degraded fallback and by adding targeted regression coverage for that exact contract. I did not find additional blocking issues in the original degraded-serving implementation or this follow-up fix."
+}

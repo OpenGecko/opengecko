@@ -21,3 +21,5 @@ Architecture facts, decisions, and extension notes for workers.
 - Stabilize hot query shapes before adding indexes; do not optimize temporary query patterns.
 - Runtime-status and diagnostics surfaces must align with the actual behavior seen on `/simple/price` and `/coins/markets`.
 - Final-phase refactors must be characterization-first and behavior-preserving, especially for `src/modules/coins.ts` and `src/services/market-refresh.ts`.
+- Coin/token image hydration must not depend on CoinGecko IDs or the CoinGecko API. Prefer a confidence-gated identity layer that can map curated native assets and trusted platform/contract-backed tokens to public non-CoinGecko image sources.
+- Treat image hydration as compatibility data, not cosmetic best-effort guessing: avoid symbol/name-only inference for ambiguous assets unless there is an explicit curated mapping.

@@ -1,0 +1,15 @@
+{
+  "featureId": "top-gainers-losers-invalid-csv-regression-fix",
+  "reviewedAt": "2026-03-26T13:44:45Z",
+  "commitId": "050c95af35e09aaa0f7aff1b3ee7c51bc89ca506",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix restores the malformed `price_change_percentage` contract lost in the coins-module refactor by rejecting empty CSV tokens again, while keeping valid mover-window requests working and adding explicit route-level characterization for the regression.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/refactor-coins-module-with-characterization.json",
+  "summary": "Pass: reviewed the original refactor failure and fix together. Commit `050c95a` closes the blocking regression from `refactor-coins-module-with-characterization` by making trailing-comma/empty-token mover CSV input return the prior `invalid_parameter` 400 again, and the added app characterization covers both the valid `24h` path and malformed `24h,` case without introducing new contract drift in the touched code."
+}

@@ -1,6 +1,6 @@
 {
   "milestone": "availability-polish-refactor",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,57 +20,46 @@
     }
   },
   "reviewsSummary": {
-    "total": 4,
-    "passed": 1,
-    "failed": 3,
+    "total": 9,
+    "passed": 7,
+    "failed": 2,
     "failedFeatures": [
       "stale-serving-and-degraded-fallback-coherence",
-      "startup-prewarm-hot-endpoints",
-      "refactor-coins-module-with-characterization"
+      "startup-prewarm-hot-endpoints"
     ]
   },
   "blockingIssues": [
     {
       "featureId": "stale-serving-and-degraded-fallback-coherence",
       "severity": "blocking",
-      "description": "Seeded-bootstrap degraded `/coins/markets` rows still risk exposing `price_change_percentage_24h_in_currency` even though degraded market-value fields are supposed to be nulled, and the regression coverage does not assert that always-present field."
+      "description": "When `/coins/markets` serves seeded-bootstrap fallback rows, only requested `price_change_percentage_*_in_currency` fields are nulled. The default `price_change_percentage_24h_in_currency` field is still produced by the surrounding row builder via the standard row contract, so degraded rows can continue exposing a market-change value even though the feature's chosen policy nulls degraded market-value fields. The new regression in `tests/stale-data.test.ts` only checks `price_change_percentage_24h`, not the always-present `price_change_percentage_24h_in_currency`, so this compatibility gap is untested and can leak fresh-looking degraded data."
     },
     {
       "featureId": "startup-prewarm-hot-endpoints",
       "severity": "blocking",
-      "description": "Startup prewarm observability attributes first-request warm benefit by pathname only, so a non-equivalent request can be recorded as benefiting from prewarm even if it bypasses the prewarmed cache entry."
-    },
-    {
-      "featureId": "startup-prewarm-hot-endpoints",
-      "severity": "blocking",
-      "description": "Prewarm coverage only checks that diagnostics and metrics lines exist after a request; it does not prove the observed request matches the declared prewarm target or demonstrates a real warm-start benefit."
-    },
-    {
-      "featureId": "refactor-coins-module-with-characterization",
-      "severity": "blocking",
-      "description": "The refactor changed malformed `/coins/top_gainers_losers` CSV handling so `price_change_percentage=24h,` is accepted instead of preserving the prior invalid-parameter behavior."
+      "description": "`runStartupPrewarm()` collapses every non-2xx inject result into `status: 'timeout'` via the inline `.then(...)` mapper, and the loop then breaks on that status. A real handler error or contract failure on the first target is therefore reported as a budget timeout and prevents later declared targets from running at all, so the implementation does not reliably prewarm the declared target set or expose accurate diagnostics/metrics evidence for validators."
     }
   ],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
       "target": "skills",
-      "suggestion": "Tighten `safe-refactor-worker` guidance to require explicit invalid-parameter characterization for any extracted parser helpers, not just broad happy-path coverage.",
-      "evidence": "The `refactor-coins-module-with-characterization` review found contract drift in malformed `price_change_percentage` parsing after helper extraction, and the existing characterization suite did not cover that invalid-input case.",
+      "suggestion": "Update runtime-facing worker guidance to explicitly inspect startup prewarm surfaces (`src/services/startup-prewarm.ts`, diagnostics `startup_prewarm`, and `opengecko_startup_prewarm_*` metrics) when implementing or validating startup-latency features.",
+      "evidence": "Feature startup-prewarm-hot-endpoints review noted that workers had to discover startup prewarm targets, diagnostics, and metrics ad hoc because shared guidance did not mention them. Evidence: Feature metadata for `startup-prewarm-hot-endpoints` assigns a runtime/api skill workflow; the transcript skeleton shows the worker loaded a runtime/api worker skill and then had to discover `src/services/startup-prewarm.ts`, `src/services/metrics.ts`, and diagnostics routes ad hoc. No `.factory/library/` note mentions prewarm surfaces or target attribution.",
       "isSystemic": false
     },
     {
-      "target": "skills",
-      "suggestion": "Clarify scrutiny/worker commit-handling guidance for dirty working trees so workers do not report success against an unrelated existing HEAD commit when the real feature implementation is only finalized later.",
-      "evidence": "The `startup-prewarm-hot-endpoints` review found the worker handoff reported success against commit `c0c00e9` while the actual prewarm implementation was later isolated in commit `f5bde92`.",
+      "target": "AGENTS.md",
+      "suggestion": "Add a mission note that startup-prewarm evidence lives in diagnostics `startup_prewarm` fields and `opengecko_startup_prewarm_*` metrics so validators know where to look.",
+      "evidence": "Feature startup-prewarm-hot-endpoints review found the repo now exposes validator-facing prewarm evidence but mission guidance does not mention those surfaces. Evidence: Feature metadata for `startup-prewarm-hot-endpoints` assigns a runtime/api skill workflow; the transcript skeleton shows the worker loaded a runtime/api worker skill and then had to discover `src/services/startup-prewarm.ts`, `src/services/metrics.ts`, and diagnostics routes ad hoc. No `.factory/library/` note mentions prewarm surfaces or target attribution.",
       "isSystemic": false
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "Document that fallback/source-class policy should live only in `src/modules/market-freshness.ts` rather than also appearing in diagnostics code.",
+      "observation": "The mission/library guidance says fallback work should extend `src/modules/market-freshness.ts`, but this feature encoded degraded-bootstrap classification partly in `src/services/runtime-diagnostics.ts` using runtime failure reason plus snapshot ownership. That convention is not documented clearly enough for future workers deciding where fallback/source-class policy should live.",
       "reason": "ambiguous"
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/availability-polish-refactor/scrutiny/synthesis.json"
 }

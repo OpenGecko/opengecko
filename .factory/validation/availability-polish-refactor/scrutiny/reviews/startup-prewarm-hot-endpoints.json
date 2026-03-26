@@ -1,34 +1,33 @@
 {
   "featureId": "startup-prewarm-hot-endpoints",
-  "reviewedAt": "2026-03-26T13:24:09.703639+00:00",
+  "reviewedAt": "2026-03-26T21:50:00Z",
   "commitId": "c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The implementation adds startup prewarm diagnostics and metrics, but it does not verify or preserve the required warm-start benefit semantics. The first-request 'cache hit' signal is inferred solely from matching route path and hotDataRevision, so a later request with different query parameters can be misclassified as benefiting from prewarm even when it bypasses the warmed cache entry. Coverage also stops short of proving the externally observable warm-start benefit required by VAL-OPS-006.",
+    "summary": "The feature adds startup prewarm wiring, diagnostics, and metrics surfaces, but the implementation can mark non-2xx prewarm responses as timeouts and then stop prewarming later declared targets, which means the declared hot endpoint target set is not reliably prewarmed and diagnostics/metrics can misclassify actual failures as budget overruns.",
     "issues": [
       {
-        "file": "src/app.ts",
-        "line": 58,
+        "file": "src/services/startup-prewarm.ts",
+        "line": 126,
         "severity": "blocking",
-        "description": "`recordStartupPrewarmObservation()` matches the first external request to a prewarm target by pathname only (`candidate.endpoint.split('?')[0] === route`). That means any later `/simple/price` or `/coins/markets` request, even with different selectors/query options than the declared prewarm target, is recorded as that target's first observed request and can set `firstRequestWarmBenefitsObserved=true` as long as the route returns 2xx with the same `hotDataRevision`. This overstates the warm-start benefit and can produce false-positive diagnostics/metrics evidence for VAL-OPS-006 because the observed request may not reuse the prewarmed cache entry at all."
-      },
-      {
-        "file": "tests/app.test.ts",
-        "line": 314,
-        "severity": "blocking",
-        "description": "The added prewarm test only asserts that diagnostics fields and metric names exist after a post-startup `/simple/price` request; it never proves that the observed request matches the declared prewarm target or that it saw any actual latency/cache benefit versus a cold path. Because the implementation tracks first-request benefit by route path alone, this coverage would still pass even if a non-equivalent request were misclassified as a warm-start benefit, leaving the feature short of the expected externally observable evidence in the feature contract and VAL-OPS-006."
+        "description": "`runStartupPrewarm()` collapses every non-2xx inject result into `status: 'timeout'` via the inline `.then(...)` mapper, and the loop then breaks on that status. A real handler error or contract failure on the first target is therefore reported as a budget timeout and prevents later declared targets from running at all, so the implementation does not reliably prewarm the declared target set or expose accurate diagnostics/metrics evidence for validators."
       }
     ]
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The worker explicitly deviated from the skill's step 10 and reported success against an unrelated existing HEAD commit (`c0c00e9`) even though the verified startup-prewarm implementation was later isolated in commit `f5bde92`. The skill guidance about when an existing branch state may be treated as the feature commit is ambiguous for dirty working trees.",
-      "evidence": "handoffs/2026-03-26T12-57-10-001Z__startup-prewarm-hot-endpoints__87156602-5e6c-43db-a459-95a613c382e3.json records commitId `c0c00e9...` plus `skillFeedback.followedProcedure=false`; the later handoff `handoffs/2026-03-26T13-20-40-908Z__startup-prewarm-finalization__f7f30fe7-b4e4-4d5e-9576-12ccaff8eac2.json` shows the actual feature files isolated in commit `f5bde92`."
+      "observation": "The worker used the assigned feature skill path, but shared guidance does not mention startup prewarm work or the need to inspect prewarm-specific metrics and diagnostics surfaces when implementing startup-latency features.",
+      "evidence": "Feature metadata for `startup-prewarm-hot-endpoints` assigns a runtime/api skill workflow; the transcript skeleton shows the worker loaded a runtime/api worker skill and then had to discover `src/services/startup-prewarm.ts`, `src/services/metrics.ts`, and diagnostics routes ad hoc. No `.factory/library/` note mentions prewarm surfaces or target attribution."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Shared library notes do not currently record the startup prewarm surfaces, declared targets, or metrics names added by this feature, even though future validators and workers now need to know where prewarm evidence is exposed.",
+      "evidence": "`src/services/startup-prewarm.ts` declares `STARTUP_PREWARM_TARGETS`, `src/modules/diagnostics.ts` exposes `data.startup_prewarm`, and `src/services/metrics.ts` emits `opengecko_startup_prewarm_*` metrics, but `.factory/library/runtime.md` has no prewarm-related guidance (grep for 'prewarm' returned no matches)."
     }
   ],
   "addressesFailureFrom": null,
-  "summary": "Fail: startup prewarm observability can falsely attribute a warm-start benefit to any first 2xx request on the same route path, and the tests do not verify a true target-matching warm benefit. Review report focuses on commit `c0c00e9...` as assigned, with supporting evidence from the finalized feature commit `f5bde92` to inspect the actual code under review."
+  "summary": "Reviewed the feature metadata, handoff, transcript skeleton, commit context, implementation files, and targeted tests. The feature is not ready to pass scrutiny because startup prewarm currently mislabels handler failures as timeouts and aborts remaining targets, which undermines both declared-target coverage and validator-facing evidence."
 }

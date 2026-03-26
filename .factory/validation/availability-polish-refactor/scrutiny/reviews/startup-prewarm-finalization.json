@@ -1,0 +1,15 @@
+{
+  "featureId": "startup-prewarm-finalization",
+  "reviewedAt": "2026-03-26T13:44:26.476937+00:00",
+  "commitId": "f5bde92c6d4677d19e14164e9b7c57bc01dd3fff",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The finalization commit addresses the earlier blocking attribution bug by matching observed requests to normalized full target URLs rather than pathname only, and it adds regression coverage proving mismatched simple-price selectors no longer count as warm-start evidence while matching requests still do.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/startup-prewarm-hot-endpoints.json",
+  "summary": "Pass: the finalized startup-prewarm work fixes the prior false-positive warm-benefit attribution problem, preserves the intended prewarm diagnostics/metrics surface, and adds targeted tests that exercise both mismatch and matching request paths for the declared prewarm target. No new blocking issues were identified in the finalization diff."
+}

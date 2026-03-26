@@ -1,0 +1,15 @@
+{
+  "featureId": "degraded-serving-and-boot-fallback",
+  "reviewedAt": "2026-03-26T13:44:29.153817+00:00",
+  "commitId": "b0e5fba",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit b0e5fba, the worker handoff, transcript skeleton, and the touched runtime/coins/tests files. The implementation consistently carries runtime degraded state through bootstrap refresh failure, keeps `/coins/markets` rows present while nulling degraded market-value fields for seeded residual bootstrap snapshots, and makes `/diagnostics/runtime` classify failed bootstrap with residual seeded data as degraded rather than ready/fresh. The updated stale-data and existing runtime-diagnostics coverage are sufficient for the feature contract.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The feature aligns degraded boot fallback semantics across `/simple/price`, `/coins/markets`, and `/diagnostics/runtime`, and the reviewed tests characterize the chosen residual-seeded bootstrap policy without finding contract drift or missing blocking coverage."
+}

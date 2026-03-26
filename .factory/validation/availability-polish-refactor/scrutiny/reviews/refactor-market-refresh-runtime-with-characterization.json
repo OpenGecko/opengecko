@@ -1,15 +1,15 @@
 {
   "featureId": "refactor-market-refresh-runtime-with-characterization",
-  "reviewedAt": "2026-03-26T13:23:23.383245+00:00",
+  "reviewedAt": "2026-03-26T21:45:00Z",
   "commitId": "c4df63d94a7e4b18f61043ab1296f943b7a467b2",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "The refactor cleanly extracts market-refresh bookkeeping into helpers without changing the refresh control flow. Forced-failure, cooldown, partial-failure, and successful-recovery semantics remain wired through the same runtime and metrics paths, and the added characterization test covers the key externally relevant refresh outcomes and persisted ticker side effects.",
+    "summary": "The refactor extracts ticker-processing, snapshot writing, conversion-context creation, exchange-volume updates, and pending ticker upserts into focused helpers while keeping the surrounding refresh control flow, failure handling, cooldown semantics, and runtime/metrics integration intact. The added characterization test exercises forced failure, cooldown skip, partial failure, and successful recovery in one sequence and confirms the persisted BTC/USDT ticker side effects still match the pre-refactor contract.",
     "issues": []
   },
   "sharedStateObservations": [],
   "addressesFailureFrom": null,
-  "summary": "Reviewed the handoff, transcript skeleton, commit diff, runtime/metrics integrations, and market-refresh characterization tests for commit c4df63d94a7e4b18f61043ab1296f943b7a467b2. I did not find blocking correctness or compatibility issues; the helper extraction appears behavior-preserving and adequately characterized for the refreshed runtime path."
+  "summary": "Reviewed the feature metadata, handoff, transcript skeleton, skill guidance, commit diff, src/services/market-refresh.ts helper extraction, and tests/market-refresh.test.ts characterization coverage for commit c4df63d94a7e4b18f61043ab1296f943b7a467b2. No correctness, contract-drift, or shared-state issues were identified; the refactor appears behavior-preserving and adequately characterized for the market-refresh runtime path."
 }

@@ -1,0 +1,15 @@
+{
+  "featureId": "prewarm-target-attribution-hardening",
+  "reviewedAt": "2026-03-26T13:44:19.495685+00:00",
+  "commitId": "84c94b0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix closes the prior blocking attribution gap by matching first-request warm evidence against normalized request semantics rather than pathname alone. `matchStartupPrewarmTarget()` now requires pathname plus normalized query-key/value equivalence, and the new app characterization proves a same-route `/simple/price` mismatch no longer records warm-benefit evidence while an equivalent reordered request still does.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/startup-prewarm-hot-endpoints.json",
+  "summary": "Pass: reviewed the original startup-prewarm failure and fix commit 84c94b0 together. The previous pathname-only false attribution is removed, and characterization now covers both the mismatched-request negative case and the matching-request positive case without uncovering new blocking issues."
+}
