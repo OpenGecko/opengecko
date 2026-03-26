@@ -1,9 +1,9 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coinTickers, exchanges, type CoinRow, type MarketSnapshotRow } from '../db/schema';
+import { coinTickers, coins, exchanges, type CoinRow, type MarketSnapshotRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate, getConversionRates } from '../lib/conversion';
@@ -215,6 +215,10 @@ function normalizeCategoryId(value: string) {
     .replace(/^-+|-+$/g, '');
 }
 
+function sortNumber(value: number | null | undefined, fallback: number) {
+  return value ?? fallback;
+}
+
 function parseDexPairFormat(value: string | undefined) {
   if (!value) {
     return 'symbol';
@@ -260,38 +264,26 @@ function getGranularityMs(durationMs: number, interval?: string) {
   }
 }
 
-function sortNumber(value: number | null | undefined, fallback: number) {
-  return value ?? fallback;
-}
-
-function sortText(value: string | null | undefined) {
-  return value ?? '';
-}
-
-function sortMarketRows(
-  rows: Array<{ coin: CoinRow; snapshot: MarketSnapshotRow | null }>,
-  order: string | undefined,
-) {
+function parseMarketOrder(order: string | undefined) {
   const normalizedOrder = (order ?? 'market_cap_desc').toLowerCase();
-  const sortableRows = [...rows];
 
   switch (normalizedOrder) {
     case 'market_cap_desc':
-      return sortableRows.sort((left, right) => sortNumber(right.snapshot?.marketCap, -1) - sortNumber(left.snapshot?.marketCap, -1));
+      return { normalizedOrder, orderBy: [asc(coins.marketCapRank), asc(coins.id)] };
     case 'market_cap_asc':
-      return sortableRows.sort((left, right) => sortNumber(left.snapshot?.marketCap, Number.MAX_SAFE_INTEGER) - sortNumber(right.snapshot?.marketCap, Number.MAX_SAFE_INTEGER));
+      return { normalizedOrder, orderBy: [desc(coins.marketCapRank), asc(coins.id)] };
     case 'volume_desc':
-      return sortableRows.sort((left, right) => sortNumber(right.snapshot?.totalVolume, -1) - sortNumber(left.snapshot?.totalVolume, -1));
+      return { normalizedOrder, orderBy: [desc(coinTickers.convertedVolumeUsd), asc(coins.id)] };
     case 'volume_asc':
-      return sortableRows.sort((left, right) => sortNumber(left.snapshot?.totalVolume, Number.MAX_SAFE_INTEGER) - sortNumber(right.snapshot?.totalVolume, Number.MAX_SAFE_INTEGER));
+      return { normalizedOrder, orderBy: [asc(coinTickers.convertedVolumeUsd), asc(coins.id)] };
     case 'id_asc':
-      return sortableRows.sort((left, right) => sortText(left.coin.id).localeCompare(sortText(right.coin.id)));
+      return { normalizedOrder, orderBy: [asc(coins.id)] };
     case 'id_desc':
-      return sortableRows.sort((left, right) => sortText(right.coin.id).localeCompare(sortText(left.coin.id)));
+      return { normalizedOrder, orderBy: [desc(coins.id)] };
     case 'gecko_desc':
-      return sortableRows.sort((left, right) => sortNumber(left.coin.marketCapRank, Number.MAX_SAFE_INTEGER) - sortNumber(right.coin.marketCapRank, Number.MAX_SAFE_INTEGER));
+      return { normalizedOrder, orderBy: [asc(coins.marketCapRank), asc(coins.id)] };
     case 'gecko_asc':
-      return sortableRows.sort((left, right) => sortNumber(right.coin.marketCapRank, -1) - sortNumber(left.coin.marketCapRank, -1));
+      return { normalizedOrder, orderBy: [desc(coins.marketCapRank), asc(coins.id)] };
     default:
       throw new HttpError(400, 'invalid_parameter', `Unsupported order value: ${order}`);
   }
@@ -1047,27 +1039,19 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const priceChangePercentages = parseCsvQuery(query.price_change_percentage).map((value) => value.toLowerCase());
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+    const marketOrder = parseMarketOrder(query.order);
     const rows = getMarketRows(database, 'usd', {
       ids: parseCsvQuery(query.ids),
       names: parseCsvQuery(query.names),
       symbols: parseCsvQuery(query.symbols),
-    }).filter((row) => {
-      if (!category) {
-        return true;
-      }
-
-      return parseJsonArray<string>(row.coin.categoriesJson)
-        .map((entry) => normalizeCategoryId(entry))
-        .includes(category);
-    }).map((row) => ({
+      categoryId: category,
+    }, marketOrder.orderBy).map((row) => ({
       coin: row.coin,
       snapshot: getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy),
     }));
-    const sortedRows = sortMarketRows(rows, query.order);
-
     const start = (page - 1) * perPage;
 
-    return sortedRows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    return rows.slice(start, start + perPage).map((row) => buildMarketRow(database, row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       sparkline,
       precision,
       priceChangePercentages,

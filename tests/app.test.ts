@@ -165,6 +165,23 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('keeps equivalent simple price selector requests stable across parameter ordering', async () => {
+    const [baselineResponse, reorderedResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_change=true',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/price?vs_currencies=usd,eur&include_24hr_change=true&include_market_cap=true&ids=bitcoin,ethereum',
+      }),
+    ]);
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(reorderedResponse.statusCode).toBe(200);
+    expect(reorderedResponse.json()).toEqual(baselineResponse.json());
+  });
+
   it('returns token prices by contract address', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -2610,6 +2627,37 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(0);
     expect(response.json()).toEqual([]);
+  });
+
+  it('keeps market filtering and order deterministic across repeated requests', async () => {
+    const [firstResponse, secondResponse, pageOneResponse, pageTwoResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=1',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=2',
+      }),
+    ]);
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(firstResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano', 'ethereum']);
+    expect(secondResponse.json()).toEqual(firstResponse.json());
+
+    expect(pageOneResponse.statusCode).toBe(200);
+    expect(pageTwoResponse.statusCode).toBe(200);
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
   });
 
   it('reuses preloaded chart series for market rows', async () => {
