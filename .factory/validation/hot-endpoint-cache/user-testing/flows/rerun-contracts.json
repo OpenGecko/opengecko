@@ -1,0 +1,33 @@
+{
+  "surface": "HTTP API",
+  "toolsUsed": [
+    "curl",
+    "jq"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SIMPLE-001",
+      "status": "pass",
+      "summary": "GET /simple/price?vs_currencies=usd returned HTTP 400 with the exact invalid_parameter envelope required by the contract on a fresh port-3102 rerun.",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/hot-endpoint-cache/fresh-rerun/fresh-rerun-summary.json",
+          "description": "fresh-rerun-summary.json includes HTTP 400 and exact {error,message} body for the missing-selector request."
+        }
+      ]
+    },
+    {
+      "id": "VAL-MARKETS-002",
+      "status": "pass",
+      "summary": "Fresh port-3102 rerun showed stable repeated page-1 ids, disjoint page-2 ids, monotonic market_cap_rank ordering, correct filtered ids, omitted sparkline_in_7d when sparkline=false, and populated sparkline_in_7d.price arrays when sparkline=true.",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/hot-endpoint-cache/fresh-rerun/fresh-rerun-summary.json",
+          "description": "fresh-rerun-summary.json captures ordered id lists, monotonicity checks, and sparkline field-presence comparisons from the fresh validation API run."
+        }
+      ]
+    }
+  ],
+  "frictions": [],
+  "blockers": []
+}
