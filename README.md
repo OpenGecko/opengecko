@@ -15,7 +15,9 @@ openGecko is a drop-in, open-source replacement for the CoinGecko API. Deploy it
 | **Zero Rate Limits** | Run your own instance. Scale it yourself. No API key, no quota, no surprises. |
 | **Self-Hosted** | Deploy on Fly.io, Railway, your own VM. One command to start, SQLite under the hood. |
 | **CCXT-Powered** | Aggregates data from Binance, Coinbase, Kraken, OKX, and every exchange CCXT supports. |
-| **110+ Tests** | Integration-tested against live exchange data. Production-ready from day one. |
+| **Runtime Diagnostics** | Machine-readable `/diagnostics/runtime` and `/metrics` surfaces expose readiness, degraded-state, transport, and cache behavior. |
+| **Frontend-Critical Images** | Representative `/coins/markets` and `/coins/{id}` assets now expose deterministic non-CoinGecko image hydration for key frontend surfaces. |
+| **340+ Tests** | Integration-tested and contract-validated across runtime, compatibility, and frontend-critical API flows. |
 
 ---
 

@@ -1,0 +1,45 @@
+{
+  "surface": "http-api",
+  "assertions": [
+    "VAL-MARKETS-005",
+    "VAL-DETAIL-001",
+    "VAL-CROSS-005"
+  ],
+  "status": "pass",
+  "toolsUsed": [
+    "curl",
+    "bash scripts/modules/mr-market-frontend/mr-market-frontend.sh",
+    "python3 urllib"
+  ],
+  "frictions": [],
+  "blockers": [],
+  "results": [
+    {
+      "id": "VAL-MARKETS-005",
+      "status": "pass",
+      "evidence": {
+        "request": "GET /coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,ripple,dogecoin",
+        "summaryFile": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/image-hydration-foundation/http-api-images/summary.json",
+        "observed": "Returned 5 representative rows and every row had a non-empty image string."
+      }
+    },
+    {
+      "id": "VAL-DETAIL-001",
+      "status": "pass",
+      "evidence": {
+        "request": "GET /coins/{id} for bitcoin, ethereum, solana, ripple, dogecoin",
+        "detailDir": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/image-hydration-foundation/http-api-images",
+        "observed": "Each representative detail payload exposed image.thumb, image.small, and image.large as non-empty strings."
+      }
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "status": "pass",
+      "evidence": {
+        "request": "Paired list/detail checks for bitcoin, ethereum, solana, ripple, dogecoin in the same validation run",
+        "summaryFile": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/image-hydration-foundation/http-api-images/summary.json",
+        "observed": "All five representative assets had usable images on both /coins/markets and /coins/{id} during the same run."
+      }
+    }
+  ]
+}
