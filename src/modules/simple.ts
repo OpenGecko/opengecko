@@ -15,6 +15,7 @@ type SimplePriceResponse = Record<string, Record<string, number | null>>;
 type SimplePriceCacheEntry = {
   value: SimplePriceResponse;
   expiresAt: number;
+  revision: number;
 };
 
 const SIMPLE_PRICE_CACHE_TTL_MS = 5_000;
@@ -148,7 +149,7 @@ export function registerSimpleRoutes(
     const cached = simplePriceCache.get(cacheKey);
     const now = Date.now();
 
-    if (cached && cached.expiresAt > now) {
+    if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
       return cloneSimplePriceResponse(cached.value);
     }
 
@@ -182,6 +183,7 @@ export function registerSimpleRoutes(
     simplePriceCache.set(cacheKey, {
       value: cloneSimplePriceResponse(payload),
       expiresAt: now + SIMPLE_PRICE_CACHE_TTL_MS,
+      revision: runtimeState.hotDataRevision,
     });
 
     return payload;

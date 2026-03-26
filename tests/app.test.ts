@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
 import * as candleStore from '../src/services/candle-store';
@@ -2827,6 +2828,142 @@ describe('OpenGecko app scaffold', () => {
     expect(categoryResponse.json()).toEqual([]);
     expect(baselineCalls).toBeGreaterThan(0);
     expect(marketsCallCount() - baselineCalls).toBe(6);
+  });
+
+  it('invalidates simple price and coins markets hot caches together after a shared data revision', async () => {
+    const state = getApp().marketDataRuntimeState;
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const originalRevision = state.hotDataRevision;
+
+    const countSharedAssetCalls = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => vsCurrency === 'usd'
+        && Array.isArray(filters?.ids)
+        && filters.ids.length === 1
+        && filters.ids[0] === 'bitcoin',
+    ).length;
+
+    const simpleBefore = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsBefore = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+    const callsAfterWarm = countSharedAssetCalls();
+
+    const simpleCached = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+    });
+    const marketsCached = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?ids=bitcoin&vs_currency=usd',
+    });
+
+    expect(simpleBefore.statusCode).toBe(200);
+    expect(marketsBefore.statusCode).toBe(200);
+    expect(simpleCached.json()).toEqual(simpleBefore.json());
+    expect(marketsCached.json()).toEqual(marketsBefore.json());
+    expect(countSharedAssetCalls()).toBe(callsAfterWarm);
+    expect(state.hotDataRevision).toBe(originalRevision);
+
+    state.hotDataRevision += 1;
+
+    const simpleAfterRevision = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsAfterRevision = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(simpleAfterRevision.statusCode).toBe(200);
+    expect(marketsAfterRevision.statusCode).toBe(200);
+    expect(simpleAfterRevision.json()).toEqual(simpleBefore.json());
+    expect(marketsAfterRevision.json()).toEqual(marketsBefore.json());
+    expect(countSharedAssetCalls()).toBe(callsAfterWarm + 4);
+  });
+
+  it('keeps shared assets coherent across simple price and coins markets when stale-live policy flips', async () => {
+    const state = getApp().marketDataRuntimeState;
+    const { createDatabase } = await import('../src/db/client');
+    const { marketSnapshots } = await import('../src/db/schema');
+    const db = createDatabase(join(tempDir, 'test.db'));
+
+    const healthySimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const healthyMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(healthySimple.statusCode).toBe(200);
+    expect(healthyMarkets.statusCode).toBe(200);
+    expect(healthySimple.json()).toEqual({
+      bitcoin: {
+        usd: healthyMarkets.json()[0].current_price,
+      },
+    });
+
+    db.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    state.allowStaleLiveService = true;
+    state.hotDataRevision += 1;
+
+    const staleAllowedSimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const staleAllowedMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(staleAllowedSimple.statusCode).toBe(200);
+    expect(staleAllowedMarkets.statusCode).toBe(200);
+    expect(staleAllowedSimple.json()).toEqual({
+      bitcoin: {
+        usd: staleAllowedMarkets.json()[0].current_price,
+      },
+    });
+
+    state.allowStaleLiveService = false;
+    state.hotDataRevision += 1;
+
+    const staleDisallowedSimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const staleDisallowedMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(staleDisallowedSimple.statusCode).toBe(200);
+    expect(staleDisallowedSimple.json()).toEqual({});
+    expect(staleDisallowedMarkets.statusCode).toBe(200);
+    expect(staleDisallowedMarkets.json()).toEqual([
+      expect.objectContaining({
+        id: 'bitcoin',
+        current_price: null,
+        market_cap: null,
+        total_volume: null,
+        last_updated: null,
+      }),
+    ]);
+
+    db.client.close();
   });
 
   it('reuses preloaded chart series for market rows', async () => {

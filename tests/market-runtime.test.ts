@@ -14,6 +14,10 @@ async function flushMicrotasks(iterations = 5) {
   }
 }
 
+async function flushAsyncWork() {
+  await flushMicrotasks(20);
+}
+
 async function advanceTimersBy(ms: number) {
   vi.advanceTimersByTime(ms);
   await flushMicrotasks();
@@ -40,6 +44,7 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,
+    hotDataRevision: 0,
     ...overrides,
   };
 }
@@ -97,6 +102,7 @@ describe('market runtime', () => {
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.listenerBound).toBe(false);
     expect(state.syncFailureReason).toBeNull();
+    expect(state.hotDataRevision).toBe(2);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
 
     await eventually(() => {
@@ -161,6 +167,7 @@ describe('market runtime', () => {
     expect(readySettled).toBe(true);
     expect(startOhlcvRuntime).toHaveBeenCalledTimes(1);
     expect(state.initialSyncCompleted).toBe(true);
+    expect(state.hotDataRevision).toBe(2);
     await eventually(() => {
       expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
@@ -232,6 +239,7 @@ describe('market runtime', () => {
 
     expect(state.initialSyncCompleted).toBe(false);
     expect(state.syncFailureReason).toBe('network error');
+    expect(state.hotDataRevision).toBe(0);
     expect(startOhlcvRuntime).toHaveBeenCalledTimes(0);
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(0);
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
@@ -286,10 +294,14 @@ describe('market runtime', () => {
   });
 
   it('logs background job completion on a single line for consistent pretty output', async () => {
+    let releaseMarketRefresh!: () => void;
+    const runMarketRefreshOnce = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      releaseMarketRefresh = resolve;
+    }));
     const runtime = createMarketRuntime({} as never, baseConfig as never, logger, createState(), {
       runInitialMarketSync: vi.fn().mockResolvedValue({}),
       runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
-      runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce,
       runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
       startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
       stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
@@ -298,6 +310,11 @@ describe('market runtime', () => {
     await runtime.start();
     await eventually(() => {
       expect(logger.info).toHaveBeenCalledWith('background job completed job=currency_refresh');
+    });
+    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    releaseMarketRefresh();
+    await flushAsyncWork();
+    await eventually(() => {
       expect(logger.info).toHaveBeenCalledWith('background job completed job=market_refresh');
     });
 

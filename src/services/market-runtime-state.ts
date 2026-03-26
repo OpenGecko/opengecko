@@ -3,6 +3,7 @@ export type MarketDataRuntimeState = {
   allowStaleLiveService: boolean;
   syncFailureReason: string | null;
   listenerBound: boolean;
+  hotDataRevision: number;
 };
 
 export function createMarketDataRuntimeState(): MarketDataRuntimeState {
@@ -11,5 +12,6 @@ export function createMarketDataRuntimeState(): MarketDataRuntimeState {
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,
+    hotDataRevision: 0,
   };
 }

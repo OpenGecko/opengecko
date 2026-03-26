@@ -86,6 +86,7 @@ type CoinMarketsResponseRow = ReturnType<typeof buildMarketRow>;
 type CoinMarketsCacheEntry = {
   value: CoinMarketsResponseRow[];
   expiresAt: number;
+  revision: number;
 };
 
 const COINS_MARKETS_CACHE_TTL_MS = 5_000;
@@ -1069,7 +1070,7 @@ export function registerCoinRoutes(
     const cached = coinMarketsCache.get(cacheKey);
     const now = Date.now();
 
-    if (cached && cached.expiresAt > now) {
+    if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
       return cloneCoinMarketsResponse(cached.value);
     }
 
@@ -1102,6 +1103,7 @@ export function registerCoinRoutes(
     coinMarketsCache.set(cacheKey, {
       value: cloneCoinMarketsResponse(payload),
       expiresAt: now + COINS_MARKETS_CACHE_TTL_MS,
+      revision: runtimeState.hotDataRevision,
     });
 
     return payload;

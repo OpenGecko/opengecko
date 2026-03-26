@@ -15,7 +15,11 @@ type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'
 
 type JobRunner = () => Promise<void>;
 
-function createSerializedJob(name: string, logger: RuntimeLogger, runner: JobRunner) {
+function bumpHotDataRevision(state: MarketDataRuntimeState) {
+  state.hotDataRevision += 1;
+}
+
+function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketDataRuntimeState, runner: JobRunner) {
   let inFlight: Promise<void> | null = null;
 
   return {
@@ -28,6 +32,9 @@ function createSerializedJob(name: string, logger: RuntimeLogger, runner: JobRun
       inFlight = (async () => {
         try {
           await runner();
+          if (name === 'market_refresh') {
+            bumpHotDataRevision(state);
+          }
           logger.info(`background job completed job=${name}`);
         } catch (error) {
           const errorInfo = error instanceof Error
@@ -96,13 +103,13 @@ export function createMarketRuntime(
     }
   }
 
-  const runCurrencyJob = createSerializedJob('currency_refresh', logger, async () => {
+  const runCurrencyJob = createSerializedJob('currency_refresh', logger, state, async () => {
     await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
   });
-  const runMarketJob = createSerializedJob('market_refresh', logger, async () => {
+  const runMarketJob = createSerializedJob('market_refresh', logger, state, async () => {
     await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config)))();
   });
-  const runSearchJob = createSerializedJob('search_rebuild', logger, async () => {
+  const runSearchJob = createSerializedJob('search_rebuild', logger, state, async () => {
     await (overrides.runSearchRebuildOnce ?? (() => runSearchRebuildOnce(database)))();
   });
 
@@ -138,6 +145,7 @@ export function createMarketRuntime(
           state.initialSyncCompleted = true;
           state.syncFailureReason = null;
           state.allowStaleLiveService = false;
+          bumpHotDataRevision(state);
 
           const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
           startupProgress?.begin('seed_reference_data');
@@ -155,6 +163,7 @@ export function createMarketRuntime(
           state.syncFailureReason = reason;
           logger.error({ error: reason }, 'initial market sync failed');
           await enableResidualStaleDataIfAvailable();
+          bumpHotDataRevision(state);
         }
 
         if (stopRequested) {
