@@ -33,10 +33,18 @@ function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketD
         try {
           await runner();
           if (name === 'market_refresh') {
+            if (state.syncFailureReason !== null || state.allowStaleLiveService) {
+              state.syncFailureReason = null;
+              state.allowStaleLiveService = false;
+            }
             bumpHotDataRevision(state);
           }
           logger.info(`background job completed job=${name}`);
         } catch (error) {
+          if (name === 'market_refresh') {
+            state.syncFailureReason = error instanceof Error ? error.message : String(error);
+            state.allowStaleLiveService = true;
+          }
           const errorInfo = error instanceof Error
             ? { message: error.message, stack: error.stack, name: error.name }
             : { message: String(error) };

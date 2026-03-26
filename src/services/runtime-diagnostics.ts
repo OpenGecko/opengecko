@@ -80,10 +80,10 @@ export function buildRuntimeDiagnostics(
       provider_count: 0,
     };
 
-  const readinessState = runtimeState.initialSyncCompleted
-    ? 'ready'
-    : runtimeState.allowStaleLiveService || runtimeState.syncFailureReason
-      ? 'degraded'
+  const readinessState = runtimeState.allowStaleLiveService || runtimeState.syncFailureReason
+    ? 'degraded'
+    : runtimeState.initialSyncCompleted
+      ? 'ready'
       : 'starting';
 
   return {

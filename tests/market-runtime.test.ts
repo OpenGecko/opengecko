@@ -390,4 +390,49 @@ describe('market runtime', () => {
     await runtime.stop();
     expect(state.listenerBound).toBe(false);
   });
+
+  it('marks runtime degraded after repeated market refresh failures and clears failure indicators on recovery', async () => {
+    let shouldFailRefresh = true;
+    const runMarketRefreshOnce = vi.fn().mockImplementation(async () => {
+      if (shouldFailRefresh) {
+        throw new Error('provider timeout');
+      }
+    });
+    const state = createState({
+      initialSyncCompleted: true,
+      hotDataRevision: 2,
+    });
+    const runtime = createMarketRuntime({} as never, {
+      ...baseConfig,
+      marketRefreshIntervalSeconds: 1,
+    } as never, logger, state, {
+      runInitialMarketSync: vi.fn().mockResolvedValue({}),
+      runCurrencyRefreshOnce: vi.fn().mockResolvedValue(undefined),
+      runMarketRefreshOnce,
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await runtime.whenReady();
+
+    expect(state.syncFailureReason).toBe('provider timeout');
+    expect(state.allowStaleLiveService).toBe(true);
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.hotDataRevision).toBe(3);
+
+    shouldFailRefresh = false;
+    await eventually(() => {
+      vi.advanceTimersByTime(1_000);
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
+    });
+
+    expect(state.syncFailureReason).toBeNull();
+    expect(state.allowStaleLiveService).toBe(false);
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.hotDataRevision).toBe(4);
+
+    await runtime.stop();
+  });
 });
