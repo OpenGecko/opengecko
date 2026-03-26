@@ -37,6 +37,7 @@ export function buildRuntimeDiagnostics(
   marketFreshnessThresholdSeconds: number,
   now = Date.now(),
 ): RuntimeDiagnostics {
+  const degradedActive = runtimeState.allowStaleLiveService || runtimeState.syncFailureReason !== null;
   const sourceClass = latestUsdSnapshot
     ? (() => {
       const ownership = getSnapshotOwnership(latestUsdSnapshot);
@@ -80,7 +81,7 @@ export function buildRuntimeDiagnostics(
       provider_count: 0,
     };
 
-  const readinessState = runtimeState.allowStaleLiveService || runtimeState.syncFailureReason
+  const readinessState = degradedActive
     ? 'degraded'
     : runtimeState.initialSyncCompleted
       ? 'ready'
@@ -93,7 +94,7 @@ export function buildRuntimeDiagnostics(
       initial_sync_completed: runtimeState.initialSyncCompleted,
     },
     degraded: {
-      active: runtimeState.allowStaleLiveService || runtimeState.syncFailureReason !== null,
+      active: degradedActive,
       stale_live_enabled: runtimeState.allowStaleLiveService,
       reason: runtimeState.syncFailureReason,
     },

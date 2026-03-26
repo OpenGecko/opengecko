@@ -146,6 +146,32 @@ describe('runtime diagnostics', () => {
     });
   });
 
+  it('reports ready state after recovery whenever failure indicators are cleared', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        hotDataRevision: 6,
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:10:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-26T00:11:00.000Z').getTime(),
+    );
+
+    expect(diagnostics.readiness.state).toBe('ready');
+    expect(diagnostics.degraded).toEqual({
+      active: false,
+      stale_live_enabled: false,
+      reason: null,
+    });
+    expect(diagnostics.hot_paths.cache_revision).toBe(6);
+    expect(diagnostics.hot_paths.shared_market_snapshot.source_class).toBe('fresh_live');
+  });
+
   it('reports degraded provider failure while preserving ready hot-endpoint fallback semantics', () => {
     const diagnostics = buildRuntimeDiagnostics(
       createState({

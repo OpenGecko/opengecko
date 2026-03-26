@@ -19,6 +19,11 @@ function bumpHotDataRevision(state: MarketDataRuntimeState) {
   state.hotDataRevision += 1;
 }
 
+function clearRecoveredDegradedState(state: MarketDataRuntimeState) {
+  state.syncFailureReason = null;
+  state.allowStaleLiveService = false;
+}
+
 function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketDataRuntimeState, runner: JobRunner) {
   let inFlight: Promise<void> | null = null;
 
@@ -33,10 +38,7 @@ function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketD
         try {
           await runner();
           if (name === 'market_refresh') {
-            if (state.syncFailureReason !== null || state.allowStaleLiveService) {
-              state.syncFailureReason = null;
-              state.allowStaleLiveService = false;
-            }
+            clearRecoveredDegradedState(state);
             bumpHotDataRevision(state);
           }
           logger.info(`background job completed job=${name}`);
@@ -151,8 +153,7 @@ export function createMarketRuntime(
           void (overrides.startOhlcvRuntime ?? (() => ohlcvRuntime.start()))();
           startupProgress?.complete('start_ohlcv_worker');
           state.initialSyncCompleted = true;
-          state.syncFailureReason = null;
-          state.allowStaleLiveService = false;
+          clearRecoveredDegradedState(state);
           bumpHotDataRevision(state);
 
           const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
