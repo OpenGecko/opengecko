@@ -1,0 +1,28 @@
+{
+  "featureId": "refactor-coins-module-with-characterization",
+  "reviewedAt": "2026-03-26T13:23:31Z",
+  "commitId": "860c2051aa66ce2f2c43b38a1eb90e1596d4c3ff",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The coins refactor is mostly a structural extraction, but it introduced a behavioral regression in top-gainers/losers query parsing that is not covered by the retained characterization suite.",
+    "issues": [
+      {
+        "file": "src/modules/coins/helpers.ts",
+        "line": 170,
+        "severity": "blocking",
+        "description": "parseMoverPriceChangePercentage no longer uses the shared CSV parser and now silently drops blank entries. Requests like `/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,` previously raised `invalid_parameter` because parseCsvQuery removed the empty token and the legacy guard rejected the resulting empty list; after the refactor this helper returns `[\"24h\"]`, changing the HTTP contract for malformed input during a behavior-preserving refactor."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The safe-refactor skill requires tightening characterization tests before production refactors, but this worker relied on existing coverage and missed malformed top-movers CSV input semantics. The procedure would be safer if it explicitly called out invalid-parameter characterization for any extracted parser helpers.",
+      "evidence": "Skill step 2 says to write or tighten characterization tests before changing code. Handoff says `no new tests were required`, while the refactor changed `parseMoverPriceChangePercentage` in `src/modules/coins/helpers.ts:167-178` from shared CSV parsing to manual splitting and no test covers `/coins/top_gainers_losers?...price_change_percentage=24h,` in `tests/app.test.ts` or `tests/invalid-params.test.ts`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the refactor drifted malformed `price_change_percentage` handling for `/coins/top_gainers_losers`, so it does not fully preserve previously validated route behavior."
+}

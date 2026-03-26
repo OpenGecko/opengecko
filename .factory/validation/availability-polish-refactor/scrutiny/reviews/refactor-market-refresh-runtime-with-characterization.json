@@ -1,0 +1,15 @@
+{
+  "featureId": "refactor-market-refresh-runtime-with-characterization",
+  "reviewedAt": "2026-03-26T13:23:23.383245+00:00",
+  "commitId": "c4df63d94a7e4b18f61043ab1296f943b7a467b2",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The refactor cleanly extracts market-refresh bookkeeping into helpers without changing the refresh control flow. Forced-failure, cooldown, partial-failure, and successful-recovery semantics remain wired through the same runtime and metrics paths, and the added characterization test covers the key externally relevant refresh outcomes and persisted ticker side effects.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the handoff, transcript skeleton, commit diff, runtime/metrics integrations, and market-refresh characterization tests for commit c4df63d94a7e4b18f61043ab1296f943b7a467b2. I did not find blocking correctness or compatibility issues; the helper extraction appears behavior-preserving and adequately characterized for the refreshed runtime path."
+}

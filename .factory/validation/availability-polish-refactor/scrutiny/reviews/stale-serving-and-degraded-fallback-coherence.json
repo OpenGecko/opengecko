@@ -1,0 +1,28 @@
+{
+  "featureId": "stale-serving-and-degraded-fallback-coherence",
+  "reviewedAt": "2026-03-26T13:24:01.736292+00:00",
+  "commitId": "b0e5fba",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature improves degraded-boot/runtime coherence, but it still fails to fully cover the expected stale-serving behavior for /coins/markets optional price-change expansion fields in seeded-bootstrap fallback mode.",
+    "issues": [
+      {
+        "file": "src/modules/coins.ts",
+        "line": 398,
+        "severity": "blocking",
+        "description": "When `/coins/markets` serves seeded-bootstrap fallback rows, only requested `price_change_percentage_*_in_currency` fields are nulled. The default `price_change_percentage_24h_in_currency` field is still produced by the surrounding row builder via the standard row contract, so degraded rows can continue exposing a market-change value even though the feature's chosen policy nulls degraded market-value fields. The new regression in `tests/stale-data.test.ts` only checks `price_change_percentage_24h`, not the always-present `price_change_percentage_24h_in_currency`, so this compatibility gap is untested and can leak fresh-looking degraded data."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The mission/library guidance says fallback work should extend `src/modules/market-freshness.ts`, but this feature encoded degraded-bootstrap classification partly in `src/services/runtime-diagnostics.ts` using runtime failure reason plus snapshot ownership. That convention is not documented clearly enough for future workers deciding where fallback/source-class policy should live.",
+      "evidence": ".factory/library/runtime.md:25 says fallback work should extend `src/modules/market-freshness.ts`, while commit `b0e5fba` adds seeded-bootstrap degraded classification in `src/services/runtime-diagnostics.ts:41-52`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit `b0e5fba` plus the worker transcript/handoff. The implementation aligns several degraded-boot paths, but it misses a blocking `/coins/markets` field-nulling gap for `price_change_percentage_24h_in_currency`, so the feature does not yet fully satisfy the declared degraded market-value policy."
+}

@@ -1,0 +1,76 @@
+{
+  "milestone": "availability-polish-refactor",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --maxWorkers=3",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "No lint script is defined in package.json or .factory/services.yaml for this repo.",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 1,
+    "failed": 3,
+    "failedFeatures": [
+      "stale-serving-and-degraded-fallback-coherence",
+      "startup-prewarm-hot-endpoints",
+      "refactor-coins-module-with-characterization"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "stale-serving-and-degraded-fallback-coherence",
+      "severity": "blocking",
+      "description": "Seeded-bootstrap degraded `/coins/markets` rows still risk exposing `price_change_percentage_24h_in_currency` even though degraded market-value fields are supposed to be nulled, and the regression coverage does not assert that always-present field."
+    },
+    {
+      "featureId": "startup-prewarm-hot-endpoints",
+      "severity": "blocking",
+      "description": "Startup prewarm observability attributes first-request warm benefit by pathname only, so a non-equivalent request can be recorded as benefiting from prewarm even if it bypasses the prewarmed cache entry."
+    },
+    {
+      "featureId": "startup-prewarm-hot-endpoints",
+      "severity": "blocking",
+      "description": "Prewarm coverage only checks that diagnostics and metrics lines exist after a request; it does not prove the observed request matches the declared prewarm target or demonstrates a real warm-start benefit."
+    },
+    {
+      "featureId": "refactor-coins-module-with-characterization",
+      "severity": "blocking",
+      "description": "The refactor changed malformed `/coins/top_gainers_losers` CSV handling so `price_change_percentage=24h,` is accepted instead of preserving the prior invalid-parameter behavior."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Tighten `safe-refactor-worker` guidance to require explicit invalid-parameter characterization for any extracted parser helpers, not just broad happy-path coverage.",
+      "evidence": "The `refactor-coins-module-with-characterization` review found contract drift in malformed `price_change_percentage` parsing after helper extraction, and the existing characterization suite did not cover that invalid-input case.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills",
+      "suggestion": "Clarify scrutiny/worker commit-handling guidance for dirty working trees so workers do not report success against an unrelated existing HEAD commit when the real feature implementation is only finalized later.",
+      "evidence": "The `startup-prewarm-hot-endpoints` review found the worker handoff reported success against commit `c0c00e9` while the actual prewarm implementation was later isolated in commit `f5bde92`.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Document that fallback/source-class policy should live only in `src/modules/market-freshness.ts` rather than also appearing in diagnostics code.",
+      "reason": "ambiguous"
+    }
+  ],
+  "previousRound": null
+}
