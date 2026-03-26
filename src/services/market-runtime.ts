@@ -10,6 +10,7 @@ import { runMarketRefreshOnce } from './market-refresh';
 import type { MetricsRegistry } from './metrics';
 import { createOhlcvRuntime } from './ohlcv-runtime';
 import { runSearchRebuildOnce } from './search-rebuild';
+import { runStartupPrewarm } from './startup-prewarm';
 import type { StartupProgressReporter } from './startup-progress';
 
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
@@ -89,8 +90,9 @@ type MarketRuntimeOverrides = {
 };
 
 export function createMarketRuntime(
+  app: { inject: (opts: { method: string; url: string }) => Promise<unknown> },
   database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency'>,
+  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency' | 'startupPrewarmBudgetMs'>,
   logger: RuntimeLogger,
   state: MarketDataRuntimeState,
   metrics: MetricsRegistry,
@@ -170,6 +172,7 @@ export function createMarketRuntime(
           startupProgress?.begin('rebuild_search_index');
           rebuildSearchIndex(database);
           startupProgress?.complete('rebuild_search_index');
+          await runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
           startupProgress?.begin('start_http_listener');
           startupProgress?.complete('start_http_listener');
 

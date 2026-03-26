@@ -138,7 +138,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const metrics = createMetricsRegistry();
   const runtime = shouldStartBackgroundJobs
-    ? createMarketRuntime(database, config, app.log, marketDataRuntimeState, metrics, {}, options.startupProgress)
+    ? createMarketRuntime(app, database, config, app.log, marketDataRuntimeState, metrics, {}, options.startupProgress)
     : null;
 
   migrateDatabase(database);
