@@ -3565,6 +3565,10 @@ describe('OpenGecko app scaffold', () => {
       method: 'GET',
       url: '/coins/top_gainers_losers?vs_currency=usd&duration=24h&top_coins=300&price_change_percentage=24h',
     });
+    const invalidPriceChangePercentageResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,',
+    });
     const invalidDurationResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/top_gainers_losers?vs_currency=usd&duration=2h',
@@ -3577,6 +3581,12 @@ describe('OpenGecko app scaffold', () => {
     expect(validResponse.statusCode).toBe(200);
     expect(validResponse.json().top_gainers.length).toBeLessThanOrEqual(30);
     expect(validResponse.json().top_losers).toEqual([]);
+
+    expect(invalidPriceChangePercentageResponse.statusCode).toBe(400);
+    expect(invalidPriceChangePercentageResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'Unsupported price_change_percentage value: 24h,',
+    });
 
     expect(invalidDurationResponse.statusCode).toBe(400);
     expect(invalidDurationResponse.json()).toMatchObject({

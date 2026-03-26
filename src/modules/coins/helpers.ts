@@ -186,10 +186,11 @@ export function parseMoverPriceChangePercentage(value: string | undefined) {
     return ['24h'];
   }
 
-  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean).map((entry) => entry.toLowerCase());
+  const rawEntries = value.split(',').map((entry) => entry.trim());
+  const entries = rawEntries.filter(Boolean).map((entry) => entry.toLowerCase());
   const supported = new Set(['24h', '7d', '14d', '30d', '200d', '1y']);
 
-  if (entries.length === 0 || entries.some((entry) => !supported.has(entry))) {
+  if (rawEntries.some((entry) => entry.length === 0) || entries.some((entry) => !supported.has(entry))) {
     throw new HttpError(400, 'invalid_parameter', `Unsupported price_change_percentage value: ${value}`);
   }
 
