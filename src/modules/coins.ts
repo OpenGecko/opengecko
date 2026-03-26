@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coinTickers, coins, exchanges, type CoinRow, type MarketSnapshotRow } from '../db/schema';
+import { coinTickers, coins, exchanges, marketSnapshots, type CoinRow, type MarketSnapshotRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate, getConversionRates } from '../lib/conversion';
@@ -273,9 +273,9 @@ function parseMarketOrder(order: string | undefined) {
     case 'market_cap_asc':
       return { normalizedOrder, orderBy: [desc(coins.marketCapRank), asc(coins.id)] };
     case 'volume_desc':
-      return { normalizedOrder, orderBy: [desc(coinTickers.convertedVolumeUsd), asc(coins.id)] };
+      return { normalizedOrder, orderBy: [desc(marketSnapshots.totalVolume), asc(coins.id)] };
     case 'volume_asc':
-      return { normalizedOrder, orderBy: [asc(coinTickers.convertedVolumeUsd), asc(coins.id)] };
+      return { normalizedOrder, orderBy: [asc(marketSnapshots.totalVolume), asc(coins.id)] };
     case 'id_asc':
       return { normalizedOrder, orderBy: [asc(coins.id)] };
     case 'id_desc':

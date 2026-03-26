@@ -2767,6 +2767,41 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('supports deterministic coin market volume ordering on the stabilized query path', async () => {
+    const [volumeDescResponse, repeatedVolumeDescResponse, volumeAscResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_desc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_desc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_asc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+    ]);
+
+    expect(volumeDescResponse.statusCode).toBe(200);
+    expect(repeatedVolumeDescResponse.statusCode).toBe(200);
+    expect(volumeAscResponse.statusCode).toBe(200);
+
+    expect(volumeDescResponse.json().map((row: { id: string }) => row.id)).toEqual([
+      'bitcoin',
+      'ethereum',
+      'cardano',
+      'dogecoin',
+    ]);
+    expect(repeatedVolumeDescResponse.json()).toEqual(volumeDescResponse.json());
+    expect(volumeAscResponse.json().map((row: { id: string }) => row.id)).toEqual([
+      'dogecoin',
+      'cardano',
+      'ethereum',
+      'bitcoin',
+    ]);
+  });
+
   it('keeps representative pagination boundaries deterministic across coin, exchange, and onchain category families', async () => {
     const [
       coinMarketsPageOne,
