@@ -1,43 +1,42 @@
 {
   "milestone": "provider-resilience-runtime-health",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "assertionsSummary": {
     "total": 6,
-    "passed": 4,
+    "passed": 6,
     "failed": 0,
-    "blocked": 2
+    "blocked": 0
   },
   "passedAssertions": [
     "VAL-HEALTH-001",
     "VAL-HEALTH-002",
     "VAL-HEALTH-003",
-    "VAL-HEALTH-005"
+    "VAL-HEALTH-004",
+    "VAL-HEALTH-005",
+    "VAL-CROSS-003"
   ],
   "failedAssertions": [],
-  "blockedAssertions": [
-    {
-      "id": "VAL-HEALTH-004",
-      "blockedBy": "No externally exposed fault-injection or controllable provider outage hook was available on the public HTTP surface to reproduce failure and recovery."
-    },
-    {
-      "id": "VAL-CROSS-003",
-      "blockedBy": "No validator-usable provider outage trigger was exposed, so repeated provider-failure fallback behavior could not be exercised through real HTTP requests."
-    }
-  ],
+  "blockedAssertions": [],
   "appliedUpdates": [
     {
       "target": "user-testing.md",
       "description": "Recorded the observed ~75s readiness wait on port 3102 and noted that /diagnostics/runtime is available but no public fault-injection hook exists for provider outage simulation.",
-      "source": "flow-report"
+      "source": "round-1 flow-report"
     }
   ],
-  "previousRound": null,
+  "previousRound": 1,
   "flowReports": [
-    ".factory/validation/provider-resilience-runtime-health/user-testing/flows/runtime-health.json"
+    ".factory/validation/provider-resilience-runtime-health/user-testing/flows/runtime-health.json",
+    ".factory/validation/provider-resilience-runtime-health/user-testing/flows/provider-failure-rerun.json"
+  ],
+  "notes": [
+    "Round 2 used the validation-only `POST /diagnostics/runtime/provider_failure` hook added for the dedicated validation API on port 3102.",
+    "Fresh HTTP evidence from worker session 133af0ae-cf7b-4140-9352-1cbd0c2a4a83 confirmed degraded fallback and recovery clearing behavior for VAL-HEALTH-004 and VAL-CROSS-003."
   ],
   "toolsUsed": [
     "python urllib",
-    "bun run src/server.ts"
+    "bun run src/server.ts",
+    "validation-only provider failure hook"
   ]
 }
