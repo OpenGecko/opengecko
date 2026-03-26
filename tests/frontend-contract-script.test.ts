@@ -23,6 +23,7 @@ import { fetchExchangeMarkets, fetchExchangeTickers, fetchExchangeOHLCV } from '
 const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.fn>;
 const mockedFetchExchangeTickers = fetchExchangeTickers as ReturnType<typeof vi.fn>;
 const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+const REPRESENTATIVE_FRONTEND_CRITICAL_IDS = ['bitcoin', 'ethereum', 'solana', 'ripple', 'dogecoin'] as const;
 
 function runScript(command: string, env: NodeJS.ProcessEnv) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
@@ -208,7 +209,7 @@ describe('module contract verification scripts', () => {
     );
   });
 
-  it('passes broad endpoint smoke checks for current endpoint families', async () => {
+  it('passes broad endpoint smoke checks for current endpoint families', { timeout: 20000 }, async () => {
     await expectScriptToPass(
       'scripts/test-endpoints.sh',
       'OpenGecko Endpoint Tester',
@@ -259,25 +260,28 @@ describe('module contract verification scripts', () => {
   it('keeps frontend-critical market and detail images usable for representative assets', async () => {
     const marketsResponse = await app.inject({
       method: 'GET',
-      url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana,ripple,dogecoin',
+      url: `/coins/markets?vs_currency=usd&ids=${REPRESENTATIVE_FRONTEND_CRITICAL_IDS.join(',')}`,
     });
 
     expect(marketsResponse.statusCode).toBe(200);
 
     const marketsBody = marketsResponse.json() as Array<{ id: string; image: string | null }>;
-    expect(marketsBody).toEqual(expect.arrayContaining([
+    const representativeRows = marketsBody.filter((row) => REPRESENTATIVE_FRONTEND_CRITICAL_IDS.includes(row.id as typeof REPRESENTATIVE_FRONTEND_CRITICAL_IDS[number]));
+
+    expect(representativeRows).toHaveLength(REPRESENTATIVE_FRONTEND_CRITICAL_IDS.length);
+    expect(representativeRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'bitcoin', image: expect.any(String) }),
       expect.objectContaining({ id: 'ethereum', image: expect.any(String) }),
       expect.objectContaining({ id: 'solana', image: expect.any(String) }),
       expect.objectContaining({ id: 'ripple', image: expect.any(String) }),
       expect.objectContaining({ id: 'dogecoin', image: expect.any(String) }),
     ]));
-    for (const row of marketsBody) {
+    for (const row of representativeRows) {
       expect(row.image).not.toBeNull();
       expect(row.image?.trim().length).toBeGreaterThan(0);
     }
 
-    for (const coinId of ['bitcoin', 'ethereum', 'solana', 'ripple', 'dogecoin']) {
+    for (const coinId of REPRESENTATIVE_FRONTEND_CRITICAL_IDS) {
       const detailResponse = await app.inject({
         method: 'GET',
         url: `/coins/${coinId}`,

@@ -29,8 +29,6 @@ const CURATED_NATIVE_ASSET_MAPPINGS: Record<string, NativeAssetMapping> = {
   ripple: { trustWalletAssetId: 'xrp' },
   solana: { trustWalletAssetId: 'solana' },
   dogecoin: { trustWalletAssetId: 'dogecoin' },
-  cardano: { trustWalletAssetId: 'cardano' },
-  chainlink: { trustWalletAssetId: 'chainlink' },
 };
 
 const TRUSTED_PLATFORM_MAPPINGS: Record<string, TrustedPlatformMapping> = {
