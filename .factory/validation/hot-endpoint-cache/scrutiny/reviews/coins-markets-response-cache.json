@@ -1,15 +1,15 @@
 {
   "featureId": "coins-markets-response-cache",
-  "reviewedAt": "2026-03-26T17:33:00Z",
+  "reviewedAt": "2026-03-26T09:44:51.624853+00:00",
   "commitId": "e2e19a8",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "The feature correctly adds an in-process `/coins/markets` response cache with key isolation for pagination, ordering, selectors, category, sparkline, requested price-change windows, precision, and runtime revision invalidation. The implementation preserves row-shape compatibility by cloning cached payloads, and the added characterization test covers the expected cache-safe request variants required by VAL-MARKETS-001/002/003.",
+    "summary": "Reviewed the /coins/markets response-cache implementation, its characterization coverage, and follow-up hotDataRevision integration. The cache key isolates the documented shape-altering parameters, cached payloads are cloned to avoid object reuse leakage, and subsequent revision-based invalidation closes the startup-transition gap that scrutiny later found.",
     "issues": []
   },
   "sharedStateObservations": [],
   "addressesFailureFrom": null,
-  "summary": "Reviewed the feature handoff, commit diff, transcript skeleton, relevant route code, tests, mission guidance, and skill instructions. I found no blocking or non-blocking issues: the cache key isolates the required shape-altering parameters, invalidates on `hotDataRevision`, and has targeted coverage for repeated equivalent requests plus page/order/filter/sparkline/price-change/precision separation."
+  "summary": "Pass. The feature's cache key and tests cover pagination, ordering, selector normalization, category filters, sparkline, price-change windows, and precision-sensitive values, and the later revision wiring resolves the originally missing transition invalidation risk."
 }

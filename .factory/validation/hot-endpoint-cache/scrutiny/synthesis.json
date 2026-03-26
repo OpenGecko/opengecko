@@ -20,11 +20,12 @@
     }
   },
   "reviewsSummary": {
-    "total": 3,
+    "total": 4,
     "passed": 2,
-    "failed": 1,
+    "failed": 2,
     "failedFeatures": [
-      "hot-endpoint-cache-transition-coherence"
+      "hot-endpoint-cache-transition-coherence",
+      "hot-data-revision-startup-transition-fix"
     ]
   },
   "blockingIssues": [
@@ -32,16 +33,26 @@
       "featureId": "hot-endpoint-cache-transition-coherence",
       "severity": "blocking",
       "description": "The no-runtime startup path still sets `marketDataRuntimeState.initialSyncCompleted = true` directly without advancing `hotDataRevision`. Because `/simple/price` and `/coins/markets` now only invalidate on revision mismatch, any cached responses created before this direct state transition would remain valid for up to the TTL and can contradict the new post-sync policy. The shared invalidation contract should be driven from every state transition that changes hot-endpoint visibility, not only from `createMarketRuntime()`."
+    },
+    {
+      "featureId": "hot-data-revision-startup-transition-fix",
+      "severity": "blocking",
+      "description": "The bootstrap-only success path in `src/app.ts` clears `syncFailureReason` after a successful initial sync but does not reset `allowStaleLiveService` to `false`, leaving runtime freshness/source-class state inconsistent with the fresh data actually being served and diverging from the background-runtime recovery path."
     }
   ],
   "appliedUpdates": [
     {
       "target": "library",
-      "description": "Documented the hotDataRevision runtime-state invariant required for cross-endpoint hot-cache invalidation coherence.",
-      "sourceFeature": "hot-endpoint-cache-transition-coherence"
+      "description": "Updated `.factory/library/runtime.md` to record that successful recovery transitions must clear stale/failure flags consistently across bootstrap-only and background runtime paths, in addition to bumping `hotDataRevision` for visibility changes.",
+      "sourceFeature": "hot-data-revision-startup-transition-fix"
     }
   ],
   "suggestedGuidanceUpdates": [],
-  "rejectedObservations": [],
+  "rejectedObservations": [
+    {
+      "observation": "Document that hot-endpoint cache coherence depends on every visibility/freshness transition advancing `hotDataRevision`, including the no-runtime `onReady` bootstrap path.",
+      "reason": "already-documented"
+    }
+  ],
   "previousRound": null
 }

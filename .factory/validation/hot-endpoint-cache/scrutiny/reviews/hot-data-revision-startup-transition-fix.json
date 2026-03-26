@@ -1,0 +1,34 @@
+{
+  "featureId": "hot-data-revision-startup-transition-fix",
+  "reviewedAt": "2026-03-26T09:45:01Z",
+  "commitId": "d1e3e8a8dd4625a729a6ecda4358c9ae718c8478",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The startup-path revision bump in src/app.ts closes the originally reported stale-cache gap for the bootstrap-only onReady flow, and the new app-level regression exercises that path successfully. However, the fix also clears syncFailureReason after a successful bootstrap without resetting allowStaleLiveService, which leaves runtime state contradictory and can misreport the hot endpoint source class after recovery from residual-stale startup.",
+    "issues": [
+      {
+        "file": "src/app.ts",
+        "line": 134,
+        "severity": "blocking",
+        "description": "After a successful bootstrap-only initial sync, the code clears syncFailureReason but never resets allowStaleLiveService to false. If startup previously exposed residual stale data (or the state was otherwise marked stale-visible), hot endpoints will now serve fresh data while runtime state still advertises stale-live fallback as enabled, leaving freshness/source-class state inconsistent with actual endpoint behavior and making later transitions depend on stale flags that should have been cleared. The background-runtime path in src/services/market-runtime.ts explicitly clears allowStaleLiveService on successful sync, so the no-runtime path is now behaviorally divergent."
+      },
+      {
+        "file": "tests/app.test.ts",
+        "line": 2891,
+        "severity": "non_blocking",
+        "description": "The new regression proves hotDataRevision increments from the all-false startup state, but it does not cover recovery from a bootstrap path where residual stale service was already visible or syncFailureReason was set. That missing characterization is what allowed the stale allowStaleLiveService flag divergence in src/app.ts to slip through."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The mission library documents that any runtime-state transition changing hot-endpoint freshness/visibility must advance hotDataRevision, but it does not also record that successful recovery transitions must clear stale/failure flags consistently across both background-runtime and bootstrap-only startup paths.",
+      "evidence": ".factory/library/runtime.md notes the shared revision rule, while src/services/market-runtime.ts resets both syncFailureReason and allowStaleLiveService on successful sync; src/app.ts for the bootstrap-only path only resets syncFailureReason."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the revision bump fixes the original bootstrap cache invalidation bug, but the bootstrap-only success path still leaves allowStaleLiveService uncleared, creating inconsistent runtime state versus the already-correct background-runtime path."
+}

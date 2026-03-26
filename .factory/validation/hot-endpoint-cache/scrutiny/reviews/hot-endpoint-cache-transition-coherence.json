@@ -1,28 +1,28 @@
 {
   "featureId": "hot-endpoint-cache-transition-coherence",
-  "reviewedAt": "2026-03-26T09:32:56.242196+00:00",
+  "reviewedAt": "2026-03-26T09:44:55Z",
   "commitId": "c36b901",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The revision-based cache invalidation keeps the two hot endpoint caches aligned for the runtime-managed refresh path, but the new coherence mechanism is incomplete because the non-runtime startup path never advances the shared revision, leaving stale cached responses reusable after direct runtime-state policy changes.",
+    "summary": "The shared hotDataRevision invalidation closes the main cache-coherence gap between `/simple/price` and `/coins/markets`, and the added tests cover refresh-driven invalidation plus stale-policy flips. However, the reviewed commit leaves the no-runtime bootstrap path in `src/app.ts` without a revision bump when initial sync first makes hot data visible, so one endpoint can still serve a stale cached generation across that startup transition while the other recomputes.",
     "issues": [
       {
         "file": "src/app.ts",
-        "line": 129,
+        "line": 133,
         "severity": "blocking",
-        "description": "The no-runtime startup path still sets `marketDataRuntimeState.initialSyncCompleted = true` directly without advancing `hotDataRevision`. Because `/simple/price` and `/coins/markets` now only invalidate on revision mismatch, any cached responses created before this direct state transition would remain valid for up to the TTL and can contradict the new post-sync policy. The shared invalidation contract should be driven from every state transition that changes hot-endpoint visibility, not only from `createMarketRuntime()`."
+        "description": "In the `startBackgroundJobs: false` bootstrap path, `initialSyncCompleted` is set directly after `runInitialMarketSync()` without advancing `marketDataRuntimeState.hotDataRevision`. Any `/simple/price` or `/coins/markets` response cached before readiness can therefore survive the initial-sync-complete transition until TTL expiry, recreating the cross-endpoint contradiction this feature is meant to prevent. The later fix in commit `d1e3e8a` confirms this hole was real."
       }
     ]
   },
   "sharedStateObservations": [
     {
       "area": "knowledge",
-      "observation": "The repo now has a cross-endpoint cache coherence invariant centered on `MarketDataRuntimeState.hotDataRevision`, but `.factory/library/runtime.md` still documents only `initialSyncCompleted`, `allowStaleLiveService`, and `syncFailureReason` as runtime state fields.",
-      "evidence": "src/services/market-runtime-state.ts:1-15 adds `hotDataRevision`; src/modules/simple.ts:148-186 and src/modules/coins.ts:1069-1106 depend on it for cache reuse; .factory/library/runtime.md omits the field."
+      "observation": "Hot-endpoint cache coherence depends on every visibility/freshness policy transition advancing `hotDataRevision`, including the no-runtime `onReady` bootstrap path in `src/app.ts`, not just background runtime refresh/failure transitions.",
+      "evidence": "`src/services/market-runtime.ts` bumps the revision for runtime-driven success/failure transitions, while this reviewed commit did not yet bump it in `src/app.ts` after `runInitialMarketSync()` when `startBackgroundJobs` is false. A follow-up feature `hot-data-revision-startup-transition-fix` was later added to address exactly this gap."
     }
   ],
   "addressesFailureFrom": null,
-  "summary": "Reviewed handoff, commit c36b901 diff, transcript skeleton, and targeted tests. Found one blocking gap: the alternate startup path in `src/app.ts` does not bump the new shared hot-data revision, so cache coherence is not guaranteed for all runtime-state transitions that affect the hot endpoints."
+  "summary": "Fail: the feature substantially improves cache-transition coherence, but it misses the no-runtime startup transition in `src/app.ts`, leaving a blocking stale-cache path for the same shared hot endpoints until the later startup-transition fix."
 }

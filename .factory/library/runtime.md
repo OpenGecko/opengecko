@@ -18,6 +18,7 @@ Runtime-specific facts and guidance for the runtime hardening mission.
   - `allowStaleLiveService`
   - `syncFailureReason`
 - Hot-endpoint cache coherence now also depends on `hotDataRevision` in `src/services/market-runtime-state.ts`; any runtime-state transition that changes hot-endpoint freshness/visibility must advance this shared revision so `/simple/price` and `/coins/markets` caches invalidate together.
+- Successful recovery transitions must also clear stale/failure flags consistently across both the background-runtime path (`src/services/market-runtime.ts`) and the bootstrap-only startup path (`src/app.ts`), especially `allowStaleLiveService` and `syncFailureReason`, so diagnostics and hot-endpoint source-class state do not drift from the data actually being served.
 - `src/modules/market-freshness.ts` already encodes important degraded/stale behavior; new fallback work should extend that policy rather than re-inventing it elsewhere.
 - Keep provider failure control centralized near runtime/provider services. Route handlers should consume established state, not create their own provider retry or breaker logic.
 - Query-shape and cache work must stay aligned: stabilize miss-path selectors first, then add indexes, then add route-facing caches.
