@@ -1,7 +1,7 @@
 {
   "milestone": "provider-resilience-runtime-health",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,34 +20,14 @@
     }
   },
   "reviewsSummary": {
-    "total": 3,
-    "passed": 1,
-    "failed": 2,
-    "failedFeatures": [
-      "provider-failure-protection-and-recovery",
-      "runtime-health-and-diagnostics-surface"
-    ]
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "provider-failure-protection-and-recovery",
-      "severity": "blocking",
-      "description": "The runtime still calls `fetchExchangeTickers` for every configured exchange on every refresh cycle with no circuit-breaker, cool-down, or fail-fast gate. This feature's stated scope required provider-failure protection such as circuit-breaker or fail-fast semantics, but the implementation only marks degraded state after a thrown refresh error. Repeated provider failures therefore continue to hit upstream providers instead of being short-circuited."
-    },
-    {
-      "featureId": "runtime-health-and-diagnostics-surface",
-      "severity": "blocking",
-      "description": "`readiness.state` returns `ready` whenever `initialSyncCompleted` is true, even if `allowStaleLiveService` or `syncFailureReason` still indicate degraded fallback. This makes `/diagnostics/runtime` report a recovered/healthy state while stale-live fallback and provider-failure indicators remain active, violating the machine-readable readiness/degraded contract and the feature's expected behavior."
-    }
-  ],
-  "appliedUpdates": [
-    {
-      "target": "library",
-      "description": "Documented that the shared HTTP app test fixture completes bootstrap before inject, so true pre-ready startup state must be tested via runtime-state/diagnostics tests instead of route-level app.inject probes.",
-      "sourceFeature": "runtime-health-and-diagnostics-surface"
-    }
-  ],
+  "blockingIssues": [],
+  "appliedUpdates": [],
   "suggestedGuidanceUpdates": [],
   "rejectedObservations": [],
-  "previousRound": null
+  "previousRound": ".factory/validation/provider-resilience-runtime-health/scrutiny/synthesis.json#round-1"
 }
