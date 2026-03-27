@@ -5563,6 +5563,40 @@ describe('OpenGecko app scaffold', () => {
     expect(countSharedAssetCalls()).toBe(warmCallCountBeforeRequests + 2);
   });
 
+  it('fails startup with a targeted initial sync timeout message before Fastify hook timeout masking', async () => {
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+      startupPluginTimeout: 10,
+    });
+
+    const originalReady = bootstrapApp.ready.bind(bootstrapApp);
+    bootstrapApp.ready = () => originalReady();
+
+    const initialSyncModule = await import('../src/services/initial-sync');
+    const runInitialMarketSyncSpy = vi.spyOn(initialSyncModule, 'runInitialMarketSync')
+      .mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return {
+          coinsDiscovered: 0,
+          chainsDiscovered: 0,
+          snapshotsCreated: 0,
+          tickersWritten: 0,
+          exchangesSynced: 0,
+          ohlcvCandlesWritten: 0,
+        };
+      });
+
+    await expect(bootstrapApp.ready()).rejects.toThrow('Startup initial sync exceeded 10ms before listener bind');
+
+    runInitialMarketSyncSpy.mockRestore();
+    await bootstrapApp.close();
+  });
+
   it('clears stale-live recovery flags and bumps revision when bootstrap-only sync recovers stale-visible state', async () => {
     await getApp().close();
     app = undefined;

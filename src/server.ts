@@ -13,6 +13,7 @@ async function start() {
       config,
       startBackgroundJobs: true,
       pluginTimeout: 120_000,
+      startupPluginTimeout: 110_000,
       startupProgress,
     });
 

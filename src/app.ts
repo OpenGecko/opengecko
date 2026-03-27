@@ -38,6 +38,7 @@ export type BuildAppOptions = {
   config?: Partial<AppConfig>;
   startBackgroundJobs?: boolean;
   pluginTimeout?: number;
+  startupPluginTimeout?: number;
   startupProgress?: StartupProgressReporter;
 };
 
@@ -182,10 +183,33 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerGlobalRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
 
   app.addHook('onReady', async () => {
+    const startupTimeoutMs = options.startupPluginTimeout ?? options.pluginTimeout;
+    const withStartupTimeout = async <T>(operation: Promise<T>, message: string) => {
+      if (!startupTimeoutMs || startupTimeoutMs <= 0) {
+        return operation;
+      }
+
+      return await Promise.race([
+        operation,
+        new Promise<T>((_, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error(message));
+          }, startupTimeoutMs);
+
+          operation.finally(() => {
+            clearTimeout(timeout);
+          });
+        }),
+      ]);
+    };
+
     // Always run initial market sync (live data from CCXT)
     if (runtime) {
       await runtime.start();
-      await runtime.whenReady();
+      await withStartupTimeout(
+        runtime.whenReady(),
+        `Startup initial sync exceeded ${startupTimeoutMs}ms before listener bind`,
+      );
       seedStaticReferenceData(database);
       rebuildSearchIndex(database);
     } else {
@@ -194,14 +218,17 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         marketDataRuntimeState.initialSyncCompleted
         || marketDataRuntimeState.allowStaleLiveService
         || marketDataRuntimeState.syncFailureReason !== null;
-      await runInitialMarketSync(database, config, undefined, {
-        onStepChange: (stepId) => {
-          options.startupProgress?.begin(stepId);
-        },
-        onOhlcvBackfillProgress: (current, total) => {
-          options.startupProgress?.updateOhlcvProgress(current, total);
-        },
-      }, marketDataRuntimeState);
+      await withStartupTimeout(
+        runInitialMarketSync(database, config, undefined, {
+          onStepChange: (stepId) => {
+            options.startupProgress?.begin(stepId);
+          },
+          onOhlcvBackfillProgress: (current, total) => {
+            options.startupProgress?.updateOhlcvProgress(current, total);
+          },
+        }, marketDataRuntimeState),
+        `Startup initial sync exceeded ${startupTimeoutMs}ms before listener bind`,
+      );
       const newlyExposedHotData = !hotDataWasVisible;
       marketDataRuntimeState.initialSyncCompleted = true;
       marketDataRuntimeState.allowStaleLiveService = false;
