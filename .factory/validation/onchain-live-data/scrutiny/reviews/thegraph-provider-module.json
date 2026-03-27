@@ -1,28 +1,21 @@
 {
   "featureId": "thegraph-provider-module",
-  "reviewedAt": "2026-03-27T05:18:56.109458+00:00",
+  "reviewedAt": "2026-03-27T05:39:24.951878+00:00",
   "commitId": "5468204d19df31f6355f2855226898a316b5667a",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "fail",
+  "status": "pass",
   "codeReview": {
-    "summary": "The provider module covers the required The Graph pool detail, swap, and snapshot fetchers with native fetch, env-based API key resolution, and mocked tests, but the original feature commit did not enforce the chronological snapshot contract required for reliable liquidity/volume history consumers.",
-    "issues": [
-      {
-        "file": "src/providers/thegraph.ts",
-        "line": 256,
-        "severity": "blocking",
-        "description": "`fetchUniswapV3PoolSnapshots` queried `poolDayDatas` with `orderDirection: desc` and returned the array without reordering, so callers received reverse-chronological history. The feature contract calls for pool liquidity/volume snapshots, and downstream OHLCV/history consumers need chronological snapshots to derive stable ascending time series. Current HEAD fixes this by requesting ascending order and sorting before return, but the reviewed feature commit itself did not satisfy that contract."
-      }
-    ]
+    "summary": "The fix review passes. The original feature commit already met the core provider contract for native-fetch GraphQL access, env-based API key configuration, graceful null-on-error handling, and mocked unit coverage, and current HEAD now closes the previously reported parity gaps by proving swap query/result lockstep and chronological pool snapshots.",
+    "issues": []
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The worker followed the onchain-api-worker procedure overall, but the skill does not explicitly remind provider-only features to verify ordering/time-series invariants for history endpoints. That gap let a reverse-chronological snapshot contract ship and only be caught by later hardening work.",
-      "evidence": "Original commit 5468204d19df31f6355f2855226898a316b5667a added `fetchUniswapV3PoolSnapshots` with `orderDirection: desc` and no output sort in `src/providers/thegraph.ts`; later current HEAD adds an ascending-order proof test in `tests/thegraph-provider.test.ts`."
+      "observation": "The onchain-api-worker skill says provider features should write failing tests first, but it does not explicitly call out provider-specific contract invariants like chronological history ordering or query/result parity. Those gaps escaped the original feature and were only caught by later hardening follow-ups.",
+      "evidence": "Original handoff commit `5468204d19df31f6355f2855226898a316b5667a` added `fetchUniswapV3PoolSnapshots` with reverse-chronological `orderDirection: desc` and no order-proof test; current HEAD now enforces `orderDirection: asc` in `src/providers/thegraph.ts:278` and has explicit proofs in `tests/thegraph-provider.test.ts:136-150` and `tests/thegraph-provider.test.ts:200-243`."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Reviewed feature `thegraph-provider-module` against its handoff, transcript skeleton, diff, and current HEAD. The provider and tests were added as requested, but the original implementation failed to guarantee chronological pool snapshots, so the feature does not fully satisfy its contract on its own."
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/thegraph-provider-module.json",
+  "summary": "Reviewed the prior failed report, mission metadata, worker transcript skeleton, handoff, original feature commit, and current HEAD provider/tests. Current repository state satisfies the The Graph provider contract and specifically closes the prior chronology and query/result parity concerns, so this fix review passes."
 }

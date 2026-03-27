@@ -1,31 +1,39 @@
 {
   "featureId": "wire-onchain-pool-endpoints-live",
-  "reviewedAt": "2026-03-27T05:19:18Z",
+  "reviewedAt": "2026-03-27T13:40:00Z",
   "commitId": "6efb253",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "pass",
+  "status": "fail",
   "codeReview": {
-    "summary": "Current HEAD now satisfies the feature contract even though the original handoff commit was incomplete. The live onchain catalog is request-burst deduped via an in-module promise cache, Ethereum pool list/detail routes are covered by tests that prove live reserve_usd/volume_usd/price_usd behavior plus seeded fallback, expanded network and DEX catalog behavior is explicitly asserted from current HEAD, and the compare-coingecko summary test no longer uses the prior 15000 ms timeout masking.",
-    "issues": []
+    "summary": "The current HEAD implementation satisfies the live catalog/pool behavior, but the reviewed feature commit does not itself fulfill the feature contract. Commit 6efb253 only changed the DeFiLlama provider tests and masked the compare-coingecko regression by raising the test timeout; it did not contain the route wiring or route tests needed to prove/implement VAL-ONC-003/004/008/009. That work lives on current HEAD from later follow-up commits. As scoped to the assigned feature commit(s), this feature should fail scrutiny for incomplete commit contents and timeout masking.",
+    "issues": [
+      {
+        "file": "tests/compare-coingecko.test.ts",
+        "line": 1176,
+        "severity": "blocking",
+        "description": "The feature fixed the compare-coingecko regression by increasing the summary test timeout to 15000ms instead of removing the redundant live-fetch cost. The task explicitly required a safe caching/stubbing fix so the suite would be green without removing live behavior, not timeout masking."
+      },
+      {
+        "file": "src/providers/defillama.ts",
+        "line": 150,
+        "severity": "blocking",
+        "description": "The reviewed commit only touches provider fallback behavior; it does not include the `/onchain/networks`, `/onchain/networks/:network/dexes`, or `/onchain/networks/eth/pools*` route wiring and tests needed for the feature contract. The live catalog expansion and pool list/detail implementation being reviewed exist on current HEAD in `src/modules/onchain.ts` and `tests/app.test.ts`, but they are absent from commit `6efb253`, so the handoff commit does not actually contain the claimed feature implementation."
+      }
+    ]
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The onchain worker handoff for session 021542ad-64ee-454c-8cc2-3c7bf9f492ae claimed the feature was contained in commit 6efb253 even though the transcript skeleton shows source edits to src/modules/onchain.ts and repeated test reruns before that commit, and git show 6efb253 still only contains provider fallback plus the old timeout increase.",
-      "evidence": "Handoff /home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/handoffs/2026-03-27T03-45-44-472Z__wire-onchain-pool-endpoints-live__021542ad-64ee-454c-8cc2-3c7bf9f492ae.json attributes live-catalog reuse to commit 6efb253, but git show 6efb253 touches only src/providers/defillama.ts and two test files while current HEAD contains the cache in src/modules/onchain.ts:294-411."
-    },
-    {
-      "area": "conventions",
-      "observation": "Mission guidance still understates the need for current-head proof when a prior feature commit is misattributed. This re-review had to validate current repository state rather than the recorded commit because the original feature commit did not fully contain the claimed live catalog wiring.",
-      "evidence": "Prior review file /home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/wire-onchain-pool-endpoints-live.json failed on commit-attribution and timeout masking; current HEAD now proves the behavior in tests/app.test.ts:1949-2068 and tests/app.test.ts:2149-2219, but that proof is not tied to commit 6efb253."
+      "observation": "The worker followed the onchain skill mechanically, but the skill does not explicitly warn against satisfying performance regressions by relaxing test timeouts. That gap allowed the feature to pass with timeout masking even though the mission/task text forbade it.",
+      "evidence": "`.factory/skills/onchain-api-worker/SKILL.md` requires targeted tests and broader validation but has no guidance against timeout-padding; transcript/handoff for session `021542ad-64ee-454c-8cc2-3c7bf9f492ae` says it 'extended the compare-coingecko summary timeout', and commit `6efb253` changes `tests/compare-coingecko.test.ts:1176` to `}, 15000);`."
     },
     {
       "area": "knowledge",
-      "observation": "The shared architecture note is stale for onchain behavior. It still says all onchain routes are fixture-backed even though current HEAD now performs live DeFiLlama-backed catalog expansion and Ethereum pool patching with seeded fallback semantics.",
-      "evidence": "/home/whoami/dev/openGecko/.factory/library/architecture.md says 'All 29 onchain routes exist but are fixture-backed', while src/modules/onchain.ts:294-411 builds a live catalog from DeFiLlama and tests/app.test.ts:1949-2068 plus 2149-2219 assert live-expanded networks and live pool reserve_usd/volume_usd/price_usd behavior."
+      "observation": "DeFiLlama research documents the yield-pool contract as `/pools` served from `yields.llama.fi`, but the runtime provider now uses `/yields/pools` on the main API host. The shared research/knowledge is stale relative to implementation and could mislead future workers reviewing provider contract behavior.",
+      "evidence": "`.factory/research/onchain-data-sources.md` says 'GET /pools (served from yields.llama.fi/pools)', while current runtime code in `src/providers/defillama.ts:154-163` calls `fetchJson('/yields/pools', ...)` and later follow-up work had to add a dedicated feature (`fix-defillama-yields-endpoint-contract`) to reconcile provider contract expectations."
     }
   ],
-  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/wire-onchain-pool-endpoints-live.json",
-  "summary": "Pass on current HEAD. The original handoff commit was still misattributed, but the previously blocking gaps are now closed: compare coverage no longer depends on the removed 15000 ms timeout, live-expanded onchain network/DEX catalog behavior is explicitly proven by tests, Ethereum pool list/detail routes prove live reserve_usd/volume_usd/price_usd with seeded fallback, and unknown-network negative coverage exists without requiring scrutiny to rely on timeout masking."
+  "addressesFailureFrom": null,
+  "summary": "Reviewed mission docs, AGENTS, feature metadata, worker handoff/transcript, skill guidance, feature commit `6efb253`, and current HEAD route/tests. Current HEAD now demonstrates the live onchain catalog/pool behavior, but the reviewed feature commit itself is incomplete and masks the compare regression with a raised timeout, so this feature fails scrutiny."
 }

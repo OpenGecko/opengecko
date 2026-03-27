@@ -1,6 +1,6 @@
 {
   "milestone": "onchain-live-data",
-  "round": 5,
+  "round": 6,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,50 +20,44 @@
     }
   },
   "reviewsSummary": {
-    "total": 14,
-    "passed": 10,
-    "failed": 4,
+    "total": 17,
+    "passed": 14,
+    "failed": 3,
     "failedFeatures": [
-      "thegraph-provider-module",
-      "wire-onchain-trades-ohlcv-prices-live",
+      "wire-onchain-pool-endpoints-live",
       "remove-timeout-masking-from-onchain-compare-coverage",
-      "prove-live-onchain-pool-catalog-without-timeout-masking"
+      "generalize-live-ethereum-token-price-resolution"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "thegraph-provider-module",
+      "featureId": "wire-onchain-pool-endpoints-live",
       "severity": "blocking",
-      "description": "The original feature commit 5468204 did not guarantee chronological pool snapshots: fetchUniswapV3PoolSnapshots requested poolDayDatas with orderDirection desc and returned them unsorted, so downstream consumers could receive reverse-chronological liquidity/volume history. Current HEAD fixes this later, but the reviewed feature itself did not fully satisfy its snapshot contract."
-    },
-    {
-      "featureId": "wire-onchain-trades-ohlcv-prices-live",
-      "severity": "blocking",
-      "description": "Current HEAD still leaves a contract gap in token-detail/info live pricing. fetchLiveSimpleTokenPrice only returns live values for the narrow hardcoded token set mapped by findCoinIdForToken, so other Ethereum token addresses discoverable from onchain pools still fall back to seeded pool pricing instead of reflecting live DeFiLlama pricing as the feature contract required."
+      "description": "The reviewed feature commit `6efb253` still does not satisfy its own contract. It solved the compare-suite regression by raising the summary test timeout to 15000ms and did not itself contain the claimed live pool/catalog route wiring or route-level proofs. Current HEAD behavior is correct only because later follow-up features landed the real no-timeout-masking and live-proof work."
     },
     {
       "featureId": "remove-timeout-masking-from-onchain-compare-coverage",
       "severity": "blocking",
-      "description": "The compare-suite timeout regression was fixed with test isolation, but the assigned feature also required the handoff commit to fully contain the claimed implementation. Commit 3aebd7e is test-only, so scrutiny still cannot validate the claimed live onchain catalog/runtime implementation from this feature commit alone."
+      "description": "Current HEAD fixes the timeout regression with targeted test isolation, but the assigned feature explicitly required the handoff commit to fully contain the claimed implementation. The recorded commit `3aebd7e` is test-only, so scrutiny still cannot validate the broader claimed runtime/live-catalog scope from that feature commit alone."
     },
     {
-      "featureId": "prove-live-onchain-pool-catalog-without-timeout-masking",
+      "featureId": "generalize-live-ethereum-token-price-resolution",
       "severity": "blocking",
-      "description": "This scrutiny-proof feature still fails its own attribution requirement. Its handoff points at commit d16f2c4, which contains only scrutiny artifacts and environment notes, while the real no-timeout-masking and current-head proof work lives in other commits. That leaves the commit attribution ambiguity unresolved even though current HEAD behavior is now correct."
+      "description": "The implementation behavior now satisfies the live Ethereum token-price resolution contract, but the feature commit `97954aa` bundled unrelated simple-price EUR assertion churn in `tests/app.test.ts`. That scope bleed violates the feature-isolation expectation for scrutiny review even though later stabilization work corrected the test separately."
     }
   ],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
       "target": "skill",
-      "suggestion": "Clarify the onchain-api-worker procedure for scrutiny-fix and follow-up features whose acceptance criteria include proof/attribution requirements, not just runtime code changes. Workers should not report success when the recorded commitId does not actually contain the implementation the feature claims to deliver.",
-      "evidence": "Two failed reviews in this round were attribution failures rather than behavior failures: remove-timeout-masking-from-onchain-compare-coverage (commit 3aebd7e is test-only) and prove-live-onchain-pool-catalog-without-timeout-masking (handoff commit d16f2c4 contains only scrutiny artifacts).",
+      "suggestion": "Clarify the onchain-api-worker procedure for follow-up and scrutiny-proof features whose acceptance criteria include commit attribution or proof requirements. Workers should not report success when the recorded `commitId` does not actually contain the implementation/tests the feature claims to deliver.",
+      "evidence": "Two failed reviews in this round remain attribution/scope failures rather than behavior failures: `remove-timeout-masking-from-onchain-compare-coverage` handed off test-only commit `3aebd7e`, and `wire-onchain-pool-endpoints-live` originally used timeout masking plus relied on later commits for the real live-route proof.",
       "isSystemic": true
     },
     {
       "target": "skill",
-      "suggestion": "Add explicit guidance for provider/time-series features to verify ordering invariants on history-style endpoints before handoff.",
-      "evidence": "thegraph-provider-module originally shipped pool snapshots in reverse chronological order and only later hardening work plus review caught the missing ascending-order contract.",
+      "suggestion": "Add explicit guidance for provider and time-series features to verify ordering and query/result invariants, and to avoid masking regressions by increasing test timeouts.",
+      "evidence": "`thegraph-provider-module` originally missed chronological snapshot ordering until later hardening, and `wire-onchain-pool-endpoints-live` addressed a performance regression by extending the compare-suite timeout instead of fixing redundant live fetch cost.",
       "isSystemic": true
     }
   ],
@@ -73,12 +67,12 @@
       "reason": "already-documented in prior rounds and outside this validator's additive-update scope"
     },
     {
-      "observation": "Mission/shared-state docs do not record the corrected DeFiLlama /yields/pools contract even though later fixes depended on it.",
+      "observation": "Mission/shared-state docs do not record the corrected DeFiLlama `/yields/pools` contract even though later fixes depended on it.",
       "reason": "knowledge gap is non-blocking and outside this validator's additive-update scope"
     },
     {
-      "observation": "Reviewer prompts reference .factory/library/architecture.md in locations that may not exist in every environment.",
-      "reason": "ambiguous ownership and outside this validator's additive-update scope"
+      "observation": "The onchain-api-worker skill still over-prescribes test-first flow for explicit verify-and-commit cleanup sessions.",
+      "reason": "non-blocking guidance suggestion already captured at the skill level in prior rounds; no direct additive update applied here"
     }
   ],
   "previousRound": ".factory/validation/onchain-live-data/scrutiny/synthesis.json"

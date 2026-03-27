@@ -1,28 +1,28 @@
 {
   "featureId": "remove-timeout-masking-from-onchain-compare-coverage",
-  "reviewedAt": "2026-03-27T05:19:17.476051+00:00",
+  "reviewedAt": "2026-03-27T05:39:33.855900+00:00",
   "commitId": "3aebd7e",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The commit removes timeout masking by stubbing DeFiLlama calls in `tests/compare-coingecko.test.ts`, but it does not fully satisfy the feature contract because the handoff commit does not contain the live onchain catalog implementation it claims to preserve and prove. The only code change is a test-only isolation tweak; the live catalog/runtime behavior remained in earlier commits, so the assigned requirement that the feature commit fully contain the claimed implementation is not met.",
+    "summary": "The fix commit does remove timeout masking by isolating compare-suite DeFiLlama calls in `tests/compare-coingecko.test.ts`, and current HEAD has separate onchain tests that prove live catalog behavior. However, the reviewed feature still fails its own contract because the handoff commit `3aebd7e` is only a single-file test change and does not itself fully contain the live onchain implementation it claims remains covered. That leaves commit attribution incomplete for this feature review, exactly as the feature description warned against.",
     "issues": [
       {
         "file": "tests/compare-coingecko.test.ts",
         "line": 1,
         "severity": "blocking",
-        "description": "Commit `3aebd7e` changes only compare-suite test setup/teardown. It does isolate the expensive DeFiLlama fetches, but it does not itself contain the live onchain pool/catalog implementation that the feature description says must be fully contained in the handoff commit. `git show --stat 3aebd7e` reports a single-file test-only diff, so scrutiny cannot validate the claimed runtime/catalog implementation from this feature commit alone."
+        "description": "Commit `3aebd7e` only adds compare-suite DeFiLlama spies/restores in `tests/compare-coingecko.test.ts`. The feature contract explicitly requires 'Ensure the handoff commit fully contains the claimed implementation,' but `git show --stat 3aebd7e` shows no runtime or onchain-catalog code and no route-proof additions. The handoff therefore attributes broader onchain behavior to a commit that only changes test isolation."
       }
     ]
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The `onchain-api-worker` procedure appears to allow a worker to hand off a fix feature whose commit contains only test isolation even when the feature description also requires commit-contained runtime behavior. That made this session declare success despite the commit not fully containing the claimed implementation.",
-      "evidence": "Feature description in mission `features.json` requires: 'Ensure the handoff commit fully contains the claimed implementation.' Handoff for session `1cd27a87-e02f-44d5-ac1f-843dfc779fe2` says onchain route behavior stayed covered, but `git show --stat 3aebd7e` shows only `tests/compare-coingecko.test.ts` changed."
+      "observation": "The `onchain-api-worker` skill does not explicitly guard against handing off a fix feature whose commit proves only part of the claimed scope, even when the feature description requires the commit itself to fully contain the implementation being reviewed.",
+      "evidence": "`features.json` for `remove-timeout-masking-from-onchain-compare-coverage` requires: 'Ensure the handoff commit fully contains the claimed implementation.' Session `1cd27a87-e02f-44d5-ac1f-843dfc779fe2` handed off commit `3aebd7e`, but `git show --stat 3aebd7e` shows only `tests/compare-coingecko.test.ts` changed while the handoff claims live onchain behavior remains covered elsewhere."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Reviewed the feature handoff, transcript skeleton, current HEAD, and commit `3aebd7e`. The timeout-padding regression is addressed by compare-suite DeFiLlama stubbing, but the review fails because the feature explicitly required the handoff commit to fully contain the claimed implementation and this commit is test-only."
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/remove-timeout-masking-from-onchain-compare-coverage.json",
+  "summary": "Reviewed the prior failed review, mission metadata, handoff, transcript skeleton, current-head tests, and commit `3aebd7e`. The timeout-padding issue itself was fixed via targeted test isolation, but this fix review still fails because the assigned feature required the handoff commit to fully contain the claimed implementation and the commit is test-only."
 }

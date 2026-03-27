@@ -1,21 +1,15 @@
 {
   "featureId": "tighten-thegraph-swap-query-parity",
-  "reviewedAt": "2026-03-27T05:18:50.449430+00:00",
+  "reviewedAt": "2026-03-27T00:00:00Z",
   "commitId": "89cc8aa",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "The feature satisfies its contract. The Graph swap provider now derives requests from a single exported query constant, the provider test locks the request body to that exact query, and route tests prove consumers still behave correctly when swap token metadata is absent. I found no contract gaps or blocking issues in current HEAD for this feature.",
+    "summary": "The feature contract is satisfied. The Graph swap provider now uses a single exported query constant for `fetchUniswapV3PoolSwaps`, tests assert the exact query payload and the presence of every normalized field, and route-level mocks were tightened so consumers continue working when token metadata is absent from some swap events.",
     "issues": []
   },
-  "sharedStateObservations": [
-    {
-      "area": "knowledge",
-      "observation": "Shared architecture guidance is stale for onchain behavior. It still says all onchain routes are fixture-backed even though current HEAD consumes live The Graph swap data for Ethereum trades/OHLCV when available.",
-      "evidence": "/home/whoami/dev/openGecko/.factory/library/architecture.md says all 29 onchain routes are fixture-backed, but /home/whoami/dev/openGecko/src/modules/onchain.ts calls fetchUniswapV3PoolSwaps at live trade/ohlcv paths (e.g. around line 1237 in current HEAD)."
-    }
-  ],
+  "sharedStateObservations": [],
   "addressesFailureFrom": null,
-  "summary": "Reviewed handoff, commit 89cc8aa, transcript skeleton, skill guidance, and current HEAD implementation. The swap-query/query-shape parity hardening is present and adequate; no code issues found."
+  "summary": "Reviewed mission metadata, handoff, transcript skeleton, worker skill, commit `89cc8aa`, current HEAD provider/tests, and shared-state files. The implementation keeps the swap GraphQL query and normalized result shape in lockstep, strengthens provider and route tests against impossible mocked fields, and revealed no code or shared-state gaps for this feature."
 }

@@ -1,15 +1,15 @@
 {
   "featureId": "remove-final-onchain-compare-timeout-and-prove-current-head",
-  "reviewedAt": "2026-03-27T05:19:02.070377+00:00",
+  "reviewedAt": "2026-03-27T05:39:28.089423+00:00",
   "commitId": "727cb6bbc3679433538956a8f0cec320117e1181",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "Current HEAD satisfies the feature contract. Commit 727cb6b removes the final explicit 15000 ms timeout override from the compare summary test and adds a dedicated current-head proof test that exercises mocked DeFiLlama-backed onchain network, dex, and pool expansion behavior directly from the repository\u2019s present route/test surface.",
+    "summary": "Current HEAD satisfies the feature contract. The compare-coingecko summary test no longer carries an explicit 15000ms timeout override, and current-head route tests now directly prove live-expanded onchain catalog behavior via mocked provider discovery data for networks, dexes, and pools.",
     "issues": []
   },
   "sharedStateObservations": [],
   "addressesFailureFrom": null,
-  "summary": "Reviewed the feature handoff, transcript skeleton, worker skill, commit 727cb6b diff, and current HEAD tests. The compare summary test no longer carries the 15000 ms timeout override (`tests/compare-coingecko.test.ts:1185`), and the new proof test added at `tests/app.test.ts:1920` explicitly validates live-expanded onchain catalog behavior on current HEAD, so scrutiny no longer depends on prior commit attribution. No blocking or non-blocking code issues found."
+  "summary": "Reviewed the feature handoff, commit diff, transcript skeleton, skill guidance, and current HEAD. The implementation is fully contained in commit 727cb6b, removes the final timeout masking in tests/compare-coingecko.test.ts, and adds explicit current-head proof coverage in tests/app.test.ts for live-expanded onchain catalog behavior, so scrutiny no longer depends on historical commit attribution. No blocking or non-blocking issues found."
 }

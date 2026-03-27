@@ -1,21 +1,21 @@
 {
   "featureId": "fix-defillama-yields-endpoint-contract",
-  "reviewedAt": "2026-03-27T13:18:00Z",
+  "reviewedAt": "2026-03-27T05:39:33.337454+00:00",
   "commitId": "734147d5bd219621687b5edd77b059136132acc8",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "The feature satisfies its contract. `fetchDefillamaPoolData` now uses the documented `/yields/pools` endpoint directly, preserves null-on-error behavior, and current onchain route logic still degrades to seeded data when the provider returns `null`. The updated provider tests now assert the exact request path and no longer mask the old `/pools` probe contract.",
+    "summary": "The feature contract is satisfied at current HEAD. The DeFiLlama provider now calls the documented `/yields/pools` endpoint directly, still catches upstream failures and returns `null`, and the existing onchain routes continue to preserve seeded fallback behavior when provider data is unavailable.",
     "issues": []
   },
   "sharedStateObservations": [
     {
       "area": "knowledge",
-      "observation": "Mission shared state does not record that the original DeFiLlama provider handoff described the wrong pool endpoint contract (`/pools`) even though current HEAD and this fix use the documented `/yields/pools` contract.",
-      "evidence": "`/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/defillama-provider-module.json` notes the earlier handoff mismatch, while `src/providers/defillama.ts:170-173` and `tests/defillama-provider.test.ts:59-78` now enforce `/yields/pools` directly."
+      "observation": "The shared research doc still describes the DeFiLlama yield-pool contract as `GET /pools` even though the implementation and this feature now rely on `GET /yields/pools` against `DEFILLAMA_BASE_URL`.",
+      "evidence": ".factory/research/onchain-data-sources.md:41-56,73 describes yield pools as `GET /pools` and `yields.llama.fi/pools`, while src/providers/defillama.ts:170 fetches `/yields/pools` and tests/defillama-provider.test.ts:54-73 assert that exact path."
     }
   ],
   "addressesFailureFrom": null,
-  "summary": "Reviewed the feature handoff, transcript skeleton, commit `734147d5bd219621687b5edd77b059136132acc8`, and current HEAD implementation. The DeFiLlama yields endpoint contract fix is correctly implemented and tested, with one non-blocking shared-state knowledge gap about the earlier misdocumented provider contract."
+  "summary": "Reviewed the handoff, transcript skeleton, commit `734147d5bd219621687b5edd77b059136132acc8`, and current HEAD implementation. The feature passes scrutiny: provider contract and tests now match the documented route behavior, and onchain seeded fallback remains intact."
 }

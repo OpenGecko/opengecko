@@ -1,0 +1,21 @@
+{
+  "featureId": "add-explicit-live-token-detail-and-fallback-route-proofs",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "32afdbcc288dfe460736fa63c8a7f424ac7760b9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Commit `32afdbc` adds the missing explicit route-level proof in `tests/app.test.ts` for the token routes scrutiny was still treating as unproven. The new tests exercise `/onchain/networks/:network/tokens/:address` with a mocked live DeFiLlama price and with a null DeFiLlama response, assert `/onchain/networks/:network/tokens/:address/info` falls back to seeded metadata pricing, and assert `/onchain/networks/:network/tokens/:address/ohlcv/:timeframe` degrades to the seeded pool set with valid OHLCV invariants when The Graph swaps are unavailable. Those assertions align with the runtime implementation in `src/modules/onchain.ts`, where token detail/info read live pricing through `fetchLiveSimpleTokenPrice` and token OHLCV falls back to synthetic pool series when live swaps are absent.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The shared architecture note for onchain behavior is stale. It still says all onchain routes are fixture-backed and describes token OHLCV as synthetic-only, but current HEAD uses live DeFiLlama pricing for token detail/info and live The Graph swap data for pool/token OHLCV when available, with seeded fallbacks only on provider failure.",
+      "evidence": "/home/whoami/dev/openGecko/.factory/library/architecture.md states 'All 29 onchain routes exist but are fixture-backed'; compare with /home/whoami/dev/openGecko/src/modules/onchain.ts:1271-1314, 2725-2828, and 3220-3272, which invoke live provider-backed helpers before degrading to seeded data."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed mission docs, feature metadata, worker handoff, transcript skeleton, skill guidance, commit `32afdbc`, and current HEAD runtime/test code. The feature contract is satisfied and the explicit route proofs now make the live token detail and fallback token-route behavior obvious enough for scrutiny."
+}

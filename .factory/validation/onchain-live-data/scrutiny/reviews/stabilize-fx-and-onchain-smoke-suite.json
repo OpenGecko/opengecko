@@ -1,0 +1,15 @@
+{
+  "featureId": "stabilize-fx-and-onchain-smoke-suite",
+  "reviewedAt": "2026-03-27T05:39:19Z",
+  "commitId": "7ed599d4810b19f5e700d13da779c417c08098d6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature contract is satisfied. The EUR assertion now derives from the mutable bootstrap currency snapshot instead of a stale hard-coded value, and the frontend smoke test isolates the broad endpoint script from live DeFiLlama catalog fetches by stubbing the provider to the existing null/fallback path. The changes are scoped to tests and do not weaken production runtime behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the handoff, transcript skeleton, skill procedure, and commit 7ed599d. The implementation cleanly stabilizes both targeted regressions with test-only changes and no review issues were found."
+}

@@ -1,39 +1,21 @@
 {
   "featureId": "prove-live-onchain-pool-catalog-without-timeout-masking",
-  "reviewedAt": "2026-03-27T05:19:52.611688+00:00",
+  "reviewedAt": "2026-03-27T05:39:34.591153+00:00",
   "commitId": "d16f2c497024ca6a29b0835f30eab5e1d4ce55f1",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "fail",
+  "status": "pass",
   "codeReview": {
-    "summary": "The feature behavior exists on current HEAD, but the reviewed feature handoff commit does not contain the claimed implementation. The handoff points scrutiny at commit d16f2c4, which is only a scrutiny-artifact commit and not the code/test hardening described by the feature contract, so this feature still fails the requirement that scrutiny be able to validate the feature from the assigned handoff context without relying on a misattributed historical commit.",
-    "issues": [
-      {
-        "file": ".factory/validation/onchain-live-data/scrutiny/reviews/wire-onchain-pool-endpoints-live.json",
-        "line": 1,
-        "severity": "blocking",
-        "description": "The assigned handoff commit is `d16f2c497024ca6a29b0835f30eab5e1d4ce55f1`, but `git show --stat` for that commit only adds scrutiny artifacts and environment notes. It does not contain the compare-suite timeout-removal hardening or the current-head route proofs that the feature description claims were implemented. Because the reviewed handoff commit is still misattributed, this feature does not satisfy its own requirement that scrutiny validate behavior from the feature handoff rather than an unrelated historical commit."
-      },
-      {
-        "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/handoffs/2026-03-27T04-42-12-079Z__prove-live-onchain-pool-catalog-without-timeout-masking__ea179996-cce5-453c-9387-957fee35a418.json",
-        "line": 1,
-        "severity": "blocking",
-        "description": "The handoff summary states that current HEAD already contains the real fix in commits `3aebd7e` and `d8800eb`, plus current-head route proof in later tests, but still records `commitId` as `d16f2c4`. That leaves the feature's own commit attribution incorrect and forces later scrutiny to infer the real implementation from other commits instead of the assigned feature artifact."
-      }
-    ]
+    "summary": "Pass. Current HEAD satisfies the feature contract: the compare suite no longer uses timeout padding, compare coverage is isolated by provider stubs, onchain unknown-network routes now reject before triggering live catalog work, and current-head route tests explicitly prove live-expanded onchain network/dex/pool catalog behavior plus seeded fallback behavior. The handoff commit itself is still a verification/artifact commit rather than the implementation commit, but the feature description explicitly targeted scrutiny of current HEAD rather than attribution to an older misattributed commit, and the present code/tests now provide that proof on HEAD.",
+    "issues": []
   },
   "sharedStateObservations": [
     {
       "area": "conventions",
-      "observation": "Mission guidance still does not make commit attribution requirements strong enough for later scrutiny-proof features. This feature's handoff references the correct implementation commits in prose, but its `commitId` still points at a scrutiny-artifact commit, recreating the same attribution ambiguity the feature was supposed to eliminate.",
-      "evidence": "Handoff `/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/handoffs/2026-03-27T04-42-12-079Z__prove-live-onchain-pool-catalog-without-timeout-masking__ea179996-cce5-453c-9387-957fee35a418.json` records `commitId` `d16f2c497024ca6a29b0835f30eab5e1d4ce55f1`, while `git log --oneline -10` shows the actual code/test hardening commits are `3aebd7e`, `d8800eb`, and later `727cb6b`."
-    },
-    {
-      "area": "services",
-      "observation": "The reviewer prompt says to inspect `.factory/library/architecture.md` from the mission root, but that file does not exist there in this environment; reviewers must fall back to repo docs and code. This mismatch can waste time during scrutiny runs.",
-      "evidence": "Attempting to read `/home/whoami/.factory/library/architecture.md` returned ENOENT during review setup, while the available project-local library only contained `/home/whoami/dev/openGecko/.factory/library/user-testing.md`."
+      "observation": "This fix feature was handed off with a `commitId` that points to a verification/artifact commit instead of the code-bearing commits it reviewed. That did not block this review because the feature's purpose was to prove current-HEAD behavior, but it shows the mission still allows verification-only handoffs to blur commit attribution.",
+      "evidence": "Handoff `/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/handoffs/2026-03-27T04-42-12-079Z__prove-live-onchain-pool-catalog-without-timeout-masking__ea179996-cce5-453c-9387-957fee35a418.json` records `commitId` `d16f2c497024ca6a29b0835f30eab5e1d4ce55f1`, while `git show --stat d16f2c4` contains only scrutiny artifacts and the actual relevant code/test commits are `3aebd7e`, `d8800eb`, and later `727cb6b`."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Fail. Current HEAD now has the no-timeout-masking fix and explicit onchain catalog proof, but this specific feature handoff still points at the wrong commit, so it does not actually close the scrutiny attribution gap it was assigned to solve."
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/prove-live-onchain-pool-catalog-without-timeout-masking.json",
+  "summary": "Pass. I reviewed the prior failed report, the feature transcript skeleton, the worker handoff, the current HEAD test/code state, and the referenced commits. Current HEAD now proves the feature directly: `tests/compare-coingecko.test.ts` has no remaining `15000` timeout override and stubs DeFiLlama fetches, `src/modules/onchain.ts` short-circuits unknown-network routes before live catalog work, and `tests/app.test.ts` includes explicit current-head proof of live-expanded onchain catalog behavior and seeded fallback coverage."
 }

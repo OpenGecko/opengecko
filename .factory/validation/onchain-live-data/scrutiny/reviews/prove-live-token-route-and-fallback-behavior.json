@@ -1,21 +1,21 @@
 {
   "featureId": "prove-live-token-route-and-fallback-behavior",
-  "reviewedAt": "2026-03-27T05:19:03Z",
+  "reviewedAt": "2026-03-27T05:39:48Z",
   "commitId": "23f4154d3feb1910bebd3c62fafe77847845dae3",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "pass",
   "codeReview": {
-    "summary": "Current HEAD now contains explicit route-level proof for the originally missing behavior. `tests/app.test.ts` now verifies `/onchain/networks/:network/tokens/:address` returns live DeFiLlama pricing on success and falls back to seeded pricing on provider failure, verifies `/onchain/networks/:network/tokens/:address/info` falls back to seeded metadata pricing when DeFiLlama is unavailable, and keeps token OHLCV fallback coverage for missing The Graph swaps. The runtime implementation in `src/modules/onchain.ts` matches those assertions by sourcing live token prices through `fetchLiveSimpleTokenPrice` and returning graceful fallback behavior when live providers return null.`",
+    "summary": "Current HEAD satisfies the feature contract. `tests/app.test.ts` contains explicit route-level proof that `/onchain/networks/:network/tokens/:address` surfaces live DeFiLlama pricing on success, that token detail/info fall back to seeded pricing when DeFiLlama returns null, and that token OHLCV falls back to degraded seeded pool aggregation when The Graph swaps are unavailable. `src/modules/onchain.ts` implements that behavior by routing token detail/info through `fetchLiveSimpleTokenPrice` and by aggregating token OHLCV from pool series with graceful fallback when provider-backed swap data is absent.",
     "issues": []
   },
   "sharedStateObservations": [
     {
       "area": "knowledge",
       "observation": "The shared architecture note is stale for onchain behavior. It still says all onchain routes are fixture-backed and describes token OHLCV as synthetic-only, even though current HEAD uses live DeFiLlama pricing for token detail/info routes and live The Graph swaps for token/pool OHLCV when available.",
-      "evidence": "/home/whoami/dev/openGecko/.factory/library/architecture.md:24-30 says all 29 onchain routes are fixture-backed; compare with src/modules/onchain.ts:1261-1280, src/modules/onchain.ts:2668-2794, and src/modules/onchain.ts:3174-3209, which call live DeFiLlama/The Graph-backed helpers and fall back only when providers return null."
+      "evidence": "/home/whoami/dev/openGecko/.factory/library/architecture.md says all 29 onchain routes are fixture-backed; compare with /home/whoami/dev/openGecko/src/modules/onchain.ts:1271-1310, 2706-2840, and 3220-3283, which call live DeFiLlama/The Graph-backed helpers and fall back only when providers return null."
     }
   ],
-  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/prove-live-token-route-and-fallback-behavior.json",
-  "summary": "Reviewed the prior failed synthesis/review, feature metadata, worker handoff/transcript, current HEAD tests, runtime implementation, skill guidance, and shared-state docs. This re-review passes: current HEAD now explicitly proves live token detail pricing plus paired fallback behavior for token detail/info and token OHLCV, so the prior blocking scrutiny gap has been resolved."
+  "addressesFailureFrom": null,
+  "summary": "Reviewed feature metadata, handoff, transcript skeleton, commit diff, current HEAD tests, runtime implementation, and shared-state docs. This feature passes on current HEAD: the missing token-route proof is now explicit and the runtime behavior remains contract-compliant with graceful fallback paths."
 }

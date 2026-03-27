@@ -1,28 +1,21 @@
 {
   "featureId": "wire-onchain-trades-ohlcv-prices-live",
-  "reviewedAt": "2026-03-27T05:19:41Z",
+  "reviewedAt": "2026-03-27T05:39:19Z",
   "commitId": "8e3fc98",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
-  "status": "fail",
+  "status": "pass",
   "codeReview": {
-    "summary": "The feature wires live The Graph trades/OHLCV and DeFiLlama token pricing into the onchain routes, and the added tests cover the new pool trades, pool OHLCV, token OHLCV, and simple token price paths. However, the implementation does not make token-detail and token-info routes reflect live pricing for Ethereum addresses whose onchain pools are present but whose addresses are not hardcoded in `findCoinIdForToken`; the route leaves the seeded pool price in place because `fetchLiveSimpleTokenPrice` returns null for those tokens. That violates the feature contract's requirement that token detail/multi surfaces reflect live pricing.",
-    "issues": [
-      {
-        "file": "src/modules/onchain.ts",
-        "line": 1249,
-        "severity": "blocking",
-        "description": "`fetchLiveSimpleTokenPrice` only produces a live result for the narrow hardcoded token set used by `findCoinIdForToken`. Any other Ethereum token discoverable via onchain pools gets `null`, so `/onchain/networks/eth/tokens/:address`, `/info`, and recently-updated token info fall back to seeded pool pricing instead of reflecting live DeFiLlama pricing as required by the feature contract."
-      }
-    ]
+    "summary": "Reviewed the fix commit, handoff, transcript skeleton, and current onchain implementation. The feature contract is now satisfied: Ethereum pool trades and pool/token OHLCV use live The Graph swap data when available, degrade to fixture data when unavailable, OHLCV aggregation preserves the required invariants, and Ethereum token detail/info pricing now generalizes beyond the old hardcoded token mapping via pool-derived resolution plus live DeFiLlama price lookup.",
+    "issues": []
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The onchain-api-worker skill makes test-first sound mandatory even for commit-only follow-up sessions where the implementation already exists in the working tree. This worker reasonably skipped new failing tests and still had to record that as a deviation.",
-      "evidence": "Skill file /home/whoami/dev/openGecko/.factory/skills/onchain-api-worker/SKILL.md step 4 requires writing failing tests first; transcript skeleton for worker session fdaeb825-db1b-4001-87e1-2a1b2624163d shows the worker only reviewed existing changes, ran validation, performed curl checks, and committed 8e3fc98."
+      "observation": "The onchain-api-worker skill still treats test-first work as mandatory even for explicit commit-only follow-up sessions where implementation already exists in the working tree and the worker is only asked to verify and create the missing clean commit.",
+      "evidence": "`/home/whoami/dev/openGecko/.factory/skills/onchain-api-worker/SKILL.md` step 4 requires writing failing tests first, while the transcript skeleton for worker session `fdaeb825-db1b-4001-87e1-2a1b2624163d` shows a verification-and-commit session and the handoff marks this as a justified procedure deviation."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Reviewed commit 8e3fc98, the worker handoff/transcript, and the touched onchain/tests files. Pool trades and OHLCV live wiring are present with fallback and invariant coverage, but the feature still misses contract-complete live pricing on token detail/info surfaces for non-hardcoded Ethereum token addresses, so this review fails."
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/onchain-live-data/scrutiny/reviews/wire-onchain-trades-ohlcv-prices-live.json",
+  "summary": "Pass. I reviewed the prior failed review, mission metadata, worker transcript skeleton, handoff, commit `8e3fc98`, and the current `src/modules/onchain.ts` and test coverage. The previously blocking gap is fixed: `fetchLiveSimpleTokenPrice` now resolves coin context from discoverable token pools, so non-hardcoded Ethereum token detail/info routes can surface live DeFiLlama pricing while preserving seeded fallback behavior. The diff and tests also provide adequate evidence for live/fallback pool trades and OHLCV behavior, including swap-derived candle invariants and fixture-backed degraded mode when The Graph is unavailable."
 }

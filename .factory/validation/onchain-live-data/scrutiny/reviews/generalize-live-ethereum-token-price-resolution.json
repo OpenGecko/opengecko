@@ -1,0 +1,28 @@
+{
+  "featureId": "generalize-live-ethereum-token-price-resolution",
+  "reviewedAt": "2026-03-27T05:39:55.974960+00:00",
+  "commitId": "97954aad71737177359d08c4a06717bf006df986",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit does generalize Ethereum token coin-id resolution from pool metadata and adds the requested non-hardcoded USDT route test, but it also changes an unrelated simple-price EUR assertion in the same feature commit. That extra test edit is outside this feature contract and should not be attributed to the generalized live-pricing change.",
+    "issues": [
+      {
+        "file": "tests/app.test.ts",
+        "line": 1337,
+        "severity": "blocking",
+        "description": "This feature commit also changes the simple-price EUR expectation, which belongs to separate suite stabilization work rather than the live Ethereum token-price generalization feature being reviewed. The current HEAD later replaces this line again in commit `7ed599d`, confirming the edit was unrelated and transient scope bleed."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker followed the onchain skill procedure, but the feature still shipped with unrelated test churn in the same commit. The skill does not explicitly warn against bundling unrelated test stabilization into an onchain feature commit when full-suite failures are known to be pre-existing.",
+      "evidence": "Handoff commit `97954aa` contains both the onchain token-resolution change in `src/modules/onchain.ts` and an unrelated simple-price EUR assertion edit at `tests/app.test.ts:1337`; HEAD later changes that same expectation again in `7ed599d` for `stabilize-fx-and-onchain-smoke-suite`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed README, mission artifacts, handoff, transcript skeleton, skill guidance, architecture docs, commit `97954aa`, and current HEAD. The onchain implementation itself satisfies the feature contract by deriving Ethereum token coin IDs from discovered pool metadata so non-hardcoded tokens like USDT can surface live pricing on token info/detail routes with fallback intact, but the feature review fails because the same commit also bundled an unrelated simple-price EUR test edit outside the assigned scope."
+}
