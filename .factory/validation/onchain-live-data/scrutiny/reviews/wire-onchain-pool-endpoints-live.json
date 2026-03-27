@@ -1,0 +1,39 @@
+{
+  "featureId": "wire-onchain-pool-endpoints-live",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "6efb253",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature partially wires Ethereum pool list/detail and expanded catalog behavior into onchain routes, but the reviewed commit does not satisfy the requested regression fix and misstates live-network verification coverage. The commit only changes DeFiLlama provider tests/fallback handling and raises a compare-coingecko test timeout, while the actual catalog wiring lives outside this commit.",
+    "issues": [
+      {
+        "file": "tests/compare-coingecko.test.ts",
+        "line": 1176,
+        "severity": "blocking",
+        "description": "The requested compare-coingecko regression was to fix the new summary timeout without masking it via higher timeouts, but this commit merely raises the test timeout to 15000ms. That does not fulfill the feature requirement to use caching, stubbing, or another safe runtime fix so the suite stays green without removing live behavior."
+      },
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 2126,
+        "severity": "blocking",
+        "description": "The feature is supposed to fulfill VAL-ONC-008 by expanding `/onchain/networks` beyond the 2 seeded networks when DeFiLlama data is available, but the handoff's own manual verification only observed the degraded seeded response with 2 networks and never verified the live-expanded catalog path. Because the reviewed commit does not include the catalog-wiring implementation itself, the commit cannot substantiate the claimed fulfillment of VAL-ONC-008/009."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The onchain-api-worker skill tells workers to fix regressions with real route/runtime changes, but this worker satisfied the compare-coingecko timeout regression by increasing the test timeout instead. The skill may need an explicit warning that raising test timeouts is not an acceptable resolution when a feature specifically asks to avoid timeout masking.",
+      "evidence": "Skill procedure step 8-11 in `.factory/skills/onchain-api-worker/SKILL.md` emphasizes targeted onchain fixes and verification; commit `6efb253` changes `tests/compare-coingecko.test.ts:1176` to `}, 15000);` while the handoff claims the regression was fixed."
+    },
+    {
+      "area": "conventions",
+      "observation": "The handoff over-attributes implementation to commit `6efb253`: the feature description says the worker should build on pre-existing working-tree route wiring, but the reviewed commit only touches `src/providers/defillama.ts` and two test files. Mission shared state may need a clearer convention that handoffs must distinguish 'implemented in prior working tree' from 'implemented in this commit' so scrutiny can map behavior to commits reliably.",
+      "evidence": "`git show --stat 6efb253` lists only `src/providers/defillama.ts`, `tests/compare-coingecko.test.ts`, and `tests/defillama-provider.test.ts`, while the feature/ handoff describe live onchain catalog and pool wiring behavior located in `src/modules/onchain.ts`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed: commit `6efb253` does not fully satisfy the requested feature behavior. It relies on a timeout increase to address the compare-coingecko regression and does not itself contain the claimed onchain catalog/pool wiring needed to confidently credit VAL-ONC-003/004/008/009/010/012/013/014 to this feature commit."
+}

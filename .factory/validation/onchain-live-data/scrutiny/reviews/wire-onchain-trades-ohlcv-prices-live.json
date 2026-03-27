@@ -1,0 +1,28 @@
+{
+  "featureId": "wire-onchain-trades-ohlcv-prices-live",
+  "reviewedAt": "2026-03-27T12:00:00Z",
+  "commitId": "8e3fc98",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature mostly wires live Ethereum trades/OHLCV and live token pricing as intended, with tested graceful fallback to fixture data when The Graph is unavailable. However, the live simple token price implementation sources optional market-cap and 24h volume fields from seeded snapshots/pool rows rather than live pricing aggregates, so the implementation does not fully satisfy VAL-ONC-007's requirement that optional fields reflect live aggregates.",
+    "issues": [
+      {
+        "file": "src/modules/onchain.ts",
+        "line": 1262,
+        "severity": "blocking",
+        "description": "`fetchLiveSimpleTokenPrice` only fetches a live spot price from DeFiLlama, but populates `marketCapUsd` from `marketSnapshots` and `volume24hUsd`/`totalReserveUsd` by summing seeded `tokenPools` rows. That means `/onchain/simple/networks/eth/token_price/:addresses?include_market_cap=true&include_24hr_vol=true` can return stale fixture-backed optional fields even when live pricing succeeds, which falls short of VAL-ONC-007's requirement that optional fields come from live aggregates."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The onchain-api-worker skill requires writing failing tests first, but this feature was explicitly a commit-only session for pre-existing working-tree code. The worker had to mark that mismatch as a procedure deviation even though it followed the feature instructions.",
+      "evidence": "/home/whoami/dev/openGecko/.factory/skills/onchain-api-worker/SKILL.md step 4 vs handoff skillFeedback in /home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/handoffs/2026-03-27T03-57-23-612Z__wire-onchain-trades-ohlcv-prices-live__fdaeb825-db1b-4001-87e1-2a1b2624163d.json"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: live trades/OHLCV behavior and fallback coverage are in place, but the live simple token price endpoint still fills optional market-cap/24h volume fields from seeded snapshot/pool data instead of live aggregates, so the feature does not fully fulfill VAL-ONC-007."
+}
