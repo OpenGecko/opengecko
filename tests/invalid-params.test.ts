@@ -24,6 +24,22 @@ vi.mock('../src/providers/ccxt', () => ({
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
 
+function collectCamelCasePaths(value: unknown, path = '$'): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => collectCamelCasePaths(entry, `${path}[${index}]`));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
+      const nextPath = `${path}.${key}`;
+      const ownHit = /[a-z][A-Z]/.test(key) ? [nextPath] : [];
+      return [...ownHit, ...collectCamelCasePaths(entry, nextPath)];
+    });
+  }
+
+  return [];
+}
+
 describe('OpenGecko invalid parameter handling', () => {
   let app: FastifyInstance | undefined;
   let tempDir: string;
@@ -57,13 +73,29 @@ describe('OpenGecko invalid parameter handling', () => {
   });
 
   it('rejects invalid precision values', async () => {
-    const response = await app!.inject({
-      method: 'GET',
-      url: '/simple/price?ids=bitcoin&vs_currencies=usd&precision=not-a-number',
-    });
+    const [simplePriceResponse, coinMarketsResponse, chartResponse, ohlcResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd&precision=not-a-number',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&precision=not-a-number',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?vs_currency=usd&days=7&precision=not-a-number',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/ohlc?vs_currency=usd&days=7&precision=not-a-number',
+      }),
+    ]);
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject(errorFixtures.simplePriceBadPrecision);
+    for (const response of [simplePriceResponse, coinMarketsResponse, chartResponse, ohlcResponse]) {
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject(errorFixtures.simplePriceBadPrecision);
+    }
   });
 
   it('rejects invalid boolean values parsed by zod', async () => {
@@ -479,7 +511,8 @@ describe('OpenGecko invalid parameter handling', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
-      error: 'invalid_request',
+      error: 'invalid_parameter',
+      message: "include_tickers Invalid enum value. Expected 'true' | 'false', received 'maybe'",
     });
   });
 
@@ -582,7 +615,7 @@ describe('OpenGecko invalid parameter handling', () => {
   });
 
   it('uses a compatible validation envelope for equivalent bad paging across representative families', async () => {
-    const [coinMarketsResponse, exchangesResponse, onchainNetworksResponse] = await Promise.all([
+    const [coinMarketsResponse, exchangesResponse, exchangeTickersResponse, derivativesResponse, entitiesResponse, onchainNetworksResponse] = await Promise.all([
       app!.inject({
         method: 'GET',
         url: '/coins/markets?vs_currency=usd&page=0',
@@ -593,15 +626,54 @@ describe('OpenGecko invalid parameter handling', () => {
       }),
       app!.inject({
         method: 'GET',
+        url: '/exchanges/binance/tickers?page=0',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/derivatives/exchanges?page=0',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/entities/list?page=0',
+      }),
+      app!.inject({
+        method: 'GET',
         url: '/onchain/networks?page=0',
       }),
     ]);
 
-    for (const response of [coinMarketsResponse, exchangesResponse, onchainNetworksResponse]) {
+    for (const response of [coinMarketsResponse, exchangesResponse, exchangeTickersResponse, derivativesResponse, entitiesResponse, onchainNetworksResponse]) {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual({
         error: 'invalid_parameter',
         message: 'Invalid integer value: 0',
+      });
+    }
+  });
+
+  it('rejects page boundary values uniformly across paginated endpoint families', async () => {
+    const urls = [
+      '/coins/markets?vs_currency=usd&page=-1',
+      '/coins/markets?vs_currency=usd&page=abc',
+      '/exchanges?page=-1',
+      '/exchanges?page=abc',
+      '/exchanges/binance/tickers?page=-1',
+      '/exchanges/binance/tickers?page=abc',
+      '/derivatives/exchanges?page=-1',
+      '/derivatives/exchanges?page=abc',
+      '/entities/list?page=-1',
+      '/entities/list?page=abc',
+      '/onchain/networks?page=-1',
+      '/onchain/networks?page=abc',
+    ];
+
+    const responses = await Promise.all(urls.map((url) => app!.inject({ method: 'GET', url })));
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: 'invalid_parameter',
+        message: expect.stringMatching(/^Invalid integer value: /),
       });
     }
   });
@@ -708,7 +780,8 @@ describe('OpenGecko invalid parameter handling', () => {
 
     expect(invalidSortResponse.statusCode).toBe(400);
     expect(invalidSortResponse.json()).toMatchObject({
-      error: 'invalid_request',
+      error: 'invalid_parameter',
+      message: "sort Invalid enum value. Expected 'h24_volume_usd_liquidity_desc' | 'h24_tx_count_desc' | 'reserve_in_usd_desc', received 'market_cap_desc'",
     });
   });
 
@@ -820,4 +893,28 @@ describe('OpenGecko invalid parameter handling', () => {
       message: 'Coin not found: not-a-coin',
     });
   });
+
+  it('enforces snake_case keys across representative family responses', async () => {
+    const labeledRequests = [
+      { label: 'simple', request: app!.inject({ method: 'GET', url: '/simple/supported_vs_currencies' }) },
+      { label: 'assets', request: app!.inject({ method: 'GET', url: '/asset_platforms' }) },
+      { label: 'coins_markets', request: app!.inject({ method: 'GET', url: '/coins/markets?vs_currency=usd&per_page=1&page=1&sparkline=true' }) },
+      { label: 'coins_detail', request: app!.inject({ method: 'GET', url: '/coins/bitcoin?localization=false' }) },
+      { label: 'exchange_detail', request: app!.inject({ method: 'GET', url: '/exchanges/binance' }) },
+      { label: 'derivatives_detail', request: app!.inject({ method: 'GET', url: '/derivatives/exchanges/binance_futures?include_tickers=true' }) },
+      { label: 'treasury_detail', request: app!.inject({ method: 'GET', url: '/public_treasury/strategy' }) },
+      { label: 'onchain_pool', request: app!.inject({ method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640' }) },
+      { label: 'onchain_token_info', request: app!.inject({ method: 'GET', url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/info' }) },
+      { label: 'global', request: app!.inject({ method: 'GET', url: '/global' }) },
+    ] as const;
+    const labeledResponses = await Promise.all(
+      labeledRequests.map(async ({ label, request }) => ({ label, response: await request })),
+    );
+
+    for (const { label, response } of labeledResponses) {
+      expect(response.statusCode, label).toBe(200);
+      expect(collectCamelCasePaths(response.json()), label).toEqual([]);
+    }
+  });
+
 });

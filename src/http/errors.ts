@@ -18,9 +18,16 @@ export function registerErrorHandler(app: FastifyInstance) {
     }
 
     if (error instanceof ZodError) {
+      const issue = error.issues[0];
+      const path = issue?.path.filter((segment) => segment !== undefined && segment !== null).join('.');
+      const fieldLabel = path ? `${path} ` : '';
+      const message = issue?.message
+        ? `${fieldLabel}${issue.message}`.trim()
+        : 'Invalid request parameters.';
+
       return reply.status(400).send({
-        error: 'invalid_request',
-        details: error.flatten(),
+        error: 'invalid_parameter',
+        message,
       });
     }
 

@@ -5016,12 +5016,12 @@ describe('OpenGecko app scaffold', () => {
 
     expect(missingVsCurrencyResponse.statusCode).toBe(400);
     expect(missingVsCurrencyResponse.json()).toMatchObject({
-      error: 'invalid_request',
+      error: 'invalid_parameter',
     });
 
     expect(missingDaysResponse.statusCode).toBe(400);
     expect(missingDaysResponse.json()).toMatchObject({
-      error: 'invalid_request',
+      error: 'invalid_parameter',
     });
   });
 
