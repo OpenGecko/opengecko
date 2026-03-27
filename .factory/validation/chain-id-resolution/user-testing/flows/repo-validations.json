@@ -1,0 +1,195 @@
+{
+  "groupId": "repo-validations",
+  "testedAt": "2026-03-27T03:18:17.289824+00:00",
+  "isolation": {
+    "repoRoot": "/home/whoami/dev/openGecko",
+    "missionDir": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3",
+    "milestone": "chain-id-resolution",
+    "flowValidatorGuidance": "repo-validations",
+    "evidenceDir": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/repo-validations"
+  },
+  "toolsUsed": [
+    "Read",
+    "Grep",
+    "Execute"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-CID-001",
+      "title": "CCXT network IDs normalized to canonical platform IDs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `src/services/chain-catalog-sync.ts` and mapped tests",
+          "expected": "Chain catalog sync resolves exchange network IDs through canonical platform resolution before upsert",
+          "observed": "`syncChainCatalogFromExchanges` calls `resolveCanonicalPlatform(...)` for each network and deletes legacy IDs before canonical upsert."
+        },
+        {
+          "action": "Run `bun run vitest run tests/platform-id.test.ts tests/catalog.test.ts tests/initial-sync.test.ts`",
+          "expected": "A targeted test confirms ETH/BSC/SOL inputs create `ethereum`, `binance-smart-chain`, and `solana` rows without legacy alias rows",
+          "observed": "`tests/initial-sync.test.ts` passed case `discovers and upserts chain catalogs from exchange network metadata`, logging `chainsDiscovered=3` and asserting canonical rows exist while `eth`/`bsc` do not."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/services/chain-catalog-sync.ts",
+          "tests/initial-sync.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CID-002",
+      "title": "Chain identifier takes precedence over alias",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `src/lib/platform-id.ts`",
+          "expected": "Chain identifier mapping is checked before alias normalization",
+          "observed": "`resolveCanonicalPlatform` checks `PLATFORM_ID_BY_CHAIN_IDENTIFIER` before alias and fallback normalization."
+        },
+        {
+          "action": "Run targeted vitest command",
+          "expected": "Unit test proves `resolveCanonicalPlatformId('custom_eth', { chainIdentifier: 1 })` returns `ethereum`",
+          "observed": "`tests/platform-id.test.ts` passed case `gives chain identifier precedence over the raw alias value`."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/lib/platform-id.ts",
+          "tests/platform-id.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CID-003",
+      "title": "Alias resolution covers all documented identifiers",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `PLATFORM_ID_BY_ALIAS` definitions in `src/lib/platform-id.ts`",
+          "expected": "Documented aliases are present and normalize to canonical IDs",
+          "observed": "Alias map includes documented identifiers such as `eth`, `erc20`, `bsc`, `bnbsmartchain`, `bep20`, `sol`, `btc`, `trx`, and `trc20` plus expanded chain aliases."
+        },
+        {
+          "action": "Run targeted vitest command",
+          "expected": "Parameterized alias coverage test passes for all documented identifiers",
+          "observed": "`tests/platform-id.test.ts` passed case `resolves all documented aliases to their canonical ids`."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/lib/platform-id.ts",
+          "tests/platform-id.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CID-006",
+      "title": "Cross-alias contract resolution",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `src/modules/catalog.ts` contract lookup wiring and tests",
+          "expected": "Contract lookup resolves canonical/shortname candidates for alias inputs",
+          "observed": "`getCoinByContract` is exercised by tests that query the same Ethereum contract through `eth`, `ethereum`, and `erc20`."
+        },
+        {
+          "action": "Run targeted vitest command",
+          "expected": "All alias forms return the same coin",
+          "observed": "`tests/catalog.test.ts` passed case `resolves contract addresses through canonical platform aliases`, and all three lookups returned `usd-coin`."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/modules/catalog.ts",
+          "tests/catalog.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CID-009",
+      "title": "Multi-exchange chain-id merging",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `src/services/chain-catalog-sync.ts` merge behavior",
+          "expected": "When the same canonical platform is discovered multiple times, a non-null chain identifier wins over null",
+          "observed": "Merge logic updates `existing.chainIdentifier` when the current value is null and a later exchange provides a non-null chain identifier."
+        },
+        {
+          "action": "Run targeted vitest command",
+          "expected": "Integration test confirms ethereum row ends with chain identifier 1 when exchanges report null then 1",
+          "observed": "`tests/initial-sync.test.ts` passed case `prefers non-null chain identifiers when exchanges disagree on the same canonical network`, asserting `ethereum.chainIdentifier === 1`."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/services/chain-catalog-sync.ts",
+          "tests/initial-sync.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CID-010",
+      "title": "Unknown networks normalize to slug form",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect `src/lib/platform-id.ts` fallback normalization",
+          "expected": "Unknown network IDs normalize to deterministic lowercase hyphenated slugs",
+          "observed": "`normalizePlatformId` lowercases and hyphenates separators; unresolved platform IDs fall back to that slug with heuristic confidence."
+        },
+        {
+          "action": "Run targeted vitest command",
+          "expected": "Unit test confirms unknown network examples normalize as expected",
+          "observed": "`tests/platform-id.test.ts` passed case `normalizes known and unknown platforms into deterministic slugs`, including `Polygon_POS -> polygon-pos` and `Made Up Chain -> made-up-chain`."
+        }
+      ],
+      "evidence": {
+        "commandLogs": [
+          "chain-id-resolution/repo-validations/targeted-vitest.txt"
+        ],
+        "source": [
+          "src/lib/platform-id.ts",
+          "tests/platform-id.test.ts"
+        ],
+        "consoleErrors": "none",
+        "network": "n/a"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 6 assigned repository-validation assertions. All 6 passed via targeted Vitest coverage plus typecheck confirmation."
+}

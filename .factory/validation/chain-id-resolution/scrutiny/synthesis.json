@@ -1,0 +1,34 @@
+{
+  "milestone": "chain-id-resolution",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "bun run test", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "bun run typecheck", "exitCode": 0 },
+    "lint": { "passed": true, "command": "echo \"no lint configured\"", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Update core-api-worker to include an explicit verification-only branch for already-completed features so workers can validate landed commits without marking the procedure as deviated.",
+      "evidence": "The canonical-chain-resolution-expansion review found the worker had to report a procedure deviation solely because the feature was already implemented in commit 25024d6 and only required verification; mission AGENTS.md already allows verification-only handoffs.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Strengthen core-api-worker guidance to require checking existing endpoint behavior and task prompts before escalating blocking findings on adjacent milestone requirements.",
+      "evidence": "The cross-alias-contract-resolution reviews showed an earlier worker incorrectly escalated `/diagnostics/chain_coverage` confidence as missing even though the field already existed and the feature prompt explicitly said not to report it as missing.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": null
+}

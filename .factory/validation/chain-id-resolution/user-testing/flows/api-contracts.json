@@ -1,0 +1,129 @@
+{
+  "flow": "api-contracts",
+  "milestone": "chain-id-resolution",
+  "validatorType": "api",
+  "serverBaseUrl": "http://127.0.0.1:3102",
+  "assertions": [
+    {
+      "id": "VAL-CID-004",
+      "status": "fail",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/diagnostics_chain_coverage.headers.txt",
+          "note": "HTTP/1.1 200 OK"
+        },
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/diagnostics_chain_coverage.body.json",
+          "note": "Observed platform_counts and contract_mapping; confidence counts absent."
+        }
+      ],
+      "frictions": [
+        "Endpoint exposes data.platform_counts and data.contract_mapping but omits data.confidence counts required by the validation contract."
+      ],
+      "blockers": [],
+      "toolsUsed": [
+        "curl",
+        "python3"
+      ],
+      "details": {
+        "platform_counts": {
+          "total": 3,
+          "with_chain_identifier": 2,
+          "without_chain_identifier": 1
+        },
+        "contract_mapping": {
+          "active_coins": 8,
+          "coins_with_platform_mappings": 1,
+          "coins_without_platform_mappings": 7
+        },
+        "confidence_present": false,
+        "confidence_keys": []
+      }
+    },
+    {
+      "id": "VAL-CID-005",
+      "status": "pass",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/unknown_contract_platform.headers.txt",
+          "note": "HTTP/1.1 404 Not Found"
+        },
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/unknown_contract_platform.body.json",
+          "note": "Observed explicit JSON error envelope for unknown contract platform lookup."
+        }
+      ],
+      "frictions": [],
+      "blockers": [],
+      "toolsUsed": [
+        "curl"
+      ],
+      "details": {
+        "status_line": "HTTP/1.1 404 Not Found",
+        "body": {
+          "error": "not_found",
+          "message": "Contract not found: 0x0000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "id": "VAL-CID-007",
+      "status": "pass",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/diagnostics_chain_coverage.body.json",
+          "note": "Validated arithmetic invariants on observed diagnostics payload."
+        }
+      ],
+      "frictions": [],
+      "blockers": [],
+      "toolsUsed": [
+        "curl",
+        "python3"
+      ],
+      "details": {
+        "platform_counts": {
+          "total": 3,
+          "with_chain_identifier": 2,
+          "without_chain_identifier": 1
+        },
+        "platform_total_check": "2 + 1 == 3",
+        "contract_mapping": {
+          "active_coins": 8,
+          "coins_with_platform_mappings": 1,
+          "coins_without_platform_mappings": 7
+        },
+        "contract_total_check": "1 + 7 == 8"
+      }
+    },
+    {
+      "id": "VAL-CID-008",
+      "status": "pass",
+      "evidence": [
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/asset_platforms.headers.txt",
+          "note": "HTTP/1.1 200 OK"
+        },
+        {
+          "file": "/home/whoami/.factory/missions/f3507a1f-9e14-4c7c-a7d4-636d4909f2b3/evidence/chain-id-resolution/api-contracts/asset_platforms.body.json",
+          "note": "Observed schema fields chain_identifier, name, shortname on all entries and no legacy alias IDs eth/bsc/sol."
+        }
+      ],
+      "frictions": [],
+      "blockers": [],
+      "toolsUsed": [
+        "curl",
+        "python3"
+      ],
+      "details": {
+        "entry_count": 3,
+        "legacy_alias_ids_present": [],
+        "sample_ids": [
+          "bitcoin",
+          "ethereum",
+          "solana"
+        ]
+      }
+    }
+  ]
+}

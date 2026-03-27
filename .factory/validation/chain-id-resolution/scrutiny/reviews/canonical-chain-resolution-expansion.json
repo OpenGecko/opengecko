@@ -1,0 +1,21 @@
+{
+  "featureId": "canonical-chain-resolution-expansion",
+  "reviewedAt": "2026-03-27T03:05:48.823208+00:00",
+  "commitId": "25024d6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit 25024d6, the worker handoff, transcript skeleton, and affected implementation/tests for canonical chain resolution expansion. The feature requirements are covered: 20+ canonical mappings were added, chain-id takes precedence over aliases, confidence states are exposed and tested, diagnostics reports confidence counts, and multi-exchange merge keeps a discovered non-null chain identifier.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker followed a verification-only path because the feature had already landed in commit 25024d6; the core-api-worker skill still frames this as a deviation rather than an expected path for already-completed features.",
+      "evidence": "Handoff 2026-03-27T02-52-29-127Z__canonical-chain-resolution-expansion__91c656b9-592d-4f57-8f8f-e237b4f39bee.json records `followedProcedure: false` solely because the worker verified existing code instead of writing new failing tests or editing files. The skill at .factory/skills/core-api-worker/SKILL.md lacks an explicit verification-only branch, despite mission AGENTS.md allowing verification-only handoffs for already-committed work."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The canonical chain resolution expansion in commit 25024d6 matches the feature contract and has adequate test coverage; no code issues were found during review."
+}

@@ -1,0 +1,21 @@
+{
+  "featureId": "cross-alias-contract-resolution",
+  "reviewedAt": "2026-03-27T03:06:06.984226+00:00",
+  "commitId": "83ca2fe",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Commit 83ca2fe cleanly scopes this feature to test coverage and the deterministic BTC/EUR expectation fix. The existing alias-resolution implementation in catalog/assets/coins already satisfies the required eth/ethereum/erc20 contract lookup behavior, explicit unknown-platform 404 handling, and canonical /asset_platforms output, and the new tests exercise those contracts without introducing regressions.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The earlier worker session for this same feature reported a blocking issue claiming `/diagnostics/chain_coverage` omitted `data.confidence`, but the follow-up successful worker and the code both show this feature does not need diagnostics changes and the field was already present. The core-api-worker guidance may need a stronger reminder to verify existing endpoint behavior before escalating blocking findings on adjacent milestone requirements.",
+      "evidence": "Mission transcript artifact /home/whoami/.factory/artifacts/tool-outputs/grep_tool_cli-call_HcHzeAGSTn4lUcR9Iq6a5HUa-80707331.log shows session 434b3fb4-9105-47fd-8bdd-5b0f3f3ed442 reporting the missing confidence field, while session 933d7ed6-2721-488b-b2da-2ce97f182f7c completed the feature without touching diagnostics; the task prompt also explicitly warns not to report that field as missing."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review passed: 83ca2fe adds the requested cross-alias contract and asset_platforms coverage, fixes the deterministic BTC/EUR assertion, and aligns with the existing alias-resolution architecture without introducing feature-level issues."
+}
