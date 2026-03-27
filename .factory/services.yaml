@@ -1,26 +1,21 @@
 commands:
   install: bun install --frozen-lockfile
-  build: bun run build
   typecheck: bun run typecheck
-  test: bun run test -- --maxWorkers=3
-  test_runtime: bun test tests/market-runtime.test.ts tests/initial-sync.test.ts tests/integration-live-data.test.ts tests/stale-data.test.ts tests/providers-ccxt.test.ts tests/ccxt-provider.test.ts
-  test_hot_paths: bun test tests/app.test.ts tests/invalid-params.test.ts tests/stale-data.test.ts tests/compare-coingecko.test.ts
-  test_refactor_guard: bun test tests/app.test.ts tests/compare-coingecko.test.ts tests/stale-data.test.ts
-  endpoint_simple: bash scripts/modules/simple/simple.sh
-  endpoint_coins: bash scripts/modules/coins/coins.sh
-  endpoint_all: bash scripts/test-endpoints.sh
+  build: bun run build
+  test: bun run test
+  lint: echo "no lint configured"
 
 services:
   api:
-    start: PORT=3100 LOG_LEVEL=error bun run src/server.ts
-    stop: sh -c 'pids=$(lsof -ti :3100); [ -n "$pids" ] && kill $pids || true'
-    healthcheck: curl -sf http://127.0.0.1:3100/ping
+    start: PORT=3100 CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts
+    stop: lsof -ti :3100 | xargs kill 2>/dev/null || true
+    healthcheck: curl -sf http://localhost:3100/ping
     port: 3100
     depends_on: []
 
-  validation-api:
-    start: sh -c 'pids=$(lsof -ti :3102); [ -n "$pids" ] && kill $pids || true; PORT=3102 LOG_LEVEL=error bun run src/server.ts'
-    stop: sh -c 'pids=$(lsof -ti :3102); [ -n "$pids" ] && kill $pids || true'
-    healthcheck: curl -sf http://127.0.0.1:3102/ping
+  api-validation:
+    start: PORT=3102 CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts
+    stop: lsof -ti :3102 | xargs kill 2>/dev/null || true
+    healthcheck: curl -sf http://localhost:3102/ping
     port: 3102
     depends_on: []

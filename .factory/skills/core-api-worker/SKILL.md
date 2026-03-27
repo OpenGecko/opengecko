@@ -9,49 +9,52 @@ NOTE: Startup and cleanup are handled by `worker-base`. This skill defines the w
 
 ## When to Use This Skill
 
-Use this skill for non-onchain endpoint work in the simple, global, coins, exchanges, derivatives, and treasury-adjacent core API families.
+Use for features involving: foundation fixes (chart timestamps, test failures), chain/ID resolution, historical durability (OHLCV gap repair, retention), exchange live-fidelity, compatibility hardening, and any non-onchain endpoint work.
+
+## Required Skills
+
+None.
 
 ## Work Procedure
 
-1. Read `mission.md`, `AGENTS.md`, the assigned feature, and the relevant assertions in `validation-contract.md`.
-2. Inspect the existing route module, tests, and any related serializers or DB helpers before changing code.
-3. Write failing tests first. Add or update the most focused endpoint contract tests needed for the assigned assertions before implementation.
-4. Implement the route/handler/data-shaping changes needed to satisfy the failing tests while preserving existing family conventions.
-5. Add explicit invalid-parameter coverage whenever the feature includes validation semantics.
-6. Run the narrowest targeted test command that exercises the feature until it passes.
-If the manifest-wide baseline test command fails only on issues already listed in `AGENTS.md` as pre-existing, continue with scoped work and narrower validation instead of stopping immediately; record that baseline failure explicitly in the handoff.
-7. Start the local API if needed and manually verify the endpoint(s) with `curl`, including at least one happy-path and one negative-path request when the contract includes validation behavior. Prefer port `3102` if `3100` is already occupied so manual checks hit the worker's latest code.
-8. Run `bun run typecheck` before finishing. If the change affects shared route behavior broadly, also run a broader relevant Bun/Vitest command.
-9. Update your handoff with exact commands, exact observations, tests added, and any discovered gaps.
+1. Read `mission.md`, `AGENTS.md`, the assigned feature, and all assigned assertions in `validation-contract.md`.
+2. Inspect the relevant source files before making changes. Understand existing patterns.
+3. Write failing tests first for the exact behavior you are implementing. Cover both happy-path and error cases.
+4. Implement the changes to make tests pass. Follow existing code patterns (Fastify routes, Drizzle queries, Zod validation).
+5. Run the targeted tests until they pass.
+6. If the manifest-wide baseline test command fails only on issues already listed in `AGENTS.md` as pre-existing, continue with scoped work; record that baseline failure in the handoff.
+7. Start the local API (`PORT=3102 CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts`) and manually verify at least one valid + one invalid request with curl. Kill the server after.
+8. Run `bun run typecheck` before finishing. If your changes affect shared modules, run the broader test suite too.
+9. In the handoff, record exact endpoints, parameters, and responses used in verification.
 
 ## Example Handoff
 
 ```json
 {
-  "salientSummary": "Implemented `/coins/list/new` with CoinGecko-style object envelope and stabilized ranking for `/coins/top_gainers_losers`; added explicit invalid-param handling for unsupported duration values.",
-  "whatWasImplemented": "Added failing tests first for new-listings envelope shape and mover ranking polarity, then implemented both routes in the coins module using existing snapshot queries and a listing-timestamp field. Added explicit 400 handling for invalid duration/top_coins inputs and updated fixtures for the new response shape.",
+  "salientSummary": "Fixed 4 pre-existing test failures caused by timestamp drift in seeded chart data. Made chartPoints population date-relative instead of absolute. Committed existing chain-normalization work. All 343 tests now pass.",
+  "whatWasImplemented": "Updated seeded chart point generation to use relative date offsets from test execution time instead of hardcoded absolute timestamps. Bridged the chartPoints table to read from OHLCV candle store when available. Committed the existing platform-id alias resolution in src/lib/platform-id.ts and updated chain-catalog-sync, catalog, assets, and simple modules.",
   "whatWasLeftUndone": "",
   "verification": {
     "commandsRun": [
       {
-        "command": "bun test tests/app.test.ts --runInBand",
+        "command": "bun run test",
         "exitCode": 0,
-        "observation": "New mover and listing tests passed alongside existing coin endpoint tests."
+        "observation": "All 343 tests pass including the 4 previously failing chart/global tests."
       },
       {
         "command": "bun run typecheck",
         "exitCode": 0,
-        "observation": "No TypeScript errors after route and schema updates."
+        "observation": "No type errors."
       }
     ],
     "interactiveChecks": [
       {
-        "action": "Started API on port 3100 and curled `/coins/list/new` and `/coins/top_gainers_losers?vs_currency=usd`.",
-        "observed": "`/coins/list/new` returned an object with `coins[]`; movers returned both `top_gainers` and `top_losers` arrays with expected ordering."
+        "action": "Started API on port 3102 and curled GET /global/market_cap_chart?vs_currency=usd&days=7",
+        "observed": "Returns 200 with market_cap_chart array containing 7 [timestamp, value] tuples with positive values."
       },
       {
-        "action": "Curled an invalid mover request with unsupported duration.",
-        "observed": "Endpoint returned a stable 400 response instead of falling through to a 500 or silent default."
+        "action": "Curled GET /token_lists/eth/all.json",
+        "observed": "Returns 200 with name='OpenGecko Ethereum Token List' and tokens array containing USDC."
       }
     ]
   },
@@ -61,12 +64,8 @@ If the manifest-wide baseline test command fails only on issues already listed i
         "file": "tests/app.test.ts",
         "cases": [
           {
-            "name": "coins list new returns object envelope with coins array",
-            "verifies": "New-listings top-level shape and row identity fields."
-          },
-          {
-            "name": "top gainers losers rejects invalid duration",
-            "verifies": "Explicit invalid-parameter behavior for mover ranking endpoint."
+            "name": "accepts canonical platform aliases for token-price, contract, and token-list routes",
+            "verifies": "Platform alias eth resolves to ethereum across all contract-address-dependent routes."
           }
         ]
       }
@@ -78,6 +77,7 @@ If the manifest-wide baseline test command fails only on issues already listed i
 
 ## When to Return to Orchestrator
 
-- The feature requires a provider or dataset not already represented in mission guidance.
-- CoinGecko contract behavior is ambiguous and cannot be resolved from existing tests, fixtures, or docs.
-- Meeting the feature contract would require changing mission boundaries or introducing new infrastructure.
+- The feature requires schema migrations that would break other in-progress features
+- Test failures appear to be caused by changes from a different feature (not your own)
+- Requirements are ambiguous or contradictory
+- External provider integration is needed (use onchain-api-worker for DeFiLlama/TheGraph)

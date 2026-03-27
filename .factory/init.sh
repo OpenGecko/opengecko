@@ -1,23 +1,10 @@
-#!/usr/bin/env sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
-if ! command -v bun >/dev/null 2>&1; then
-  echo "bun is required but not installed" >&2
-  exit 1
-fi
+cd "$(dirname "$0")/.."
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "curl is required but not installed" >&2
-  exit 1
-fi
+# Install dependencies (idempotent)
+bun install --frozen-lockfile
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "jq is required but not installed" >&2
-  exit 1
-fi
-
+# Ensure data directory exists
 mkdir -p data
-
-if [ ! -d node_modules ]; then
-  bun install --frozen-lockfile
-fi

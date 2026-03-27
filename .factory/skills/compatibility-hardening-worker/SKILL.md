@@ -9,59 +9,64 @@ NOTE: Startup and cleanup are handled by `worker-base`. This skill defines the w
 
 ## When to Use This Skill
 
-Use this skill for cross-area consistency work: identity continuity, range-vs-lookback alignment, aggregate reconciliation, pagination stability, shared error-envelope behavior, null-vs-omitted rules, and freshness tolerance hardening.
+Use for compatibility audit features, invalid-parameter coverage expansion, serializer fixture creation, parity report generation, and any feature focused on cross-endpoint consistency rather than new functionality.
+
+## Required Skills
+
+None.
 
 ## Work Procedure
 
-1. Read `mission.md`, `AGENTS.md`, the assigned feature, and every assigned cross-area assertion.
-2. Identify the endpoint families involved and build a small curated fixture chain before changing code. Do not rely on one-off spot checks for cross-area work.
-3. Write characterization tests first that reproduce the current inconsistency or missing behavior across the affected endpoints.
-4. Make the smallest changes needed to align behavior without breaking already-compatible surfaces.
-5. Re-run the targeted characterization tests, then the most relevant broader suite touching the affected families.
-If the manifest-wide baseline test command fails only on issues already listed in `AGENTS.md` as pre-existing, continue with scoped work and narrower validation instead of stopping immediately; record that baseline failure explicitly in the handoff.
-6. Run `bun run typecheck` before finishing.
-7. Manually verify the fixture chain with `curl`, capturing the ids, addresses, and timestamps used so later validators can reproduce the same comparisons.
-8. If a cross-area issue is really a product or contract ambiguity rather than an implementation bug, stop and return to orchestrator instead of guessing.
+1. Read `mission.md`, `AGENTS.md`, the assigned feature, and all assigned assertions in `validation-contract.md`.
+2. Read the endpoint parity matrix at `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md` to understand the full endpoint surface.
+3. Read existing test coverage in `tests/invalid-params.test.ts` and `tests/compare-coingecko.test.ts`.
+4. For audit features: systematically inventory every endpoint, cross-reference with tests and fixtures, produce a structured report.
+5. For invalid-param features: write failing tests first for each untested parameter validation path, then verify the implementation handles them correctly. Add implementation fixes if needed.
+6. For fixture features: create response shape fixtures in `tests/fixtures/` and add `toMatchObject` assertions.
+7. For report features: generate markdown documents in `docs/status/` with per-endpoint compatibility analysis.
+8. Run `bun run test` to verify no regressions. Run `bun run typecheck`.
+9. Start the API on port 3102 and manually verify at least 3 representative endpoints with curl.
+10. In the handoff, list every endpoint covered and the specific validation checks added.
 
 ## Example Handoff
 
 ```json
 {
-  "salientSummary": "Hardened range-vs-lookback chart semantics and unified 400-class error envelopes for invalid range requests across coin OHLC, supply charts, and exchange volume range routes.",
-  "whatWasImplemented": "Added characterization tests first for aligned-window chart comparisons and invalid-range error shape mismatches, then updated shared request parsing/helpers so the affected route families use the same timestamp validation and error envelope rules. Also normalized range ordering behavior so range and lookback responses align on timestamp units and ordering.",
+  "salientSummary": "Expanded invalid-parameter test coverage to all 6 endpoint families. Added 24 new test cases covering pagination, ordering, boolean, and precision parameter validation. Created per-family compatibility report in docs/status/.",
+  "whatWasImplemented": "Added invalid-param tests for treasury family (3 new cases), expanded onchain family coverage (6 new cases), added pagination uniformity tests across all paginated endpoints. Created docs/status/compatibility-audit.md with per-endpoint status for all 76 matrix endpoints.",
   "whatWasLeftUndone": "",
   "verification": {
     "commandsRun": [
       {
-        "command": "bun test tests/app.test.ts --runInBand",
+        "command": "bun run test",
         "exitCode": 0,
-        "observation": "Cross-area range and error-semantics tests passed for all touched route families."
+        "observation": "All tests pass including 24 new invalid-param tests."
       },
       {
         "command": "bun run typecheck",
         "exitCode": 0,
-        "observation": "Typecheck remained clean after shared helper changes."
+        "observation": "No type errors."
       }
     ],
     "interactiveChecks": [
       {
-        "action": "Curled aligned lookback/range requests across coin OHLC and exchange volume endpoints.",
-        "observed": "Returned timestamps were aligned and invalid ranges now use the same 400-class error shape across families."
+        "action": "Curled GET /coins/markets?page=0 and GET /exchanges?page=-1",
+        "observed": "Both return 400 with consistent {error: 'invalid_parameter'} envelope."
+      },
+      {
+        "action": "Curled GET /coins/not-a-coin and GET /exchanges/not-an-exchange",
+        "observed": "Both return 404 with consistent {error: 'not_found'} envelope."
       }
     ]
   },
   "tests": {
     "added": [
       {
-        "file": "tests/app.test.ts",
+        "file": "tests/invalid-params.test.ts",
         "cases": [
           {
-            "name": "range and lookback chart routes align for equivalent windows",
-            "verifies": "Cross-family timestamp and ordering consistency."
-          },
-          {
-            "name": "invalid ranges share a common 400-class error contract",
-            "verifies": "Cross-family error-envelope consistency for shared failure modes."
+            "name": "rejects invalid pagination across all paginated endpoints uniformly",
+            "verifies": "Uniform 400 response for page=0, page=-1, page=abc across coins, exchanges, onchain, derivatives."
           }
         ]
       }
@@ -73,6 +78,6 @@ If the manifest-wide baseline test command fails only on issues already listed i
 
 ## When to Return to Orchestrator
 
-- The inconsistency traces back to an unresolved product/contract decision instead of an implementation gap.
-- Fixing the issue would require changing the mission validation contract or scope.
-- The necessary fixture chain cannot be built from the available endpoint families or data sources.
+- An endpoint has a structural incompatibility that requires architectural changes beyond test/fixture work
+- The parity matrix contains endpoints not yet registered as routes (implementation gap, not hardening gap)
+- Existing test infrastructure cannot express the required assertion pattern

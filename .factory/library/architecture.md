@@ -1,25 +1,58 @@
 # Architecture
 
-Architecture facts, decisions, and extension notes for workers.
-
-**What belongs here:** route/module layout, service boundaries, data flow notes, architectural constraints discovered during mission work.
-**What does NOT belong here:** per-feature TODOs or mission status.
+Architectural decisions, patterns discovered, and module boundaries.
 
 ---
 
-- OpenGecko is a Bun + TypeScript + Fastify API with SQLite/Drizzle persistence.
-- Existing route families live under `src/modules/`.
-- Contract compatibility takes priority over internal elegance.
-- Reuse existing patterns for validation, route registration, and DB access before introducing new abstractions.
-- This mission hardens runtime behavior for the existing API surface; it is not an endpoint-expansion mission.
-- Keep provider seams replaceable; do not couple new routes tightly to a single source unless unavoidable and surfaced to the orchestrator.
+## Module Structure
 
-- For Drizzle join/select work, define explicit row types when needed and expect table-name keys in joined results unless you alias them yourself.
-- When Drizzle `count()` inference becomes brittle in this codebase, a simpler select-and-`.length` pattern is acceptable if the query scope is bounded and behavior remains clear.
-- Put provider concurrency, failure control, and degraded-boot logic in provider/runtime services rather than route-local code.
-- Treat cache work as route-facing infrastructure: normalize only contract-safe request differences, and isolate every shape-altering parameter in the cache key.
-- Stabilize hot query shapes before adding indexes; do not optimize temporary query patterns.
-- Runtime-status and diagnostics surfaces must align with the actual behavior seen on `/simple/price` and `/coins/markets`.
-- Final-phase refactors must be characterization-first and behavior-preserving, especially for `src/modules/coins.ts` and `src/services/market-refresh.ts`.
-- Coin/token image hydration must not depend on CoinGecko IDs or the CoinGecko API. Prefer a confidence-gated identity layer that can map curated native assets and trusted platform/contract-backed tokens to public non-CoinGecko image sources.
-- Treat image hydration as compatibility data, not cosmetic best-effort guessing: avoid symbol/name-only inference for ambiguous assets unless there is an explicit curated mapping.
+```
+src/
+├── app.ts              # Fastify app builder, route registration
+├── server.ts           # Entry point (listen)
+├── config/env.ts       # Zod-validated environment config
+├── db/
+│   ├── schema.ts       # Drizzle schema (all tables)
+│   ├── client.ts       # DB creation, migration, seeding
+│   ├── search-index.ts # FTS5 search index
+│   └── migrate.ts      # Migration runner
+├── http/
+│   ├── errors.ts       # HttpError class
+│   └── params.ts       # Query parameter parsers
+├── lib/
+│   ├── coin-id.ts      # Coin ID derivation, overrides
+│   ├── platform-id.ts  # Platform alias resolution (NEW)
+│   ├── conversion.ts   # Currency conversion
+│   └── async.ts        # Concurrency helpers
+├── modules/
+│   ├── catalog.ts      # Shared coin/market data queries
+│   ├── coins.ts        # /coins/* routes
+│   ├── coins/          # Coin detail helpers
+│   ├── simple.ts       # /simple/* routes
+│   ├── assets.ts       # /asset_platforms, /token_lists
+│   ├── exchanges.ts    # /exchanges/*, /derivatives/*
+│   ├── onchain.ts      # /onchain/* routes (2700+ lines)
+│   ├── search.ts       # /search
+│   ├── global.ts       # /global
+│   └── diagnostics.ts  # /diagnostics/*
+├── providers/
+│   └── ccxt.ts         # CCXT exchange provider (tickers, markets, OHLCV, networks)
+├── services/           # Business logic, sync jobs, runtime state
+└── types/              # Shared type declarations
+```
+
+## Data Flow
+
+1. **Boot**: createDatabase → migrateDatabase → runInitialMarketSync → seedStaticReferenceData → rebuildSearchIndex → startupPrewarm
+2. **Live refresh**: 60s market snapshots → 900s search rebuild → continuous OHLCV worker
+3. **HTTP request**: Fastify route → module handler → catalog/service query → SQLite → JSON response
+
+## Onchain Architecture
+
+All 29 onchain routes exist but are fixture-backed. Key fixture functions:
+- `buildOnchainTradeFixtures()` — 8 hardcoded trades
+- `buildSyntheticPoolOhlcvSeries()` — synthetic candles from seed prices
+- `buildTopHolderFixtures()` / `buildTopTraderFixtures()` — USDC-only fixtures
+- `buildHoldersChartFixtures()` — 3-point USDC chart
+
+Live data integration plan: DeFiLlama for pools/TVL/prices, The Graph for swap events/OHLCV.
