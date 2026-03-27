@@ -18,6 +18,12 @@ type SimplePriceCacheEntry = {
   revision: number;
 };
 
+export type SimplePriceAvailabilityFailure = {
+  statusCode: number;
+  error: string;
+  message: string;
+};
+
 export type SimplePriceRequestQuery = z.infer<typeof simplePriceQuerySchema>;
 export type WarmSimplePriceCacheOptions = {
   app?: Pick<FastifyInstance, 'metrics'>;
@@ -121,6 +127,35 @@ function cloneSimplePriceResponse(value: SimplePriceResponse): SimplePriceRespon
   return JSON.parse(JSON.stringify(value)) as SimplePriceResponse;
 }
 
+export function hasAnyLiveSnapshot(database: AppDatabase) {
+  return getMarketRows(database, 'usd', {}).some((row) => (row.snapshot?.sourceCount ?? 0) > 0);
+}
+
+export function getSimplePriceAvailabilityFailure(
+  database: AppDatabase,
+  runtimeState: MarketDataRuntimeState,
+  payloadSize: number,
+  surface: 'simple/price' | 'simple/token_price',
+) {
+  if (payloadSize > 0) {
+    return null;
+  }
+
+  if (
+    runtimeState.initialSyncCompleted
+    && runtimeState.initialSyncCompletedWithoutUsableLiveSnapshots
+    && !hasAnyLiveSnapshot(database)
+  ) {
+    return {
+      statusCode: 503,
+      error: 'service_unavailable',
+      message: `No usable live market snapshots are available for ${surface}.`,
+    } satisfies SimplePriceAvailabilityFailure;
+  }
+
+  return null;
+}
+
 export function warmSimplePriceCache(
   cache: Map<string, SimplePriceCacheEntry>,
   query: SimplePriceRequestQuery,
@@ -211,7 +246,7 @@ export function registerSimpleRoutes(
       throw new HttpError(400, 'invalid_parameter', 'At least one vs_currency must be provided.');
     }
 
-    return warmSimplePriceCache(
+    const payload = warmSimplePriceCache(
       simplePriceCache,
       query,
       database,
@@ -219,6 +254,23 @@ export function registerSimpleRoutes(
       runtimeState,
       { app },
     );
+
+    const availabilityFailure = getSimplePriceAvailabilityFailure(
+      database,
+      runtimeState,
+      Object.keys(payload).length,
+      'simple/price',
+    );
+
+    if (availabilityFailure) {
+      throw new HttpError(
+        availabilityFailure.statusCode,
+        availabilityFailure.error,
+        availabilityFailure.message,
+      );
+    }
+
+    return payload;
   });
 
   app.get('/simple/token_price/:id', async (request) => {
@@ -238,7 +290,7 @@ export function registerSimpleRoutes(
     const precision = parsePrecision(query.precision);
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
 
-    return Object.fromEntries(
+    const payload = Object.fromEntries(
       contractAddresses.flatMap((contractAddress) => {
         const coin = getCoinByContract(database, params.id, contractAddress);
 
@@ -270,5 +322,22 @@ export function registerSimpleRoutes(
         ]];
       }),
     );
+
+    const availabilityFailure = getSimplePriceAvailabilityFailure(
+      database,
+      runtimeState,
+      Object.keys(payload).length,
+      'simple/token_price',
+    );
+
+    if (availabilityFailure) {
+      throw new HttpError(
+        availabilityFailure.statusCode,
+        availabilityFailure.error,
+        availabilityFailure.message,
+      );
+    }
+
+    return payload;
   });
 }

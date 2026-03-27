@@ -43,6 +43,7 @@ async function eventually(assertion: () => void) {
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   return {
     initialSyncCompleted: false,
+    initialSyncCompletedWithoutUsableLiveSnapshots: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,

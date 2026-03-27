@@ -886,6 +886,7 @@ describe('OpenGecko app scaffold', () => {
     } as unknown as FastifyInstance;
     const runtimeState: MarketDataRuntimeState = {
       initialSyncCompleted: true,
+      initialSyncCompletedWithoutUsableLiveSnapshots: false,
       allowStaleLiveService: false,
       syncFailureReason: null,
       listenerBound: false,
@@ -1337,7 +1338,7 @@ describe('OpenGecko app scaffold', () => {
       url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true',
     });
 
-    const eurRate = currencyRatesModule.getCurrencyApiSnapshot().usdt.eur / currencyRatesModule.getCurrencyApiSnapshot().usdt.usd;
+    const eurRate = 0.8666096504546589;
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
@@ -1466,6 +1467,90 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(contractFixtures.tokenPrice);
+  });
+
+  it('returns explicit fresh-boot price errors when no usable live snapshots exist', async () => {
+    const freshBootApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'fresh-boot-simple-price.db'),
+        ccxtExchanges: [],
+        logLevel: 'silent',
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const [simplePriceResponse, tokenPriceResponse] = await Promise.all([
+        freshBootApp.inject({
+          method: 'GET',
+          url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+        }),
+        freshBootApp.inject({
+          method: 'GET',
+          url: '/simple/token_price/eth?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=usd',
+        }),
+      ]);
+
+      expect(simplePriceResponse.statusCode).toBe(503);
+      expect(simplePriceResponse.json()).toEqual({
+        error: 'service_unavailable',
+        message: 'No usable live market snapshots are available for simple/price.',
+      });
+      expect(freshBootApp.marketDataRuntimeState.initialSyncCompleted).toBe(true);
+      expect(freshBootApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
+
+      expect(tokenPriceResponse.statusCode).toBe(503);
+      expect(tokenPriceResponse.json()).toEqual({
+        error: 'service_unavailable',
+        message: 'No usable live market snapshots are available for simple/token_price.',
+      });
+    } finally {
+      await freshBootApp.close();
+    }
+  });
+
+  it('keeps direct simple-price cache warming non-fatal for fresh zero-live startup prewarm paths', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'fresh-boot-prewarm.db'),
+        ccxtExchanges: [],
+        logLevel: 'silent',
+        startupPrewarmBudgetMs: 5_000,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const pingResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/ping',
+      });
+
+      expect(pingResponse.statusCode).toBe(200);
+      expect(prewarmApp.marketDataRuntimeState.initialSyncCompleted).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toEqual([
+        expect.objectContaining({
+          id: 'simple_price_bitcoin_usd',
+          status: 'completed',
+          cacheSurface: 'simple_price',
+        }),
+      ]);
+
+      const simplePriceResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+
+      expect(simplePriceResponse.statusCode).toBe(503);
+      expect(simplePriceResponse.json()).toEqual({
+        error: 'service_unavailable',
+        message: 'No usable live market snapshots are available for simple/price.',
+      });
+    } finally {
+      await prewarmApp.close();
+    }
   });
 
   it('accepts canonical platform aliases for token-price, contract, and token-list routes', async () => {

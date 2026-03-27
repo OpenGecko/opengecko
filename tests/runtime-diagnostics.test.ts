@@ -6,6 +6,7 @@ import type { MarketDataRuntimeState } from '../src/services/market-runtime-stat
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   const baseState: MarketDataRuntimeState = {
     initialSyncCompleted: false,
+    initialSyncCompletedWithoutUsableLiveSnapshots: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,

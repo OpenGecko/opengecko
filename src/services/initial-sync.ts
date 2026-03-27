@@ -10,6 +10,10 @@ import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce } from './market-refresh';
 import type { MarketDataRuntimeState } from './market-runtime-state';
 
+function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
+  return result.snapshotsCreated > 0 && result.tickersWritten > 0;
+}
+
 export type InitialSyncProgressHandlers = {
   onStepChange?: (stepId: 'sync_exchange_metadata' | 'sync_coin_catalog' | 'sync_chain_catalog' | 'build_market_snapshots' | 'start_ohlcv_worker') => void;
   onOhlcvBackfillProgress?: (current: number, total: number) => void;
@@ -148,7 +152,7 @@ export async function runInitialMarketSync(
     durationMs,
   }, 'initial market sync complete');
 
-  return {
+  const result = {
     coinsDiscovered,
     chainsDiscovered,
     snapshotsCreated: snapshotCount,
@@ -156,4 +160,10 @@ export async function runInitialMarketSync(
     exchangesSynced: exchangeIds.length,
     ohlcvCandlesWritten,
   };
+
+  if (runtimeState) {
+    runtimeState.initialSyncCompletedWithoutUsableLiveSnapshots = !didInitialSyncProduceUsableLiveSnapshots(result);
+  }
+
+  return result;
 }

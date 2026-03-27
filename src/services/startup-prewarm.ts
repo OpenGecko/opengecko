@@ -136,13 +136,18 @@ async function runDirectSimplePricePrewarmWithinBudget(
   }
 
   const prewarmStartedAt = Date.now();
-  const warmPromise = Promise.resolve().then(() => warmSimplePriceCache(
-    app.simplePriceCache,
-    parseSimplePricePrewarmQuery(endpoint),
-    app.db,
-    app.marketFreshnessThresholdSeconds,
-    app.marketDataRuntimeState,
-  ));
+  const query = parseSimplePricePrewarmQuery(endpoint);
+  const warmPromise = Promise.resolve().then(() => {
+    const warmed = warmSimplePriceCache(
+      app.simplePriceCache,
+      query,
+      app.db,
+      app.marketFreshnessThresholdSeconds,
+      app.marketDataRuntimeState,
+      { app },
+    );
+    return warmed;
+  });
   const result = await raceWithBudget(warmPromise, remainingBudgetMs);
 
   if (isBudgetTimeoutResult(result)) {
@@ -154,7 +159,9 @@ async function runDirectSimplePricePrewarmWithinBudget(
     return { status: 'timeout' };
   }
 
-  return { status: 'completed' };
+  return 'statusCode' in result && typeof result.statusCode === 'number' && result.statusCode >= 400
+    ? { status: 'failed', statusCode: result.statusCode }
+    : { status: 'completed' };
 }
 
 async function runPrewarmInjectWithinBudget(

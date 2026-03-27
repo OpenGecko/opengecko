@@ -1,5 +1,6 @@
 export type MarketDataRuntimeState = {
   initialSyncCompleted: boolean;
+  initialSyncCompletedWithoutUsableLiveSnapshots: boolean;
   allowStaleLiveService: boolean;
   syncFailureReason: string | null;
   listenerBound: boolean;
@@ -47,6 +48,7 @@ export type MarketDataRuntimeState = {
 export function createMarketDataRuntimeState(): MarketDataRuntimeState {
   return {
     initialSyncCompleted: false,
+    initialSyncCompletedWithoutUsableLiveSnapshots: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
     listenerBound: false,
