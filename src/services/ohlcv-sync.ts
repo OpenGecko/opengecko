@@ -28,6 +28,16 @@ function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, cand
   }
 }
 
+async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike) {
+  return repairOhlcvGaps(database, {
+    coinId: target.coinId,
+    exchangeId: target.exchangeId,
+    symbol: target.symbol,
+    vsCurrency: target.vsCurrency,
+    interval: target.interval as '1m' | '1d',
+  }, (since, limit) => fetchExchangeOHLCV(target.exchangeId, target.symbol, target.interval, since, limit));
+}
+
 export { detectOhlcvGaps, repairOhlcvGaps, enforceOhlcvRetention };
 
 export async function syncRecentOhlcvWindow(database: AppDatabase, target: OhlcvSyncTargetLike, now: Date) {
@@ -38,6 +48,7 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
 
   const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, '1d', since);
   persistCandles(database, target, candles);
+  await repairPersistedGaps(database, target);
 
   return candles;
 }
@@ -50,6 +61,7 @@ export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target:
 
   const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, '1d', since);
   persistCandles(database, target, candles);
+  await repairPersistedGaps(database, target);
 
   return candles;
 }

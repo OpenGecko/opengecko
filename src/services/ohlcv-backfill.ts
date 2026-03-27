@@ -1,7 +1,7 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { fetchExchangeMarkets, fetchExchangeOHLCV, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
-import { enforceOhlcvRetention, upsertCanonicalOhlcvCandle } from './candle-store';
+import { enforceOhlcvRetention, repairOhlcvGaps, upsertCanonicalOhlcvCandle } from './candle-store';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { buildOhlcvSyncTargets } from './ohlcv-targets';
 
@@ -36,6 +36,15 @@ export async function runOhlcvBackfillOnce(
         replaceExisting: true,
       });
     }
+
+    await repairOhlcvGaps(database, {
+      coinId: target.coinId,
+      exchangeId: target.exchangeId,
+      symbol: target.symbol,
+      vsCurrency: 'usd',
+      interval: '1d',
+      retentionDays: options.retentionDays ?? config.ohlcvRetentionDays,
+    }, (gapSince, limit) => fetchExchangeOHLCV(target.exchangeId as ExchangeId, target.symbol, '1d', gapSince, limit));
 
     enforceOhlcvRetention(database, {
       coinId: target.coinId,

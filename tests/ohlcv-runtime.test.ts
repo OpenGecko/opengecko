@@ -3,6 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOhlcvRuntime } from '../src/services/ohlcv-runtime';
 import { runOhlcvWorkerJob } from '../src/jobs/run-ohlcv-worker';
 import { summarizeOhlcvSyncStatus } from '../src/services/ohlcv-runtime';
+import { createDatabase, migrateDatabase, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { coins } from '../src/db/schema';
+import { detectOhlcvGaps, getCanonicalCandles, upsertCanonicalOhlcvCandle } from '../src/services/candle-store';
+
+vi.mock('../src/providers/ccxt', () => ({
+  fetchExchangeMarkets: vi.fn(),
+  fetchExchangeOHLCV: vi.fn(),
+  fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
+  isValidExchangeId: (value: string): value is string =>
+    ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
+}));
+
+import { fetchExchangeOHLCV } from '../src/providers/ccxt';
+
+const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
 
 describe('ohlcv runtime', () => {
   const logger = {
@@ -96,6 +115,147 @@ describe('ohlcv runtime', () => {
 
     expect(syncRecentOhlcvWindow).toHaveBeenCalledTimes(1);
     expect(deepenHistoricalOhlcvWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the runtime sync path to repair interior gaps once upstream eventually serves the missing window', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-'));
+    const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));
+
+    try {
+      migrateDatabase(database);
+      seedStaticReferenceData(database);
+      database.db.insert(coins).values({
+        id: 'bitcoin',
+        symbol: 'btc',
+        name: 'Bitcoin',
+        apiSymbol: 'bitcoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 1,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-22T00:00:00.000Z'),
+      }).onConflictDoNothing().run();
+
+      for (const [timestamp, close] of [
+        ['2026-03-18T00:00:00.000Z', 80_000],
+        ['2026-03-20T00:00:00.000Z', 82_000],
+        ['2026-03-22T00:00:00.000Z', 84_000],
+      ] as const) {
+        upsertCanonicalOhlcvCandle(database, {
+          coinId: 'bitcoin',
+          vsCurrency: 'usd',
+          interval: '1d',
+          timestamp: new Date(timestamp),
+          open: close,
+          high: close + 500,
+          low: close - 500,
+          close,
+          volume: 10,
+          replaceExisting: true,
+        });
+      }
+
+      mockedFetchExchangeOHLCV.mockImplementation(async (_exchangeId, _symbol, _timeframe, since, limit) => {
+        if (limit === undefined && since === Date.parse('2026-03-23T00:00:00.000Z')) {
+          return [];
+        }
+
+        if (since === Date.parse('2026-03-21T00:00:00.000Z') && limit === 1) {
+          return [
+            {
+              exchangeId: 'binance',
+              symbol: 'BTC/USDT',
+              timeframe: '1d',
+              timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+              open: 83_000,
+              high: 83_500,
+              low: 82_500,
+              close: 83_250,
+              volume: 12,
+              raw: [],
+            },
+          ];
+        }
+
+        if (since === Date.parse('2026-03-19T00:00:00.000Z') && limit === 2) {
+          return [
+            {
+              exchangeId: 'binance',
+              symbol: 'BTC/USDT',
+              timeframe: '1d',
+              timestamp: Date.parse('2026-03-19T00:00:00.000Z'),
+              open: 81_000,
+              high: 81_500,
+              low: 80_500,
+              close: 81_250,
+              volume: 11,
+              raw: [],
+            },
+            {
+              exchangeId: 'binance',
+              symbol: 'BTC/USDT',
+              timeframe: '1d',
+              timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+              open: 83_000,
+              high: 83_500,
+              low: 82_500,
+              close: 83_250,
+              volume: 12,
+              raw: [],
+            },
+          ];
+        }
+
+        return [];
+      });
+
+      const leaseNextOhlcvTarget = vi.fn().mockReturnValue({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-03-18T00:00:00.000Z'),
+        targetHistoryDays: 365,
+      });
+      const runtime = createOhlcvRuntime(database, { ccxtExchanges: ['binance'] }, logger, {
+        refreshTargets: vi.fn().mockResolvedValue(undefined),
+        leaseNextOhlcvTarget,
+        markOhlcvTargetSuccess: vi.fn(),
+        markOhlcvTargetFailure: vi.fn(),
+      });
+
+      expect(detectOhlcvGaps(database, 'bitcoin', 'usd', '1d')).toEqual([
+        expect.objectContaining({
+          gapEnd: new Date('2026-03-21T00:00:00.000Z'),
+        }),
+      ]);
+
+      await runtime.tick(new Date('2026-03-23T00:00:00.000Z'));
+
+      expect(detectOhlcvGaps(database, 'bitcoin', 'usd', '1d')).toEqual([]);
+      expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d').map((row) => row.timestamp.toISOString())).toEqual(expect.arrayContaining([
+        '2026-03-18T00:00:00.000Z',
+        '2026-03-19T00:00:00.000Z',
+        '2026-03-20T00:00:00.000Z',
+        '2026-03-21T00:00:00.000Z',
+        '2026-03-22T00:00:00.000Z',
+      ]));
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('continues from persisted cursors after restart', async () => {
