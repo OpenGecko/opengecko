@@ -28,6 +28,7 @@ const envSchema = z.object({
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   DEFILLAMA_BASE_URL: z.string().url().default('https://api.llama.fi'),
+  DEFILLAMA_YIELDS_BASE_URL: z.string().url().default('https://yields.llama.fi'),
   THEGRAPH_API_KEY: z.string().trim().optional(),
   RESPONSE_COMPRESSION_THRESHOLD_BYTES: z.coerce.number().int().nonnegative().default(1024),
   STARTUP_PREWARM_BUDGET_MS: z.coerce.number().int().nonnegative().default(250),
@@ -48,6 +49,7 @@ export type AppConfig = {
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
   defillamaBaseUrl: string;
+  defillamaYieldsBaseUrl: string;
   thegraphApiKey: string | null;
   responseCompressionThresholdBytes: number;
   startupPrewarmBudgetMs: number;
@@ -144,6 +146,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     defillamaBaseUrl: env.DEFILLAMA_BASE_URL,
+    defillamaYieldsBaseUrl: env.DEFILLAMA_YIELDS_BASE_URL,
     thegraphApiKey: env.THEGRAPH_API_KEY && env.THEGRAPH_API_KEY.length > 0 ? env.THEGRAPH_API_KEY : null,
     responseCompressionThresholdBytes: env.RESPONSE_COMPRESSION_THRESHOLD_BYTES,
     startupPrewarmBudgetMs: env.STARTUP_PREWARM_BUDGET_MS,

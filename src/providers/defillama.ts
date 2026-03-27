@@ -4,6 +4,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 type DefillamaRequestOptions = {
   baseUrl?: string;
+  yieldsBaseUrl?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 };
@@ -70,9 +71,14 @@ function resolveBaseUrl(baseUrl?: string) {
   return (baseUrl ?? loadConfig().defillamaBaseUrl).replace(/\/+$/, '');
 }
 
-async function fetchJson<T>(path: string, options: DefillamaRequestOptions = {}) {
+function resolveYieldsBaseUrl(yieldsBaseUrl?: string, baseUrl?: string) {
+  const config = loadConfig();
+  return (yieldsBaseUrl ?? config.defillamaYieldsBaseUrl ?? baseUrl ?? config.defillamaBaseUrl).replace(/\/+$/, '');
+}
+
+async function fetchJson<T>(path: string, options: DefillamaRequestOptions = {}, urlOverride?: string) {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const url = `${resolveBaseUrl(options.baseUrl)}${path}`;
+  const url = urlOverride ?? `${resolveBaseUrl(options.baseUrl)}${path}`;
   const controller = options.signal ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;
 
@@ -168,9 +174,10 @@ function sumTotals(entries: DefillamaDexOverviewEntry[], field: keyof Pick<Defil
 
 export async function fetchDefillamaPoolData(options: DefillamaRequestOptions = {}): Promise<DefillamaPoolData | null> {
   try {
+    const poolsUrl = `${resolveYieldsBaseUrl(options.yieldsBaseUrl, options.baseUrl)}/pools`;
     const [protocolsResponse, poolsResponse] = await Promise.all([
       fetchJson<unknown[]>('/protocols', options),
-      fetchJson<{ data?: unknown[] }>('/yields/pools', options),
+      fetchJson<{ data?: unknown[] }>('/pools', options, poolsUrl),
     ]);
 
     return {

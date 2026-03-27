@@ -2,11 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { loadConfig, loadRepoDotenv, resetRepoDotenvLoaderForTests } from '../src/config/env';
 
 describe('repo dotenv loading', () => {
+  beforeEach(() => {
+    resetRepoDotenvLoaderForTests();
+  });
+
   afterEach(() => {
     resetRepoDotenvLoaderForTests();
   });
@@ -15,12 +19,13 @@ describe('repo dotenv loading', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-env-'));
 
     try {
-      writeFileSync(join(tempDir, '.env'), 'THEGRAPH_API_KEY=repo-key\nDEFILLAMA_BASE_URL=https://llama.example\n');
+      writeFileSync(join(tempDir, '.env'), 'THEGRAPH_API_KEY=repo-key\nDEFILLAMA_BASE_URL=https://llama.example\nDEFILLAMA_YIELDS_BASE_URL=https://yields.example\n');
       const env: NodeJS.ProcessEnv = {};
 
       expect(loadRepoDotenv({ cwd: tempDir, env })).toBe(true);
       expect(loadConfig(env).thegraphApiKey).toBe('repo-key');
       expect(loadConfig(env).defillamaBaseUrl).toBe('https://llama.example');
+      expect(loadConfig(env).defillamaYieldsBaseUrl).toBe('https://yields.example');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

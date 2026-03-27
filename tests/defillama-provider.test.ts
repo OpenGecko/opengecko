@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 describe('defillama provider', () => {
   const originalBaseUrl = process.env.DEFILLAMA_BASE_URL;
+  const originalYieldsBaseUrl = process.env.DEFILLAMA_YIELDS_BASE_URL;
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -10,10 +11,17 @@ describe('defillama provider', () => {
     } else {
       process.env.DEFILLAMA_BASE_URL = originalBaseUrl;
     }
+
+    if (originalYieldsBaseUrl === undefined) {
+      delete process.env.DEFILLAMA_YIELDS_BASE_URL;
+    } else {
+      process.env.DEFILLAMA_YIELDS_BASE_URL = originalYieldsBaseUrl;
+    }
   });
 
-  it('fetches protocol and pool data from configured endpoints', async () => {
+  it('fetches protocol and pool data from split configured hosts', async () => {
     process.env.DEFILLAMA_BASE_URL = 'https://defillama.example';
+    process.env.DEFILLAMA_YIELDS_BASE_URL = 'https://yields.defillama.example';
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -83,12 +91,13 @@ describe('defillama provider', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://defillama.example/protocols', expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://defillama.example/yields/pools', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.defillama.example/pools', expect.any(Object));
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('returns null and logs when the documented yields endpoint request fails', async () => {
+  it('returns null and logs when the split yields host request fails', async () => {
     process.env.DEFILLAMA_BASE_URL = 'https://defillama.example';
+    process.env.DEFILLAMA_YIELDS_BASE_URL = 'https://yields.defillama.example';
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([
         { id: 'uniswap', slug: 'uniswap', name: 'Uniswap', category: 'Dexes', chains: ['Ethereum'], tvl: 1234 },
@@ -102,7 +111,7 @@ describe('defillama provider', () => {
 
     expect(result).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://defillama.example/yields/pools', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.defillama.example/pools', expect.any(Object));
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -163,6 +172,25 @@ describe('defillama provider', () => {
       totalAllTime: 3000,
     });
     expect(fetchMock).toHaveBeenCalledWith('https://api.llama.fi/overview/dexs/Ethereum', expect.any(Object));
+  });
+
+  it('defaults pool discovery to the public yields host while leaving other requests on api.llama.fi', async () => {
+    delete process.env.DEFILLAMA_BASE_URL;
+    delete process.env.DEFILLAMA_YIELDS_BASE_URL;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+
+    const { fetchDefillamaPoolData } = await import('../src/providers/defillama');
+
+    const result = await fetchDefillamaPoolData({ fetchImpl: fetchMock as typeof fetch });
+
+    expect(result).toEqual({
+      protocols: [],
+      pools: [],
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://api.llama.fi/protocols', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.llama.fi/pools', expect.any(Object));
   });
 
   it('returns null and logs when a request fails', async () => {
