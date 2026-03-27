@@ -11,6 +11,7 @@ import { getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import { HttpError } from '../http/errors';
 import { getChartGranularityMs, downsampleTimeSeries } from './chart-semantics';
 import { z } from 'zod';
+import { getCanonicalCandles } from '../services/candle-store';
 
 function computeMarketCapChangePercentage24hUsd(
   marketRows: Array<{ snapshot: MarketSnapshotRow }>,
@@ -40,14 +41,82 @@ const globalMarketCapChartQuerySchema = z.object({
 });
 
 function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
-  if (days === 'max') {
-    const rows = database.db
-      .select()
-      .from(chartPoints)
-      .orderBy(asc(chartPoints.timestamp))
-      .all();
+  const canonicalRows = getCanonicalCandles(database, 'bitcoin', 'usd', '1d')
+    .map((anchorRow) => {
+      const timestampMs = anchorRow.timestamp.getTime();
+      const rowsAtTimestamp = database.db
+        .select()
+        .from(chartPoints)
+        .orderBy(asc(chartPoints.timestamp))
+        .all()
+        .filter((row) => row.timestamp.getTime() === timestampMs);
 
-    return rows;
+      const fallbackMarketCap = database.db
+        .select()
+        .from(chartPoints)
+        .orderBy(asc(chartPoints.timestamp))
+        .all()
+        .filter((row) => row.coinId === 'bitcoin' && row.timestamp.getTime() === timestampMs)
+        .at(0)?.marketCap ?? null;
+
+      if (rowsAtTimestamp.length > 0) {
+        return rowsAtTimestamp;
+      }
+
+      const canonicalSeriesRows = database.db
+        .select()
+        .from(chartPoints)
+        .orderBy(asc(chartPoints.timestamp))
+        .all()
+        .filter((row) => row.coinId === 'bitcoin');
+
+      const matchingIndex = getCanonicalCandles(database, 'bitcoin', 'usd', '1d')
+        .findIndex((row) => row.timestamp.getTime() === timestampMs);
+
+      if (matchingIndex === -1) {
+        return [];
+      }
+
+      return canonicalSeriesRows
+        .map((row) => ({
+          ...row,
+          timestamp: anchorRow.timestamp,
+        }))
+        .filter((_, index) => index === matchingIndex)
+        .map((row) => ({
+          ...row,
+          marketCap: row.marketCap ?? fallbackMarketCap,
+        }));
+    })
+    .flat();
+
+  if (canonicalRows.length > 0) {
+    if (days === 'max') {
+      return canonicalRows;
+    }
+
+    const parsedDays = Number(days);
+
+    if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
+      throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
+    }
+
+    const latestTimestamp = canonicalRows.at(-1)?.timestamp.getTime();
+    const cutoffMs = latestTimestamp === undefined
+      ? Date.now() - parsedDays * 24 * 60 * 60 * 1000
+      : latestTimestamp - parsedDays * 24 * 60 * 60 * 1000;
+
+    return canonicalRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
+  }
+
+  const allRows = database.db
+    .select()
+    .from(chartPoints)
+    .orderBy(asc(chartPoints.timestamp))
+    .all();
+
+  if (days === 'max') {
+    return allRows;
   }
 
   const parsedDays = Number(days);
@@ -58,12 +127,7 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
 
   const cutoffMs = Date.now() - parsedDays * 24 * 60 * 60 * 1000;
 
-  return database.db
-    .select()
-    .from(chartPoints)
-    .orderBy(asc(chartPoints.timestamp))
-    .all()
-    .filter((row) => row.timestamp.getTime() >= cutoffMs);
+  return allRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
 }
 
 export function registerGlobalRoutes(

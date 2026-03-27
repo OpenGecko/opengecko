@@ -2,7 +2,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
-import { categories, coins, marketSnapshots } from '../db/schema';
+import { assetPlatforms, categories, coins, marketSnapshots, onchainNetworks } from '../db/schema';
+import { getPlatformLookupIds, normalizePlatformId, resolveCanonicalPlatformId } from '../lib/platform-id';
 import { getCanonicalCloseSeries } from '../services/candle-store';
 
 export function parseJsonObject<T extends Record<string, unknown>>(value: string): T {
@@ -85,13 +86,73 @@ export function getCoinById(database: AppDatabase, id: string) {
   return database.db.select().from(coins).where(eq(coins.id, id)).limit(1).get();
 }
 
+function resolveRequestedPlatformIds(database: AppDatabase, platformId: string) {
+  const normalizedRequestedPlatformId = normalizePlatformId(platformId);
+  const candidates = new Set(getPlatformLookupIds(normalizedRequestedPlatformId));
+  const matchingPlatform = database.db
+    .select()
+    .from(assetPlatforms)
+    .all()
+    .find((row) => row.id === normalizedRequestedPlatformId || row.shortname === normalizedRequestedPlatformId);
+
+  if (matchingPlatform) {
+    candidates.add(matchingPlatform.id);
+    candidates.add(matchingPlatform.shortname);
+    candidates.add(resolveCanonicalPlatformId(matchingPlatform.id, {
+      networkName: matchingPlatform.name,
+      chainIdentifier: matchingPlatform.chainIdentifier,
+    }));
+  }
+
+  const matchingOnchainNetwork = database.db
+    .select()
+    .from(onchainNetworks)
+    .where(eq(onchainNetworks.id, normalizedRequestedPlatformId))
+    .limit(1)
+    .get();
+
+  if (matchingOnchainNetwork?.coingeckoAssetPlatformId) {
+    candidates.add(matchingOnchainNetwork.coingeckoAssetPlatformId);
+  }
+
+  return [...candidates].filter((value) => value.length > 0);
+}
+
+export function resolveCoinPlatformContract(
+  database: AppDatabase,
+  coin: { platformsJson: string },
+  platformId: string,
+) {
+  const platforms = parseJsonObject<Record<string, string>>(coin.platformsJson);
+
+  for (const candidatePlatformId of resolveRequestedPlatformIds(database, platformId)) {
+    const address = platforms[candidatePlatformId];
+    if (typeof address === 'string' && address.length > 0) {
+      return {
+        platformId: candidatePlatformId,
+        contractAddress: address.toLowerCase(),
+      };
+    }
+  }
+
+  return null;
+}
+
+export function getAssetPlatformById(database: AppDatabase, platformId: string) {
+  const requestedIds = resolveRequestedPlatformIds(database, platformId);
+
+  return database.db
+    .select()
+    .from(assetPlatforms)
+    .all()
+    .find((row) => requestedIds.includes(row.id) || requestedIds.includes(row.shortname)) ?? null;
+}
+
 export function getCoinByContract(database: AppDatabase, platformId: string, contractAddress: string) {
   const normalizedContract = contractAddress.toLowerCase();
 
   return getCoins(database, { status: 'all' }).find((coin) => {
-    const platforms = parseJsonObject<Record<string, string>>(coin.platformsJson);
-
-    return platforms[platformId]?.toLowerCase() === normalizedContract;
+    return resolveCoinPlatformContract(database, coin, platformId)?.contractAddress === normalizedContract;
   });
 }
 

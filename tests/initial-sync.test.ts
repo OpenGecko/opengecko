@@ -271,8 +271,10 @@ describe('initial market sync', () => {
       .from(assetPlatforms)
       .all();
 
-    expect(platformRows.some((row) => row.id === 'eth')).toBe(true);
-    expect(platformRows.some((row) => row.id === 'bsc')).toBe(true);
+    expect(platformRows.some((row) => row.id === 'ethereum')).toBe(true);
+    expect(platformRows.some((row) => row.id === 'binance-smart-chain')).toBe(true);
     expect(platformRows.some((row) => row.id === 'solana')).toBe(true);
+    expect(platformRows.some((row) => row.id === 'eth')).toBe(false);
+    expect(platformRows.some((row) => row.id === 'bsc')).toBe(false);
   });
 });

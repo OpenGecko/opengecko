@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms } from '../db/schema';
 import { HttpError } from '../http/errors';
-import { getCoins } from './catalog';
+import { getAssetPlatformById, getCoins, resolveCoinPlatformContract } from './catalog';
 
 const assetPlatformsQuerySchema = z.object({
   filter: z.enum(['nft']).optional(),
@@ -24,7 +24,7 @@ function getTokenDecimals(coinId: string, assetPlatformId: string) {
 }
 
 function buildTokenList(database: AppDatabase, assetPlatformId: string) {
-  const platform = database.db.select().from(assetPlatforms).where(eq(assetPlatforms.id, assetPlatformId)).limit(1).get();
+  const platform = getAssetPlatformById(database, assetPlatformId);
 
   if (!platform) {
     throw new HttpError(404, 'not_found', `Asset platform not found: ${assetPlatformId}`);
@@ -32,19 +32,18 @@ function buildTokenList(database: AppDatabase, assetPlatformId: string) {
 
   const tokens = getCoins(database, { status: 'active' })
     .flatMap((coin) => {
-      const platforms = JSON.parse(coin.platformsJson) as Record<string, string>;
-      const address = platforms[assetPlatformId];
+      const match = resolveCoinPlatformContract(database, coin, assetPlatformId);
 
-      if (!address) {
+      if (!match) {
         return [];
       }
 
       return [{
         chainId: platform.chainIdentifier,
-        address,
+        address: match.contractAddress,
         name: coin.name,
         symbol: coin.symbol.toUpperCase(),
-        decimals: getTokenDecimals(coin.id, assetPlatformId),
+        decimals: getTokenDecimals(coin.id, platform.id),
         logoURI: coin.imageSmallUrl ?? coin.imageThumbUrl ?? coin.imageLargeUrl ?? undefined,
         extensions: {
           geckoId: coin.id,

@@ -16,6 +16,8 @@ import * as catalogModule from '../src/modules/catalog';
 import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
+const currentDailyBucket = () => candleStore.toDailyBucket(Date.now()).getTime();
+
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn().mockResolvedValue([
     { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
@@ -1450,6 +1452,39 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(contractFixtures.tokenPrice);
+  });
+
+  it('accepts canonical platform aliases for token-price, contract, and token-list routes', async () => {
+    const [tokenPriceResponse, contractResponse, tokenListResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/token_price/eth?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=usd',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/eth/contract/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?localization=false&tickers=false&community_data=false&developer_data=false',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/token_lists/eth/all.json',
+      }),
+    ]);
+
+    expect(tokenPriceResponse.statusCode).toBe(200);
+    expect(tokenPriceResponse.json()).toEqual(contractFixtures.tokenPrice);
+    expect(contractResponse.statusCode).toBe(200);
+    expect(contractResponse.json()).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(tokenListResponse.statusCode).toBe(200);
+    expect(tokenListResponse.json()).toMatchObject({
+      name: 'OpenGecko Ethereum Token List',
+      keywords: ['opengecko', 'ethereum'],
+      tokens: [
+        expect.objectContaining({
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          extensions: { geckoId: 'usd-coin' },
+        }),
+      ],
+    });
   });
 
   it('returns seeded asset platforms', async () => {
@@ -4941,6 +4976,8 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns coin history, chart, and ohlc data', async () => {
+    const expectedDailyBucket = currentDailyBucket();
+
     const historyResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/bitcoin/history?date=20-03-2026',
@@ -4973,19 +5010,19 @@ describe('OpenGecko app scaffold', () => {
     expect(chartResponse.statusCode).toBe(200);
     expect(chartResponse.json()).toEqual({
       prices: [
-        [1774483200000, 85000],
+        [expectedDailyBucket, 85000],
       ],
       market_caps: [
-        [1774483200000, null],
+        [expectedDailyBucket, null],
       ],
       total_volumes: [
-        [1774483200000, 425000000],
+        [expectedDailyBucket, 425000000],
       ],
     });
 
     expect(maxChartResponse.statusCode).toBe(200);
     expect(maxChartResponse.json().prices).toEqual([
-      [1774483200000, 85000],
+      [expectedDailyBucket, 85000],
     ]);
 
     expect(rangeChartResponse.statusCode).toBe(200);
@@ -4997,7 +5034,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(ohlcResponse.statusCode).toBe(200);
     expect(ohlcResponse.json()).toEqual([
-      [1774483200000, 85000, 85000, 85000, 85000],
+      [expectedDailyBucket, 85000, 85000, 85000, 85000],
     ]);
   });
 
@@ -5114,6 +5151,8 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns categories and contract-address variants', async () => {
+    const expectedDailyBucket = currentDailyBucket();
+
     const categoriesListResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/categories/list',
@@ -5156,7 +5195,7 @@ describe('OpenGecko app scaffold', () => {
     expect(contractChartResponse.statusCode).toBe(200);
     expect(contractChartResponse.json()).toMatchObject({
       prices: [
-        [1774483200000, 1],
+        [expectedDailyBucket, 1],
       ],
     });
 

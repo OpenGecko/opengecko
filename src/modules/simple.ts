@@ -8,7 +8,7 @@ import { parseBooleanQuery, parseCsvQuery, parsePrecision } from '../http/params
 import { buildExchangeRatesPayload, getConversionRate } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getSupportedVsCurrencies } from '../services/currency-rates';
-import { getCoinByContract, getMarketRows, parseJsonObject } from './catalog';
+import { getCoinByContract, getMarketRows, resolveCoinPlatformContract } from './catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 
 type SimplePriceResponse = Record<string, Record<string, number | null>>;
@@ -256,8 +256,7 @@ export function registerSimpleRoutes(
           return [];
         }
 
-        const platforms = parseJsonObject<Record<string, string>>(coin.platformsJson);
-        const normalizedAddress = platforms[params.id]?.toLowerCase() ?? contractAddress;
+        const normalizedAddress = resolveCoinPlatformContract(database, coin, params.id)?.contractAddress ?? contractAddress.toLowerCase();
 
         return [[
           normalizedAddress,

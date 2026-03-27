@@ -646,7 +646,7 @@ const seededChartPointValues = {
 } satisfies Record<string, { prices: number[]; marketCaps: number[]; volumes: number[] }>;
 
 function buildSeededChartPoints() {
-  const baseDate = Date.parse('2026-03-14T00:00:00.000Z');
+  const baseDate = seedTimestamp - (6 * 24 * 60 * 60 * 1000);
 
   return Object.entries(seededChartPointValues).flatMap(([coinId, values]) =>
     values.prices.map((price, index) => ({

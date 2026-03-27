@@ -1,33 +1,19 @@
+import { eq } from 'drizzle-orm';
 import { assetPlatforms } from '../db/schema';
 import type { AppDatabase } from '../db/client';
 import type { Logger } from 'pino';
 import { mapWithConcurrency } from '../lib/async';
+import {
+  getCanonicalPlatformName,
+  getCanonicalPlatformShortname,
+  normalizePlatformId,
+  resolveCanonicalPlatformId,
+} from '../lib/platform-id';
 import { fetchExchangeNetworks, type ExchangeId } from '../providers/ccxt';
 
 type ChainCatalogSyncResult = {
   insertedOrUpdated: number;
 };
-
-function toPlatformId(networkId: string) {
-  return networkId.toLowerCase();
-}
-
-function toShortname(networkId: string) {
-  const shortname = networkId.toLowerCase().replace(/[^a-z0-9]+/g, '');
-  return shortname.slice(0, 12) || 'chain';
-}
-
-function toPlatformName(networkId: string, networkName: string) {
-  const trimmed = networkName.trim();
-  if (trimmed.length > 0) {
-    return trimmed;
-  }
-
-  return networkId
-    .split('_')
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(' ');
-}
 
 export async function syncChainCatalogFromExchanges(
   database: AppDatabase,
@@ -44,7 +30,7 @@ export async function syncChainCatalogFromExchanges(
     async (exchangeId) => Promise.allSettled([fetchExchangeNetworks(exchangeId)]).then(([result]) => result),
   );
 
-  const networksById = new Map<string, { name: string; chainIdentifier: number | null }>();
+  const networksById = new Map<string, { name: string; shortname: string; chainIdentifier: number | null; legacyIds: Set<string> }>();
   let succeeded = 0;
   let failed = 0;
 
@@ -67,18 +53,29 @@ export async function syncChainCatalogFromExchanges(
     exchangeLogger?.debug({ networkCount: networks.length }, 'fetched networks for chain discovery');
 
     for (const network of networks) {
-      const existing = networksById.get(network.networkId);
+      const canonicalPlatformId = resolveCanonicalPlatformId(network.networkId, {
+        networkName: network.networkName,
+        chainIdentifier: network.chainIdentifier,
+      });
+      const legacyPlatformId = normalizePlatformId(network.networkId);
+      const existing = networksById.get(canonicalPlatformId);
       if (!existing) {
-        networksById.set(network.networkId, {
-          name: network.networkName,
+        networksById.set(canonicalPlatformId, {
+          name: getCanonicalPlatformName(canonicalPlatformId, network.networkName),
+          shortname: getCanonicalPlatformShortname(canonicalPlatformId),
           chainIdentifier: network.chainIdentifier,
+          legacyIds: new Set(legacyPlatformId !== canonicalPlatformId ? [legacyPlatformId] : []),
         });
         continue;
       }
 
+      if (legacyPlatformId !== canonicalPlatformId) {
+        existing.legacyIds.add(legacyPlatformId);
+      }
+
       if (existing.chainIdentifier === null && network.chainIdentifier !== null) {
-        networksById.set(network.networkId, {
-          name: existing.name,
+        networksById.set(canonicalPlatformId, {
+          ...existing,
           chainIdentifier: network.chainIdentifier,
         });
       }
@@ -92,14 +89,18 @@ export async function syncChainCatalogFromExchanges(
   const now = new Date();
   let upserted = 0;
 
-  for (const [networkId, network] of networksById.entries()) {
+  for (const [platformId, network] of networksById.entries()) {
+    for (const legacyId of network.legacyIds) {
+      database.db.delete(assetPlatforms).where(eq(assetPlatforms.id, legacyId)).run();
+    }
+
     database.db
       .insert(assetPlatforms)
       .values({
-        id: toPlatformId(networkId),
+        id: platformId,
         chainIdentifier: network.chainIdentifier,
-        name: toPlatformName(networkId, network.name),
-        shortname: toShortname(networkId),
+        name: network.name,
+        shortname: network.shortname,
         nativeCoinId: null,
         imageUrl: null,
         isNft: false,
@@ -110,8 +111,8 @@ export async function syncChainCatalogFromExchanges(
         target: assetPlatforms.id,
         set: {
           chainIdentifier: network.chainIdentifier,
-          name: toPlatformName(networkId, network.name),
-          shortname: toShortname(networkId),
+          name: network.name,
+          shortname: network.shortname,
           updatedAt: now,
         },
       })
