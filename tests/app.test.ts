@@ -1917,6 +1917,114 @@ describe('OpenGecko app scaffold', () => {
     expect(dexesResponse.json()).toMatchObject(contractFixtures.onchainDexesEth);
   });
 
+  it('proves current-head live onchain catalog expansion from provider-backed discovery data', async () => {
+    const poolDataSpy = vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
+        { chain: 'Arbitrum', project: 'uniswap-v3', symbol: 'ARB-WETH', pool: 'pool-2', tvlUsd: 10000000, volumeUsd1d: 1000000, volumeUsd7d: 7000000, underlyingTokens: ['0xarb', '0xweth'] },
+        { chain: 'Base', project: 'aerodrome', symbol: 'cbBTC-USDC', pool: 'pool-3', tvlUsd: 20000000, volumeUsd1d: 2000000, volumeUsd7d: 14000000, underlyingTokens: ['0xcbbtc', '0xusdc'] },
+        { chain: 'Polygon', project: 'sushiswap', symbol: 'USDC-WMATIC', pool: 'pool-4', tvlUsd: 8000000, volumeUsd1d: 500000, volumeUsd7d: 3000000, underlyingTokens: ['0xusdc', '0xwmatic'] },
+        { chain: 'BSC', project: 'pancakeswap', symbol: 'WBNB-USDT', pool: 'pool-5', tvlUsd: 12000000, volumeUsd1d: 900000, volumeUsd7d: 6000000, underlyingTokens: ['0xwbnb', '0xusdt'] },
+      ],
+    });
+    const dexVolumesSpy = vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
+      protocols: [
+        { name: 'uniswap-v3', total24h: 88000000, total7d: 600000000, total30d: 2500000000, totalAllTime: 10000000000 },
+        { name: 'curve', total24h: 41000000, total7d: 287000000, total30d: 1200000000, totalAllTime: 6000000000 },
+        { name: 'aerodrome', total24h: 12000000, total7d: 84000000, total30d: 360000000, totalAllTime: 1000000000 },
+        { name: 'sushiswap', total24h: 18000000, total7d: 100000000, total30d: 500000000, totalAllTime: 2000000000 },
+        { name: 'pancakeswap', total24h: 24000000, total7d: 160000000, total30d: 700000000, totalAllTime: 5000000000 },
+      ],
+      total24h: 183000000,
+      total7d: 1231000000,
+      total30d: 5260000000,
+      totalAllTime: 24000000000,
+    });
+
+    const [networksResponse, ethDexesResponse, ethPoolsResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks?page=1',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/dexes?page=1',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools?page=1',
+      }),
+    ]);
+
+    expect(networksResponse.statusCode).toBe(200);
+    expect(ethDexesResponse.statusCode).toBe(200);
+    expect(ethPoolsResponse.statusCode).toBe(200);
+    expect(poolDataSpy).toHaveBeenCalledTimes(1);
+    expect(dexVolumesSpy).toHaveBeenCalledTimes(1);
+    expect(networksResponse.json().meta).toMatchObject({
+      total_count: 6,
+    });
+    expect(networksResponse.json().data.map((entry: { id: string }) => entry.id)).toEqual([
+      'arbitrum',
+      'base',
+      'bsc',
+      'eth',
+      'polygon',
+      'solana',
+    ]);
+    expect(networksResponse.json().data).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'base',
+        type: 'network',
+        attributes: expect.objectContaining({
+          name: 'Base',
+          coingecko_asset_platform_id: 'base',
+        }),
+      }),
+      expect.objectContaining({
+        id: 'bsc',
+        type: 'network',
+        attributes: expect.objectContaining({
+          name: 'BNB Smart Chain',
+          coingecko_asset_platform_id: 'binance-smart-chain',
+        }),
+      }),
+    ]));
+    expect(ethDexesResponse.json().meta).toMatchObject({
+      total_count: 2,
+      network: 'eth',
+    });
+    expect(ethPoolsResponse.json().meta).toMatchObject({
+      data_source: 'live',
+      page: 1,
+    });
+    const liveEthPool = ethPoolsResponse.json().data.find((entry: { id: string }) => entry.id === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b');
+    expect(liveEthPool).toMatchObject({
+      type: 'pool',
+      attributes: {
+        reserve_usd: 222000000,
+        volume_usd: {
+          h24: 88000000,
+        },
+      },
+      relationships: {
+        network: {
+          data: {
+            id: 'eth',
+            type: 'network',
+          },
+        },
+        dex: {
+          data: {
+            id: 'uniswap_v3',
+            type: 'dex',
+          },
+        },
+      },
+    });
+  });
+
   it('returns onchain networks with pagination metadata and asset-platform continuity', async () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue(null);
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue(null);
