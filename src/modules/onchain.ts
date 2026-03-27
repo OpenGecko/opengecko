@@ -287,6 +287,10 @@ function patchPoolRow(row: typeof onchainPools.$inferSelect, patch: LiveOnchainP
   };
 }
 
+function getSeededOnchainNetwork(database: AppDatabase, networkId: string) {
+  return database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, networkId)).limit(1).get();
+}
+
 let liveOnchainCatalogPromise: Promise<LiveOnchainCatalog> | null = null;
 
 async function buildLiveOnchainCatalog(database: AppDatabase): Promise<LiveOnchainCatalog> {
@@ -2139,13 +2143,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
-    const liveCatalog = await buildLiveOnchainCatalog(database);
-    const network = liveCatalog.networks.find((row) => row.id === params.network);
+    const seededNetwork = getSeededOnchainNetwork(database, params.network);
 
-    if (!network) {
+    if (!seededNetwork) {
       throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
     }
 
+    const liveCatalog = await buildLiveOnchainCatalog(database);
     const rows = liveCatalog.dexes.filter((row) => row.networkId === params.network);
     const start = (page - 1) * perPage;
     const totalCount = rows.length;
@@ -2154,7 +2158,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       data: rows.slice(start, start + perPage).map(buildDexResource),
       meta: {
         ...buildPaginationMeta(page, perPage, totalCount),
-        network: network.id,
+        network: seededNetwork.id,
       },
     };
   });
@@ -2164,12 +2168,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
-    const liveCatalog = await buildLiveOnchainCatalog(database);
-    const network = liveCatalog.networks.find((row) => row.id === params.network);
+    const seededNetwork = getSeededOnchainNetwork(database, params.network);
 
-    if (!network) {
+    if (!seededNetwork) {
       throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
     }
+
+    const liveCatalog = await buildLiveOnchainCatalog(database);
 
     const orderBy = resolvePoolOrder(query.sort);
 
