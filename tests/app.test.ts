@@ -1664,11 +1664,33 @@ describe('OpenGecko app scaffold', () => {
     expect(volumeChartResponse.statusCode).toBe(200);
     const volumeChart = volumeChartResponse.json();
     expect(volumeChart.length).toBeGreaterThan(0);
+    const timestamps = volumeChart.map((entry: number[]) => entry[0]);
+    expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
+
     // Each entry is [timestamp, volumeBtc]
     for (const entry of volumeChart) {
       expect(entry).toHaveLength(2);
       expect(typeof entry[0]).toBe('number');
       expect(typeof entry[1]).toBe('number');
+    }
+  });
+
+  it('returns hourly exchange volume buckets for short ranges', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/exchanges/binance/volume_chart?days=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.length).toBeGreaterThan(0);
+
+    const timestamps = body.map((tuple: number[]) => tuple[0]);
+    expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
+
+    for (const tuple of body) {
+      expect(tuple).toHaveLength(2);
+      expect(Number.isFinite(tuple[1])).toBe(true);
     }
   });
 
@@ -1822,6 +1844,24 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject(contractFixtures.derivatives);
+    for (const ticker of response.json()) {
+      expect(ticker.funding_rate).not.toBeUndefined();
+      expect(ticker.open_interest_btc).not.toBeNull();
+      expect(ticker.trade_volume_24h_btc).not.toBeNull();
+      expect(ticker.last_traded_at).not.toBeNull();
+    }
+  });
+
+  it('documents exchange data divergences in docs analysis', async () => {
+    const { existsSync, readFileSync } = await import('node:fs');
+
+    const filePath = '/home/whoami/dev/openGecko/docs/analysis/exchange-divergences.md';
+    expect(existsSync(filePath)).toBe(true);
+
+    const contents = readFileSync(filePath, 'utf8');
+    expect(contents).toContain('| endpoint | field | description |');
+    expect(contents).toContain('/exchanges/{id}/tickers');
+    expect(contents).toContain('/derivatives');
   });
 
   it('returns treasury entities and grouped public treasury rows', async () => {
