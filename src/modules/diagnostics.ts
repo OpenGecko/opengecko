@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms, coins, marketSnapshots } from '../db/schema';
+import { resolveCanonicalPlatform } from '../lib/platform-id';
 import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
 import { buildRuntimeDiagnostics } from '../services/runtime-diagnostics';
 
@@ -20,13 +21,19 @@ export function registerDiagnosticsRoutes(
   },
 ) {
   app.get('/diagnostics/chain_coverage', async () => {
-    const totalPlatforms = database.db.select().from(assetPlatforms).all().length;
+    const platformRows = database.db.select().from(assetPlatforms).all();
+    const totalPlatforms = platformRows.length;
 
-    const platformsWithChainId = database.db
-      .select()
-      .from(assetPlatforms)
-      .where(not(isNull(assetPlatforms.chainIdentifier)))
-      .all().length;
+    const platformsWithChainId = platformRows.filter((platform) => platform.chainIdentifier !== null).length;
+
+    const confidenceCounts = platformRows.reduce<Record<string, number>>((counts, platform) => {
+      const confidence = resolveCanonicalPlatform(platform.id, {
+        networkName: platform.name,
+        chainIdentifier: platform.chainIdentifier,
+      }).confidence;
+      counts[confidence] = (counts[confidence] ?? 0) + 1;
+      return counts;
+    }, { exact: 0, heuristic: 0, unresolved: 0 });
 
     const contractMappedCoins = database.db
       .select()
@@ -46,6 +53,11 @@ export function registerDiagnosticsRoutes(
           total: totalPlatforms,
           with_chain_identifier: platformsWithChainId,
           without_chain_identifier: Math.max(totalPlatforms - platformsWithChainId, 0),
+        },
+        confidence: {
+          exact: confidenceCounts.exact ?? 0,
+          heuristic: confidenceCounts.heuristic ?? 0,
+          unresolved: confidenceCounts.unresolved ?? 0,
         },
         contract_mapping: {
           active_coins: activeCoins,

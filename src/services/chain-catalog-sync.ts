@@ -7,7 +7,7 @@ import {
   getCanonicalPlatformName,
   getCanonicalPlatformShortname,
   normalizePlatformId,
-  resolveCanonicalPlatformId,
+  resolveCanonicalPlatform,
 } from '../lib/platform-id';
 import { fetchExchangeNetworks, type ExchangeId } from '../providers/ccxt';
 
@@ -30,7 +30,7 @@ export async function syncChainCatalogFromExchanges(
     async (exchangeId) => Promise.allSettled([fetchExchangeNetworks(exchangeId)]).then(([result]) => result),
   );
 
-  const networksById = new Map<string, { name: string; shortname: string; chainIdentifier: number | null; legacyIds: Set<string> }>();
+  const networksById = new Map<string, { name: string; shortname: string; chainIdentifier: number | null; legacyIds: Set<string>; confidence: 'exact' | 'heuristic' | 'unresolved' }>();
   let succeeded = 0;
   let failed = 0;
 
@@ -53,10 +53,11 @@ export async function syncChainCatalogFromExchanges(
     exchangeLogger?.debug({ networkCount: networks.length }, 'fetched networks for chain discovery');
 
     for (const network of networks) {
-      const canonicalPlatformId = resolveCanonicalPlatformId(network.networkId, {
+      const resolution = resolveCanonicalPlatform(network.networkId, {
         networkName: network.networkName,
         chainIdentifier: network.chainIdentifier,
       });
+      const canonicalPlatformId = resolution.canonicalPlatformId;
       const legacyPlatformId = normalizePlatformId(network.networkId);
       const existing = networksById.get(canonicalPlatformId);
       if (!existing) {
@@ -65,6 +66,7 @@ export async function syncChainCatalogFromExchanges(
           shortname: getCanonicalPlatformShortname(canonicalPlatformId),
           chainIdentifier: network.chainIdentifier,
           legacyIds: new Set(legacyPlatformId !== canonicalPlatformId ? [legacyPlatformId] : []),
+          confidence: resolution.confidence,
         });
         continue;
       }
@@ -74,10 +76,13 @@ export async function syncChainCatalogFromExchanges(
       }
 
       if (existing.chainIdentifier === null && network.chainIdentifier !== null) {
-        networksById.set(canonicalPlatformId, {
-          ...existing,
-          chainIdentifier: network.chainIdentifier,
-        });
+        existing.chainIdentifier = network.chainIdentifier;
+      }
+
+      if (existing.confidence !== 'exact' && resolution.confidence === 'exact') {
+        existing.confidence = 'exact';
+      } else if (existing.confidence === 'unresolved' && resolution.confidence === 'heuristic') {
+        existing.confidence = 'heuristic';
       }
     }
   }

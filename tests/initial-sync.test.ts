@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { and, eq, count } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
@@ -276,5 +276,89 @@ describe('initial market sync', () => {
     expect(platformRows.some((row) => row.id === 'solana')).toBe(true);
     expect(platformRows.some((row) => row.id === 'eth')).toBe(false);
     expect(platformRows.some((row) => row.id === 'bsc')).toBe(false);
+  });
+
+
+  it('prefers non-null chain identifiers when exchanges disagree on the same canonical network', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
+    mockedFetchExchangeNetworks.mockImplementation(async (exchangeId) => {
+      if (exchangeId == 'binance') {
+        return [{ exchangeId: 'binance', networkId: 'ethereum', networkName: 'Ethereum', chainIdentifier: null }];
+      }
+
+      if (exchangeId == 'coinbase') {
+        return [{ exchangeId: 'coinbase', networkId: 'eth', networkName: 'Ethereum', chainIdentifier: 1 }];
+      }
+
+      return [];
+    });
+
+    const result = await runInitialMarketSync(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
+    });
+
+    expect(result.chainsDiscovered).toBe(1);
+
+    const canonicalRow = database.db
+      .select()
+      .from(assetPlatforms)
+      .where(eq(assetPlatforms.id, 'ethereum'))
+      .get();
+
+    expect(canonicalRow).toBeDefined();
+    expect(canonicalRow?.chainIdentifier).toBe(1);
+  });
+
+  it('removes legacy bsc platform rows when canonical chain sync discovers binance smart chain', async () => {
+    const legacyTimestamp = new Date('2026-01-01T00:00:00.000Z');
+    database.db.insert(assetPlatforms).values({
+      id: 'bsc',
+      chainIdentifier: null,
+      name: 'BSC',
+      shortname: 'bsc',
+      nativeCoinId: null,
+      imageUrl: null,
+      isNft: false,
+      createdAt: legacyTimestamp,
+      updatedAt: legacyTimestamp,
+    }).onConflictDoNothing().run();
+
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockResolvedValue([]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
+    mockedFetchExchangeNetworks.mockResolvedValue([
+      { exchangeId: 'binance', networkId: 'bsc', networkName: 'BNB Smart Chain', chainIdentifier: 56 },
+    ]);
+
+    const result = await runInitialMarketSync(database, {
+      ccxtExchanges: ['binance'],
+      marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 1,
+    });
+
+    expect(result.chainsDiscovered).toBe(1);
+
+    const legacyRows = database.db
+      .select()
+      .from(assetPlatforms)
+      .where(eq(assetPlatforms.id, 'bsc'))
+      .all();
+    expect(legacyRows).toHaveLength(0);
+
+    const canonicalRow = database.db
+      .select()
+      .from(assetPlatforms)
+      .where(eq(assetPlatforms.id, 'binance-smart-chain'))
+      .get();
+    expect(canonicalRow).toBeDefined();
+    expect(canonicalRow).toMatchObject({
+      id: 'binance-smart-chain',
+      chainIdentifier: 56,
+      shortname: 'bsc',
+    });
   });
 });

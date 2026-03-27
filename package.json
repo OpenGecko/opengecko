@@ -1,6 +1,6 @@
 {
   "name": "opengecko",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "packageManager": "bun@1.3.9",
   "description": "CoinGecko-compatible open-source API",
@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:endpoint":"bash scripts/test-endpoints.sh",
+    "test:endpoint": "bash scripts/test-endpoints.sh",
     "test:endpoint:assets": "bash scripts/modules/assets/assets.sh",
     "test:endpoint:coins": "bash scripts/modules/coins/coins.sh",
     "test:endpoint:exchanges": "bash scripts/modules/exchanges/exchanges.sh",

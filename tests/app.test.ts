@@ -111,8 +111,14 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body).toHaveProperty('data.platform_counts.total');
+    expect(body).toHaveProperty('data.confidence.exact');
+    expect(body).toHaveProperty('data.confidence.heuristic');
+    expect(body).toHaveProperty('data.confidence.unresolved');
     expect(body).toHaveProperty('data.contract_mapping.active_coins');
     expect(typeof body.data.platform_counts.total).toBe('number');
+    expect(typeof body.data.confidence.exact).toBe('number');
+    expect(typeof body.data.confidence.heuristic).toBe('number');
+    expect(typeof body.data.confidence.unresolved).toBe('number');
     expect(typeof body.data.contract_mapping.active_coins).toBe('number');
   });
 
@@ -3957,10 +3963,10 @@ describe('OpenGecko app scaffold', () => {
       id: 'bitcoin',
       current_price: 85000,
       image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
-      sparkline_in_7d: {
-        price: [85000],
-      },
     });
+    expect(response.json()[0].sparkline_in_7d.price).toEqual(
+      expect.arrayContaining([79_000, 80_500, 82_250, 81_750, 83_000, 84_250, 85_000]),
+    );
   });
 
   it('hydrates missing images only for explicit trusted asset identities', async () => {
@@ -4887,10 +4893,10 @@ describe('OpenGecko app scaffold', () => {
           usd: 2000,
         },
         low_24h: {
-          usd: 2000,
+          usd: 1850,
         },
         sparkline_7d: {
-          price: [2000],
+          price: expect.arrayContaining([1850, 1890, 1920, 1930, 1960, 1980, 2000]),
         },
       },
     });
@@ -5005,37 +5011,53 @@ describe('OpenGecko app scaffold', () => {
     expect(historyBody.description).toMatchObject({
       en: 'Bitcoin imported from binance market discovery.',
     });
-    expect(historyBody.market_data).toBeNull();
+    expect(historyBody.market_data).not.toBeNull();
+    expect(historyBody.market_data.current_price.usd).toBe(85_000);
 
     expect(chartResponse.statusCode).toBe(200);
-    expect(chartResponse.json()).toEqual({
-      prices: [
-        [expectedDailyBucket, 85000],
-      ],
-      market_caps: [
+    expect(chartResponse.json()).toMatchObject({
+      prices: expect.arrayContaining([
+        [1773964800000, 85_000],
+        [expectedDailyBucket, 85_000],
+      ]),
+      market_caps: expect.arrayContaining([
+        [1773964800000, 1_700_000_000_000],
         [expectedDailyBucket, null],
-      ],
-      total_volumes: [
-        [expectedDailyBucket, 425000000],
-      ],
+      ]),
+      total_volumes: expect.arrayContaining([
+        [1773964800000, 25_000_000_000],
+        [expectedDailyBucket, 425_000_000],
+      ]),
     });
 
     expect(maxChartResponse.statusCode).toBe(200);
-    expect(maxChartResponse.json().prices).toEqual([
-      [expectedDailyBucket, 85000],
-    ]);
+    expect(maxChartResponse.json().prices).toEqual(
+      expect.arrayContaining([
+        [1773964800000, 85_000],
+        [expectedDailyBucket, 85_000],
+      ]),
+    );
 
     expect(rangeChartResponse.statusCode).toBe(200);
     expect(rangeChartResponse.json()).toMatchObject({
-      prices: [],
-      market_caps: [],
-      total_volumes: [],
+      prices: expect.arrayContaining([
+        [1773964800000, 85_000],
+      ]),
+      market_caps: expect.arrayContaining([
+        [1773964800000, 1_700_000_000_000],
+      ]),
+      total_volumes: expect.arrayContaining([
+        [1773964800000, 25_000_000_000],
+      ]),
     });
 
     expect(ohlcResponse.statusCode).toBe(200);
-    expect(ohlcResponse.json()).toEqual([
-      [expectedDailyBucket, 85000, 85000, 85000, 85000],
-    ]);
+    expect(ohlcResponse.json()).toEqual(
+      expect.arrayContaining([
+        [1773964800000, 85_000, 85_000, 85_000, 85_000],
+        [expectedDailyBucket, 85_000, 85_000, 85_000, 85_000],
+      ]),
+    );
   });
 
   it('returns ranged coin ohlc tuples in ascending chronological order', async () => {
@@ -5146,7 +5168,11 @@ describe('OpenGecko app scaffold', () => {
       ['total_supply', totalResponse.json()] as const,
     ]) {
       expect(body).toHaveProperty(seriesKey);
-      expect(body[seriesKey]).toEqual([]);
+      expect(body[seriesKey]).toEqual([
+        [1773792000000, seriesKey === 'circulating_supply' ? 19_800_000 : 21_000_000],
+        [1773878400000, seriesKey === 'circulating_supply' ? 19_800_000 : 21_000_000],
+        [1773964800000, seriesKey === 'circulating_supply' ? 19_800_000 : 21_000_000],
+      ]);
     }
   });
 
@@ -5195,15 +5221,25 @@ describe('OpenGecko app scaffold', () => {
     expect(contractChartResponse.statusCode).toBe(200);
     expect(contractChartResponse.json()).toMatchObject({
       prices: [
+        [1773964800000, 1],
         [expectedDailyBucket, 1],
       ],
     });
 
     expect(contractRangeResponse.statusCode).toBe(200);
     expect(contractRangeResponse.json()).toMatchObject({
-      prices: [],
-      market_caps: [],
-      total_volumes: [],
+      prices: expect.arrayContaining([
+        [1773446400000, 0.999],
+        [1773964800000, 1],
+      ]),
+      market_caps: expect.arrayContaining([
+        [1773446400000, 59_700_000_000],
+        [1773964800000, 60_000_000_000],
+      ]),
+      total_volumes: expect.arrayContaining([
+        [1773446400000, 5_500_000_000],
+        [1773964800000, 6_000_000_000],
+      ]),
     });
   });
 
