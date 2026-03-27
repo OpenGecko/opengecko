@@ -1,0 +1,15 @@
+{
+  "featureId": "prewarm-duplicate-selector-attribution-fix",
+  "reviewedAt": "2026-03-26T17:07:35Z",
+  "commitId": "834fd1f3892de83e41711de19630b1b30d2e2d4d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly removes duplicate-value deduplication from startup prewarm URL normalization, so repeated query keys and duplicate selector values remain significant during target matching. The new characterization exercises both mismatch cases and the exact-match positive path, and the current matcher still preserves the earlier path/query-order hardening.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/prewarm-target-attribution-hardening.json",
+  "summary": "Reviewed the feature handoff, transcript skeleton, prior failed review, and commit 834fd1f3892de83e41711de19630b1b30d2e2d4d. The implementation now preserves duplicate selector semantics for startup prewarm attribution and adds explicit regression coverage for repeated-key and duplicate-value mismatches, so this fix passes review."
+}

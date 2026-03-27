@@ -14,6 +14,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeTickers: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx', 'gate'].includes(value),
 }));
@@ -68,6 +69,7 @@ describe('initial market sync', () => {
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance', 'coinbase', 'kraken'],
       marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
     });
 
     expect(result.coinsDiscovered).toBeGreaterThan(0);
@@ -113,6 +115,27 @@ describe('initial market sync', () => {
     expect(binance!.url).toBe('https://www.binance.com');
   });
 
+  it('limits exchange metadata fanout concurrency during initial sync setup', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+
+      return [
+        { exchangeId, symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+      ];
+    });
+
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn().mockReturnThis() };
+    await syncExchangesFromCCXT(database, ['binance', 'coinbase', 'kraken'], mockLogger as never, 2);
+
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+
   it('defers OHLCV history work to the background worker after snapshot sync', async () => {
     mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
@@ -140,6 +163,7 @@ describe('initial market sync', () => {
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance'],
       marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
     });
 
     expect(result.ohlcvCandlesWritten).toBe(0);
@@ -154,6 +178,7 @@ describe('initial market sync', () => {
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance'],
       marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
     });
 
     expect(result.ohlcvCandlesWritten).toBe(0);
@@ -205,6 +230,7 @@ describe('initial market sync', () => {
     await expect(runInitialMarketSync(database, {
       ccxtExchanges: ['gate', 'binance'],
       marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
     })).resolves.toMatchObject({
       exchangesSynced: 2,
     });
@@ -235,6 +261,7 @@ describe('initial market sync', () => {
     const result = await runInitialMarketSync(database, {
       ccxtExchanges: ['binance', 'coinbase', 'kraken'],
       marketFreshnessThresholdSeconds: 300,
+      providerFanoutConcurrency: 2,
     });
 
     expect(result.chainsDiscovered).toBe(3);

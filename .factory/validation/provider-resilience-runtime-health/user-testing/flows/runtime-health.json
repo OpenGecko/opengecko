@@ -1,0 +1,273 @@
+{
+  "milestone": "provider-resilience-runtime-health",
+  "surface": "http-api",
+  "tool": "curl-equivalent-python-http",
+  "assertions": [
+    {
+      "id": "VAL-HEALTH-001",
+      "status": "pass",
+      "evidence": {
+        "healthy_ping": {
+          "status": 200,
+          "json": {
+            "gecko_says": "(V3) To the Moon!"
+          }
+        },
+        "repeat_ping": {
+          "status": 200,
+          "json": {
+            "gecko_says": "(V3) To the Moon!"
+          }
+        }
+      }
+    },
+    {
+      "id": "VAL-HEALTH-002",
+      "status": "pass",
+      "evidence": {
+        "startup_probes": [
+          {
+            "t": 0,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 1,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 5,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 15,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 30,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 45,
+            "reachable": false,
+            "error": "<urlopen error [Errno 111] Connection refused>"
+          },
+          {
+            "t": 60,
+            "reachable": true,
+            "status": 200,
+            "body": {
+              "gecko_says": "(V3) To the Moon!"
+            }
+          }
+        ],
+        "diagnostics_ready": {
+          "status": 200,
+          "json": {
+            "data": {
+              "readiness": {
+                "state": "starting",
+                "listener_bound": true,
+                "initial_sync_completed": false
+              },
+              "degraded": {
+                "active": false,
+                "stale_live_enabled": false,
+                "reason": null,
+                "provider_failure_cooldown_until": null
+              },
+              "hot_paths": {
+                "shared_market_snapshot": {
+                  "available": true,
+                  "source_class": "fresh_live",
+                  "last_successful_live_refresh_at": "2026-03-26T11:06:35.651Z",
+                  "freshness": {
+                    "threshold_seconds": 300,
+                    "age_seconds": 9,
+                    "is_stale": false
+                  },
+                  "providers": [
+                    "gate"
+                  ],
+                  "provider_count": 1
+                },
+                "cache_revision": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "VAL-HEALTH-003",
+      "status": "pass",
+      "evidence": {
+        "diagnostics": {
+          "status": 200,
+          "json": {
+            "data": {
+              "readiness": {
+                "state": "starting",
+                "listener_bound": true,
+                "initial_sync_completed": false
+              },
+              "degraded": {
+                "active": false,
+                "stale_live_enabled": false,
+                "reason": null,
+                "provider_failure_cooldown_until": null
+              },
+              "hot_paths": {
+                "shared_market_snapshot": {
+                  "available": true,
+                  "source_class": "fresh_live",
+                  "last_successful_live_refresh_at": "2026-03-26T11:06:35.651Z",
+                  "freshness": {
+                    "threshold_seconds": 300,
+                    "age_seconds": 9,
+                    "is_stale": false
+                  },
+                  "providers": [
+                    "gate"
+                  ],
+                  "provider_count": 1
+                },
+                "cache_revision": 2
+              }
+            }
+          }
+        },
+        "simple_price": {
+          "status": 200,
+          "json": {
+            "bitcoin": {
+              "usd": 69600.95833333333
+            }
+          }
+        },
+        "coins_markets": {
+          "status": 200,
+          "json": [
+            {
+              "id": "bitcoin",
+              "symbol": "btc",
+              "name": "BTC",
+              "image": "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
+              "current_price": 69600.95833333333,
+              "market_cap": 1381579022916.6665,
+              "market_cap_rank": 1,
+              "fully_diluted_valuation": 1461620125000,
+              "total_volume": 479233407.7542826,
+              "high_24h": 111696.21,
+              "low_24h": 64056.7,
+              "price_change_24h": -1852.1378663860523,
+              "price_change_percentage_24h": -2.5921030226725432,
+              "market_cap_change_24h": null,
+              "market_cap_change_percentage_24h": null,
+              "circulating_supply": 19850000,
+              "total_supply": 21000000,
+              "max_supply": 21000000,
+              "ath": 109000,
+              "ath_change_percentage": -36.14590978593273,
+              "ath_date": "2025-12-17T00:00:00.000Z",
+              "atl": 15000,
+              "atl_change_percentage": 364.00638888888886,
+              "atl_date": "2023-11-21T00:00:00.000Z",
+              "roi": null,
+              "last_updated": "2026-03-26T11:06:21.010Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "VAL-HEALTH-005",
+      "status": "pass",
+      "evidence": {
+        "diagnostics": {
+          "status": 200,
+          "json": {
+            "data": {
+              "readiness": {
+                "state": "starting",
+                "listener_bound": true,
+                "initial_sync_completed": false
+              },
+              "degraded": {
+                "active": false,
+                "stale_live_enabled": false,
+                "reason": null,
+                "provider_failure_cooldown_until": null
+              },
+              "hot_paths": {
+                "shared_market_snapshot": {
+                  "available": true,
+                  "source_class": "fresh_live",
+                  "last_successful_live_refresh_at": "2026-03-26T11:06:35.651Z",
+                  "freshness": {
+                    "threshold_seconds": 300,
+                    "age_seconds": 9,
+                    "is_stale": false
+                  },
+                  "providers": [
+                    "gate"
+                  ],
+                  "provider_count": 1
+                },
+                "cache_revision": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "VAL-HEALTH-004",
+      "status": "blocked",
+      "reason": "Live validator run could confirm healthy recovered state but could not force or reproduce an upstream/provider failure-and-recovery cycle through the real HTTP surface without additional fault-injection controls."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "blocked",
+      "reason": "The HTTP surface remained healthy during validation; without externally exposed fault-injection or controllable provider outage hooks, repeated provider-failure fallback behavior could not be reproduced in the running service."
+    }
+  ],
+  "notes": {
+    "startup_ready_seconds": 60,
+    "diagnostics_surface": "/diagnostics/runtime",
+    "log": "/home/whoami/dev/openGecko/.factory/validation/provider-resilience-runtime-health-user-testing-server.log",
+    "post_stop": [
+      {
+        "delay_after_stop_s": 0.2,
+        "reachable": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "delay_after_stop_s": 1.0,
+        "reachable": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "delay_after_stop_s": 3.0,
+        "reachable": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      }
+    ],
+    "preexisting_test_blocker": "tests/app.test.ts cannot be included in broad targeted validation because it imports createDatabase from src/db/client.ts, which is a known pre-existing issue in mission AGENTS.md."
+  },
+  "frictions": [
+    "Service binds listener only after a long startup window (~75s in this run), so readiness polling is required before any API assertions.",
+    "No external fault-injection or provider-disable control was discoverable on the HTTP surface for forcing degraded runtime from a live validator session."
+  ],
+  "blockers": [
+    "Cannot validate recovery-after-failure or repeated provider-failure fallback solely through public HTTP requests because the running service stayed healthy and exposes diagnostics but no external failure trigger."
+  ],
+  "toolsUsed": [
+    "python urllib",
+    "bun run src/server.ts"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "top-gainers-losers-trailing-comma-compatibility-fix",
+  "reviewedAt": "2026-03-26T17:07:24.331970+00:00",
+  "commitId": "999bfd233dab0162a4e2c30893b6325231204718",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix correctly restores the historical `/coins/top_gainers_losers` tolerance for trailing-empty `price_change_percentage` CSV segments while preserving the established 400 invalid-parameter contract for malformed internal-empty or unsupported values. The implementation is narrowly scoped to the parser seam in `src/modules/coins/helpers.ts`, and the updated app characterization explicitly covers both the tolerated `24h,` case and a still-invalid `24h,,7d` case.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/top-gainers-losers-invalid-csv-regression-fix.json",
+  "summary": "Pass: reviewed the fix against the prior mover CSV regression review, the worker transcript skeleton, handoff, commit `999bfd2`, and the current implementation/tests. The current code accepts the historically tolerated trailing-comma input `24h,` again, still rejects malformed `24h,,7d` with the established `invalid_parameter` envelope, and includes focused characterization coverage for both behaviors."
+}

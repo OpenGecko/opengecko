@@ -1,0 +1,15 @@
+{
+  "featureId": "simple-price-response-cache",
+  "reviewedAt": "2026-03-26T00:00:00Z",
+  "commitId": "db827b4",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the /simple/price response cache implementation and its characterization tests. The cache key normalizes selector/query ordering, isolates precision and include_* flags, preserves the missing-selector 400 contract, and now participates in hotDataRevision invalidation for refresh/startup transitions.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass: the feature implementation matches its contract goals, and I did not identify blocking correctness or regression issues in the reviewed diff, tests, or transcript evidence."
+}

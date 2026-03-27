@@ -1,0 +1,21 @@
+{
+  "featureId": "startup-prewarm-hot-endpoints",
+  "reviewedAt": "2026-03-26T17:05:16.828430+00:00",
+  "commitId": "c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the original handoff/transcript plus the later startup-prewarm fixes and current branch code. Although the original handoff cited an unrelated commit, the current combined startup-prewarm behavior is now covered by commits f5bde92, 84c94b0, and fd3c6ff: prewarm targets and budget are declared in code, diagnostics and Prometheus metrics surface target results and first-request evidence, non-timeout failures are classified distinctly while later targets still run, and current warm-path attribution requires normalized target equivalence rather than pathname-only matching. No unresolved correctness issue remains against VAL-OPS-006 in the combined current behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The original startup-prewarm worker successfully validated inherited branch state but ended the handoff with `rev-parse HEAD`, which pointed to an unrelated operational-controls artifact commit instead of a feature-attributable diff. Reviewers had to inspect later fix features and current code to recover the actual evidence chain.",
+      "evidence": "worker-transcripts.jsonl session 87156602-5e6c-43db-a459-95a613c382e3 ends with commit c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665, while `git show --stat c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665` only contains .factory/validation/operational-controls/user-testing artifacts. The actual startup-prewarm implementation and fixes are attributable to f5bde92, 84c94b0, and fd3c6ff."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. I reviewed the original prewarm handoff, later fix reviews, transcript evidence, and current source/tests. Per the orchestrator note, the combined current startup-prewarm behavior now satisfies VAL-OPS-006: declared hot targets are prewarmed within a configured budget, diagnostics/metrics expose the behavior, handler failures are classified correctly without aborting later targets, and no blocking correctness issue remains in the current implementation."
+}

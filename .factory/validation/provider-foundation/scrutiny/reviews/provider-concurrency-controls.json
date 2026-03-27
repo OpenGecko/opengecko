@@ -1,0 +1,8 @@
+{
+  "featureId": "provider-concurrency-controls",
+  "milestone": "provider-foundation",
+  "status": "pass",
+  "summary": "Provider fanout concurrency is now configurable and consistently applied across exchange metadata, coin catalog, chain catalog, and ticker refresh paths using a shared bounded-concurrency helper, with targeted tests proving the cap is respected while the broader suite remains green.",
+  "issues": [],
+  "sharedStateObservations": []
+}

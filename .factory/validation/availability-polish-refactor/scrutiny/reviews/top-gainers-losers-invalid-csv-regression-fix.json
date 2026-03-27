@@ -1,0 +1,15 @@
+{
+  "featureId": "top-gainers-losers-invalid-csv-regression-fix",
+  "reviewedAt": "2026-03-26T17:07:24Z",
+  "commitId": "050c95af35e09aaa0f7aff1b3ee7c51bc89ca506",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The interim fix commit itself restored the then-requested strict invalid-parameter behavior for malformed mover CSV input, and the current codebase has since superseded only the trailing-comma portion through `top-gainers-losers-trailing-comma-compatibility-fix`. In current state, `parseMoverPriceChangePercentage` tolerates trailing empty tokens while still rejecting internal-empty or otherwise unsupported mover windows, and route-level characterization covers valid input, the restored trailing-comma compatibility, and still-invalid malformed input like `24h,,7d`. I found no remaining blocker attributable to the reviewed regression fix under the orchestrator's current-behavior guidance.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass: reviewed the original regression-fix commit `050c95a`, its handoff/transcript, and the later trailing-comma compatibility follow-up. The original fix correctly restored strict malformed-CSV rejection for its moment in history, and the current code now keeps the intended end state by accepting only trailing commas while still rejecting genuinely malformed mover CSV input, so no blocker remains."
+}

@@ -2,6 +2,7 @@ import { coins } from '../db/schema';
 import type { AppDatabase } from '../db/client';
 import type { Logger } from 'pino';
 import { buildCoinId, buildCoinName } from '../lib/coin-id';
+import { mapWithConcurrency } from '../lib/async';
 import { fetchExchangeMarkets, type ExchangeId } from '../providers/ccxt';
 
 function upsertDiscoveredCoin(
@@ -89,14 +90,17 @@ export async function syncCoinCatalogFromExchanges(
   database: AppDatabase,
   exchangeIds: ExchangeId[],
   logger?: Logger,
+  concurrency = exchangeIds.length,
 ) {
   const startTime = Date.now();
   const existingCoinsById = new Map(database.db.select().from(coins).all().map((coin) => [coin.id, coin]));
   const discoveredCoins = new Map<string, typeof coins.$inferInsert>();
 
   // Fetch all exchange markets in parallel
-  const results = await Promise.allSettled(
-    exchangeIds.map((exchangeId) => fetchExchangeMarkets(exchangeId)),
+  const results = await mapWithConcurrency(
+    exchangeIds,
+    concurrency,
+    async (exchangeId) => Promise.allSettled([fetchExchangeMarkets(exchangeId)]).then(([result]) => result),
   );
 
   let succeeded = 0;

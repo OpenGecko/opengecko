@@ -1,0 +1,28 @@
+{
+  "featureId": "runtime-health-and-diagnostics-surface",
+  "reviewedAt": "2026-03-26T10:50:48.897394+00:00",
+  "commitId": "04adc61",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature successfully added a machine-readable /diagnostics/runtime surface and covered healthy/startup/degraded cases, but its initial readiness computation was incorrect for recovered runtimes that still had stale failure flags set. That made the diagnostics contract drift from actual recovered hot-endpoint behavior until the later recovery-state-alignment fix.",
+    "issues": [
+      {
+        "file": "src/services/runtime-diagnostics.ts",
+        "line": 77,
+        "severity": "blocking",
+        "description": "`readiness.state` returns `ready` whenever `initialSyncCompleted` is true, even if `allowStaleLiveService` or `syncFailureReason` still indicate degraded fallback. This makes `/diagnostics/runtime` report a recovered/healthy state while stale-live fallback and provider-failure indicators remain active, violating the machine-readable readiness/degraded contract and the feature's expected behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The worker discovered that the shared HTTP app test fixture auto-completes bootstrap before `inject`, so route tests cannot represent a true pre-ready startup state. That constraint is not recorded in mission shared state even though it affected how runtime-health features had to be tested.",
+      "evidence": "worker-transcripts.jsonl entry for session 8d269873-0f29-42dd-9a78-aa3ff4f15965 notes that `buildApp(..., startBackgroundJobs: false)` still completes bootstrap before `inject`, forcing startup/degraded coverage into `tests/runtime-diagnostics.test.ts` instead of route-level probes."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: commit 04adc61 added the runtime diagnostics surface, but its readiness computation could report `ready` while degraded fallback indicators were still active. A later fix feature (`runtime-recovery-state-alignment-fix`) explicitly references and repairs this contract bug."
+}

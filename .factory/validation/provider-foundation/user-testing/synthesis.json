@@ -1,0 +1,31 @@
+{
+  "milestone": "provider-foundation",
+  "round": 1,
+  "status": "pass",
+  "validationMethod": "manual_fallback_after_validator_worker_exit",
+  "summary": "The built-in user-testing validator worker exited unexpectedly twice before producing a handoff, so provider-foundation user-surface validation was completed manually via the general worker droid using the mission user-testing contract and validation API flow.",
+  "assertionResults": {
+    "VAL-OPS-001": {
+      "status": "passed",
+      "evidence": "Timed TCP/HTTP probes on port 3102 showed repeated connection refusal before listener bind, then successful readiness at ~T+32s."
+    },
+    "VAL-OPS-002": {
+      "status": "passed",
+      "evidence": "First successful post-bind responses for /ping, /simple/price, and /coins/markets were contract-valid rather than partial startup payloads."
+    },
+    "VAL-OPS-007": {
+      "status": "passed",
+      "evidence": "Shutdown withdrew the listener promptly, the same port was reusable, and restart returned healthy responses after readiness."
+    },
+    "VAL-CROSS-004": {
+      "status": "passed",
+      "evidence": "A full shutdown/restart lifecycle on port 3102 regained readiness in the expected order and did not visibly leak prior runtime state."
+    }
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "notes": [
+    "Fallback validation was required because user-testing-validator-provider-foundation crashed twice with exit code 0 before writing a handoff.",
+    "Detailed evidence was gathered through live probes and startup/shutdown sequencing against the declared validation surface."
+  ]
+}

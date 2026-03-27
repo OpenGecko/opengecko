@@ -137,4 +137,66 @@ describe('catalog repository helpers', () => {
       '2026-03-15T00:00:00.000Z',
     ]);
   });
+
+  it('adds targeted indexes for the stabilized hot selector paths', () => {
+    const indexes = database.client.prepare<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('coins_status_market_cap_rank_id_idx', 'market_snapshots_vs_currency_market_cap_rank_coin_id_idx') ORDER BY name",
+    ).all();
+
+    expect(indexes.map((row) => row.name)).toEqual([
+      'coins_status_market_cap_rank_id_idx',
+      'market_snapshots_vs_currency_market_cap_rank_coin_id_idx',
+    ]);
+  });
+
+  it('records the targeted runtime index migration when the indexes already exist on a persistent database', () => {
+    database.client.exec('DELETE FROM __drizzle_migrations WHERE hash = \'8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e\'');
+    database.client.exec(`
+      DROP INDEX IF EXISTS coins_status_market_cap_rank_id_idx;
+      DROP INDEX IF EXISTS market_snapshots_vs_currency_market_cap_rank_coin_id_idx;
+      CREATE INDEX coins_status_market_cap_rank_id_idx
+      ON coins (status, market_cap_rank, id);
+      CREATE INDEX market_snapshots_vs_currency_market_cap_rank_coin_id_idx
+      ON market_snapshots (vs_currency, market_cap_rank, coin_id);
+    `);
+
+    expect(() => migrateDatabase(database)).not.toThrow();
+
+    const migrationRows = database.client.prepare<{ hash: string; createdAt: number }>(
+      'SELECT hash, created_at AS createdAt FROM __drizzle_migrations WHERE hash = ?',
+    ).all('8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e');
+
+    expect(migrationRows).toEqual([
+      {
+        hash: '8301ee03effe7ffc4e7723bb625c4a009dfa80811cdd268979f756b9a4cab40e',
+        createdAt: 1774800000000,
+      },
+    ]);
+  });
+
+  it('uses the new indexes for active market ordering and ranked snapshot lookups', () => {
+    const activePlan = database.client.prepare<{ detail: string }>(`
+      EXPLAIN QUERY PLAN
+      SELECT c.id, m.coin_id
+      FROM coins c
+      LEFT JOIN market_snapshots m
+        ON m.coin_id = c.id
+       AND m.vs_currency = 'usd'
+      WHERE c.status = 'active'
+      ORDER BY c.market_cap_rank ASC, c.id ASC
+    `).all();
+    const rankedSnapshotPlan = database.client.prepare<{ detail: string }>(`
+      EXPLAIN QUERY PLAN
+      SELECT coin_id
+      FROM market_snapshots
+      WHERE vs_currency = 'usd'
+      ORDER BY market_cap_rank ASC, coin_id ASC
+      LIMIT 100
+    `).all();
+
+    expect(activePlan.some((row) => row.detail.includes('coins_status_market_cap_rank_id_idx'))).toBe(true);
+    expect(activePlan.some((row) => row.detail.includes('TEMP B-TREE'))).toBe(false);
+    expect(rankedSnapshotPlan.some((row) => row.detail.includes('market_snapshots_vs_currency_market_cap_rank_coin_id_idx'))).toBe(true);
+    expect(rankedSnapshotPlan.some((row) => row.detail.includes('TEMP B-TREE'))).toBe(false);
+  });
 });

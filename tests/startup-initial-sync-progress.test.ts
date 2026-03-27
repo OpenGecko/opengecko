@@ -19,6 +19,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeTickers: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string => ['binance'].includes(value),
 }));
 
@@ -91,7 +92,7 @@ describe('initial sync startup progress', () => {
 
     await runInitialMarketSync(
       database,
-      { ccxtExchanges: ['binance'], marketFreshnessThresholdSeconds: 300 },
+      { ccxtExchanges: ['binance'], marketFreshnessThresholdSeconds: 300, providerFanoutConcurrency: 2 },
       undefined,
       {
         onStepChange: (stepId: string) => {

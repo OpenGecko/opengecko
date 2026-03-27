@@ -1,0 +1,15 @@
+{
+  "featureId": "operational-transport-hardening",
+  "reviewedAt": "2026-03-26T12:03:14.671178+00:00",
+  "commitId": "cb223e239cd3bf1e18ab49b58844b0a4f7f249b9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The original transport-hardening commit correctly exposed timeout/compression budgets in runtime diagnostics and wired Fastify request/connection timeouts, but it initially failed the compression requirement because gzip eligibility depended on a missing Content-Length header and its test allowed uncompressed success. The follow-up fix commit 88325d90f4cf183d8beec817111e3636ea9e71e5 addresses both blocking findings by computing threshold eligibility from the actual payload bytes and by requiring gzip for an above-threshold JSON response while still asserting decompressed-body equivalence. Current transport code now preserves unrelated endpoint bodies while allowing negotiated transport headers on non-hot endpoints, which matches the feature contract.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/operational-controls/scrutiny/reviews/operational-transport-hardening.json",
+  "summary": "Pass after rerun. I reviewed the original feature diff/transcript plus the compression-threshold-enforcement fix and confirmed the previous blocking compression/test-enforcement issues are resolved: timeout budgets remain externally discoverable, threshold-based gzip now uses actual payload size, and unrelated endpoint body contracts remain intact apart from negotiated transport headers."
+}

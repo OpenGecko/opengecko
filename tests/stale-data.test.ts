@@ -22,6 +22,7 @@ vi.mock('../src/providers/ccxt', () => ({
   ]),
   fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
@@ -74,6 +75,7 @@ describe('stale market snapshot behavior', () => {
       })
       .where(eq(marketSnapshots.coinId, 'bitcoin'))
       .run();
+    app!.marketDataRuntimeState.hotDataRevision += 1;
 
     const simplePriceResponse = await app!.inject({
       method: 'GET',
@@ -113,6 +115,197 @@ describe('stale market snapshot behavior', () => {
     expect(response.json()).toEqual({
       bitcoin: {
         usd: 85000,
+      },
+    });
+  });
+
+  it('serves stale live fallback coherently with diagnostics when runtime fallback is enabled', async () => {
+    await app!.inject({ method: 'GET', url: '/ping' });
+
+    database!.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+
+    app!.marketDataRuntimeState.allowStaleLiveService = true;
+    app!.marketDataRuntimeState.syncFailureReason = 'provider timeout';
+    app!.marketDataRuntimeState.hotDataRevision += 1;
+
+    const diagnosticsResponse = await app!.inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    const [simplePriceResponse, marketsResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+      }),
+    ]);
+
+    expect(simplePriceResponse.statusCode).toBe(200);
+    expect(simplePriceResponse.json()).toEqual({
+      bitcoin: {
+        usd: 85000,
+      },
+    });
+
+    expect(marketsResponse.statusCode).toBe(200);
+    expect(marketsResponse.json()[0]).toMatchObject({
+      id: 'bitcoin',
+      current_price: 85000,
+      last_updated: '2026-03-19T00:00:00.000Z',
+      total_volume: 425000000,
+      price_change_percentage_24h: 1.8,
+    });
+
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    expect(diagnosticsResponse.json()).toMatchObject({
+      data: {
+        readiness: {
+          state: 'degraded',
+        },
+        degraded: {
+          active: true,
+          stale_live_enabled: true,
+          reason: 'provider timeout',
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            available: true,
+            source_class: 'fresh_live',
+            last_successful_live_refresh_at: expect.any(String),
+            freshness: {
+              is_stale: false,
+            },
+            providers: expect.arrayContaining(['binance']),
+            provider_count: expect.any(Number),
+          },
+        },
+      },
+    });
+  });
+
+  it('reports degraded seeded bootstrap source class while serving seeded residual snapshots consistently after failed boot', async () => {
+    await app!.inject({ method: 'GET', url: '/ping' });
+
+    const bootstrapSourceTime = new Date('2026-03-20T00:00:00.000Z');
+    database!.db
+      .update(marketSnapshots)
+      .set({
+        price: 77777,
+        marketCap: null,
+        totalVolume: null,
+        priceChange24h: null,
+        priceChangePercentage24h: null,
+        sourceProvidersJson: JSON.stringify([]),
+        sourceCount: 0,
+        lastUpdated: bootstrapSourceTime,
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    database!.db
+      .update(marketSnapshots)
+      .set({
+        price: 2000,
+        marketCap: null,
+        totalVolume: null,
+        priceChange24h: null,
+        priceChangePercentage24h: null,
+        sourceProvidersJson: JSON.stringify([]),
+        sourceCount: 0,
+        lastUpdated: bootstrapSourceTime,
+      })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+    app!.marketDataRuntimeState.initialSyncCompleted = false;
+    app!.marketDataRuntimeState.allowStaleLiveService = true;
+    app!.marketDataRuntimeState.syncFailureReason = 'bootstrap upstream unavailable';
+    app!.marketDataRuntimeState.startupPrewarm = {
+      enabled: false,
+      budgetMs: 0,
+      readyWithinBudget: true,
+      firstRequestWarmBenefitsObserved: false,
+      firstRequestWarmBenefitPending: false,
+      targets: [],
+      completedAt: null,
+      totalDurationMs: null,
+      targetResults: [],
+    };
+    app!.marketDataRuntimeState.hotDataRevision += 1;
+
+    const [simplePriceResponse, marketsResponse, diagnosticsResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      }),
+    ]);
+
+    expect(simplePriceResponse.statusCode).toBe(200);
+    expect(simplePriceResponse.json()).toEqual({
+      bitcoin: {
+        usd: 77777,
+      },
+    });
+
+    expect(marketsResponse.statusCode).toBe(200);
+    expect(marketsResponse.json()[0]).toMatchObject({
+      id: 'bitcoin',
+      current_price: 77777,
+      market_cap: null,
+      total_volume: null,
+      high_24h: null,
+      low_24h: null,
+      price_change_24h: null,
+      price_change_percentage_24h: null,
+      last_updated: bootstrapSourceTime.toISOString(),
+    });
+    expect(marketsResponse.json()[0]).toMatchObject({
+      price_change_percentage_24h_in_currency: null,
+    });
+    expect(marketsResponse.json()[0].price_change_percentage_24h_in_currency).toBeNull();
+
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    expect(diagnosticsResponse.json()).toMatchObject({
+      data: {
+        readiness: {
+          state: 'degraded',
+          initial_sync_completed: false,
+        },
+        degraded: {
+          active: true,
+          stale_live_enabled: true,
+          reason: 'bootstrap upstream unavailable',
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            available: true,
+            source_class: 'degraded_seeded_bootstrap',
+            last_successful_live_refresh_at: null,
+            freshness: {
+              is_stale: true,
+            },
+            providers: [],
+            provider_count: 0,
+          },
+        },
       },
     });
   });

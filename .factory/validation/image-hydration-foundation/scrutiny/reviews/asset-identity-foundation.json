@@ -1,0 +1,28 @@
+{
+  "featureId": "asset-identity-foundation",
+  "reviewedAt": "2026-03-26T21:34:46.579892+00:00",
+  "commitId": "35a5acc",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature establishes a sound confidence-gated mapping layer and correctly avoids ambiguous contract/platform guesses, but the shipped foundation already broadens curated native coverage beyond the feature handoff and without corresponding characterization in this commit, so the implementation is no longer fully evidenced by the reviewed worker session.",
+    "issues": [
+      {
+        "file": "src/services/asset-image-identity.ts",
+        "line": 29,
+        "severity": "blocking",
+        "description": "The reviewed feature now hard-codes additional curated native mappings for `ripple`, `dogecoin`, `cardano`, and `chainlink`, but this worker session's handoff, commit diff, and transcript only implemented/tested the narrower initial set (`bitcoin`, `ethereum`, `solana`). This means the current implementation extends identity resolution behavior beyond the reviewed feature evidence, with no matching characterization for the extra assets in commit `35a5acc`."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The image-hydration shared library still documents curated natives only as examples (`BTC/ETH/SOL`), but the current branch has already expanded the hard-coded curated-native set to include additional frontend-critical assets such as XRP and DOGE. The shared note should record the actual curated set or point reviewers/workers to the authoritative source so later feature reviews do not have to infer whether the broader mapping is intentional.",
+      "evidence": ".factory/library/image-hydration.md lists curated natives only as examples, while src/services/asset-image-identity.ts:26-33 now hard-codes bitcoin, ethereum, ripple, solana, dogecoin, cardano, and chainlink."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff `2026-03-26T21-23-15-041Z__asset-identity-mapping-foundation__5e98a267-67fa-41e6-8b68-90fb4c3b1bda.json`, transcript skeleton, skill guidance, and commit `35a5acc`. The mapping approach is otherwise appropriately confidence-gated, but the currently shipped foundation includes extra curated-native mappings not covered by this feature's own diff or tests, so I marked the review failed on evidence mismatch."
+}

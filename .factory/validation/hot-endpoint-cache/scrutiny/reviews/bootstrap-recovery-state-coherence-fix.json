@@ -1,0 +1,18 @@
+{
+  "featureId": "bootstrap-recovery-state-coherence-fix",
+  "reviewedAt": "2026-03-26T09:55:27Z",
+  "commitId": "aaa303007eada0fe7bf6e185ab5bcba763df10e1",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix fully addresses both prior scrutiny failures in the bootstrap-only `src/app.ts` path. It now clears `allowStaleLiveService` and `syncFailureReason` after a successful bootstrap sync, and it advances `hotDataRevision` both when hot data becomes visible for the first time and when a stale-visible/failure-backed bootstrap state recovers to fresh data, matching the runtime refresh semantics in `src/services/market-runtime.ts`. The added regression test exercises the stale-visible recovery case that was previously missing.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": [
+    ".factory/validation/hot-endpoint-cache/scrutiny/reviews/hot-endpoint-cache-transition-coherence.json",
+    ".factory/validation/hot-endpoint-cache/scrutiny/reviews/hot-data-revision-startup-transition-fix.json"
+  ],
+  "summary": "Pass: commit `aaa3030` closes the remaining bootstrap-only recovery-state gap by aligning `src/app.ts` with runtime refresh semantics and adding regression coverage for stale-visible bootstrap recovery. I reviewed the fix transcript skeleton, the new diff, and both prior failed-feature diffs/reviews; the previously blocking revision-bump and stale-live-flag cleanup issues are now addressed."
+}

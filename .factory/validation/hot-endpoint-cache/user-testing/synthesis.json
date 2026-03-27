@@ -1,0 +1,19 @@
+{
+  "milestone": "hot-endpoint-cache",
+  "round": 3,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-SIMPLE-001",
+    "VAL-MARKETS-002"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": "/home/whoami/dev/openGecko/.factory/validation/hot-endpoint-cache/user-testing/synthesis.json#round-2-replaced-by-fresh-port-3102-rerun"
+}

@@ -1,0 +1,21 @@
+{
+  "featureId": "hot-query-path-shaping",
+  "reviewedAt": "2026-03-26T09:03:54.917447+00:00",
+  "commitId": "5a1eca8e44514eca809ab2867f8365c13fd2c908",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The original query-shaping commit had a real blocking regression for `/coins/markets` volume ordering, but the current repo state repairs it by ordering on `market_snapshots.total_volume`, which is present on the stabilized `getMarketRows()` join. With that later fix in place, the shared catalog/query-shaping changes now satisfy the feature intent of pushing selector/status/order work closer to SQL without reintroducing broad in-memory sorting.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `api-runtime-worker` skill still overstates a red-first characterization requirement for behavior-preserving query-shaping work. This feature's transcript shows the new guardrail tests passed before implementation and the worker explicitly called out that preserved-behavior characterization may be green from the start.",
+      "evidence": ".factory/skills/api-runtime-worker/SKILL.md step 3 requires failing characterization tests first, while handoff `2026-03-26T08-14-15-941Z__hot-query-path-shaping__3f88595f-4ef4-4daf-9c81-40cbef696c2b.json` records `skillFeedback.followedProcedure=false` because the added compatibility tests passed immediately for behavior-preserving query shaping."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the original hot-query-path-shaping handoff, transcript skeleton, skill guidance, commit `5a1eca8`, and current repo state. The prior blocking volume-order SQL bug has been adequately addressed by later milestone commit `2747711c6534ee82fa8f99b4e2af05e06481ab0a`, so the feature now passes review in the current branch state."
+}

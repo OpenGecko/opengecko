@@ -33,6 +33,12 @@
         "unit": "€",
         "value": 73329.50154764981,
         "type": "fiat"
+      },
+      "usdt": {
+        "name": "Tether",
+        "unit": "USDT",
+        "value": 85003.00995658257,
+        "type": "fiat"
       }
     }
   },

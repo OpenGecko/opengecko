@@ -1,0 +1,15 @@
+{
+  "featureId": "degraded-markets-default-price-change-nulling-fix",
+  "reviewedAt": "2026-03-26T15:50:24.563838+00:00",
+  "commitId": "4fb3d07",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly closes the prior blocking gap by nulling seeded-bootstrap `price_change_percentage_*_in_currency` expansions through the shared `/coins/markets` row builder and by extending degraded-fallback regression coverage to assert `price_change_percentage_24h_in_currency: null` in the failed-boot seeded scenario.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/stale-serving-and-degraded-fallback-coherence.json",
+  "summary": "Reviewed the prior failed feature report, the original failing commit `b0e5fba`, and the fix commit `4fb3d07` plus the fix transcript skeleton/handoff. The original blocker was that seeded-bootstrap degraded `/coins/markets` responses still leaked the default `price_change_percentage_24h_in_currency` field; the fix now nulls requested in-currency price-change fields via `buildNullMarketPriceChangeFields()` in `src/modules/coins/market-data.ts` and proves the behavior with an updated degraded bootstrap test in `tests/stale-data.test.ts`, with no regressions evident in the touched contract path."
+}

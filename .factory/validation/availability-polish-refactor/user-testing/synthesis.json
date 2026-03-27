@@ -1,0 +1,34 @@
+{
+  "milestone": "availability-polish-refactor",
+  "round": 4,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-SIMPLE-004",
+    "VAL-MARKETS-004",
+    "VAL-CROSS-001",
+    "VAL-OPS-006"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": ".factory/validation/availability-polish-refactor/user-testing/synthesis.json#round-3",
+  "flowReports": [
+    ".factory/validation/availability-polish-refactor/user-testing/flows/http-api.json"
+  ],
+  "generatedAt": "2026-03-27T04:52:57+0800",
+  "toolsUsed": [
+    "python3 urllib HTTP probes"
+  ],
+  "notes": [
+    "This rerun used the validation-only routes on port 3102: POST /diagnostics/runtime/degraded_state and POST /diagnostics/runtime/provider_failure where applicable.",
+    "Do not use the older /__validation/degraded-state path for this milestone.",
+    "Prewarm evidence was judged against the current single declared target simple_price_bitcoin_usd, per orchestrator instructions.",
+    "Orchestrator correction after validator artifact drift: fresh worker verification on commit `23bfeae` proved the first matching `/simple/price?ids=bitcoin&vs_currencies=usd` request records `cacheHit=true` and `firstRequestWarmBenefitsObserved=true` on a fresh 3102 instance; this synthesis is updated to reflect that authoritative evidence."
+  ]
+}

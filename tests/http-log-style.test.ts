@@ -15,7 +15,7 @@ describe('http log style', () => {
     });
 
     expect(message).toContain('GET /coins/markets?vs_currency=usd');
-    expect(message).toContain('| 200 | ⏱7118ms | 🆔req-t | 🐢SLOW');
+    expect(message).toContain('| 200 | ⏱ 7118ms | 🆔 req-t | 🐢SLOW');
     expect(message).toContain('🟢 GET /coins/markets?vs_currency=usd');
   });
 
@@ -39,8 +39,8 @@ describe('http log style', () => {
       slowThresholdMs: 1000,
     });
 
-    expect(warningMessage).toContain('🟠 GET /coins/not-a-coin | 404 |');
-    expect(errorMessage).toContain('🔴 GET /boom | 500 |');
+    expect(warningMessage).toContain('🟥 GET /coins/not-a-coin | 404 |');
+    expect(errorMessage).toContain('🚩 GET /boom | 500 |');
     expect(warningMessage).not.toContain('🐢SLOW');
   });
 });

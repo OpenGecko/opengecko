@@ -10,31 +10,33 @@ Validation surface findings and runtime testing notes.
 
 - Surface: HTTP API only
 - Tools: `curl`, existing shell endpoint scripts under `scripts/modules/*`, milestone scrutiny and user-testing validators
-- Startup command proven during dry run: `PORT=3107 bun run src/server.ts`
-- Representative dry-run checks that succeeded:
+- Startup command proven during dry run: `PORT=3100 LOG_LEVEL=error bun run src/server.ts`
+- Dry-run finding: the app can start, but heavy initial sync delays listener bind; validators must poll for readiness instead of assuming the port is immediately reachable.
+- Representative validation probes for this mission:
   - `GET /ping`
-  - `GET /simple/supported_vs_currencies`
   - `GET /simple/price?...`
-- Focused automated validation path is executable; a pre-existing timestamp-sensitive test drift exists in `tests/app.test.ts` and should be treated as mission work.
+  - `GET /coins/markets?...`
+  - targeted shell scripts such as `scripts/modules/simple/simple.sh` and `scripts/modules/coins/coins.sh`
+- Implementation workers may manually validate against the main mission API on `3100`; validators should prefer the dedicated validation API on `3102`.
 
 ## Validation Concurrency
 
 - Machine profile observed during planning: 8 CPU cores, ~30 GB RAM
-- Conservative max concurrent validators: `3`
-- Rationale: server startup triggers bootstrap sync and SQLite/network activity; 3-way parallelism leaves enough headroom while avoiding avoidable contention.
+- Mission max concurrent API validators: `1`
+- Rationale: startup and validation both depend on heavy initial sync and delayed listener readiness; the user approved sequential endpoint validation for this mission to avoid startup contention and ambiguous failures.
 
 ## Flow Validator Guidance: HTTP API
 
 ### Isolation Rules
-- Validators can safely run concurrently against the same API instance
-- HTTP GET requests are read-only and don't interfere with each other
-- No shared mutable state between validators
-- Use the same base URL but distinct test data/fixtures where appropriate
+- Validators must run sequentially for this mission’s API surface
+- HTTP GET requests are read-only, but startup cost and delayed listener readiness make concurrent validator flows undesirable here
+- Reuse the same validation API instance rather than spawning concurrent flows against multiple startup sequences
+- Use the same base URL with controlled test data/fixtures for sequential runs
 
 ### Boundary Constraints
-- Use only port 3102 (validation-api) for testing
-- Do not access port 3100 (main API) or port 3101 (worker)
-- Port 6379 is off-limits (already in use by another workload)
+- Validators should use port `3102` (validation-api) unless the orchestrator explicitly directs otherwise.
+- Main mission API on `3100` is acceptable for worker manual checks but should not be shared with validator flows.
+- Off-limits ports: `80`, `6379`, `8317`, `11434`, `33331`
 
 ### Testing Approach
 - Use `curl` for HTTP API assertions
@@ -42,6 +44,8 @@ Validation surface findings and runtime testing notes.
 - Prefer `curl -s` for clean JSON output, `curl -i` when headers needed
 - Use `jq` for JSON parsing and validation
 - Save evidence (response excerpts) for each assertion tested
+- Poll `/ping` or the declared runtime-status surface until readiness before running endpoint scripts
+- For degraded or fallback assertions, capture the matching diagnostics/runtime-status payload from the same time window
 
 ### Evidence Requirements
 Each assertion should capture:
@@ -54,10 +58,24 @@ Each assertion should capture:
 
 - Prefer targeted route-family checks while implementing features.
 - Use curated fixture chains for cross-area assertions instead of one-off spot checks.
-- For onchain responses, inspect `relationships` and `included` explicitly where the contract expects them.
+- Sequential validation is required for this mission’s API surface.
+- When validating compression, compare negotiated and non-negotiated responses and preserve body semantics.
+- When validating timeouts, record the timeout budget source plus measured elapsed time.
 
 ## Runtime Validation Gotchas
 
 - The dedicated validation API on port `3102` is already declared in `.factory/services.yaml`; use it consistently for manual verification instead of ad hoc ports.
 - Prefer the validation API on port `3102` for manual curl checks if port `3100` is occupied by a stale server.
+- Treat port `3102` as disposable validation infrastructure: before starting a new validation API instance, stop any existing listener on `3102` so validator evidence never comes from stale pre-fix code.
 - Bun/Vitest fake-timer-heavy tests may need explicit microtask flushing between timer advances to avoid apparent hangs.
+- The service may not bind until initial sync finishes; connection-refused before readiness is expected and must not be treated as immediate mission failure without a readiness wait.
+- Provider-resilience runtime-health validation on 2026-03-26 observed the validation API stay unreachable for roughly 75 seconds before `/ping` became reachable on port `3102`; use a long readiness poll window before concluding startup failed.
+- The current public HTTP surface exposes `/diagnostics/runtime` for machine-readable readiness/freshness/source-class state, but it does not expose a validator-usable fault-injection hook to force provider outages or recoveries from outside the process.
+- Validation-only runtime control routes on port `3102` are:
+  - `POST /diagnostics/runtime/provider_failure`
+  - `POST /diagnostics/runtime/degraded_state`
+- Do not use `/__validation/degraded-state`; that path is not part of the current branch surface.
+- For availability-polish validation, the only declared startup-prewarm target is `simple_price_bitcoin_usd`; validate `VAL-OPS-006` against that target's diagnostics/metrics and first-hit behavior, not against a removed `coins_markets` target.
+- Hot-endpoint-cache validation recorded a false-negative for `VAL-SIMPLE-001`: the synthesis says `/simple/price?vs_currencies=usd` failed because it used `{error,message}`, but the captured `expectedBody` and `actualBody` are identical and that exact envelope is the intended contract.
+- Treat the source of truth for `VAL-SIMPLE-001` as: HTTP `400` plus exact JSON `{ "error": "invalid_parameter", "message": "One of ids, names, or symbols must be provided." }`.
+- Characterization coverage for that contract now exists in both `tests/invalid-params.test.ts` and `tests/app.test.ts`; if a future validator still flags the assertion while those tests and manual curl evidence pass, the ambiguity is validator-side rather than product-side.

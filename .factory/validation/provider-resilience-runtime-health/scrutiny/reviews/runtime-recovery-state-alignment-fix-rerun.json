@@ -1,0 +1,15 @@
+{
+  "featureId": "runtime-recovery-state-alignment-fix",
+  "reviewedAt": "2026-03-26T10:59:17.959313+00:00",
+  "commitId": "84076b5ea64c3a9f6f11dd00534bea85b0caee31",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix addresses the prior diagnostics/readiness drift by centralizing degraded-state cleanup in market runtime recovery paths and by deriving diagnostics readiness/degraded flags from the same cleared state. The new regression coverage exercises both background refresh recovery and diagnostics reporting after recovery, and the reviewed diffs show no remaining mismatch with the original failed runtime-health surface contract.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/provider-resilience-runtime-health/scrutiny/reviews/runtime-health-and-diagnostics-surface.json",
+  "summary": "Pass: commit 84076b5 fixes the original runtime diagnostics failure by clearing stale degraded flags on successful recovery before cache-revision bumps and by making diagnostics readiness/degraded state depend on that same recovered runtime truth. The fix diff and transcript-backed tests cover the stale-live recovery path that previously left `syncFailureReason` behind, so the prior review's blocking issue is adequately addressed."
+}

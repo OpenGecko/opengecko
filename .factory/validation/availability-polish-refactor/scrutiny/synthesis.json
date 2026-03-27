@@ -1,0 +1,46 @@
+{
+  "milestone": "availability-polish-refactor",
+  "round": 7,
+  "generatedAt": "2026-03-27T01:18:00+00:00",
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --maxWorkers=3",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "No lint script is defined in package.json or .factory/services.yaml for this repo.",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Clarify worker/handoff guidance for inherited-branch or fix-follow-up sessions so reported commit IDs must point to a feature-attributable diff or explicitly explain when current behavior depends on multiple prior commits.",
+      "evidence": "worker-transcripts.jsonl session 87156602-5e6c-43db-a459-95a613c382e3 ends with commit c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665, while `git show --stat c0c00e96768e00aa6ee85c9f5b913ec7b8a2d665` only contains .factory/validation/operational-controls/user-testing artifacts. The actual startup-prewarm implementation and fixes are attributable to f5bde92, 84c94b0, and fd3c6ff.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "The mission/library guidance says fallback work should extend `src/modules/market-freshness.ts`, but this feature encoded degraded-bootstrap classification partly in `src/services/runtime-diagnostics.ts` using runtime failure reason plus snapshot ownership. That convention is not documented clearly enough for future workers deciding where fallback/source-class policy should live.",
+      "reason": "ambiguous"
+    }
+  ],
+  "previousRound": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/synthesis.json"
+}

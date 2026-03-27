@@ -1,0 +1,21 @@
+{
+  "featureId": "hot-path-test-fixture-reconciliation",
+  "reviewedAt": "2026-03-26T17:04:00Z",
+  "commitId": "2aae879df54867af9db1e1fa2181f4c988f10fed",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The original reviewed commit only rebaselined `/exchange_rates`, so it was incomplete on its own. In the current milestone state, the remaining `/simple/price` optional-field expectation has been reconciled by the later `complete-hot-path-fixture-reconciliation` feature, and `tests/app.test.ts` now matches the current runtime semantics described in this feature's scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `api-runtime-worker` skill correctly requires rerunning the documented targeted route suite before completion, but the original worker marked validation successful even though its handoff said the combined targeted suite was still failing and relied on focused reruns plus manual curl checks. The later follow-up feature then validated the full targeted suite cleanly once the remaining `/simple/price` expectation had been reconciled.",
+      "evidence": "Skill step 7 in `/home/whoami/dev/openGecko/.factory/skills/api-runtime-worker/SKILL.md` requires rerunning targeted route tests. The handoff `/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/handoffs/2026-03-26T08-21-04-278Z__hot-path-test-fixture-reconciliation__42b13687-1a8e-4d5c-8e7f-435b96111437.json` records `bun test tests/app.test.ts tests/invalid-params.test.ts tests/stale-data.test.ts tests/compare-coingecko.test.ts` exiting 1, while the later handoff `/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/handoffs/2026-03-26T08-46-55-354Z__complete-hot-path-fixture-reconciliation__2a33112c-ff1a-4da2-b16a-5af1eb1a61c8.json` records that same targeted suite passing in current repo state."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the original feature handoff, transcript skeleton, commit `2aae879df54867af9db1e1fa2181f4c988f10fed`, current `tests/app.test.ts`, mission docs, and the later milestone handoff for `complete-hot-path-fixture-reconciliation`. Although the original commit was incomplete by itself, the current milestone state now includes the missing `/simple/price` optional-field reconciliation and the documented targeted suite passes, so the original scope gap has been adequately addressed within this milestone."
+}

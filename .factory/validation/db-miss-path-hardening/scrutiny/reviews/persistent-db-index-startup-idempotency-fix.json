@@ -1,0 +1,15 @@
+{
+  "featureId": "persistent-db-index-startup-idempotency-fix",
+  "reviewedAt": "2026-03-26T09:04:58.026351+00:00",
+  "commitId": "ed57005e725f5b88eb62a482bc925c04c05ad85e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix restores repeated startup idempotency for the persistent SQLite database by backfilling the real `0012_targeted_runtime_indexes` migration marker when both intended indexes already exist. The implementation uses the shipped migration timestamp from `drizzle/meta/_journal.json`, preserves the intended index set, and adds regression coverage for the persistent-database case.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit ed57005e725f5b88eb62a482bc925c04c05ad85e, the handoff, transcript skeleton, and shared-state docs. The feature passes: persistent `data/opengecko.db` startups no longer replay the targeted index migration and fail with duplicate-index errors."
+}

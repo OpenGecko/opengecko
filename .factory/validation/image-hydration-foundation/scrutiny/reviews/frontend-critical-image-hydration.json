@@ -1,0 +1,33 @@
+{
+  "featureId": "frontend-critical-image-hydration",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "a32c05f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature successfully extends curated Trust Wallet native mappings and adds list/detail/manual checks for representative assets, but the new frontend contract test over-asserts every returned `/coins/markets` row image instead of just the representative frontend-critical assets, making the characterization broader than the feature intent and fragile for unresolved long-tail assets that are explicitly supposed to remain untouched.",
+    "issues": [
+      {
+        "file": "tests/frontend-contract-script.test.ts",
+        "line": 271,
+        "severity": "blocking",
+        "description": "The loop asserts `row.image` is non-null/non-empty for every row returned by `/coins/markets?ids=bitcoin,ethereum,solana,ripple,dogecoin`. The feature intent and mission guidance only guarantee hydration for representative frontend-critical assets while leaving unresolved long-tail assets untouched. If the endpoint legitimately returns any extra rows outside that representative set (for example due to selector semantics or future seeded additions), this test would fail for assets outside scope even though the implementation still satisfies VAL-MARKETS-005 / VAL-DETAIL-001 / VAL-CROSS-005 for the intended representative set. The test should restrict the non-null assertion to the named representative ids rather than every returned row."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The repo now has mission-specific guidance for image hydration in `.factory/library/image-hydration.md`, including the rule that representative/frontend-critical assets are in scope while unresolved long-tail assets may remain null. This shared guidance appears sufficient and matches the implementation approach used by both image-hydration workers.",
+      "evidence": ".factory/library/image-hydration.md documents curated native and trusted platform/contract mappings plus the 'leave ambiguous assets unhydrated' rule; the reviewed feature's handoff and diff both follow that guidance."
+    },
+    {
+      "area": "skills",
+      "observation": "The worker followed the compatibility-hardening procedure appropriately: it reviewed mission guidance, added characterization before broadening manual/frontend checks, ran scoped tests plus typecheck, and captured a same-run manual list/detail verification chain in the handoff.",
+      "evidence": "worker-transcripts.jsonl entry for session `ed0e650f-44fb-4c7e-bd48-f5f114f2eeee` shows README/mission/validation reads, test additions in `tests/app.test.ts` and `tests/frontend-contract-script.test.ts`, scoped test runs, typecheck, and manual `mr-market-frontend` plus representative asset curl verification; handoff.skillFeedback.followedProcedure=true."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed due to one blocking test-scoping issue: the new frontend contract test asserts non-null images for every returned market row rather than only the representative frontend-critical assets that the feature is supposed to hydrate. The production mapping changes themselves match the mission's non-CoinGecko, confidence-gated approach, but the characterization should be narrowed to the intended representative ids."
+}

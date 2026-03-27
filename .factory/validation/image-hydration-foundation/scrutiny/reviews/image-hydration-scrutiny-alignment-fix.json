@@ -1,0 +1,18 @@
+{
+  "featureId": "image-hydration-scrutiny-alignment-fix",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "284c0d596a674486c8168a0ef5caf1e925dac1f5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly addresses both prior image-hydration scrutiny failures without broadening scope: it gives the broad frontend smoke test an explicit 20s timeout budget, narrows list/detail image assertions to the five representative frontend-critical ids for this milestone, and removes the previously unevidenced curated native mappings so the shipped identity surface now matches the available characterization evidence.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": [
+    ".factory/validation/image-hydration-foundation/scrutiny/reviews/asset-identity-foundation.json",
+    ".factory/validation/image-hydration-foundation/scrutiny/reviews/frontend-critical-image-hydration.json"
+  ],
+  "summary": "Reviewed the fix feature handoff, transcript skeleton, skill guidance, prior failed reviews, and commit `284c0d5`. The patch resolves the original blockers by scoping the frontend assertions to representative ids, adding an explicit timeout for the long-running smoke test, and narrowing curated native mappings back to the evidenced set, so no blocking issues remain."
+}

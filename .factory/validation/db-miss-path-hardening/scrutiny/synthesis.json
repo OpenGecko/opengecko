@@ -1,0 +1,52 @@
+{
+  "milestone": "db-miss-path-hardening",
+  "round": 2,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --maxWorkers=3",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "No lint command is defined in this repository.",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 8,
+    "passed": 8,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Clarify how workers should conclude already-satisfied validation tasks when current branch state already meets the assigned behavior and no feature diff remains to commit.",
+      "evidence": "The `complete-hot-path-fixture-reconciliation` review noted the worker could verify the required behavior and green suite, but no commit was possible because the expected state was already present in branch state.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills",
+      "suggestion": "Clarify in `api-runtime-worker` that workers must not report validator success when the feature's documented targeted suite still fails, even if narrower reruns or manual checks pass.",
+      "evidence": "The `hot-path-test-fixture-reconciliation` review found the worker reported success despite the documented combined targeted suite still failing in its handoff; the missing test expectation was only resolved by a later follow-up feature.",
+      "isSystemic": false
+    },
+    {
+      "target": "skills",
+      "suggestion": "Relax the `api-runtime-worker` skill's mandatory failing-characterization-test-first wording for behavior-preserving query-shaping, index-only, and migration-only fixes where existing failures or discovery steps already provide adequate guardrails.",
+      "evidence": "Multiple review reports (`hot-query-path-shaping`, `targeted-runtime-indexes`, and `targeted-runtime-indexes-migration-fix`) independently reported the same friction: meaningful validation required query-plan discovery or reproducing existing failures before or instead of inventing new red-first tests.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/db-miss-path-hardening/scrutiny/synthesis.json"
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "refactor-coins-module-with-characterization",
+  "reviewedAt": "2026-03-26T17:05:13.958944+00:00",
+  "commitId": "860c2051aa66ce2f2c43b38a1eb90e1596d4c3ff",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The original refactor commit introduced mover CSV contract drift in `parseMoverPriceChangePercentage`, but the later follow-up fix `999bfd233dab0162a4e2c30893b6325231204718` restores the current behavior to the historical compatibility contract. In the current repository state, the coins module remains split into focused units and I did not find any remaining blocking issue attributable to this feature.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature metadata, original handoff and commit diff, prior failed review, follow-up fix feature, transcript skeletons, skill guidance, and current `src/modules/coins/helpers.ts` / `tests/app.test.ts` state. The refactor itself briefly introduced trailing-comma mover parsing drift, but that regression is authoritatively fixed by `top-gainers-losers-trailing-comma-compatibility-fix`, so no blocking issue remains in the current milestone state for `refactor-coins-module-with-characterization`."
+}

@@ -1,0 +1,39 @@
+{
+  "milestone": "operational-controls",
+  "round": 2,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "bun run test -- --maxWorkers=3",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "no lint script in .factory/services.yaml or package.json",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Updated `.factory/library/runtime.md` to replace the stale live-server 404 note for `/metrics` and `/diagnostics/runtime` with the verified current behavior that both routes are exposed after readiness while still recommending explicit live-path checks.",
+      "sourceFeature": "live-metrics-route-runtime-path-fix"
+    }
+  ],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": "/home/whoami/dev/openGecko/.factory/validation/operational-controls/scrutiny/synthesis.json"
+}

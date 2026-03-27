@@ -28,4 +28,6 @@ export async function runOhlcvWorkerJob(overrides: RunOhlcvWorkerJobOverrides = 
   return runtime;
 }
 
-void runOhlcvWorkerJob();
+if (process.argv[1] && process.argv[1].endsWith('run-ohlcv-worker.ts')) {
+  void runOhlcvWorkerJob();
+}

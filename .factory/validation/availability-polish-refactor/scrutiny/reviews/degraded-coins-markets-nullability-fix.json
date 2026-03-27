@@ -1,0 +1,15 @@
+{
+  "featureId": "degraded-coins-markets-nullability-fix",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "4fb3d0768da8ec56fe4529db01130f7d71c69bc5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the mission feature definition, worker handoff/transcript skeleton, commit diff, and the current `/coins/markets` implementation/tests. The fix closes the prior seeded-bootstrap leak by nulling requested `price_change_percentage_*_in_currency` expansions during degraded fallback while leaving healthy-path row contracts unchanged, and I found no blocking or non-blocking issues in scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The reviewed change set now keeps seeded-bootstrap degraded `/coins/markets` rows compatible by nulling requested in-currency price-change percentage fields, and the updated stale-data regression covers the previously leaking 24h field without introducing new in-scope issues."
+}

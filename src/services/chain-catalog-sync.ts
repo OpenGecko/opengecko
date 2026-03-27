@@ -1,6 +1,7 @@
 import { assetPlatforms } from '../db/schema';
 import type { AppDatabase } from '../db/client';
 import type { Logger } from 'pino';
+import { mapWithConcurrency } from '../lib/async';
 import { fetchExchangeNetworks, type ExchangeId } from '../providers/ccxt';
 
 type ChainCatalogSyncResult = {
@@ -32,12 +33,15 @@ export async function syncChainCatalogFromExchanges(
   database: AppDatabase,
   exchangeIds: ExchangeId[],
   logger?: Logger,
+  concurrency = exchangeIds.length,
 ): Promise<ChainCatalogSyncResult> {
   const startTime = Date.now();
 
   // Fetch all exchange networks in parallel
-  const results = await Promise.allSettled(
-    exchangeIds.map((exchangeId) => fetchExchangeNetworks(exchangeId)),
+  const results = await mapWithConcurrency(
+    exchangeIds,
+    concurrency,
+    async (exchangeId) => Promise.allSettled([fetchExchangeNetworks(exchangeId)]).then(([result]) => result),
   );
 
   const networksById = new Map<string, { name: string; chainIdentifier: number | null }>();

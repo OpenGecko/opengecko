@@ -1,4 +1,5 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { categories, coins, marketSnapshots } from '../db/schema';
@@ -17,38 +18,67 @@ type CoinFilters = {
   names?: string[];
   symbols?: string[];
   status?: 'active' | 'inactive' | 'all';
+  categoryId?: string;
 };
 
-function matchesFilters(
-  filters: CoinFilters,
-  coin: {
-    id: string;
-    name: string;
-    symbol: string;
-  },
-) {
+function normalizeCategoryId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getSelectorWhereClause(filters: CoinFilters) {
   if (filters.ids?.length) {
-    return filters.ids.includes(coin.id);
+    return inArray(coins.id, filters.ids);
   }
 
   if (filters.names?.length) {
-    return filters.names.includes(coin.name.toLowerCase());
+    return inArray(coins.name, filters.names);
   }
 
   if (filters.symbols?.length) {
-    return filters.symbols.includes(coin.symbol.toLowerCase());
+    return inArray(coins.symbol, filters.symbols);
   }
 
-  return true;
+  return undefined;
+}
+
+function getCoinWhereClauses(filters: CoinFilters) {
+  const clauses = [];
+
+  if (filters.status && filters.status !== 'all') {
+    clauses.push(eq(coins.status, filters.status));
+  }
+
+  const selectorClause = getSelectorWhereClause(filters);
+
+  if (selectorClause) {
+    clauses.push(selectorClause);
+  }
+
+  return clauses;
+}
+
+function applyCategoryFilter<T extends { coin: { categoriesJson: string } }>(rows: T[], categoryId?: string) {
+  if (!categoryId) {
+    return rows;
+  }
+
+  return rows.filter((row) => parseJsonArray<string>(row.coin.categoriesJson)
+    .map((entry) => normalizeCategoryId(entry))
+    .includes(categoryId));
 }
 
 export function getCoins(database: AppDatabase, filters: CoinFilters = {}) {
-  const status = filters.status ?? 'active';
-  const rows = status === 'all'
-    ? database.db.select().from(coins).orderBy(asc(coins.id)).all()
-    : database.db.select().from(coins).where(eq(coins.status, status)).orderBy(asc(coins.id)).all();
+  const clauses = getCoinWhereClauses({ ...filters, status: filters.status ?? 'active' });
+  const whereClause = clauses.length === 0 ? undefined : clauses.length === 1 ? clauses[0] : and(...clauses);
+  const rows = whereClause
+    ? database.db.select().from(coins).where(whereClause).orderBy(asc(coins.id)).all()
+    : database.db.select().from(coins).orderBy(asc(coins.id)).all();
 
-  return rows.filter((row) => matchesFilters(filters, row));
+  return applyCategoryFilter(rows.map((coin) => ({ coin })), filters.categoryId).map((row) => row.coin);
 }
 
 export function getCoinById(database: AppDatabase, id: string) {
@@ -65,34 +95,36 @@ export function getCoinByContract(database: AppDatabase, platformId: string, con
   });
 }
 
-export function getMarketRows(database: AppDatabase, vsCurrency: string, filters: CoinFilters = {}) {
-  const joinedRows = database.db
+export function getMarketRows(
+  database: AppDatabase,
+  vsCurrency: string,
+  filters: CoinFilters = {},
+  orderBy: Array<SQL<unknown> | ReturnType<typeof asc>> = [asc(coins.marketCapRank), asc(coins.id)],
+) {
+  const clauses = getCoinWhereClauses(filters);
+  const whereClause = clauses.length === 0 ? undefined : clauses.length === 1 ? clauses[0] : and(...clauses);
+  const query = database.db
     .select()
     .from(coins)
     .leftJoin(
       marketSnapshots,
       and(eq(marketSnapshots.coinId, coins.id), eq(marketSnapshots.vsCurrency, vsCurrency)),
-    )
-    .orderBy(asc(coins.marketCapRank), asc(coins.id))
+    );
+
+  const joinedRows = (whereClause ? query.where(whereClause) : query)
+    .orderBy(...orderBy)
     .all();
 
-  return joinedRows
-    .filter(({ coins: coin }) => {
-      if (!coin) {
-        return false;
-      }
-
-      if (filters.status && filters.status !== 'all' && coin.status !== filters.status) {
-        return false;
-      }
-
-      return matchesFilters(filters, coin);
-    })
+  return applyCategoryFilter(
+    joinedRows
+      .filter(({ coins: coin }) => Boolean(coin))
     .map((row) => ({
       coin: row.coins,
       snapshot: row.market_snapshots,
     }))
-    .filter((row): row is { coin: NonNullable<typeof row.coin>; snapshot: typeof row.snapshot } => Boolean(row.coin));
+    .filter((row): row is { coin: NonNullable<typeof row.coin>; snapshot: typeof row.snapshot } => Boolean(row.coin)),
+    filters.categoryId,
+  );
 }
 
 export function getCategories(database: AppDatabase) {

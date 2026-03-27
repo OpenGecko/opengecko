@@ -1,0 +1,22 @@
+{
+  "featureId": "provider-failure-protection-and-recovery",
+  "reviewedAt": "2026-03-26T10:50:55.470816+00:00",
+  "commitId": "a8973b3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature improves runtime diagnostics and recovery handling for background market-refresh failures, but it still does not implement the provider-failure protection promised by the feature description. The change only records failure state after a refresh throws; it does not add any circuit-breaker, fail-fast, or equivalent protection to prevent repeated provider work after failures.",
+    "issues": [
+      {
+        "file": "src/services/market-refresh.ts",
+        "line": 146,
+        "severity": "blocking",
+        "description": "The runtime still calls `fetchExchangeTickers` for every configured exchange on every refresh cycle with no circuit-breaker, cool-down, or fail-fast gate. This feature's stated scope required provider-failure protection such as circuit-breaker or fail-fast semantics, but the implementation only marks degraded state after a thrown refresh error. Repeated provider failures therefore continue to hit upstream providers instead of being short-circuited."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit `a8973b3` plus its handoff, transcript skeleton, and skill guidance. The implementation correctly exposes degraded runtime state for refresh failures and clears it on recovery, but it does not add the promised provider-failure protection mechanism, so the feature is incomplete and should fail scrutiny."
+}

@@ -1,0 +1,85 @@
+{
+  "milestone": "provider-resilience-runtime-health",
+  "round": 2,
+  "surface": "http-api",
+  "baseUrl": "http://127.0.0.1:3102",
+  "source": "worker-handoff-133af0ae-cf7b-4140-9352-1cbd0c2a4a83",
+  "assertions": [
+    {
+      "id": "VAL-HEALTH-004",
+      "status": "pass",
+      "evidence": {
+        "before_failure": {
+          "diagnostics": {
+            "readiness_state": "ready",
+            "degraded_active": false,
+            "injected_provider_failure_active": false,
+            "source_class": "fresh_live",
+            "cache_revision": 2
+          }
+        },
+        "during_forced_outage": {
+          "hook_response": {
+            "status": 200,
+            "json": {
+              "data": {
+                "active": true,
+                "reason": "validator forced outage"
+              }
+            }
+          },
+          "diagnostics": {
+            "readiness_state": "degraded",
+            "degraded_active": true,
+            "stale_live_enabled": true,
+            "reason": "validator forced outage",
+            "injected_provider_failure_active": true
+          }
+        },
+        "after_recovery": {
+          "clear_hook_response": {
+            "status": 200,
+            "json": {
+              "data": {
+                "active": false,
+                "reason": null
+              }
+            }
+          },
+          "diagnostics": {
+            "readiness_state": "ready",
+            "degraded_active": false,
+            "stale_live_enabled": false,
+            "reason": null,
+            "injected_provider_failure_active": false,
+            "cache_revision_before": 2,
+            "cache_revision_after": 3
+          }
+        }
+      }
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "evidence": {
+        "during_forced_outage": {
+          "simple_price_status": 200,
+          "coins_markets_status": 200,
+          "behavior": "hot endpoints remained operational with residual compatible market data while diagnostics showed degraded fallback"
+        },
+        "after_recovery": {
+          "simple_price_status": 200,
+          "coins_markets_status": 200,
+          "behavior": "hot endpoints remained coherent after recovery and reflected fresh live state once diagnostics returned to ready"
+        }
+      }
+    }
+  ],
+  "notes": {
+    "startup_ready_seconds": 64.04,
+    "degraded_transition_seconds": 15,
+    "recovery_polls_until_ready": 14,
+    "recovery_elapsed_seconds": 70,
+    "hookPath": "/diagnostics/runtime/provider_failure"
+  }
+}

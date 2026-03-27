@@ -1,0 +1,15 @@
+{
+  "featureId": "runtime-recovery-state-alignment-fix",
+  "reviewedAt": "2026-03-26T10:50:52.418204+00:00",
+  "commitId": "84076b5ea64c3a9f6f11dd00534bea85b0caee31",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix fully addresses the reported recovery-alignment failure: successful market-refresh recovery now clears stale failure flags in the shared runtime path before advancing cache revision, and diagnostics derives readiness/degraded state from the same recovered flags. Regression coverage exercises both the refresh-recovery path and recovered diagnostics state.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit 84076b5 for runtime-recovery-state-alignment-fix, including transcript, handoff, related prior provider-resilience commits, implementation diff, and targeted tests. I found no blocking or non-blocking correctness issues; the fix aligns runtime recovery cleanup and diagnostics semantics with the feature requirements and prior scrutiny failure."
+}

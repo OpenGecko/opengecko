@@ -9,7 +9,21 @@ import { buildExchangeRatesPayload, getConversionRate } from '../lib/conversion'
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getSupportedVsCurrencies } from '../services/currency-rates';
 import { getCoinByContract, getMarketRows, parseJsonObject } from './catalog';
-import { getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+
+type SimplePriceResponse = Record<string, Record<string, number | null>>;
+type SimplePriceCacheEntry = {
+  value: SimplePriceResponse;
+  expiresAt: number;
+  revision: number;
+};
+
+export type SimplePriceRequestQuery = z.infer<typeof simplePriceQuerySchema>;
+export type WarmSimplePriceCacheOptions = {
+  app?: Pick<FastifyInstance, 'metrics'>;
+};
+
+const SIMPLE_PRICE_CACHE_TTL_MS = 5_000;
 
 const simplePriceQuerySchema = z.object({
   ids: z.string().optional(),
@@ -85,12 +99,97 @@ function buildSimplePayload(
   );
 }
 
+function normalizeSelector(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function createSimplePriceCacheKey(query: z.infer<typeof simplePriceQuerySchema>) {
+  return JSON.stringify({
+    ids: normalizeSelector(parseCsvQuery(query.ids)),
+    names: normalizeSelector(parseCsvQuery(query.names)),
+    symbols: normalizeSelector(parseCsvQuery(query.symbols)),
+    vsCurrencies: normalizeSelector(parseCsvQuery(query.vs_currencies)),
+    includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
+    include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
+    include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
+    includeLastUpdatedAt: parseBooleanQuery(query.include_last_updated_at, false),
+    precision: parsePrecision(query.precision),
+  });
+}
+
+function cloneSimplePriceResponse(value: SimplePriceResponse): SimplePriceResponse {
+  return JSON.parse(JSON.stringify(value)) as SimplePriceResponse;
+}
+
+export function warmSimplePriceCache(
+  cache: Map<string, SimplePriceCacheEntry>,
+  query: SimplePriceRequestQuery,
+  database: AppDatabase,
+  marketFreshnessThresholdSeconds: number,
+  runtimeState: MarketDataRuntimeState,
+  options: WarmSimplePriceCacheOptions = {},
+) {
+  const cacheKey = createSimplePriceCacheKey(query);
+  const cached = cache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
+    options.app?.metrics.recordCacheHit('simple_price');
+    return cloneSimplePriceResponse(cached.value);
+  }
+
+  options.app?.metrics.recordCacheMiss('simple_price');
+
+  const requestedCurrencies = parseCsvQuery(query.vs_currencies);
+  const precision = parsePrecision(query.precision);
+  const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+  const rows = getMarketRows(database, 'usd', {
+    ids: parseCsvQuery(query.ids),
+    names: parseCsvQuery(query.names),
+    symbols: parseCsvQuery(query.symbols),
+  });
+
+  const payload = Object.fromEntries(
+    rows
+      .map((row) => ({
+        coin: row.coin,
+        snapshot: getUsableSnapshot(
+          getEffectiveSnapshot(row.snapshot, runtimeState),
+          marketFreshnessThresholdSeconds,
+          snapshotAccessPolicy,
+        ),
+      }))
+      .filter((row) => row.snapshot)
+      .map((row) => [
+        row.coin.id,
+        buildSimplePayload(database, row.snapshot!, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+          includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
+          include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
+          include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
+          includeLastUpdatedAt: parseBooleanQuery(query.include_last_updated_at, false),
+          precision,
+        }),
+      ]),
+  );
+
+  cache.set(cacheKey, {
+    value: cloneSimplePriceResponse(payload),
+    expiresAt: now + SIMPLE_PRICE_CACHE_TTL_MS,
+    revision: runtimeState.hotDataRevision,
+  });
+
+  return payload;
+}
+
 export function registerSimpleRoutes(
   app: FastifyInstance,
   database: AppDatabase,
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
 ) {
+  const simplePriceCache = new Map<string, SimplePriceCacheEntry>();
+  app.decorate('simplePriceCache', simplePriceCache);
+
   app.get('/exchange_rates', async () => buildExchangeRatesPayload(
     database,
     marketFreshnessThresholdSeconds,
@@ -112,31 +211,13 @@ export function registerSimpleRoutes(
       throw new HttpError(400, 'invalid_parameter', 'At least one vs_currency must be provided.');
     }
 
-    const precision = parsePrecision(query.precision);
-    const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
-    const rows = getMarketRows(database, 'usd', {
-      ids: parseCsvQuery(query.ids),
-      names: parseCsvQuery(query.names),
-      symbols: parseCsvQuery(query.symbols),
-    });
-
-    return Object.fromEntries(
-      rows
-        .map((row) => ({
-          coin: row.coin,
-          snapshot: getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy),
-        }))
-        .filter((row) => row.snapshot)
-        .map((row) => [
-          row.coin.id,
-          buildSimplePayload(database, row.snapshot!, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
-            includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
-            include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
-            include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
-            includeLastUpdatedAt: parseBooleanQuery(query.include_last_updated_at, false),
-            precision,
-          }),
-        ]),
+    return warmSimplePriceCache(
+      simplePriceCache,
+      query,
+      database,
+      marketFreshnessThresholdSeconds,
+      runtimeState,
+      { app },
     );
   });
 
@@ -166,7 +247,7 @@ export function registerSimpleRoutes(
         }
 
         const snapshot = getUsableSnapshot(
-          getMarketRows(database, 'usd', { ids: [coin.id] })[0]?.snapshot ?? null,
+          getEffectiveSnapshot(getMarketRows(database, 'usd', { ids: [coin.id] })[0]?.snapshot ?? null, runtimeState),
           marketFreshnessThresholdSeconds,
           snapshotAccessPolicy,
         );

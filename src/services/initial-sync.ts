@@ -3,10 +3,12 @@ import type { AppDatabase } from '../db/client';
 import { exchanges } from '../db/schema';
 import type { Logger } from 'pino';
 import { createLogger } from '../lib/logger';
+import { mapWithConcurrency } from '../lib/async';
 import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce } from './market-refresh';
+import type { MarketDataRuntimeState } from './market-runtime-state';
 
 export type InitialSyncProgressHandlers = {
   onStepChange?: (stepId: 'sync_exchange_metadata' | 'sync_coin_catalog' | 'sync_chain_catalog' | 'build_market_snapshots' | 'start_ohlcv_worker') => void;
@@ -17,9 +19,12 @@ export async function syncExchangesFromCCXT(
   database: AppDatabase,
   exchangeIds: ExchangeId[],
   logger: Logger,
+  concurrency = exchangeIds.length,
 ) {
-  const results = await Promise.allSettled(
-    exchangeIds.map((exchangeId) => fetchExchangeMarkets(exchangeId)),
+  const results = await mapWithConcurrency(
+    exchangeIds,
+    concurrency,
+    async (exchangeId) => Promise.allSettled([fetchExchangeMarkets(exchangeId)]).then(([result]) => result),
   );
 
   const now = new Date();
@@ -80,9 +85,10 @@ export type InitialSyncResult = {
 
 export async function runInitialMarketSync(
   database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'marketFreshnessThresholdSeconds'>,
+  config: Pick<AppConfig, 'ccxtExchanges' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency'>,
   logger?: Logger,
   progress?: InitialSyncProgressHandlers,
+  runtimeState?: MarketDataRuntimeState,
 ): Promise<InitialSyncResult> {
   const syncLogger = logger?.child({ operation: 'initial_sync' }) ?? createLogger({ level: 'info' }).child({ operation: 'initial_sync' });
   const startTime = Date.now();
@@ -93,24 +99,37 @@ export async function runInitialMarketSync(
   // Step 1: Sync exchanges first (required for coin_tickers FK)
   progress?.onStepChange?.('sync_exchange_metadata');
   syncLogger.debug('syncing exchange metadata');
-  await syncExchangesFromCCXT(database, exchangeIds, syncLogger);
+  await syncExchangesFromCCXT(database, exchangeIds, syncLogger, config.providerFanoutConcurrency);
 
   // Step 2: Discover coins from all exchanges
   progress?.onStepChange?.('sync_coin_catalog');
   syncLogger.debug('discovering coins from exchanges');
-  const { insertedOrUpdated: coinsDiscovered } = await syncCoinCatalogFromExchanges(database, exchangeIds, syncLogger);
+  const { insertedOrUpdated: coinsDiscovered } = await syncCoinCatalogFromExchanges(
+    database,
+    exchangeIds,
+    syncLogger,
+    config.providerFanoutConcurrency,
+  );
   syncLogger.info({ coinsDiscovered }, 'coin catalog sync complete');
 
   // Step 2.5: Discover chains/networks from all exchanges
   progress?.onStepChange?.('sync_chain_catalog');
   syncLogger.debug('discovering chains from exchanges');
-  const { insertedOrUpdated: chainsDiscovered } = await syncChainCatalogFromExchanges(database, exchangeIds, syncLogger);
+  const { insertedOrUpdated: chainsDiscovered } = await syncChainCatalogFromExchanges(
+    database,
+    exchangeIds,
+    syncLogger,
+    config.providerFanoutConcurrency,
+  );
   syncLogger.info({ chainsDiscovered }, 'chain catalog sync complete');
 
   // Step 3: Fetch tickers and build market snapshots + coin tickers
   progress?.onStepChange?.('build_market_snapshots');
   syncLogger.debug('running market refresh');
-  await runMarketRefreshOnce(database, { ccxtExchanges: exchangeIds }, syncLogger);
+  await runMarketRefreshOnce(database, {
+    ccxtExchanges: exchangeIds,
+    providerFanoutConcurrency: config.providerFanoutConcurrency,
+  }, syncLogger, runtimeState);
 
   // Step 4: Count live snapshots
   const { marketSnapshots } = await import('../db/schema');

@@ -1,0 +1,15 @@
+{
+  "featureId": "coins-markets-response-cache",
+  "reviewedAt": "2026-03-26T09:44:51.624853+00:00",
+  "commitId": "e2e19a8",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the /coins/markets response-cache implementation, its characterization coverage, and follow-up hotDataRevision integration. The cache key isolates the documented shape-altering parameters, cached payloads are cloned to avoid object reuse leakage, and subsequent revision-based invalidation closes the startup-transition gap that scrutiny later found.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The feature's cache key and tests cover pagination, ordering, selector normalization, category filters, sparkline, price-change windows, and precision-sensitive values, and the later revision wiring resolves the originally missing transition invalidation risk."
+}

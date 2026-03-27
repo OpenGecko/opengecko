@@ -1,0 +1,28 @@
+{
+  "featureId": "hot-endpoint-cache-transition-coherence",
+  "reviewedAt": "2026-03-26T09:44:55Z",
+  "commitId": "c36b901",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The shared hotDataRevision invalidation closes the main cache-coherence gap between `/simple/price` and `/coins/markets`, and the added tests cover refresh-driven invalidation plus stale-policy flips. However, the reviewed commit leaves the no-runtime bootstrap path in `src/app.ts` without a revision bump when initial sync first makes hot data visible, so one endpoint can still serve a stale cached generation across that startup transition while the other recomputes.",
+    "issues": [
+      {
+        "file": "src/app.ts",
+        "line": 133,
+        "severity": "blocking",
+        "description": "In the `startBackgroundJobs: false` bootstrap path, `initialSyncCompleted` is set directly after `runInitialMarketSync()` without advancing `marketDataRuntimeState.hotDataRevision`. Any `/simple/price` or `/coins/markets` response cached before readiness can therefore survive the initial-sync-complete transition until TTL expiry, recreating the cross-endpoint contradiction this feature is meant to prevent. The later fix in commit `d1e3e8a` confirms this hole was real."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "Hot-endpoint cache coherence depends on every visibility/freshness policy transition advancing `hotDataRevision`, including the no-runtime `onReady` bootstrap path in `src/app.ts`, not just background runtime refresh/failure transitions.",
+      "evidence": "`src/services/market-runtime.ts` bumps the revision for runtime-driven success/failure transitions, while this reviewed commit did not yet bump it in `src/app.ts` after `runInitialMarketSync()` when `startBackgroundJobs` is false. A follow-up feature `hot-data-revision-startup-transition-fix` was later added to address exactly this gap."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the feature substantially improves cache-transition coherence, but it misses the no-runtime startup transition in `src/app.ts`, leaving a blocking stale-cache path for the same shared hot endpoints until the later startup-transition fix."
+}

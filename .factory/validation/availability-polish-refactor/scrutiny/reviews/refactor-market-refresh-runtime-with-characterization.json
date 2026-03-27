@@ -1,0 +1,15 @@
+{
+  "featureId": "refactor-market-refresh-runtime-with-characterization",
+  "reviewedAt": "2026-03-27T00:00:00Z",
+  "commitId": "c4df63d94a7e4b18f61043ab1296f943b7a467b2",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The refactor cleanly extracts market-refresh responsibilities into helper functions without changing refresh sequencing, cooldown behavior, forced-failure handling, snapshot/ticker persistence, or metric recording. The added characterization test covers the newly extracted seam across forced failure, cooldown skip, partial failure, and successful recovery, and the resulting code still matches the parent implementation behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass: the market refresh refactor remained behavior-preserving, followed the safe-refactor procedure, and I found no blocking or non-blocking code issues."
+}

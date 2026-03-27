@@ -15,6 +15,7 @@ describe('runtime policy defaults', () => {
 
     expect(config.ccxtExchanges).toEqual([...DEFAULT_CCXT_EXCHANGES]);
     expect(config.marketFreshnessThresholdSeconds).toBe(DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS);
+    expect(config.providerFanoutConcurrency).toBe(2);
     expect(config.marketRefreshIntervalSeconds).toBe(DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS);
     expect(config.searchRebuildIntervalSeconds).toBe(DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS);
     expect(config.httpLogStyle).toBe('emoji_compact_p');

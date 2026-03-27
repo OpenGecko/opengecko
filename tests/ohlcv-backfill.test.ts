@@ -13,11 +13,15 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
 
 import { fetchExchangeMarkets, fetchExchangeOHLCV } from '../src/providers/ccxt';
+
+const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.fn>;
+const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
 
 const now = new Date();
 
@@ -46,8 +50,8 @@ describe('ohlcv backfill service', () => {
       }).onConflictDoNothing().run();
     }
     rebuildSearchIndex(database);
-    vi.mocked(fetchExchangeMarkets).mockReset();
-    vi.mocked(fetchExchangeOHLCV).mockReset();
+    mockedFetchExchangeMarkets.mockReset();
+    mockedFetchExchangeOHLCV.mockReset();
   });
 
   afterEach(() => {
@@ -56,7 +60,7 @@ describe('ohlcv backfill service', () => {
   });
 
   it('writes fetched daily candles into the canonical store for dynamically discovered Binance pairs', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId !== 'binance') {
         return [];
       }
@@ -84,7 +88,7 @@ describe('ohlcv backfill service', () => {
         },
       ];
     });
-    vi.mocked(fetchExchangeOHLCV).mockImplementation(async (_exchangeId, symbol) => {
+    mockedFetchExchangeOHLCV.mockImplementation(async (_exchangeId, symbol) => {
       if (symbol === 'BTC/USDT') {
         return [
           {

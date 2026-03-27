@@ -1,0 +1,15 @@
+{
+  "featureId": "startup-prewarm-live-surface-alignment-fix",
+  "reviewedAt": "2026-03-26T17:07:28.053753+00:00",
+  "commitId": "f8b89db",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit f8b89db plus current startup prewarm runtime, diagnostics, metrics, and tests. The live startup path now runs startup prewarm before listener bind via createMarketRuntime(), which aligns real server starts with the bootstrap-only diagnostics/metrics surfaces without introducing an observable contract regression in the touched code.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass: live server startup now populates authoritative startup prewarm diagnostics and metrics through the background runtime path, and the targeted regression test covers the newly wired prewarm execution before listener binding."
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "provider-failure-cooldown-protection",
+  "reviewedAt": "2026-03-26T10:59:48.699673+00:00",
+  "commitId": "2b15eb5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly addresses the prior scrutiny failure by adding centralized cooldown gating to the market refresh path, plumbing that shared state through runtime recovery handling, and exposing the cooldown window in diagnostics. The original failed commit only surfaced degraded state after refresh errors, while this follow-up now short-circuits repeated all-provider refresh failures for a bounded interval and clears the cooldown on recovery.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/provider-resilience-runtime-health/scrutiny/reviews/provider-failure-protection-and-recovery.json",
+  "summary": "Reviewed the fix handoff, transcript skeleton, prior failed review, and both commits (`a8973b3`, `2b15eb5`). The new implementation adds the previously missing provider-failure gate in `src/services/market-refresh.ts`, keeps degraded/runtime diagnostics aligned through shared runtime state, and includes focused regression coverage for cooldown activation, suppression, diagnostics visibility, and recovery clearing. No new blocking or non-blocking issues were identified in scope."
+}

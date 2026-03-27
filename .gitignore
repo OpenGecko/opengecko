@@ -6,4 +6,3 @@ data/
 *.db-shm
 *.db-wal
 coverage/
-.factory

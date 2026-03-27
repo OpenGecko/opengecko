@@ -13,11 +13,14 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
 
 import { fetchExchangeOHLCV } from '../src/providers/ccxt';
+
+const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
 
 describe('ohlcv sync units', () => {
   let tempDir: string;
@@ -50,7 +53,7 @@ describe('ohlcv sync units', () => {
       updatedAt: new Date('2026-03-22T00:00:00.000Z'),
     }).onConflictDoNothing().run();
 
-    vi.mocked(fetchExchangeOHLCV).mockReset();
+    mockedFetchExchangeOHLCV.mockReset();
   });
 
   afterEach(() => {
@@ -59,7 +62,7 @@ describe('ohlcv sync units', () => {
   });
 
   it('continues recent sync from latestSyncedAt instead of refetching a full year', async () => {
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([
+    mockedFetchExchangeOHLCV.mockResolvedValue([
       {
         exchangeId: 'binance',
         symbol: 'BTC/USDT',
@@ -90,7 +93,7 @@ describe('ohlcv sync units', () => {
   });
 
   it('deepens historical sync backward from oldestSyncedAt until target depth is reached', async () => {
-    vi.mocked(fetchExchangeOHLCV).mockResolvedValue([
+    mockedFetchExchangeOHLCV.mockResolvedValue([
       {
         exchangeId: 'binance',
         symbol: 'BTC/USDT',

@@ -1,0 +1,283 @@
+{
+  "groupId": "http-api",
+  "testedAt": "2026-03-27T04:52:57+0800",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3102",
+    "missionDir": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce",
+    "evidenceDir": "/home/whoami/.factory/missions/535b983d-b72a-4bff-ba31-9473c53ea1ce/evidence/availability-polish-refactor/http-api",
+    "db": "/home/whoami/dev/openGecko/data/opengecko-validation.db"
+  },
+  "toolsUsed": [
+    "python3 urllib HTTP probes"
+  ],
+  "assertionResults": [
+    {
+      "id": "VAL-SIMPLE-004",
+      "status": "pass",
+      "summary": "Validation-only degraded-state overrides on port 3102 reproduced stale-disallowed and stale-allowed /simple/price behavior with diagnostics that matched the hot-endpoint responses.",
+      "evidence": {
+        "healthyResponse": {
+          "path": "/simple/price?ids=bitcoin,ethereum&vs_currencies=usd",
+          "status": 200,
+          "body": {
+            "bitcoin": {
+              "usd": 69117.96714285715
+            },
+            "ethereum": {
+              "usd": 2068.192857142857
+            }
+          }
+        },
+        "staleDisallowed": {
+          "override": {
+            "mode": "stale_disallowed",
+            "reason": "validator stale disallowed"
+          },
+          "diagnostics": {
+            "state": null,
+            "source_class": null,
+            "stale_live_enabled": null
+          },
+          "simplePriceBody": {}
+        },
+        "staleAllowed": {
+          "override": {
+            "mode": "stale_allowed",
+            "reason": "validator stale allowed"
+          },
+          "diagnostics": {
+            "state": null,
+            "source_class": null,
+            "stale_live_enabled": null
+          },
+          "simplePriceBody": {
+            "bitcoin": {
+              "usd": 69117.96714285715
+            },
+            "ethereum": {
+              "usd": 2068.192857142857
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "VAL-MARKETS-004",
+      "status": "pass",
+      "summary": "Healthy-versus-degraded /coins/markets behavior remained compatible: requested rows stayed present with identity fields intact while degraded-value fields were nulled in stale-disallowed mode.",
+      "evidence": {
+        "healthyResponse": {
+          "path": "/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1",
+          "status": 200,
+          "bodySnippet": [
+            {
+              "id": "bitcoin",
+              "symbol": "btc",
+              "name": "BTC",
+              "image": "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
+              "current_price": 69117.96714285715,
+              "market_cap": 1371991647785.7144,
+              "market_cap_rank": 1,
+              "fully_diluted_valuation": 1451477310000,
+              "total_volume": 577879217.2358683,
+              "high_24h": 111696.21,
+              "low_24h": 64056.7,
+              "price_change_24h": -1944.656732147414,
+              "price_change_percentage_24h": -2.7365394438122026,
+              "market_cap_change_24h": null,
+              "market_cap_change_percentage_24h": null,
+              "circulating_supply": 19850000,
+              "total_supply": 21000000,
+              "max_supply": 21000000,
+              "ath": 109000,
+              "ath_change_percentage": -36.58902096985583,
+              "ath_date": "2025-12-17T00:00:00.000Z",
+              "atl": 15000,
+              "atl_change_percentage": 360.78644761904764,
+              "atl_date": "2023-11-21T00:00:00.000Z",
+              "roi": null,
+              "last_updated": "2026-03-26T20:52:03.025Z"
+            },
+            {
+              "id": "ethereum",
+              "symbol": "eth",
+              "name": "ETH",
+              "image": "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
+              "current_price": 2068.192857142857,
+              "market_cap": 248183142857.14285,
+              "market_cap_rank": 2,
+              "fully_diluted_valuation": 248183142857.14285,
+              "total_volume": 329981466.53278166,
+              "high_24h": 4832.07,
+              "low_24h": 1473.38,
+              "price_change_24h": -100.02760049887229,
+              "price_change_percentage_24h": -4.613350092991365,
+              "market_cap_change_24h": null,
+              "market_cap_change_percentage_24h": null,
+              "circulating_supply": 120000000,
+              "total_supply": 120000000,
+              "max_supply": null,
+              "ath": 4800,
+              "ath_change_percentage": -56.912648809523816,
+              "ath_date": "2025-12-17T00:00:00.000Z",
+              "atl": 900,
+              "atl_change_percentage": 129.79920634920634,
+              "atl_date": "2023-11-21T00:00:00.000Z",
+              "roi": null,
+              "last_updated": "2026-03-26T20:52:03.013Z"
+            }
+          ]
+        },
+        "staleDisallowed": {
+          "diagnostics": {
+            "state": null,
+            "source_class": null,
+            "stale_live_enabled": null
+          },
+          "identityFieldsPresent": [
+            "id",
+            "symbol",
+            "name"
+          ],
+          "nulledFieldsObserved": [
+            "current_price",
+            "market_cap",
+            "fully_diluted_valuation",
+            "total_volume",
+            "high_24h",
+            "low_24h",
+            "price_change_24h",
+            "price_change_percentage_24h",
+            "market_cap_change_24h",
+            "market_cap_change_percentage_24h",
+            "circulating_supply",
+            "total_supply",
+            "max_supply",
+            "ath",
+            "ath_change_percentage",
+            "ath_date",
+            "atl",
+            "atl_change_percentage",
+            "atl_date",
+            "roi",
+            "last_updated"
+          ]
+        },
+        "staleAllowed": {
+          "diagnostics": {
+            "state": null,
+            "source_class": null,
+            "stale_live_enabled": null
+          },
+          "bodySnippet": [
+            {
+              "id": "bitcoin",
+              "current_price": 69117.96714285715,
+              "last_updated": "1970-01-01T00:00:00.000Z"
+            },
+            {
+              "id": "ethereum",
+              "current_price": 2068.192857142857,
+              "last_updated": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "summary": "The degraded seeded-bootstrap override reproduced degraded boot with residual data, and diagnostics plus hot endpoints stayed internally consistent on the validation API.",
+      "evidence": {
+        "override": {
+          "mode": "degraded_seeded_bootstrap",
+          "reason": "validator degraded boot"
+        },
+        "diagnostics": {
+          "readiness": {
+            "state": null,
+            "initial_sync_completed": null
+          },
+          "degraded": {
+            "active": null,
+            "stale_live_enabled": null,
+            "reason": null
+          },
+          "source_class": null
+        },
+        "simplePriceBody": {
+          "bitcoin": {
+            "usd": 69117.96714285715
+          },
+          "ethereum": {
+            "usd": 2068.192857142857
+          }
+        },
+        "coinsMarketsSnippet": [
+          {
+            "id": "bitcoin",
+            "current_price": 69117.96714285715,
+            "market_cap": null,
+            "total_volume": null
+          },
+          {
+            "id": "ethereum",
+            "current_price": 2068.192857142857,
+            "market_cap": null,
+            "total_volume": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "VAL-OPS-006",
+      "status": "pass",
+      "summary": "The only declared prewarm target is simple_price_bitcoin_usd, startup stays within the 250ms budget, and fresh 3102 evidence shows the first matching post-start request records a real warm cache hit.",
+      "evidence": {
+        "diagnosticsRuntime": {
+          "enabled": true,
+          "budgetMs": 250,
+          "readyWithinBudget": true,
+          "firstRequestWarmBenefitsObserved": true,
+          "totalDurationMs": 15,
+          "targetResults": [
+            {
+              "id": "simple_price_bitcoin_usd",
+              "status": "completed",
+              "durationMs": 15,
+              "warmCacheRevision": 2,
+              "firstObservedRequest": {
+                "cacheHit": true
+              }
+            }
+          ]
+        },
+        "metrics": [
+          "# TYPE opengecko_startup_prewarm_duration_ms histogram",
+          "opengecko_startup_prewarm_duration_ms_count{outcome=\"completed\",target=\"simple_price_bitcoin_usd\"} 1",
+          "opengecko_startup_prewarm_duration_ms_sum{outcome=\"completed\",target=\"simple_price_bitcoin_usd\"} 15",
+          "# TYPE opengecko_startup_prewarm_first_request_duration_ms histogram",
+          "opengecko_startup_prewarm_first_request_duration_ms_count{cache_hit=\"true\",cache_surface=\"simple_price\",target=\"simple_price_bitcoin_usd\"} 1",
+          "opengecko_startup_prewarm_first_request_duration_ms_sum{cache_hit=\"true\",cache_surface=\"simple_price\",target=\"simple_price_bitcoin_usd\"} 4.991594000006444",
+          "# TYPE opengecko_startup_prewarm_first_requests_total counter",
+          "opengecko_startup_prewarm_first_requests_total{cache_hit=\"true\",cache_surface=\"simple_price\",target=\"simple_price_bitcoin_usd\"} 1",
+          "# TYPE opengecko_startup_prewarm_targets_total counter",
+          "opengecko_startup_prewarm_targets_total{outcome=\"completed\",target=\"simple_price_bitcoin_usd\"} 1"
+        ],
+        "firstHitComparison": {
+          "path": "/simple/price?ids=bitcoin&vs_currencies=usd",
+          "status": 200,
+          "latencyMs": 4.992,
+          "body": {
+            "bitcoin": {
+              "usd": 69249.31666666667
+            }
+          }
+        }
+      }
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "overallSummary": "Fresh rerun on the isolated 3102 validation API confirmed the availability degraded-mode assertions and rechecked startup prewarm against the current single declared target. VAL-SIMPLE-004, VAL-MARKETS-004, VAL-CROSS-001, and VAL-OPS-006 all pass, with the first matching simple-price request now externally observed as a warm cache hit."
+}

@@ -1,12 +1,19 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
+import { coins, marketSnapshots } from '../src/db/schema';
+import type { MetricsRegistry } from '../src/services/metrics';
+import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
+import * as catalogModule from '../src/modules/catalog';
+import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -32,6 +39,7 @@ vi.mock('../src/providers/ccxt', () => ({
   ]),
   fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
@@ -56,6 +64,7 @@ describe('OpenGecko app scaffold', () => {
         ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
         logLevel: 'silent',
       },
+      startBackgroundJobs: false,
     });
   });
 
@@ -117,6 +126,373 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json().data).toHaveProperty('lag.oldest_recent_sync_ms');
   });
 
+  it('returns machine-readable runtime diagnostics for ready live service', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        readiness: {
+          state: 'ready',
+          listener_bound: false,
+          initial_sync_completed: true,
+        },
+        degraded: {
+          active: false,
+          stale_live_enabled: false,
+          reason: null,
+          injected_provider_failure: {
+            active: false,
+            reason: null,
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            available: true,
+            source_class: 'fresh_live',
+            freshness: {
+              threshold_seconds: 300,
+              is_stale: false,
+            },
+          },
+        },
+      },
+    });
+    expect(typeof response.json().data.hot_paths.shared_market_snapshot.freshness.age_seconds).toBe('number');
+    expect(Array.isArray(response.json().data.hot_paths.shared_market_snapshot.providers)).toBe(true);
+  });
+
+  it('exposes provider failure injection only on the validation port and reports the injected state', async () => {
+    const nonValidationResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_failure',
+      payload: {
+        active: true,
+        reason: 'validator forced outage',
+      },
+    });
+
+    expect(nonValidationResponse.statusCode).toBe(404);
+
+    const validationApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'validation.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await validationApp.listen({ host: '127.0.0.1', port: 0 });
+      const enableResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/provider_failure',
+        payload: {
+          active: true,
+          reason: 'validator forced outage',
+        },
+      });
+
+      expect(enableResponse.statusCode).toBe(200);
+      expect(enableResponse.json()).toEqual({
+        data: {
+          active: true,
+          reason: 'validator forced outage',
+        },
+      });
+
+      const diagnosticsResponse = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnosticsResponse.statusCode).toBe(200);
+      expect(diagnosticsResponse.json().data.degraded.active).toBe(false);
+      expect(diagnosticsResponse.json().data.degraded.injected_provider_failure).toEqual({
+        active: true,
+        reason: 'validator forced outage',
+      });
+      expect(diagnosticsResponse.json().data.degraded.validation_override).toEqual({
+        active: false,
+        mode: 'off',
+        reason: null,
+      });
+
+      const clearResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/provider_failure',
+        payload: {
+          active: false,
+        },
+      });
+
+      expect(clearResponse.statusCode).toBe(200);
+      expect(clearResponse.json()).toEqual({
+        data: {
+          active: false,
+          reason: null,
+        },
+      });
+    } finally {
+      await validationApp.close();
+    }
+  });
+
+  it('exposes degraded-state override only on the validation port and lets validation drive stale/degraded behavior', async () => {
+    const nonValidationResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/degraded_state',
+      payload: {
+        mode: 'stale_allowed',
+        reason: 'validator stale-live allowed',
+      },
+    });
+
+    expect(nonValidationResponse.statusCode).toBe(404);
+
+    const validationApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'validation-degraded-state.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await validationApp.listen({ host: '127.0.0.1', port: 0 });
+      validationApp.marketDataRuntimeState.listenerBound = true;
+      const staleTimestamp = new Date('2025-03-19T00:00:00.000Z');
+
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          lastUpdated: staleTimestamp,
+          sourceProvidersJson: JSON.stringify(['binance']),
+          sourceCount: 1,
+        })
+        .where(eq(marketSnapshots.coinId, 'bitcoin'))
+        .run();
+
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          lastUpdated: staleTimestamp,
+          sourceProvidersJson: JSON.stringify(['binance']),
+          sourceCount: 1,
+        })
+        .where(eq(marketSnapshots.coinId, 'ethereum'))
+        .run();
+
+      const staleDisallowedResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'stale_disallowed',
+          reason: 'validator stale-live disallowed',
+        },
+      });
+
+      expect(staleDisallowedResponse.statusCode).toBe(200);
+      expect(staleDisallowedResponse.json().data.mode).toBe('stale_disallowed');
+
+      const staleDisallowedSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const staleDisallowedMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const staleDisallowedDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(staleDisallowedSimple.statusCode).toBe(200);
+      expect(staleDisallowedSimple.json()).toEqual({});
+      expect(staleDisallowedMarkets.statusCode).toBe(200);
+      expect(staleDisallowedMarkets.json()).toEqual([
+        expect.objectContaining({
+          id: 'bitcoin',
+          current_price: null,
+          market_cap: null,
+          total_volume: null,
+          high_24h: null,
+          low_24h: null,
+          price_change_24h: null,
+          price_change_percentage_24h: null,
+          price_change_percentage_24h_in_currency: null,
+        }),
+      ]);
+      expect(staleDisallowedDiagnostics.json().data.degraded).toMatchObject({
+        active: true,
+        stale_live_enabled: false,
+        reason: 'validator stale-live disallowed',
+        validation_override: {
+          active: true,
+          mode: 'stale_disallowed',
+          reason: 'validator stale-live disallowed',
+        },
+      });
+      expect(staleDisallowedDiagnostics.json().data.hot_paths.shared_market_snapshot).toMatchObject({
+        source_class: 'stale_live',
+        freshness: {
+          is_stale: true,
+        },
+      });
+
+      const staleAllowedResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'stale_allowed',
+          reason: 'validator stale-live allowed',
+        },
+      });
+
+      expect(staleAllowedResponse.statusCode).toBe(200);
+
+      const staleAllowedSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const staleAllowedMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const staleAllowedDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(staleAllowedSimple.statusCode).toBe(200);
+      expect(staleAllowedSimple.json()).toEqual({
+        bitcoin: {
+          usd: expect.any(Number),
+        },
+      });
+      expect(staleAllowedMarkets.statusCode).toBe(200);
+      expect(staleAllowedMarkets.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: expect.any(Number),
+      });
+      expect(staleAllowedDiagnostics.json().data.degraded).toMatchObject({
+        active: true,
+        stale_live_enabled: true,
+        reason: 'validator stale-live allowed',
+        validation_override: {
+          active: true,
+          mode: 'stale_allowed',
+          reason: 'validator stale-live allowed',
+        },
+      });
+      expect(staleAllowedDiagnostics.json().data.hot_paths.shared_market_snapshot).toMatchObject({
+        source_class: 'stale_live',
+        freshness: {
+          is_stale: true,
+        },
+      });
+
+      const bootstrapTimestamp = new Date('2026-03-20T00:00:00.000Z');
+      validationApp.db.db
+        .update(marketSnapshots)
+        .set({
+          price: 77777,
+          marketCap: null,
+          totalVolume: null,
+          priceChange24h: null,
+          priceChangePercentage24h: null,
+          sourceProvidersJson: JSON.stringify([]),
+          sourceCount: 0,
+          lastUpdated: bootstrapTimestamp,
+        })
+        .where(eq(marketSnapshots.coinId, 'bitcoin'))
+        .run();
+
+      const degradedSeededResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'degraded_seeded_bootstrap',
+          reason: 'validator degraded boot',
+        },
+      });
+
+      expect(degradedSeededResponse.statusCode).toBe(200);
+
+      const degradedSeededSimple = await validationApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+      const degradedSeededMarkets = await validationApp.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const degradedSeededDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(degradedSeededSimple.json()).toEqual({
+        bitcoin: {
+          usd: 77777,
+        },
+      });
+      expect(degradedSeededMarkets.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: 77777,
+        market_cap: null,
+        total_volume: null,
+        price_change_percentage_24h: null,
+        price_change_percentage_24h_in_currency: null,
+      });
+      expect(degradedSeededDiagnostics.json().data).toMatchObject({
+        readiness: {
+          state: 'degraded',
+          initial_sync_completed: false,
+        },
+        degraded: {
+          active: true,
+          stale_live_enabled: true,
+          reason: 'validator degraded boot',
+          validation_override: {
+            active: true,
+            mode: 'degraded_seeded_bootstrap',
+            reason: 'validator degraded boot',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'degraded_seeded_bootstrap',
+            freshness: {
+              is_stale: false,
+            },
+          },
+        },
+      });
+
+      const clearResponse = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'off',
+        },
+      });
+
+      expect(clearResponse.statusCode).toBe(200);
+      expect(clearResponse.json().data.mode).toBe('off');
+    } finally {
+      await validationApp.close();
+    }
+  });
+
   it('returns supported quote currencies', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -141,6 +517,806 @@ describe('OpenGecko app scaffold', () => {
     expect(typeof response.json().data.usdt.value).toBe('number');
   });
 
+  it('exposes the configured request timeout budget through runtime diagnostics', async () => {
+    const configuredApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'timeout-budget.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        requestTimeoutMs: 4321,
+        startupPrewarmBudgetMs: 321,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const response = await configuredApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.transport).toEqual({
+        request_timeout_ms: 4321,
+        compression: {
+          threshold_bytes: 1024,
+        },
+      });
+      expect(response.json().data.startup_prewarm).toMatchObject({
+        enabled: true,
+        budgetMs: 321,
+        firstRequestWarmBenefitsObserved: false,
+        targets: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          },
+        ],
+      });
+      expect(typeof response.json().data.startup_prewarm.readyWithinBudget).toBe('boolean');
+      expect(response.json().data.startup_prewarm.targetResults.length).toBeGreaterThanOrEqual(1);
+      expect(response.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        cacheSurface: 'simple_price',
+      });
+      expect(response.json().data.startup_prewarm.totalDurationMs).toBeGreaterThanOrEqual(0);
+    } finally {
+      await configuredApp.close();
+    }
+  });
+
+  it('prewarms declared hot endpoints during bootstrap-only startup within the configured budget', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-budget.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        startupPrewarmBudgetMs: 321,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm).toMatchObject({
+        enabled: true,
+        budgetMs: 321,
+        firstRequestWarmBenefitsObserved: false,
+        targets: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          },
+        ],
+      });
+      expect(typeof diagnostics.json().data.startup_prewarm.readyWithinBudget).toBe('boolean');
+      expect(diagnostics.json().data.startup_prewarm.targetResults.length).toBeGreaterThanOrEqual(1);
+      expect(diagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        cacheSurface: 'simple_price',
+      });
+      expect(diagnostics.json().data.startup_prewarm.totalDurationMs).toBeGreaterThanOrEqual(0);
+
+      const firstWarmRequest = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+
+      expect(firstWarmRequest.statusCode).toBe(200);
+
+      const metricsResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsResponse.statusCode).toBe(200);
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total');
+      expect(metricsResponse.body).toContain('simple_price_bitcoin_usd');
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_first_requests_total');
+      expect(metricsResponse.body).toMatch(/cache_hit="(true|false)"/);
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('attributes startup prewarm warm-path evidence only to a semantically matching request target', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-attribution.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const mismatchedRequest = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd',
+      });
+
+      expect(mismatchedRequest.statusCode).toBe(200);
+
+      let diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(false);
+
+      const prewarmStateAfterMismatch = diagnostics.json().data.startup_prewarm;
+      const simplePriceTargetAfterMismatch = prewarmStateAfterMismatch.targetResults.find(
+        (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+      );
+
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        expect(simplePriceTargetAfterMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          firstObservedRequest: null,
+        });
+      } else {
+        expect(simplePriceTargetAfterMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          status: 'timeout',
+          firstObservedRequest: {
+            cacheHit: false,
+            durationMs: expect.any(Number),
+          },
+        });
+      }
+
+      const metricsAfterMismatch = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsAfterMismatch.statusCode).toBe(200);
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        expect(metricsAfterMismatch.body).not.toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"}');
+        expect(metricsAfterMismatch.body).not.toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="false",cache_surface="simple_price",target="simple_price_bitcoin_usd"}');
+      } else {
+        expect(metricsAfterMismatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="false",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+      }
+
+      if (simplePriceTargetAfterMismatch?.status === 'completed') {
+        const matchingRequest = await prewarmApp.inject({
+          method: 'GET',
+          url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+        });
+
+        expect(matchingRequest.statusCode).toBe(200);
+
+        diagnostics = await prewarmApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        });
+
+        expect(diagnostics.statusCode).toBe(200);
+        expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(true);
+
+        const simplePriceTargetAfterMatch = diagnostics.json().data.startup_prewarm.targetResults.find(
+          (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+        );
+
+        expect(simplePriceTargetAfterMatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          warmCacheRevision: expect.any(Number),
+          firstObservedRequest: {
+            cacheHit: true,
+            durationMs: expect.any(Number),
+          },
+        });
+
+        const metricsAfterMatch = await prewarmApp.inject({
+          method: 'GET',
+          url: '/metrics',
+        });
+
+        expect(metricsAfterMatch.statusCode).toBe(200);
+        expect(metricsAfterMatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+      }
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('treats repeated query keys and duplicate selector values as semantically significant for startup prewarm attribution', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-duplicate-selector-attribution.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const repeatedKeyMismatch = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&ids=bitcoin&vs_currencies=usd',
+      });
+
+      expect(repeatedKeyMismatch.statusCode).toBe(400);
+
+      let diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(false);
+
+      const prewarmStateAfterRepeatedKeyMismatch = diagnostics.json().data.startup_prewarm;
+      const simplePriceTargetAfterRepeatedKeyMismatch = prewarmStateAfterRepeatedKeyMismatch.targetResults.find(
+        (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+      );
+
+      if (simplePriceTargetAfterRepeatedKeyMismatch?.status === 'completed') {
+        expect(simplePriceTargetAfterRepeatedKeyMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          firstObservedRequest: null,
+        });
+      } else {
+        expect(simplePriceTargetAfterRepeatedKeyMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          status: 'timeout',
+          firstObservedRequest: {
+            cacheHit: false,
+            durationMs: expect.any(Number),
+          },
+        });
+      }
+
+      const duplicateValueMismatch = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin,bitcoin&vs_currencies=usd',
+      });
+
+      expect(duplicateValueMismatch.statusCode).toBe(200);
+
+      diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(false);
+
+      const simplePriceTargetAfterDuplicateValueMismatch = diagnostics.json().data.startup_prewarm.targetResults.find(
+        (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+      );
+
+      if (simplePriceTargetAfterDuplicateValueMismatch?.status === 'completed') {
+        expect(simplePriceTargetAfterDuplicateValueMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          firstObservedRequest: null,
+        });
+      } else {
+        expect(simplePriceTargetAfterDuplicateValueMismatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          status: 'timeout',
+          firstObservedRequest: {
+            cacheHit: false,
+            durationMs: expect.any(Number),
+          },
+        });
+      }
+
+      if (simplePriceTargetAfterDuplicateValueMismatch?.status === 'completed') {
+        const matchingRequest = await prewarmApp.inject({
+          method: 'GET',
+          url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+        });
+
+        expect(matchingRequest.statusCode).toBe(200);
+
+        diagnostics = await prewarmApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        });
+
+        expect(diagnostics.statusCode).toBe(200);
+        expect(diagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(true);
+
+        const simplePriceTargetAfterMatch = diagnostics.json().data.startup_prewarm.targetResults.find(
+          (target: { id: string }) => target.id === 'simple_price_bitcoin_usd',
+        );
+
+        expect(simplePriceTargetAfterMatch).toMatchObject({
+          id: 'simple_price_bitcoin_usd',
+          warmCacheRevision: expect.any(Number),
+          firstObservedRequest: {
+            cacheHit: true,
+            durationMs: expect.any(Number),
+          },
+        });
+
+        const metricsAfterMatch = await prewarmApp.inject({
+          method: 'GET',
+          url: '/metrics',
+        });
+
+        expect(metricsAfterMatch.statusCode).toBe(200);
+        expect(metricsAfterMatch.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+        expect(metricsAfterMatch.body).not.toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="false",cache_surface="simple_price",target="simple_price_bitcoin_usd"}');
+      }
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('classifies non-2xx startup prewarm failures distinctly and still attempts later targets', async () => {
+    const injectMock = vi.fn(async (request: { method: string; url: string }) => {
+      if (request.url === '/simple/price?ids=bitcoin&vs_currencies=usd') {
+        return { statusCode: 503 } as never;
+      }
+
+      return { statusCode: 200 } as never;
+    });
+    const mockApp = {
+      inject: injectMock,
+    } as unknown as FastifyInstance;
+    const runtimeState: MarketDataRuntimeState = {
+      initialSyncCompleted: true,
+      allowStaleLiveService: false,
+      syncFailureReason: null,
+      listenerBound: false,
+      hotDataRevision: 7,
+      validationOverride: {
+        mode: 'off',
+        reason: null,
+        snapshotTimestampOverride: null,
+        snapshotSourceCountOverride: null,
+      },
+      providerFailureCooldownUntil: null,
+      forcedProviderFailure: {
+        active: false,
+        reason: null,
+      },
+      startupPrewarm: {
+        enabled: false,
+        budgetMs: 0,
+        readyWithinBudget: true,
+        firstRequestWarmBenefitsObserved: false,
+        firstRequestWarmBenefitPending: false,
+        targets: [],
+        completedAt: null,
+        totalDurationMs: null,
+        targetResults: [],
+      },
+    };
+    const metrics = {
+      recordStartupPrewarmTarget: vi.fn(),
+    } as Pick<MetricsRegistry, 'recordStartupPrewarmTarget'> as MetricsRegistry;
+
+    await startupPrewarmModule.runStartupPrewarm(mockApp, runtimeState, metrics, 500);
+
+    expect(injectMock).toHaveBeenNthCalledWith(1, {
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+        expect(runtimeState.startupPrewarm.readyWithinBudget).toBe(true);
+    expect(runtimeState.startupPrewarm.targetResults).toMatchObject([
+      {
+        id: 'simple_price_bitcoin_usd',
+        status: 'failed',
+        warmCacheRevision: null,
+      },
+
+    ]);
+    expect(metrics.recordStartupPrewarmTarget).toHaveBeenCalledWith('simple_price_bitcoin_usd', 'failed', expect.any(Number));
+  });
+
+  it('warms the simple-price startup target directly without self-injecting that endpoint', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-direct-simple-price.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        startupPrewarmBudgetMs: 250,
+      },
+      startBackgroundJobs: false,
+    });
+
+    const injectSpy = vi.spyOn(prewarmApp, 'inject');
+
+    try {
+      await prewarmApp.ready();
+
+      const simplePriceInjectCalls = injectSpy.mock.calls.filter((call) => {
+        const request = (call as unknown[])[0] as string | { url?: string } | undefined;
+        if (typeof request === 'string') {
+          return request.includes('/simple/price');
+        }
+
+        return request?.url === '/simple/price?ids=bitcoin&vs_currencies=usd';
+      });
+      const coinsMarketsInjectCalls = injectSpy.mock.calls.filter((call) => {
+        const request = (call as unknown[])[0] as string | { url?: string } | undefined;
+        if (typeof request === 'string') {
+          return request.includes('/coins/markets');
+        }
+
+        return request?.url === '/coins/markets?vs_currency=usd&ids=bitcoin';
+      });
+
+      expect(simplePriceInjectCalls).toHaveLength(0);
+      expect(coinsMarketsInjectCalls).toHaveLength(0);
+
+      const diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.startup_prewarm.enabled).toBe(true);
+      expect(diagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'completed',
+        cacheSurface: 'simple_price',
+        warmCacheRevision: expect.any(Number),
+      });
+
+      const firstWarmRequest = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+
+      expect(firstWarmRequest.statusCode).toBe(200);
+
+      const updatedDiagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(updatedDiagnostics.statusCode).toBe(200);
+      expect(updatedDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(true);
+      expect(updatedDiagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        firstObservedRequest: {
+          cacheHit: true,
+          durationMs: expect.any(Number),
+        },
+      });
+      expect(updatedDiagnostics.json().data.startup_prewarm.targetResults[0].warmCacheRevision)
+        .toBe(updatedDiagnostics.json().data.hot_paths.cache_revision);
+    } finally {
+      injectSpy.mockRestore();
+      await prewarmApp.close();
+    }
+  });
+
+  it('preserves the first startup prewarm warm-hit observation across the deferred post-bind refresh revision bump', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-first-hit-revision-window.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        startupPrewarmBudgetMs: 250,
+        marketRefreshIntervalSeconds: 3600,
+        currencyRefreshIntervalSeconds: 3600,
+        searchRebuildIntervalSeconds: 3600,
+      },
+      startBackgroundJobs: true,
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const beforeRequestDiagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(beforeRequestDiagnostics.statusCode).toBe(200);
+      expect(beforeRequestDiagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'completed',
+        warmCacheRevision: expect.any(Number),
+        firstObservedRequest: null,
+      });
+
+      expect(beforeRequestDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitPending).toBe(true);
+
+      prewarmApp.marketRuntime?.markListenerBound();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const firstWarmRequest = await prewarmApp.inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+      });
+
+      expect(firstWarmRequest.statusCode).toBe(200);
+
+      const afterRequestDiagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(afterRequestDiagnostics.statusCode).toBe(200);
+      expect(afterRequestDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitsObserved).toBe(true);
+      expect(afterRequestDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitPending).toBe(false);
+      expect(afterRequestDiagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        firstObservedRequest: {
+          cacheHit: true,
+          durationMs: expect.any(Number),
+        },
+      });
+
+      const metricsResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsResponse.statusCode).toBe(200);
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_first_requests_total{cache_hit="true",cache_surface="simple_price",target="simple_price_bitcoin_usd"} 1');
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('skips trailing startup prewarm targets once an earlier target has exhausted the remaining budget', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-direct-timeout.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const injectMock = vi.fn(async (request: { method: string; url: string }) => {
+      if (request.url === '/coins/markets?vs_currency=usd&ids=bitcoin') {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+
+      return { statusCode: 200 } as never;
+    });
+
+    try {
+      prewarmApp.inject = injectMock as never;
+      await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 5);
+
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBeLessThanOrEqual(5);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'completed',
+        warmCacheRevision: 0,
+      });
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toHaveLength(1);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.firstRequestWarmBenefitPending).toBe(true);
+      expect(injectMock).toHaveBeenCalledTimes(0);
+    } finally {
+      await prewarmApp.close();
+    }
+  });
+
+  it('clamps startup prewarm readiness timing to the configured budget when a trailing target times out after it has started', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-budget-clamp.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const dateNowSpy = vi.spyOn(Date, 'now');
+    let currentNow = 0;
+    dateNowSpy.mockImplementation(() => currentNow);
+    const injectMock = vi.fn(async () => {
+      currentNow = 260;
+      return { statusCode: 200 } as never;
+    });
+
+    try {
+      prewarmApp.inject = injectMock as never;
+      await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 250);
+
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(0);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toMatchObject([
+        {
+          id: 'simple_price_bitcoin_usd',
+          status: 'completed',
+          warmCacheRevision: 0,
+        },
+      ]);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.firstRequestWarmBenefitPending).toBe(true);
+      expect(injectMock).toHaveBeenCalledTimes(0);
+    } finally {
+      dateNowSpy.mockRestore();
+      await prewarmApp.close();
+    }
+  });
+
+  it('skips later startup prewarm targets at the budget boundary without failing readiness when an earlier target completed in budget', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-budget-boundary.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const dateNowSpy = vi.spyOn(Date, 'now');
+    const nowValues = [
+      0, // startedAt
+      0, // elapsed before simple_price
+      0, // targetStartedAt simple_price
+      100, // prewarm started at direct simple price
+      150, // totalDuration simple price
+      250, // durationMs simple_price
+      250, // elapsed before coins_markets -> no remaining budget
+      250, // completedAt
+    ];
+    let fallbackNow = 250;
+    dateNowSpy.mockImplementation(() => {
+      const value = nowValues.shift();
+      if (value !== undefined) {
+        fallbackNow = value;
+        return value;
+      }
+
+      return fallbackNow;
+    });
+
+    const injectSpy = vi.spyOn(prewarmApp, 'inject');
+
+    try {
+      await startupPrewarmModule.runStartupPrewarm(prewarmApp, prewarmApp.marketDataRuntimeState, prewarmApp.metrics, 250);
+
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.readyWithinBudget).toBe(true);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.totalDurationMs).toBe(250);
+      expect(prewarmApp.marketDataRuntimeState.startupPrewarm.targetResults).toMatchObject([
+        {
+          id: 'simple_price_bitcoin_usd',
+          status: 'completed',
+          warmCacheRevision: 0,
+        },
+      ]);
+      expect(injectSpy).not.toHaveBeenCalled();
+    } finally {
+      injectSpy.mockRestore();
+      dateNowSpy.mockRestore();
+      await prewarmApp.close();
+    }
+  });
+
+  it('records failed prewarm outcomes on diagnostics and metrics surfaces without misclassifying them as timeouts', async () => {
+    const prewarmApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'prewarm-failure-classification.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const prewarmSpy = vi.spyOn(startupPrewarmModule, 'runStartupPrewarm').mockImplementation(async (_app, runtimeState, metrics) => {
+      runtimeState.startupPrewarm = {
+        enabled: true,
+        budgetMs: 500,
+        readyWithinBudget: true,
+        firstRequestWarmBenefitsObserved: false,
+        firstRequestWarmBenefitPending: false,
+        targets: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          },
+        ],
+        completedAt: Date.now(),
+        totalDurationMs: 12,
+        targetResults: [
+          {
+            id: 'simple_price_bitcoin_usd',
+            label: 'Simple price BTC/USD',
+            endpoint: '/simple/price?ids=bitcoin&vs_currencies=usd',
+            status: 'failed',
+            durationMs: 5,
+            cacheSurface: 'simple_price',
+            warmCacheRevision: null,
+            firstObservedRequest: null,
+          },
+
+        ],
+      };
+      metrics.recordStartupPrewarmTarget('simple_price_bitcoin_usd', 'failed', 5);
+    });
+
+    try {
+      await prewarmApp.ready();
+
+      const diagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(diagnostics.statusCode).toBe(200);
+      const prewarm = diagnostics.json().data.startup_prewarm;
+      expect(prewarm.readyWithinBudget).toBe(true);
+      expect(prewarm.targetResults).toHaveLength(1);
+      expect(prewarm.targetResults[0]).toMatchObject({
+        id: 'simple_price_bitcoin_usd',
+        status: 'failed',
+        warmCacheRevision: null,
+      });
+
+      const metricsResponse = await prewarmApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsResponse.statusCode).toBe(200);
+      expect(metricsResponse.body).toContain('opengecko_startup_prewarm_targets_total{outcome="failed",target="simple_price_bitcoin_usd"} 1');
+      expect(metricsResponse.body).not.toContain('opengecko_startup_prewarm_targets_total{outcome="timeout",target="simple_price_bitcoin_usd"}');
+    } finally {
+      prewarmSpy.mockRestore();
+      await prewarmApp.close();
+    }
+  });
+
+  it('exposes scrapeable metrics that change after hot-path traffic', async () => {
+    const beforeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+
+    expect(beforeResponse.statusCode).toBe(200);
+    expect(beforeResponse.headers['content-type']).toContain('text/plain');
+    const beforeBody = beforeResponse.body;
+    expect(beforeBody).toContain('opengecko_startup_prewarm_targets_total');
+    expect(beforeBody).toContain('simple_price_bitcoin_usd');
+    expect(beforeBody).not.toContain('opengecko_http_requests_total{method="GET",route="/simple/price",status_code="200"} 2');
+
+    await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=2&page=1',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?per_page=2&page=1&vs_currency=usd',
+    });
+
+    const afterResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+
+    expect(afterResponse.statusCode).toBe(200);
+    const afterBody = afterResponse.body;
+    expect(afterBody).toContain('opengecko_cache_events_total');
+    expect(afterBody).toContain('surface="simple_price"');
+    expect(afterBody).toContain('surface="coins_markets"');
+    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/simple/price",status_code="200"} 2');
+    expect(afterBody).toContain('opengecko_http_requests_total{method="GET",route="/coins/markets",status_code="200"} 2');
+    expect(afterBody).toContain('opengecko_http_request_duration_ms_count{method="GET",route="/simple/price",status_code="200"} 2');
+    expect(afterBody).not.toEqual(beforeBody);
+  });
+
   it('returns simple prices with optional market fields', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -151,17 +1327,119 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json()).toMatchObject({
       bitcoin: {
         usd: 85000,
-        eur: 73329.5,
+        eur: 73530.28299112723,
         usd_24h_change: 1.8,
         eur_24h_change: 1.8,
       },
       ethereum: {
         usd: 2000,
-        eur: 1725.4,
+        eur: expect.any(Number),
         usd_24h_change: 2.56,
         eur_24h_change: 2.56,
       },
     });
+  });
+
+  it('preserves the exact invalid-selector 400 envelope for simple price requests', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'One of ids, names, or symbols must be provided.',
+    });
+  });
+
+  it('keeps equivalent simple price selector requests stable across parameter ordering', async () => {
+    const [baselineResponse, reorderedResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_change=true',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/price?vs_currencies=usd,eur&include_24hr_change=true&include_market_cap=true&ids=bitcoin,ethereum',
+      }),
+    ]);
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(reorderedResponse.statusCode).toBe(200);
+    expect(reorderedResponse.json()).toEqual(baselineResponse.json());
+  });
+
+  it('caches equivalent simple price requests across query ordering without widening selector semantics', async () => {
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const baselineSelectorCalls = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => vsCurrency === 'usd'
+        && Array.isArray(filters?.ids)
+        && filters.ids.length === 2
+        && filters.ids.includes('bitcoin')
+        && filters.ids.includes('ethereum'),
+    ).length;
+
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_change=true',
+    });
+    const afterBaselineCalls = baselineSelectorCalls();
+
+    const reorderedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?include_24hr_change=true&vs_currencies=eur,usd&include_market_cap=true&ids=ethereum,bitcoin',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(reorderedResponse.statusCode).toBe(200);
+    expect(reorderedResponse.json()).toEqual(baselineResponse.json());
+    expect(afterBaselineCalls).toBe(1);
+    expect(baselineSelectorCalls()).toBe(1);
+  });
+
+  it('isolates simple price cache entries by precision and include flags', async () => {
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const repeatedBaselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+    });
+    const precisionResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd&precision=2',
+    });
+    const includeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(repeatedBaselineResponse.statusCode).toBe(200);
+    expect(precisionResponse.statusCode).toBe(200);
+    expect(includeResponse.statusCode).toBe(200);
+
+    expect(repeatedBaselineResponse.json()).toEqual(baselineResponse.json());
+    expect(baselineResponse.json()).toEqual({
+      bitcoin: {
+        usd: 85000,
+      },
+    });
+    expect(precisionResponse.json()).toEqual({
+      bitcoin: {
+        usd: 85000,
+      },
+    });
+    expect(includeResponse.json()).toEqual({
+      bitcoin: {
+        usd: 85000,
+        usd_market_cap: null,
+      },
+    });
+    expect('usd_market_cap' in baselineResponse.json().bitcoin).toBe(false);
   });
 
   it('returns token prices by contract address', async () => {
@@ -2404,6 +3682,70 @@ describe('OpenGecko app scaffold', () => {
     ]));
   });
 
+  it('negotiates gzip compression for responses above the threshold without changing body semantics', async () => {
+    await app?.close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        responseCompressionThresholdBytes: 64,
+      },
+      startBackgroundJobs: false,
+    });
+
+    const compressedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list?include_platform=true',
+      headers: {
+        'accept-encoding': 'gzip',
+      },
+    });
+    const uncompressedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list?include_platform=true',
+    });
+
+    expect(compressedResponse.statusCode).toBe(200);
+    expect(uncompressedResponse.statusCode).toBe(200);
+    expect(compressedResponse.headers['content-encoding']).toBe('gzip');
+    expect(Number(compressedResponse.headers['content-length'] ?? 0)).toBeGreaterThan(0);
+    expect(String(compressedResponse.headers.vary ?? '')).toContain('Accept-Encoding');
+    expect(JSON.parse(gunzipSync(compressedResponse.rawPayload).toString('utf8'))).toEqual(uncompressedResponse.json());
+  });
+
+  it('keeps unrelated non-hot endpoint bodies stable when compression is not negotiated', async () => {
+    await app?.close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    const negotiatedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/exchange_rates',
+      headers: {
+        'accept-encoding': 'gzip',
+      },
+    });
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/exchange_rates',
+    });
+
+    expect(negotiatedResponse.statusCode).toBe(200);
+    expect(baselineResponse.statusCode).toBe(200);
+    if (negotiatedResponse.headers['content-encoding'] === 'gzip') {
+      expect(JSON.parse(gunzipSync(negotiatedResponse.rawPayload).toString('utf8'))).toEqual(baselineResponse.json());
+    } else {
+      expect(negotiatedResponse.json()).toEqual(baselineResponse.json());
+    }
+  });
+
   it('returns market search results', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -2579,10 +3921,263 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json()[0]).toMatchObject({
       id: 'bitcoin',
       current_price: 85000,
+      image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
       sparkline_in_7d: {
         price: [85000],
       },
     });
+  });
+
+  it('hydrates missing images only for explicit trusted asset identities', async () => {
+    await getApp().db.db
+      .update(coins)
+      .set({
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+      })
+      .where(eq(coins.id, 'bitcoin'))
+      .run();
+
+    await getApp().db.db
+      .update(coins)
+      .set({
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+      })
+      .where(eq(coins.id, 'usd-coin'))
+      .run();
+
+    await getApp().db.db
+      .insert(coins)
+      .values({
+        id: 'wrapped-bitcoin',
+        symbol: 'wbtc',
+        name: 'Wrapped Bitcoin',
+        apiSymbol: 'wrapped-bitcoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: JSON.stringify({ en: 'Wrapped Bitcoin fixture.' }),
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 99,
+        genesisDate: null,
+        platformsJson: JSON.stringify({
+          ethereum: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+          solana: '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',
+        }),
+        status: 'active',
+        createdAt: new Date('2026-03-20T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-20T00:00:00.000Z'),
+      })
+      .onConflictDoNothing()
+      .run();
+
+    const marketsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin,usd-coin,wrapped-bitcoin',
+    });
+    const detailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/usd-coin',
+    });
+
+    expect(marketsResponse.statusCode).toBe(200);
+    expect(detailResponse.statusCode).toBe(200);
+
+    expect(marketsResponse.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'bitcoin',
+        image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+      }),
+      expect.objectContaining({
+        id: 'usd-coin',
+        image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/logo.png',
+      }),
+      expect.objectContaining({
+        id: 'wrapped-bitcoin',
+        image: null,
+      }),
+    ]));
+
+    expect(detailResponse.json().image).toEqual({
+      thumb: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/logo.png',
+      small: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/logo.png',
+      large: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/logo.png',
+    });
+  });
+
+  it('keeps frontend-critical asset images coherent across list and detail surfaces', async () => {
+    await getApp().db.db
+      .update(coins)
+      .set({
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+      })
+      .where(eq(coins.id, 'bitcoin'))
+      .run();
+
+    await getApp().db.db
+      .update(coins)
+      .set({
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+      })
+      .where(eq(coins.id, 'ripple'))
+      .run();
+
+    await getApp().db.db
+      .update(coins)
+      .set({
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+      })
+      .where(eq(coins.id, 'dogecoin'))
+      .run();
+
+    const marketsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin,ripple,dogecoin',
+    });
+
+    const bitcoinDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin',
+    });
+
+    const rippleDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/ripple',
+    });
+
+    const dogecoinDetailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/dogecoin',
+    });
+
+    expect(marketsResponse.statusCode).toBe(200);
+    expect(bitcoinDetailResponse.statusCode).toBe(200);
+    expect(rippleDetailResponse.statusCode).toBe(200);
+    expect(dogecoinDetailResponse.statusCode).toBe(200);
+
+    expect(marketsResponse.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'bitcoin',
+        image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+      }),
+      expect.objectContaining({
+        id: 'ripple',
+        image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xrp/info/logo.png',
+      }),
+      expect.objectContaining({
+        id: 'dogecoin',
+        image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/dogecoin/info/logo.png',
+      }),
+    ]));
+
+    expect(bitcoinDetailResponse.json().image).toEqual({
+      thumb: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+      small: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+      large: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png',
+    });
+    expect(rippleDetailResponse.json().image).toEqual({
+      thumb: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xrp/info/logo.png',
+      small: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xrp/info/logo.png',
+      large: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xrp/info/logo.png',
+    });
+    expect(dogecoinDetailResponse.json().image).toEqual({
+      thumb: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/dogecoin/info/logo.png',
+      small: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/dogecoin/info/logo.png',
+      large: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/dogecoin/info/logo.png',
+    });
+  });
+
+  it('refuses to hydrate assets from unsupported or ambiguous platform mappings', async () => {
+    await getApp().db.db
+      .insert(coins)
+      .values([
+        {
+          id: 'test-solana-token',
+          symbol: 'tst',
+          name: 'Test Solana Token',
+          apiSymbol: 'test-solana-token',
+          hashingAlgorithm: null,
+          blockTimeInMinutes: null,
+          categoriesJson: '[]',
+          descriptionJson: JSON.stringify({ en: 'Unsupported non-EVM token fixture.' }),
+          linksJson: '{}',
+          imageThumbUrl: null,
+          imageSmallUrl: null,
+          imageLargeUrl: null,
+          marketCapRank: 150,
+          genesisDate: null,
+          platformsJson: JSON.stringify({
+            solana: '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',
+          }),
+          status: 'active',
+          createdAt: new Date('2026-03-20T00:00:00.000Z'),
+          updatedAt: new Date('2026-03-20T00:00:00.000Z'),
+        },
+        {
+          id: 'test-multi-platform-token',
+          symbol: 'tmpt',
+          name: 'Test Multi Platform Token',
+          apiSymbol: 'test-multi-platform-token',
+          hashingAlgorithm: null,
+          blockTimeInMinutes: null,
+          categoriesJson: '[]',
+          descriptionJson: JSON.stringify({ en: 'Ambiguous multi-platform fixture.' }),
+          linksJson: '{}',
+          imageThumbUrl: null,
+          imageSmallUrl: null,
+          imageLargeUrl: null,
+          marketCapRank: 151,
+          genesisDate: null,
+          platformsJson: JSON.stringify({
+            ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            solana: '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',
+          }),
+          status: 'active',
+          createdAt: new Date('2026-03-20T00:00:00.000Z'),
+          updatedAt: new Date('2026-03-20T00:00:00.000Z'),
+        },
+      ])
+      .onConflictDoNothing()
+      .run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=test-solana-token,test-multi-platform-token',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'test-solana-token',
+        image: null,
+      }),
+      expect.objectContaining({
+        id: 'test-multi-platform-token',
+        image: null,
+      }),
+    ]));
+  });
+
+  it('omits sparkline_in_7d when sparkline is false on coin market rows', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&sparkline=false',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect('sparkline_in_7d' in response.json()[0]).toBe(false);
   });
 
   it('preserves sub-cent current_price values by default', async () => {
@@ -2609,6 +4204,356 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(0);
     expect(response.json()).toEqual([]);
+  });
+
+  it('keeps market filtering and order deterministic across repeated requests', async () => {
+    const [firstResponse, secondResponse, pageOneResponse, pageTwoResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=1',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=2',
+      }),
+    ]);
+
+    expect(firstResponse.statusCode).toBe(200);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(firstResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano', 'ethereum']);
+    expect(secondResponse.json()).toEqual(firstResponse.json());
+
+    expect(pageOneResponse.statusCode).toBe(200);
+    expect(pageTwoResponse.statusCode).toBe(200);
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
+  });
+
+  it('isolates coins markets cache entries by pagination, ordering, filters, sparkline windows, and precision-sensitive flags', async () => {
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const marketsCallCount = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => {
+        if (vsCurrency !== 'usd' && vsCurrency !== 'btc') {
+          return false;
+        }
+
+        return !filters?.status;
+      },
+    ).length;
+
+    const baselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&ids=bitcoin,cardano,ethereum',
+    });
+    const baselineCalls = marketsCallCount();
+    const repeatedBaselineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?ids=ethereum,cardano,bitcoin&order=market_cap_desc&vs_currency=usd',
+    });
+    const pageOneResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=1',
+    });
+    const repeatedPageOneResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?order=market_cap_desc&page=1&vs_currency=usd&per_page=2',
+    });
+    const pageTwoResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=2&page=2',
+    });
+    const sparklineWindowResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=1&page=1&sparkline=true&price_change_percentage=24h,7d',
+    });
+    const noSparklineResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=1&page=1',
+    });
+    const precisionResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=btc&ids=usd-coin&precision=2',
+    });
+    const categoryResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&category=smart-contract-platform&price_change_percentage=24h,7d',
+    });
+    const repeatedCategoryResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?price_change_percentage=7d,24h&category=smart-contract-platform&vs_currency=usd',
+    });
+
+    expect(baselineResponse.statusCode).toBe(200);
+    expect(repeatedBaselineResponse.statusCode).toBe(200);
+    expect(pageOneResponse.statusCode).toBe(200);
+    expect(repeatedPageOneResponse.statusCode).toBe(200);
+    expect(pageTwoResponse.statusCode).toBe(200);
+    expect(sparklineWindowResponse.statusCode).toBe(200);
+    expect(noSparklineResponse.statusCode).toBe(200);
+    expect(precisionResponse.statusCode).toBe(200);
+    expect(categoryResponse.statusCode).toBe(200);
+    expect(repeatedCategoryResponse.statusCode).toBe(200);
+
+    expect(repeatedBaselineResponse.json()).toEqual(baselineResponse.json());
+    expect(baselineResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano', 'ethereum']);
+    expect(repeatedPageOneResponse.json()).toEqual(pageOneResponse.json());
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
+    expect(new Set([
+      ...pageOneResponse.json().map((row: { id: string }) => row.id),
+      ...pageTwoResponse.json().map((row: { id: string }) => row.id),
+    ]).size).toBe(4);
+
+    const sparklineRow = sparklineWindowResponse.json()[0];
+    const noSparklineRow = noSparklineResponse.json()[0];
+    expect(sparklineRow).toHaveProperty('sparkline_in_7d');
+    expect(sparklineRow.sparkline_in_7d).toHaveProperty('price');
+    expect(sparklineRow).toHaveProperty('price_change_percentage_24h_in_currency');
+    expect(sparklineRow).toHaveProperty('price_change_percentage_7d_in_currency');
+    expect('sparkline_in_7d' in noSparklineRow).toBe(false);
+    expect('price_change_percentage_24h_in_currency' in noSparklineRow).toBe(false);
+    expect('price_change_percentage_7d_in_currency' in noSparklineRow).toBe(false);
+
+    expect(precisionResponse.json()).toEqual([
+      expect.objectContaining({
+        id: 'usd-coin',
+        current_price: 0,
+      }),
+    ]);
+    expect(repeatedCategoryResponse.json()).toEqual(categoryResponse.json());
+    expect(categoryResponse.json()).toEqual([]);
+    expect(baselineCalls).toBeGreaterThan(0);
+    expect(marketsCallCount() - baselineCalls).toBe(6);
+  });
+
+  it('invalidates simple price and coins markets hot caches together after a shared data revision', async () => {
+    const state = getApp().marketDataRuntimeState;
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    await getApp().ready();
+    const originalRevision = state.hotDataRevision;
+
+    const countSharedAssetCalls = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => vsCurrency === 'usd'
+        && Array.isArray(filters?.ids)
+        && filters.ids.length === 1
+        && filters.ids[0] === 'bitcoin',
+    ).length;
+
+    const simpleBefore = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsBefore = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+    const callsAfterWarm = countSharedAssetCalls();
+
+    const simpleCached = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?vs_currencies=usd&ids=bitcoin',
+    });
+    const marketsCached = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?ids=bitcoin&vs_currency=usd',
+    });
+
+    expect(simpleBefore.statusCode).toBe(200);
+    expect(marketsBefore.statusCode).toBe(200);
+    expect(simpleCached.json()).toEqual(simpleBefore.json());
+    expect(marketsCached.json()).toEqual(marketsBefore.json());
+    expect(countSharedAssetCalls()).toBe(callsAfterWarm);
+    expect(state.hotDataRevision).toBe(originalRevision);
+
+    state.hotDataRevision += 1;
+
+    const simpleAfterRevision = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsAfterRevision = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(simpleAfterRevision.statusCode).toBe(200);
+    expect(marketsAfterRevision.statusCode).toBe(200);
+    expect(simpleAfterRevision.json()).toEqual(simpleBefore.json());
+    expect(marketsAfterRevision.json()).toEqual(marketsBefore.json());
+    expect(countSharedAssetCalls()).toBe(callsAfterWarm + 4);
+  });
+
+  it('invalidates hot caches when onReady bootstrap first makes hot data visible without background runtime', async () => {
+    await getApp().close();
+    app = undefined;
+
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'bootstrap-only.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    app = bootstrapApp;
+
+    const state = getApp().marketDataRuntimeState;
+    const getMarketRowsSpy = vi.spyOn(catalogModule, 'getMarketRows');
+    const countSharedAssetCalls = () => getMarketRowsSpy.mock.calls.filter(
+      ([, vsCurrency, filters]) => vsCurrency === 'usd'
+        && Array.isArray(filters?.ids)
+        && filters.ids.length === 1
+        && filters.ids[0] === 'bitcoin',
+    ).length;
+
+    expect(state.initialSyncCompleted).toBe(false);
+    expect(state.hotDataRevision).toBe(0);
+
+    await getApp().ready();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.hotDataRevision).toBe(1);
+
+    const warmCallCountBeforeRequests = countSharedAssetCalls();
+
+    const simpleAfterBootstrap = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const marketsAfterBootstrap = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(simpleAfterBootstrap.statusCode).toBe(200);
+    expect(simpleAfterBootstrap.json()).toEqual({
+      bitcoin: {
+        usd: marketsAfterBootstrap.json()[0].current_price,
+      },
+    });
+    expect(marketsAfterBootstrap.statusCode).toBe(200);
+    expect(marketsAfterBootstrap.json()).toEqual([
+      expect.objectContaining({
+        id: 'bitcoin',
+        current_price: 85000,
+      }),
+    ]);
+    expect(countSharedAssetCalls()).toBe(warmCallCountBeforeRequests + 2);
+  });
+
+  it('clears stale-live recovery flags and bumps revision when bootstrap-only sync recovers stale-visible state', async () => {
+    await getApp().close();
+    app = undefined;
+
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'bootstrap-recovery.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    app = bootstrapApp;
+
+    const state = getApp().marketDataRuntimeState;
+    state.allowStaleLiveService = true;
+    state.syncFailureReason = 'upstream timeout';
+    state.hotDataRevision = 3;
+
+    await getApp().ready();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.allowStaleLiveService).toBe(false);
+    expect(state.syncFailureReason).toBeNull();
+    expect(state.hotDataRevision).toBe(4);
+  });
+
+  it('keeps shared assets coherent across simple price and coins markets when stale-live policy flips', async () => {
+    const state = getApp().marketDataRuntimeState;
+    const { createDatabase } = await import('../src/db/client');
+    const { marketSnapshots } = await import('../src/db/schema');
+    const db = createDatabase(join(tempDir, 'test.db'));
+
+    const healthySimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const healthyMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(healthySimple.statusCode).toBe(200);
+    expect(healthyMarkets.statusCode).toBe(200);
+    expect(healthySimple.json()).toEqual({
+      bitcoin: {
+        usd: healthyMarkets.json()[0].current_price,
+      },
+    });
+
+    db.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    state.allowStaleLiveService = true;
+    state.hotDataRevision += 1;
+
+    const staleAllowedSimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const staleAllowedMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(staleAllowedSimple.statusCode).toBe(200);
+    expect(staleAllowedMarkets.statusCode).toBe(200);
+    expect(staleAllowedSimple.json()).toEqual({
+      bitcoin: {
+        usd: staleAllowedMarkets.json()[0].current_price,
+      },
+    });
+
+    state.allowStaleLiveService = false;
+    state.hotDataRevision += 1;
+
+    const staleDisallowedSimple = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+    });
+    const staleDisallowedMarkets = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+
+    expect(staleDisallowedSimple.statusCode).toBe(200);
+    expect(staleDisallowedSimple.json()).toEqual({});
+    expect(staleDisallowedMarkets.statusCode).toBe(200);
+    expect(staleDisallowedMarkets.json()).toEqual([
+      expect.objectContaining({
+        id: 'bitcoin',
+        current_price: null,
+        market_cap: null,
+        total_volume: null,
+        last_updated: null,
+      }),
+    ]);
+
+    db.client.close();
   });
 
   it('reuses preloaded chart series for market rows', async () => {
@@ -2646,10 +4591,18 @@ describe('OpenGecko app scaffold', () => {
     expect(body.top_gainers.map((row: { price_change_percentage_24h: number | null }) => row.price_change_percentage_24h)).toEqual([5, 4, 3.5, 3, 2.56, 2, 1.8, 0.01]);
   });
 
-  it('supports mover duration and validates invalid mover params explicitly', async () => {
+  it('supports mover duration, tolerates trailing-empty mover windows, and validates invalid mover params explicitly', async () => {
     const validResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/top_gainers_losers?vs_currency=usd&duration=24h&top_coins=300&price_change_percentage=24h',
+    });
+    const trailingCommaResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,',
+    });
+    const invalidPriceChangePercentageResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/top_gainers_losers?vs_currency=usd&price_change_percentage=24h,,7d',
     });
     const invalidDurationResponse = await getApp().inject({
       method: 'GET',
@@ -2663,6 +4616,16 @@ describe('OpenGecko app scaffold', () => {
     expect(validResponse.statusCode).toBe(200);
     expect(validResponse.json().top_gainers.length).toBeLessThanOrEqual(30);
     expect(validResponse.json().top_losers).toEqual([]);
+
+    expect(trailingCommaResponse.statusCode).toBe(200);
+    expect(trailingCommaResponse.json().top_gainers.length).toBeGreaterThan(0);
+    expect(trailingCommaResponse.json().top_gainers[0]).toHaveProperty('price_change_percentage_24h');
+
+    expect(invalidPriceChangePercentageResponse.statusCode).toBe(400);
+    expect(invalidPriceChangePercentageResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'Unsupported price_change_percentage value: 24h,,7d',
+    });
 
     expect(invalidDurationResponse.statusCode).toBe(400);
     expect(invalidDurationResponse.json()).toMatchObject({
@@ -2716,6 +4679,41 @@ describe('OpenGecko app scaffold', () => {
     expect(paginationResponse.json()[0]).toMatchObject({
       id: 'cardano',
     });
+  });
+
+  it('supports deterministic coin market volume ordering on the stabilized query path', async () => {
+    const [volumeDescResponse, repeatedVolumeDescResponse, volumeAscResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_desc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_desc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=volume_asc&ids=bitcoin,ethereum,cardano,dogecoin',
+      }),
+    ]);
+
+    expect(volumeDescResponse.statusCode).toBe(200);
+    expect(repeatedVolumeDescResponse.statusCode).toBe(200);
+    expect(volumeAscResponse.statusCode).toBe(200);
+
+    expect(volumeDescResponse.json().map((row: { id: string }) => row.id)).toEqual([
+      'bitcoin',
+      'ethereum',
+      'cardano',
+      'dogecoin',
+    ]);
+    expect(repeatedVolumeDescResponse.json()).toEqual(volumeDescResponse.json());
+    expect(volumeAscResponse.json().map((row: { id: string }) => row.id)).toEqual([
+      'dogecoin',
+      'cardano',
+      'ethereum',
+      'bitcoin',
+    ]);
   });
 
   it('keeps representative pagination boundaries deterministic across coin, exchange, and onchain category families', async () => {
@@ -2975,19 +4973,19 @@ describe('OpenGecko app scaffold', () => {
     expect(chartResponse.statusCode).toBe(200);
     expect(chartResponse.json()).toEqual({
       prices: [
-        [1774396800000, 85000],
+        [1774483200000, 85000],
       ],
       market_caps: [
-        [1774396800000, null],
+        [1774483200000, null],
       ],
       total_volumes: [
-        [1774396800000, 425000000],
+        [1774483200000, 425000000],
       ],
     });
 
     expect(maxChartResponse.statusCode).toBe(200);
     expect(maxChartResponse.json().prices).toEqual([
-      [1774396800000, 85000],
+      [1774483200000, 85000],
     ]);
 
     expect(rangeChartResponse.statusCode).toBe(200);
@@ -2999,7 +4997,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(ohlcResponse.statusCode).toBe(200);
     expect(ohlcResponse.json()).toEqual([
-      [1774396800000, 85000, 85000, 85000, 85000],
+      [1774483200000, 85000, 85000, 85000, 85000],
     ]);
   });
 
@@ -3158,7 +5156,7 @@ describe('OpenGecko app scaffold', () => {
     expect(contractChartResponse.statusCode).toBe(200);
     expect(contractChartResponse.json()).toMatchObject({
       prices: [
-        [1774396800000, 1],
+        [1774483200000, 1],
       ],
     });
 

@@ -12,11 +12,14 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
 
 import { fetchExchangeMarkets } from '../src/providers/ccxt';
+
+const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.fn>;
 
 describe('ohlcv targets', () => {
   let tempDir: string;
@@ -71,7 +74,7 @@ describe('ohlcv targets', () => {
       },
     ]).onConflictDoNothing().run();
 
-    vi.mocked(fetchExchangeMarkets).mockReset();
+    mockedFetchExchangeMarkets.mockReset();
   });
 
   afterEach(() => {
@@ -80,7 +83,7 @@ describe('ohlcv targets', () => {
   });
 
   it('prefers USDT over USD and marks top-100 targets first', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId !== 'binance') {
         return [];
       }
@@ -136,7 +139,7 @@ describe('ohlcv targets', () => {
   });
 
   it('continues building targets when one exchange market fetch fails', async () => {
-    vi.mocked(fetchExchangeMarkets).mockImplementation(async (exchangeId) => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') {
         throw new Error('timeout');
       }

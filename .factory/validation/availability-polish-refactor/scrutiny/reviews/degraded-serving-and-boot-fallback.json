@@ -1,0 +1,22 @@
+{
+  "featureId": "degraded-serving-and-boot-fallback",
+  "reviewedAt": "2026-03-26T17:05:24.661710+00:00",
+  "commitId": "b0e5fba",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature improves degraded boot coherence, but diagnostics still fail to provide the stable source-class evidence the feature requires in the seeded residual boot-failure path.",
+    "issues": [
+      {
+        "file": "src/services/runtime-diagnostics.ts",
+        "line": 63,
+        "severity": "blocking",
+        "description": "When bootstrap fails with residual seeded snapshots, diagnostics always report `source_class: \"seeded_bootstrap\"` for any seeded snapshot and never distinguish failed degraded boot from ordinary startup. The feature description requires hot endpoints and `/diagnostics/runtime` to agree on one declared degraded-boot policy with stable source-class evidence. After this commit, readiness becomes `degraded`, but the response still exposes the same source class and `stale_live_enabled` flag shape used for non-failed startup, so the diagnostics surface does not actually carry distinct degraded-boot evidence for VAL-CROSS-001/feature expectations."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Fail: `/simple/price` and `/coins/markets` were tightened for degraded boot, but `/diagnostics/runtime` still lacks distinct source-class evidence for residual-seeded bootstrap failure, so the feature does not fully satisfy its declared diagnostics contract."
+}

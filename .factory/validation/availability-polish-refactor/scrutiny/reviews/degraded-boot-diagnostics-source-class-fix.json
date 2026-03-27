@@ -1,0 +1,15 @@
+{
+  "featureId": "degraded-boot-diagnostics-source-class-fix",
+  "reviewedAt": "2026-03-26T17:20:55.999385+00:00",
+  "commitId": "40684111dc1f0f0d23b22d143fc495fa67e07e79",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix addresses the prior blocking gap by making `/diagnostics/runtime` emit a distinct degraded seeded-boot source class while preserving ordinary `seeded_bootstrap`, `fresh_live`, and `stale_live` classifications. The new diagnostics and stale-data characterization cover both the direct service-layer classification and the externally visible degraded residual-snapshot serving path.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/availability-polish-refactor/scrutiny/reviews/degraded-serving-and-boot-fallback.json",
+  "summary": "Pass: reviewed the prior failed feature diff (`b0e5fba`) and the fix diff (`40684111dc1f0f0d23b22d143fc495fa67e07e79`), plus the fix transcript skeleton. The new `degraded_seeded_bootstrap` diagnostics classification closes the original source-class gap and the updated tests show ordinary seeded startup remains distinct from failed degraded boot without regressing degraded residual serving behavior."
+}
