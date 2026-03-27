@@ -304,11 +304,29 @@ export async function repairOhlcvGaps(
     volume?: number | null;
   }>>,
 ) {
-  const gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
   const intervalMs = getIntervalMs(target.interval);
+  let gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
+  const initialGapCount = gaps.length;
   let repairedCount = 0;
+  const attemptedGapKeys = new Set<string>();
 
-  for (const gap of gaps) {
+  while (gaps.length > 0) {
+    const gap = gaps.reduce((selected, candidate) => (
+      candidate.missingSlotCount > selected.missingSlotCount
+      || (
+        candidate.missingSlotCount === selected.missingSlotCount
+        && candidate.gapStart.getTime() < selected.gapStart.getTime()
+      )
+        ? candidate
+        : selected
+    ));
+    const gapKey = `${gap.gapStart.getTime()}:${gap.gapEnd.getTime()}:${gap.missingSlotCount}`;
+
+    if (attemptedGapKeys.has(gapKey)) {
+      break;
+    }
+
+    attemptedGapKeys.add(gapKey);
     const fetchedCandles = await fetchCandles(gap.gapStart.getTime(), gap.missingSlotCount);
     const requestedTimestamps = new Set(gap.missingTimestamps.map((value) => value.getTime()));
 
@@ -332,6 +350,8 @@ export async function repairOhlcvGaps(
       });
       repairedCount += 1;
     }
+
+    gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
   }
 
   if (target.retentionDays) {
@@ -344,7 +364,7 @@ export async function repairOhlcvGaps(
   }
 
   return {
-    gapsRepaired: gaps.length,
+    gapsRepaired: initialGapCount,
     candlesRepaired: repairedCount,
     intervalMs,
   };

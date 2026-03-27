@@ -147,6 +147,105 @@ describe('ohlcv gap detection and repair', () => {
     ]);
   });
 
+  it('re-scans after a partial upstream response and narrows the remaining unresolved slot', async () => {
+    for (const [timestamp, close] of [
+      ['2026-03-18T00:00:00.000Z', 80_000],
+      ['2026-03-23T00:00:00.000Z', 85_000],
+    ] as const) {
+      upsertCanonicalOhlcvCandle(database, {
+        coinId: 'bitcoin',
+        vsCurrency: 'usd',
+        interval: '1d',
+        timestamp: new Date(timestamp),
+        open: close,
+        high: close + 500,
+        low: close - 500,
+        close,
+        volume: 10,
+        replaceExisting: true,
+      });
+    }
+
+    const fetchCandles = vi.fn(async (since: number, limit?: number) => {
+      if (since === Date.parse('2026-03-19T00:00:00.000Z') && limit === 4) {
+        expect(limit).toBe(4);
+        return [
+          {
+            timestamp: Date.parse('2026-03-19T00:00:00.000Z'),
+            open: 81_000,
+            high: 81_500,
+            low: 80_500,
+            close: 81_250,
+            volume: 11,
+          },
+          {
+            timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+            open: 83_000,
+            high: 83_500,
+            low: 82_500,
+            close: 83_250,
+            volume: 12,
+          },
+        ];
+      }
+
+      if (since === Date.parse('2026-03-21T00:00:00.000Z') && limit === 2) {
+        return [
+          {
+            timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
+            open: 84_000,
+            high: 84_500,
+            low: 83_500,
+            close: 84_250,
+            volume: 12.5,
+          },
+        ];
+      }
+
+      if (since === Date.parse('2026-03-21T00:00:00.000Z') && limit === 1) {
+        return [];
+      }
+
+      if (since === Date.parse('2026-03-20T00:00:00.000Z') && limit === 1) {
+        return [
+          {
+            timestamp: Date.parse('2026-03-20T00:00:00.000Z'),
+            open: 82_000,
+            high: 82_500,
+            low: 81_500,
+            close: 82_250,
+            volume: 11.5,
+          },
+        ];
+      }
+
+      return [];
+    });
+
+    const result = await repairOhlcvGaps(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+    }, fetchCandles);
+
+    expect(fetchCandles).toHaveBeenNthCalledWith(1, Date.parse('2026-03-21T00:00:00.000Z'), 2);
+    expect(fetchCandles).toHaveBeenNthCalledWith(2, Date.parse('2026-03-21T00:00:00.000Z'), 1);
+    expect(fetchCandles).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      gapsRepaired: 1,
+      candlesRepaired: 1,
+    });
+    expect(detectOhlcvGaps(database, 'bitcoin', 'usd', '1d')).toEqual([
+      expect.objectContaining({
+        gapStart: new Date('2026-03-21T00:00:00.000Z'),
+        gapEnd: new Date('2026-03-21T00:00:00.000Z'),
+        missingSlotCount: 1,
+      }),
+    ]);
+  });
+
   it('prunes candles older than the configured retention window', () => {
     for (let index = 0; index < 500; index += 1) {
       const timestamp = new Date(Date.parse('2026-03-27T00:00:00.000Z') - ((499 - index) * 24 * 60 * 60 * 1000));
