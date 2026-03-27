@@ -55,4 +55,4 @@ All 29 onchain routes exist but are fixture-backed. Key fixture functions:
 - `buildTopHolderFixtures()` / `buildTopTraderFixtures()` — USDC-only fixtures
 - `buildHoldersChartFixtures()` — 3-point USDC chart
 
-Live data integration plan: DeFiLlama for pools/TVL/prices, The Graph for swap events/OHLCV.
+Live data integration plan: DeFiLlama for pools/TVL/prices, SQD/Subsquid direct EVM log queries for Ethereum swap events/OHLCV when public Graph access is unavailable.

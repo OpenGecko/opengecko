@@ -32,7 +32,7 @@ Testing surface, required testing skills/tools, and resource cost classification
 
 - Solana onchain endpoints remain seeded (no live Raydium subgraph)
 - Holder/trader analytics remain fixture-backed
-- The Graph requires API key — tests mock responses instead
+- Ethereum trades/OHLCV recovery is shifting to SQD/Subsquid raw log queries; validation should prefer `DATABASE_URL=:memory:` and verify non-fixture responses from the SQD-backed path
 - Server startup with CCXT exchanges enabled takes 30+ seconds (use CCXT_EXCHANGES='' for validation)
 
 
