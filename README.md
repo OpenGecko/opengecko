@@ -4,7 +4,6 @@
 ░▀▀▀░▀░░░▀▀▀░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀▀▀
 ```
 
-[![npm version](https://img.shields.io/npm/v/opengecko?color=purple)](https://www.npmjs.com/package/opengecko)
 [![Bun](https://img.shields.io/badge/Bun-1.3.9-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue?logo=typescript)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -230,17 +229,3 @@ OpenGecko documents every intentional divergence from CoinGecko in `docs/plans/2
 ![SQLite](https://img.shields.io/badge/SQLite-3-blue?logo=sqlite)
 ![Drizzle ORM](https://img.shields.io/badge/Drizzle_ORM-0.44-blueviolet?logo=data)
 ![CCXT](https://img.shields.io/badge/CCXT-4.4-orange?logo=bitcoin)
-
-## Status & Planning
-
-- Active delivery target: **R4** — onchain DEX expansion and data-fidelity hardening.
-- R0–R3 contract surfaces are implemented and validated.
-- Current priorities: expanding chain coverage, onchain DEX breadth, OHLCV retention hardening, and replacing seeded slices with canonical live/backfilled paths.
-
-Primary references:
-
-- `docs/status/implementation-tracker.md`
-- `docs/plans/2026-03-20-opengecko-coingecko-compatible-api-prd.md`
-- `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md`
-- `docs/plans/2026-03-20-opengecko-engineering-execution-plan.md`
-- `docs/plans/2026-03-22-opengecko-compatibility-gap-closure-plan.md`
