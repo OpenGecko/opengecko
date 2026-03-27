@@ -24,6 +24,7 @@ const envSchema = z.object({
   SEARCH_REBUILD_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS),
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  DEFILLAMA_BASE_URL: z.string().url().default('https://api.llama.fi'),
   RESPONSE_COMPRESSION_THRESHOLD_BYTES: z.coerce.number().int().nonnegative().default(1024),
   STARTUP_PREWARM_BUDGET_MS: z.coerce.number().int().nonnegative().default(250),
 });
@@ -42,6 +43,7 @@ export type AppConfig = {
   searchRebuildIntervalSeconds: number;
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
+  defillamaBaseUrl: string;
   responseCompressionThresholdBytes: number;
   startupPrewarmBudgetMs: number;
 };
@@ -63,6 +65,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     searchRebuildIntervalSeconds: env.SEARCH_REBUILD_INTERVAL_SECONDS,
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
+    defillamaBaseUrl: env.DEFILLAMA_BASE_URL,
     responseCompressionThresholdBytes: env.RESPONSE_COMPRESSION_THRESHOLD_BYTES,
     startupPrewarmBudgetMs: env.STARTUP_PREWARM_BUDGET_MS,
   };
