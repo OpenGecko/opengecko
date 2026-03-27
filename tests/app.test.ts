@@ -2826,6 +2826,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(tokenDetailIncludedResponse.statusCode).toBe(200);
+    expect(tokenDetailIncludedResponse.json().data.attributes.price_usd).toBe(1);
     expect(tokenDetailIncludedResponse.json()).toMatchObject({
       data: {
         id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
@@ -3344,6 +3345,23 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns metadata-focused onchain token info, pool info, and recently updated token info', async () => {
+    vi.spyOn(defillamaProvider, 'fetchDefillamaTokenPrices').mockResolvedValue({
+      'ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
+        price: 1.0025,
+        symbol: 'USDC',
+        decimals: 6,
+        confidence: 0.99,
+        timestamp: 1710000000,
+      },
+      'ethereum:0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+        price: 3495.12,
+        symbol: 'WETH',
+        decimals: 18,
+        confidence: 0.97,
+        timestamp: 1710000000,
+      },
+    });
+
     const tokenInfoResponse = await getApp().inject({
       method: 'GET',
       url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/info',
@@ -3377,6 +3395,7 @@ describe('OpenGecko app scaffold', () => {
           coingecko_coin_id: 'usd-coin',
           decimals: 6,
           image_url: null,
+          price_usd: 1.0025,
         },
         relationships: {
           network: {
@@ -3426,6 +3445,7 @@ describe('OpenGecko app scaffold', () => {
       type: 'token_info',
       attributes: {
         symbol: 'USDC',
+        price_usd: 1.0025,
       },
     });
     expect(recentlyUpdatedResponse.json().data.some((entry: { attributes: { symbol: string } }) => entry.attributes.symbol === 'USDC')).toBe(true);
@@ -3888,6 +3908,24 @@ describe('OpenGecko app scaffold', () => {
     expect(baselineBody.source_pools).toEqual([
       '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
     ]);
+    expect(baselineBody.ohlcv_list.map((entry: { timestamp: number }) => entry.timestamp)).toEqual([
+      1714737600,
+      1714741200,
+    ]);
+    expect(baselineBody.ohlcv_list[0]).toMatchObject({
+      open: 1,
+      high: 1,
+      low: 1,
+      close: 1,
+      volume_usd: 1000,
+    });
+    expect(baselineBody.ohlcv_list[1]).toMatchObject({
+      open: 3600,
+      high: 3600,
+      low: 3600,
+      close: 3600,
+      volume_usd: 900,
+    });
     expect(baselineBody.ohlcv_list.every((entry: { high: number; low: number; open: number; close: number; volume_usd: number }, index: number, arr: Array<{ timestamp: number }>) =>
       entry.high >= Math.max(entry.open, entry.close)
       && entry.low <= Math.min(entry.open, entry.close)
@@ -3899,7 +3937,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(aggregateResponse.statusCode).toBe(200);
     expect(aggregateResponse.json().data.attributes.aggregate).toBe(2);
-    expect(aggregateResponse.json().data.attributes.ohlcv_list).toHaveLength(2);
+    expect(aggregateResponse.json().data.attributes.ohlcv_list).toHaveLength(1);
     expect(aggregateResponse.json().data.attributes.ohlcv_list.every((entry: { timestamp: number }) =>
       entry.timestamp <= 1714741200)).toBe(true);
 

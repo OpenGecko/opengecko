@@ -654,6 +654,7 @@ function buildTokenResource(
   options?: {
     includeInactiveSource?: boolean;
     includeComposition?: boolean;
+    livePriceUsd?: number | null;
   },
 ) {
   const normalizedAddress = normalizeAddress(tokenAddress);
@@ -663,7 +664,7 @@ function buildTokenResource(
       ? primaryPool.baseTokenSymbol
       : primaryPool.quoteTokenSymbol
     : null;
-  const priceUsd = primaryPool?.priceUsd ?? null;
+  const priceUsd = options?.livePriceUsd ?? primaryPool?.priceUsd ?? null;
 
   return {
     id: normalizedAddress,
@@ -728,7 +729,14 @@ function findCoinIdForToken(networkId: string, tokenAddress: string) {
   return null;
 }
 
-function buildTokenInfoResource(networkId: string, tokenAddress: string, tokenPools: typeof onchainPools.$inferSelect[]) {
+function buildTokenInfoResource(
+  networkId: string,
+  tokenAddress: string,
+  tokenPools: typeof onchainPools.$inferSelect[],
+  options?: {
+    livePriceUsd?: number | null;
+  },
+) {
   const normalizedAddress = normalizeAddress(tokenAddress);
   const primaryPool = tokenPools[0];
   const symbol = primaryPool
@@ -749,6 +757,7 @@ function buildTokenInfoResource(networkId: string, tokenAddress: string, tokenPo
       coingecko_coin_id: coinId,
       decimals,
       image_url: null,
+      price_usd: options?.livePriceUsd ?? primaryPool?.priceUsd ?? null,
       updated_at: Math.floor((primaryPool?.updatedAt ?? new Date(0)).getTime() / 1000),
     },
     relationships: {
@@ -970,7 +979,7 @@ function buildSyntheticPoolOhlcvSeries(
   return series;
 }
 
-function aggregatePoolSeriesForToken(
+async function aggregatePoolSeriesForToken(
   pools: typeof onchainPools.$inferSelect[],
   timeframe: OnchainOhlcvTimeframe,
   aggregate: number,
@@ -989,8 +998,13 @@ function aggregatePoolSeriesForToken(
     sources: string[];
   }>();
 
-  for (const pool of pools) {
-    const baseSeries = buildSyntheticPoolOhlcvSeries(pool, timeframe, aggregate);
+  const poolTradeGroups = await Promise.all(pools.map((pool) => fetchLivePoolTrades(pool)));
+
+  for (const [index, pool] of pools.entries()) {
+    const liveTrades = poolTradeGroups[index] ?? null;
+    const baseSeries = liveTrades && liveTrades.length > 0
+      ? derivePoolOhlcvFromTrades(liveTrades, timeframe, aggregate, 'usd', normalizedToken, pool)
+      : buildSyntheticPoolOhlcvSeries(pool, timeframe, aggregate);
     const tokenMultiplier = normalizeAddress(pool.baseTokenAddress) === normalizedToken ? 1 : pool.priceUsd ?? 1;
     const poolIsInactive = pool.volume24hUsd === null || pool.volume24hUsd <= 30_000_000;
 
@@ -2657,10 +2671,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${normalizeAddress(params.address)}`);
     }
 
+    const livePrice = await fetchLiveSimpleTokenPrice(params.network, normalizeAddress(params.address), tokenPools, database);
+
     return {
       data: buildTokenResource(params.network, params.address, tokenPools, {
         includeInactiveSource,
         includeComposition,
+        livePriceUsd: livePrice?.priceUsd ?? null,
       }),
       ...(includes.includes('top_pools')
         ? { included: tokenPools.map((row) => buildPoolResource(row)) }
@@ -2756,8 +2773,12 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${normalizeAddress(params.address)}`);
     }
 
+    const livePrice = await fetchLiveSimpleTokenPrice(params.network, normalizeAddress(params.address), tokenPools, database);
+
     return {
-      data: buildTokenInfoResource(params.network, params.address, tokenPools),
+      data: buildTokenInfoResource(params.network, params.address, tokenPools, {
+        livePriceUsd: livePrice?.priceUsd ?? null,
+      }),
     };
   });
 
@@ -2777,10 +2798,22 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
 
-    const tokenInfos = [
-      buildTokenInfoResource(params.network, row.baseTokenAddress, collectTokenPools(params.network, row.baseTokenAddress, database)),
-      buildTokenInfoResource(params.network, row.quoteTokenAddress, collectTokenPools(params.network, row.quoteTokenAddress, database)),
-    ];
+    const tokenInfos = await Promise.all([
+      (async () => {
+        const tokenPools = collectTokenPools(params.network, row.baseTokenAddress, database);
+        const livePrice = await fetchLiveSimpleTokenPrice(params.network, normalizeAddress(row.baseTokenAddress), tokenPools, database);
+        return buildTokenInfoResource(params.network, row.baseTokenAddress, tokenPools, {
+          livePriceUsd: livePrice?.priceUsd ?? null,
+        });
+      })(),
+      (async () => {
+        const tokenPools = collectTokenPools(params.network, row.quoteTokenAddress, database);
+        const livePrice = await fetchLiveSimpleTokenPrice(params.network, normalizeAddress(row.quoteTokenAddress), tokenPools, database);
+        return buildTokenInfoResource(params.network, row.quoteTokenAddress, tokenPools, {
+          livePriceUsd: livePrice?.priceUsd ?? null,
+        });
+      })(),
+    ]);
 
     return {
       data: tokenInfos,
@@ -2813,12 +2846,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
-    const tokenInfos = [...byNetworkAndAddress.entries()]
+    const tokenInfos = (await Promise.all([...byNetworkAndAddress.entries()]
       .filter(([key]) => !query.network || key.startsWith(`${query.network}:`))
-      .map(([key, pools]) => {
+      .map(async ([key, pools]) => {
         const [networkId, address] = key.split(':');
-        return buildTokenInfoResource(networkId!, address!, pools);
-      })
+        const livePrice = await fetchLiveSimpleTokenPrice(networkId!, address!, pools, database);
+        return buildTokenInfoResource(networkId!, address!, pools, {
+          livePriceUsd: livePrice?.priceUsd ?? null,
+        });
+      })))
       .sort((left, right) => right.attributes.updated_at - left.attributes.updated_at || left.id.localeCompare(right.id));
 
     const start = (page - 1) * perPage;
@@ -3143,7 +3179,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const aggregatedSeries = aggregatePoolSeriesForToken(
+    const aggregatedSeries = await aggregatePoolSeriesForToken(
       tokenPools,
       timeframe,
       aggregate,
