@@ -1314,11 +1314,25 @@ async function fetchLivePoolTrades(pool: typeof onchainPools.$inferSelect) {
     return null;
   }
 
-  if (process.env.VITEST !== 'true') {
+  const canUseSqd = process.env.VITEST !== 'true';
+
+  if (canUseSqd) {
+    console.info('Attempting SQD-backed onchain pool trades fetch', {
+      network: pool.networkId,
+      poolAddress: pool.address,
+    });
+  }
+
+  if (canUseSqd) {
     const sqdSwaps = await fetchEthereumPoolSwapLogs(pool.address, {
       toBlock: undefined,
     });
     if (sqdSwaps && sqdSwaps.length > 0) {
+      console.info('SQD-backed onchain pool trades fetch succeeded', {
+        network: pool.networkId,
+        poolAddress: pool.address,
+        swapCount: sqdSwaps.length,
+      });
       const normalized: NormalizedSwapTradeShape[] = sqdSwaps.map((swap) => ({
         id: `${swap.txHash}:${swap.blockNumber}`,
         amount0: swap.amount0,
@@ -1333,6 +1347,12 @@ async function fetchLivePoolTrades(pool: typeof onchainPools.$inferSelect) {
 
       return deriveLivePoolTrades(pool, normalized);
     }
+
+    console.warn('SQD-backed onchain pool trades unavailable; falling back to alternate providers/fixtures', {
+      network: pool.networkId,
+      poolAddress: pool.address,
+      sqdResult: sqdSwaps === null ? 'null' : 'empty',
+    });
   }
 
   if (process.env.VITEST === 'true') {

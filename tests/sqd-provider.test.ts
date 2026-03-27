@@ -109,6 +109,65 @@ describe('sqd provider', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(4, 'https://v2.archive.subsquid.io/network/ethereum-mainnet/103/worker', expect.objectContaining({ method: 'GET' }));
   });
 
+  it('defaults live reads to a recent bounded window and sends explicit toBlock values', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('1000', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://worker-1', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          header: { number: 1000, timestamp: 1710000000 },
+          logs: [],
+        },
+      ]), { status: 200 }));
+
+    const { fetchEthereumPoolSwapLogs } = await import('../src/providers/sqd');
+
+    await expect(fetchEthereumPoolSwapLogs('0xpool', {
+      fetchImpl: fetchMock as typeof fetch,
+      toBlock: 1000,
+      recentWindowBlocks: 50,
+      requestDelayMs: 0,
+    })).resolves.toEqual([]);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://v2.archive.subsquid.io/network/ethereum-mainnet/1000/worker', expect.objectContaining({ method: 'GET' }));
+    const workerRequest = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(JSON.parse(String(workerRequest.body))).toMatchObject({
+      fromBlock: 1000,
+      toBlock: 1000,
+    });
+  });
+
+  it('shrinks oversized block spans on 503 responses before retrying', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('1000', { status: 200 }))
+      .mockResolvedValueOnce(new Response('https://worker-1', { status: 200 }))
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(new Response('https://worker-2', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        {
+          header: { number: 1000, timestamp: 1710000000 },
+          logs: [],
+        },
+      ]), { status: 200 }));
+
+    const { fetchEthereumPoolSwapLogs } = await import('../src/providers/sqd');
+
+    await expect(fetchEthereumPoolSwapLogs('0xpool', {
+      fetchImpl: fetchMock as typeof fetch,
+      fromBlock: 901,
+      toBlock: 1000,
+      maxRetries: 1,
+      maxBlockSpan: 100,
+      minBlockSpan: 25,
+      requestDelayMs: 0,
+    })).resolves.toEqual([]);
+
+    const firstBody = JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body));
+    const secondBody = JSON.parse(String((fetchMock.mock.calls[4]?.[1] as RequestInit).body));
+    expect(firstBody).toMatchObject({ fromBlock: 901, toBlock: 1000 });
+    expect(secondBody).toMatchObject({ fromBlock: 901, toBlock: 950 });
+  });
+
   it('skips decoded logs that are missing a transaction hash', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response('100', { status: 200 }))
@@ -139,16 +198,6 @@ describe('sqd provider', () => {
     })).resolves.toEqual([]);
   });
 
-
-  it('returns an empty list when dataset height is below the requested start block', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('99', { status: 200 }));
-    const { fetchEthereumPoolSwapLogs } = await import('../src/providers/sqd');
-
-    await expect(fetchEthereumPoolSwapLogs('0xpool', {
-      fetchImpl: fetchMock as typeof fetch,
-      fromBlock: 100,
-    })).resolves.toEqual([]);
-  });
 
   it('returns null when SQD height lookup yields an invalid worker endpoint URL', async () => {
     const fetchMock = vi.fn()

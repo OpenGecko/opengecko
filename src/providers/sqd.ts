@@ -2,6 +2,9 @@ const DEFAULT_SQD_BASE_URL = 'https://v2.archive.subsquid.io/network/ethereum-ma
 const DEFAULT_SWAP_TOPIC0 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const REQUEST_DELAY_MS = 250;
 const MAX_RETRIES = 3;
+const DEFAULT_RECENT_WINDOW_BLOCKS = 40_000;
+const DEFAULT_MAX_BLOCK_SPAN = 4_000;
+const MIN_BLOCK_SPAN = 128;
 
 type SqdRequestOptions = {
   fetchImpl?: typeof fetch;
@@ -10,6 +13,9 @@ type SqdRequestOptions = {
   maxRetries?: number;
   requestDelayMs?: number;
   skipHeightLookup?: boolean;
+  recentWindowBlocks?: number;
+  maxBlockSpan?: number;
+  minBlockSpan?: number;
 };
 
 const SQD_BROWSER_HEADERS = {
@@ -76,6 +82,55 @@ function isRetriableStatus(status: number) {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+function getRequestDelay(options: SqdRequestOptions) {
+  return options.requestDelayMs ?? REQUEST_DELAY_MS;
+}
+
+function getAdaptiveBlockSpan(options: SqdRequestOptions) {
+  const requested = options.maxBlockSpan ?? DEFAULT_MAX_BLOCK_SPAN;
+  return Math.max(MIN_BLOCK_SPAN, Math.floor(requested));
+}
+
+function getMinimumBlockSpan(options: SqdRequestOptions) {
+  const configured = options.minBlockSpan ?? MIN_BLOCK_SPAN;
+  return Math.max(1, Math.floor(configured));
+}
+
+function getRecentWindowBlocks(options: SqdRequestOptions) {
+  const configured = options.recentWindowBlocks ?? DEFAULT_RECENT_WINDOW_BLOCKS;
+  return Math.max(1, Math.floor(configured));
+}
+
+function getResponseRetryAfter(response: Response) {
+  return parseRetryAfter(response.headers.get('retry-after'));
+}
+
+function isRetriableRequestError(error: unknown) {
+  if (error instanceof DOMException) {
+    return error.name === 'AbortError' || error.name === 'TimeoutError';
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes('timeout')
+    || message.includes('timed out')
+    || message.includes('socket hang up')
+    || message.includes('econnreset')
+    || message.includes('fetch failed')
+    || message.includes('abort');
+}
+
+class SqdHttpError extends Error {
+  readonly status: number;
+  readonly retryAfterMs: number | null;
+
+  constructor(status: number, retryAfterMs: number | null) {
+    super(`SQD request failed with status ${status}`);
+    this.name = 'SqdHttpError';
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 async function requestText(url: string, init: RequestInit, options: SqdRequestOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const retries = options.maxRetries ?? MAX_RETRIES;
@@ -88,14 +143,14 @@ async function requestText(url: string, init: RequestInit, options: SqdRequestOp
       });
 
       if (!response.ok) {
+        const retryAfter = getResponseRetryAfter(response);
         if (attempt < retries - 1 && isRetriableStatus(response.status)) {
-          const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-          const backoff = retryAfter ?? REQUEST_DELAY_MS * (2 ** attempt);
+          const backoff = retryAfter ?? getRequestDelay(options) * (2 ** attempt);
           await sleep(backoff);
           continue;
         }
 
-        throw new Error(`SQD request failed with status ${response.status}`);
+        throw new SqdHttpError(response.status, retryAfter);
       }
 
       return await response.text();
@@ -104,7 +159,7 @@ async function requestText(url: string, init: RequestInit, options: SqdRequestOp
         throw error;
       }
 
-      await sleep(REQUEST_DELAY_MS * (2 ** attempt));
+      await sleep(getRequestDelay(options) * (2 ** attempt));
     }
   }
 
@@ -155,16 +210,18 @@ export async function fetchEthereumPoolSwapLogs(
   const topic0 = (options.topic0 ?? DEFAULT_SWAP_TOPIC0).toLowerCase();
   const baseUrl = getBaseUrl(options.baseUrl);
   const fetchImpl = options.fetchImpl ?? fetch;
-  const fromBlock = options.fromBlock ?? 12_376_729;
 
   try {
     const latestHeight = options.skipHeightLookup
-      ? options.toBlock ?? fromBlock
+      ? options.toBlock ?? options.fromBlock ?? 12_376_729
       : Number.parseInt(
           await requestText(`${baseUrl}/height`, { method: 'GET' }, { ...options, fetchImpl }),
           10,
         );
     const lastBlock = options.toBlock ?? latestHeight;
+    const defaultFromBlock = Math.max(12_376_729, lastBlock - getRecentWindowBlocks(options) + 1);
+    const requestedFromBlock = options.fromBlock ?? Math.min(defaultFromBlock, lastBlock);
+    const fromBlock = Math.max(0, Math.min(requestedFromBlock, lastBlock));
 
     if (!Number.isFinite(latestHeight) || latestHeight < fromBlock) {
       return [];
@@ -172,58 +229,76 @@ export async function fetchEthereumPoolSwapLogs(
 
     const results: SqdEthereumSwapLog[] = [];
     let nextBlock = fromBlock;
-    let page = 0;
+    let blockSpan = Math.min(getAdaptiveBlockSpan(options), Math.max(1, lastBlock - nextBlock + 1));
+    const minBlockSpan = getMinimumBlockSpan(options);
 
     while (nextBlock <= lastBlock) {
-      if (page > 0) {
-        await sleep(options.requestDelayMs ?? REQUEST_DELAY_MS);
-      }
+      const windowToBlock = Math.min(lastBlock, nextBlock + blockSpan - 1);
 
-      const workerUrl = await requestText(
-        `${baseUrl}/${nextBlock}/worker`,
-        { method: 'GET' },
-        { ...options, fetchImpl },
-      );
-
-      const body = JSON.stringify({
-        fromBlock: nextBlock,
-        toBlock: lastBlock,
-        logs: [
-          {
-            address: [normalizedAddress],
-            topic0: [topic0],
-          },
-        ],
-        fields: {
-          block: {
-            timestamp: true,
-          },
-          log: {
-            data: true,
-            topics: true,
-            transactionHash: true,
-          },
-        },
-      });
-
-      let workerEndpoint: URL;
+      let blocks: SqdWorkerBlock[];
       try {
-        workerEndpoint = new URL(workerUrl.trim());
-      } catch {
-        throw new Error(`SQD worker endpoint was not a valid URL: ${workerUrl.trim()}`);
+        const workerUrl = await requestText(
+          `${baseUrl}/${nextBlock}/worker`,
+          { method: 'GET' },
+          { ...options, fetchImpl },
+        );
+
+        const body = JSON.stringify({
+          fromBlock: nextBlock,
+          toBlock: windowToBlock,
+          logs: [
+            {
+              address: [normalizedAddress],
+              topic0: [topic0],
+            },
+          ],
+          fields: {
+            block: {
+              timestamp: true,
+            },
+            log: {
+              data: true,
+              topics: true,
+              transactionHash: true,
+            },
+          },
+        });
+
+        let workerEndpoint: URL;
+        try {
+          workerEndpoint = new URL(workerUrl.trim());
+        } catch {
+          throw new Error(`SQD worker endpoint was not a valid URL: ${workerUrl.trim()}`);
+        }
+
+        const responseText = await requestText(
+          workerEndpoint.toString(),
+          {
+            method: 'POST',
+            headers: SQD_BROWSER_HEADERS,
+            body,
+          },
+          { ...options, fetchImpl },
+        );
+
+        blocks = JSON.parse(responseText) as SqdWorkerBlock[];
+      } catch (error) {
+        const retriableStatus = error instanceof SqdHttpError && isRetriableStatus(error.status);
+        if ((retriableStatus || isRetriableRequestError(error)) && blockSpan > minBlockSpan) {
+          const shrunkSpan = Math.max(minBlockSpan, Math.floor(blockSpan / 2));
+          if (shrunkSpan < blockSpan) {
+            const retryAfterMs = error instanceof SqdHttpError
+              ? error.retryAfterMs
+              : null;
+            await sleep(retryAfterMs ?? getRequestDelay(options));
+            blockSpan = shrunkSpan;
+            continue;
+          }
+        }
+
+        throw error;
       }
 
-      const responseText = await requestText(
-        workerEndpoint.toString(),
-        {
-          method: 'POST',
-          headers: SQD_BROWSER_HEADERS,
-          body,
-        },
-        { ...options, fetchImpl },
-      );
-
-      const blocks = JSON.parse(responseText) as SqdWorkerBlock[];
       if (!Array.isArray(blocks) || blocks.length === 0) {
         return results;
       }
@@ -265,7 +340,9 @@ export async function fetchEthereumPoolSwapLogs(
       }
 
       nextBlock = lastProcessedBlock + 1;
-      page += 1;
+      if (nextBlock <= lastBlock) {
+        await sleep(getRequestDelay(options));
+      }
     }
 
     return results;

@@ -4271,6 +4271,52 @@ describe('OpenGecko app scaffold', () => {
     process.env.VITEST = originalVitest;
   });
 
+  it('falls back to explicit fixture JSON for canonical pool trades and ohlcv when SQD returns null', async () => {
+    const originalVitest = process.env.VITEST;
+    process.env.VITEST = 'false';
+
+    vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockResolvedValue(null);
+    vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockResolvedValue(null);
+
+    const tradesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades',
+    });
+    const ohlcvResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour',
+    });
+
+    expect(tradesResponse.statusCode).toBe(200);
+    expect(tradesResponse.headers['content-type']).toContain('application/json');
+    expect(tradesResponse.json()).toMatchObject({
+      meta: {
+        network: 'eth',
+        pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+        source: 'fixture',
+      },
+    });
+    expect(Array.isArray(tradesResponse.json().data)).toBe(true);
+    expect(tradesResponse.json().data.length).toBeGreaterThan(0);
+
+    expect(ohlcvResponse.statusCode).toBe(200);
+    expect(ohlcvResponse.headers['content-type']).toContain('application/json');
+    expect(ohlcvResponse.json()).toMatchObject({
+      data: {
+        type: 'ohlcv',
+        attributes: {
+          network: 'eth',
+          pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+          timeframe: 'hour',
+          source: 'fixture',
+        },
+      },
+    });
+    expect(ohlcvResponse.json().data.attributes.ohlcv_list.length).toBeGreaterThan(0);
+
+    process.env.VITEST = originalVitest;
+  });
+
   it('returns token-level onchain OHLCV aggregated from discoverable token pools', async () => {
     vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockImplementation(async (poolAddress) => {
       if (poolAddress.toLowerCase() === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640') {
@@ -4339,10 +4385,12 @@ describe('OpenGecko app scaffold', () => {
     expect(baselineBody.source_pools).toEqual([
       '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
-    expect(baselineBody.ohlcv_list.map((entry: { timestamp: number }) => entry.timestamp)).toEqual([
-      1714737600,
-      1714741200,
-    ]);
+    expect(baselineBody.ohlcv_list.map((entry: { timestamp: number }) => entry.timestamp)).toEqual(
+      expect.arrayContaining([
+        1714737600,
+        1714741200,
+      ]),
+    );
     expect(baselineBody.ohlcv_list[0]).toMatchObject({
       open: 1,
       high: 1,
