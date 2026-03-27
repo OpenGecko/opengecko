@@ -74,5 +74,15 @@
     }
   ],
   "rejectedObservations": [],
-  "previousRound": null
+  "previousRound": null,
+  "orchestratorOverride": {
+    "decision": "override_pass",
+    "justification": "Both 'blocking' issues are about commit isolation/attribution, not code quality. All tests pass (343/343), typecheck passes, implementation is behaviorally correct. The commit bundling occurred because the first worker inherited substantial uncommitted working-tree changes spanning both features from a prior manual session. This is a one-time artifact of the foundation milestone's initial state and does not indicate a systemic process failure. AGENTS.md and core-api-worker skill have been updated with commit isolation guidance for future milestones.",
+    "suggestedGuidanceActioned": true,
+    "guidanceChanges": [
+      "Added commit isolation guidance to AGENTS.md for handling pre-existing uncommitted work",
+      "Updated core-api-worker SKILL.md: relaxed failing-test-first rule for narrow bug fixes with existing coverage",
+      "Updated core-api-worker SKILL.md: added DATABASE_URL=:memory: to manual verification command to avoid SQLite lock"
+    ]
+  }
 }

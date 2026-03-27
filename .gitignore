@@ -6,3 +6,4 @@ data/
 *.db-shm
 *.db-wal
 coverage/
+# .factory is version-controlled (mission infrastructure)
