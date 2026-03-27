@@ -25,7 +25,8 @@ None.
 6. If the manifest-wide baseline test command fails only on issues already listed in `AGENTS.md` as pre-existing, continue with scoped work; record that baseline failure in the handoff.
 7. Start the local API (`PORT=3102 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts`) and manually verify at least one valid + one invalid request with curl. Kill the server after. **Note:** Use `DATABASE_URL=:memory:` to avoid SQLite lock conflicts with any running dev server.
 8. Run `bun run typecheck` before finishing. If your changes affect shared modules, run the broader test suite too.
-9. In the handoff, record exact endpoints, parameters, and responses used in verification.
+9. **CRITICAL: Before committing, run `git diff --cached --stat` and verify ONLY your feature files are staged.** If you see unrelated files (especially `.factory/` deletions or modifications not from your feature), unstage them with `git reset HEAD <file>`. Never commit unrelated working-tree changes.
+10. In the handoff, record exact endpoints, parameters, and responses used in verification.
 
 ## Example Handoff
 
