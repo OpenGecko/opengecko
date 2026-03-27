@@ -308,7 +308,7 @@ export async function repairOhlcvGaps(
   let gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
   const initialGapCount = gaps.length;
   let repairedCount = 0;
-  const attemptedGapKeys = new Set<string>();
+  const exhaustedGapStarts = new Set<number>();
 
   while (gaps.length > 0) {
     const gap = gaps.reduce((selected, candidate) => (
@@ -320,15 +320,14 @@ export async function repairOhlcvGaps(
         ? candidate
         : selected
     ));
-    const gapKey = `${gap.gapStart.getTime()}:${gap.gapEnd.getTime()}:${gap.missingSlotCount}`;
+    const gapStartTime = gap.gapStart.getTime();
 
-    if (attemptedGapKeys.has(gapKey)) {
+    if (exhaustedGapStarts.has(gapStartTime)) {
       break;
     }
-
-    attemptedGapKeys.add(gapKey);
     const fetchedCandles = await fetchCandles(gap.gapStart.getTime(), gap.missingSlotCount);
     const requestedTimestamps = new Set(gap.missingTimestamps.map((value) => value.getTime()));
+    let repairedThisPass = 0;
 
     for (const candle of fetchedCandles) {
       if (!requestedTimestamps.has(candle.timestamp)) {
@@ -349,6 +348,11 @@ export async function repairOhlcvGaps(
         replaceExisting: true,
       });
       repairedCount += 1;
+      repairedThisPass += 1;
+    }
+
+    if (repairedThisPass === 0) {
+      exhaustedGapStarts.add(gapStartTime);
     }
 
     gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);

@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDatabase, migrateDatabase, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coins } from '../src/db/schema';
+import { coins, ohlcvCandles } from '../src/db/schema';
 import { getCanonicalCandles, upsertCanonicalOhlcvCandle } from '../src/services/candle-store';
 import { detectOhlcvGaps, enforceOhlcvRetention, repairOhlcvGaps } from '../src/services/ohlcv-sync';
 
@@ -147,7 +148,11 @@ describe('ohlcv gap detection and repair', () => {
     ]);
   });
 
-  it('re-scans after a partial upstream response and narrows the remaining unresolved slot', async () => {
+  it('re-scans after a partial upstream response until the gap is fully closed', async () => {
+    database.db.delete(ohlcvCandles)
+      .where(eq(ohlcvCandles.coinId, 'bitcoin'))
+      .run();
+
     for (const [timestamp, close] of [
       ['2026-03-18T00:00:00.000Z', 80_000],
       ['2026-03-23T00:00:00.000Z', 85_000],
@@ -168,7 +173,6 @@ describe('ohlcv gap detection and repair', () => {
 
     const fetchCandles = vi.fn(async (since: number, limit?: number) => {
       if (since === Date.parse('2026-03-19T00:00:00.000Z') && limit === 4) {
-        expect(limit).toBe(4);
         return [
           {
             timestamp: Date.parse('2026-03-19T00:00:00.000Z'),
@@ -189,7 +193,7 @@ describe('ohlcv gap detection and repair', () => {
         ];
       }
 
-      if (since === Date.parse('2026-03-21T00:00:00.000Z') && limit === 2) {
+      if (since === Date.parse('2026-03-22T00:00:00.000Z') && limit === 1) {
         return [
           {
             timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
@@ -200,10 +204,6 @@ describe('ohlcv gap detection and repair', () => {
             volume: 12.5,
           },
         ];
-      }
-
-      if (since === Date.parse('2026-03-21T00:00:00.000Z') && limit === 1) {
-        return [];
       }
 
       if (since === Date.parse('2026-03-20T00:00:00.000Z') && limit === 1) {
@@ -230,20 +230,27 @@ describe('ohlcv gap detection and repair', () => {
       interval: '1d',
     }, fetchCandles);
 
-    expect(fetchCandles).toHaveBeenNthCalledWith(1, Date.parse('2026-03-21T00:00:00.000Z'), 2);
-    expect(fetchCandles).toHaveBeenNthCalledWith(2, Date.parse('2026-03-21T00:00:00.000Z'), 1);
-    expect(fetchCandles).toHaveBeenCalledTimes(2);
+    expect(fetchCandles).toHaveBeenNthCalledWith(1, Date.parse('2026-03-19T00:00:00.000Z'), 4);
+    expect(fetchCandles).toHaveBeenNthCalledWith(2, Date.parse('2026-03-20T00:00:00.000Z'), 1);
+    expect(fetchCandles).toHaveBeenNthCalledWith(3, Date.parse('2026-03-22T00:00:00.000Z'), 1);
+    expect(fetchCandles).toHaveBeenCalledTimes(3);
     expect(result).toMatchObject({
       gapsRepaired: 1,
-      candlesRepaired: 1,
+      candlesRepaired: 4,
     });
-    expect(detectOhlcvGaps(database, 'bitcoin', 'usd', '1d')).toEqual([
-      expect.objectContaining({
-        gapStart: new Date('2026-03-21T00:00:00.000Z'),
-        gapEnd: new Date('2026-03-21T00:00:00.000Z'),
-        missingSlotCount: 1,
-      }),
+    const candles = getCanonicalCandles(database, 'bitcoin', 'usd', '1d', {
+      from: Date.parse('2026-03-18T00:00:00.000Z'),
+      to: Date.parse('2026-03-23T00:00:00.000Z'),
+    });
+    expect(candles.map((row) => row.timestamp.toISOString())).toEqual([
+      '2026-03-18T00:00:00.000Z',
+      '2026-03-19T00:00:00.000Z',
+      '2026-03-20T00:00:00.000Z',
+      '2026-03-21T00:00:00.000Z',
+      '2026-03-22T00:00:00.000Z',
+      '2026-03-23T00:00:00.000Z',
     ]);
+    expect(detectOhlcvGaps(database, 'bitcoin', 'usd', '1d')).toEqual([]);
   });
 
   it('prunes candles older than the configured retention window', () => {
