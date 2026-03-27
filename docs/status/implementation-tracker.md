@@ -22,7 +22,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 - Current release focus: `R4`
 - Current architecture direction: `Bun + TypeScript + Fastify + Zod + SQLite + Drizzle + better-sqlite3 + SQLite FTS5 + CCXT + Vitest`
-- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, boot-time hot-snapshot sync, continuous top-100-priority OHLCV worker runtime, 2D freshness model, complete R0-R3 endpoint families, and the first seeded onchain catalog endpoints are implemented with passing validation`
+- Current repository state: `the SQLite-first scaffold, expanded schema, CCXT provider abstraction, boot-time hot-snapshot sync, continuous top-100-priority OHLCV worker runtime, 2D freshness model, canonical chain resolution, live-backed exchange durability, and all 76 active non-NFT parity-matrix endpoints are implemented with passing validation`
 
 ## Current Priorities
 
@@ -36,12 +36,12 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 | Strategic workstream | Operational scope | Status | Notes |
 | --- | --- | --- | --- |
-| WS-A Compatibility fidelity | Parameter precedence, error shapes, serializers, divergence tracking | partial | R0, R1, R2, and R3 endpoint families are implemented with passing validation; the remaining compatibility work is concentrated in the expanding R4 onchain surface |
+| WS-A Compatibility fidelity | Parameter precedence, error shapes, serializers, divergence tracking | done | The compatibility audit now records 76 / 76 active non-NFT parity-matrix endpoints as implemented, parity is 100%, and invalid-parameter plus serializer coverage spans every active family |
 | WS-B Live market ingestion and freshness | CCXT provider abstraction, snapshot refresh, stale-data policy, fresh-by-default reads | done | Boot-time initial sync now materializes hot snapshots and continuous 60s refresh scheduling; live data owns hot reads after sync and stale fallback remains explicit |
-| WS-C Historical chart and OHLC semantics | Chart, range, OHLC, and future onchain OHLCV behavior | partial | Continuous OHLCV worker now owns restart-safe `1d` ingestion with top-100-first scheduling, recent catch-up, and backward deepening; longer retention and repair policy remain open |
-| WS-D Canonical entity resolution | Coin, platform, contract, venue, treasury, network, and DEX identity mapping | partial | Multi-exchange coin discovery via syncCoinCatalogFromExchanges(), COIN_ID_OVERRIDES shared in src/lib/coin-id.ts, exchange records from CCXT metadata |
-| WS-E Contract testing and fixtures | Endpoint fixtures, invalid-parameter coverage, repository/service-layer assertions | partial | 110 tests passing, integration tests for full live pipeline, stale-data tests adapted to 2D model |
-| WS-F Jobs, operations, and observability | Refresh scheduling, search rebuilds, job failure handling, lag visibility | partial | Initial-sync failure handling, serialized runtime jobs, standalone `ohlcv:worker` entrypoint, and OHLCV diagnostics are in place; hosted-worker deployment guidance and deeper alerting remain open |
+| WS-C Historical chart and OHLC semantics | Chart, range, OHLC, and future onchain OHLCV behavior | partial | Continuous OHLCV worker now owns restart-safe `1d` ingestion with top-100-first scheduling, recent catch-up, backward deepening, gap repair, retention enforcement, and persisted-history preference; longer-horizon operational policy remains open |
+| WS-D Canonical entity resolution | Coin, platform, contract, venue, treasury, network, and DEX identity mapping | done | Canonical chain/platform resolution, alias-aware contract lookup, multi-exchange chain merging, and onchain network/platform identity mapping now cover the active compatibility surface |
+| WS-E Contract testing and fixtures | Endpoint fixtures, invalid-parameter coverage, repository/service-layer assertions | done | 410 tests pass, invalid-parameter coverage spans all active families, recursive snake_case assertions guard representative responses, and the compatibility audit plus fixtures cover the implemented endpoint surface |
+| WS-F Jobs, operations, and observability | Refresh scheduling, search rebuilds, job failure handling, lag visibility | partial | Initial-sync failure handling, serialized runtime jobs, standalone `ohlcv:worker`, diagnostics for runtime/ohlcv/chain coverage, exchange durability hardening, and startup prewarm are in place; hosted-worker deployment guidance and deeper alerting remain open |
 
 ## Endpoint Family Progress
 
@@ -58,7 +58,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 | Exchanges / derivatives | R2 | done | `/exchanges/list`, `/exchanges`, `/exchanges/{id}`, `/exchanges/{id}/tickers`, `/exchanges/{id}/volume_chart`, `/derivatives/exchanges/list`, `/derivatives/exchanges`, and `/derivatives` are implemented and validated with seeded compatibility coverage, including exchange status filtering, dex pair formatting, ticker depth toggles, derivatives venue ordering, seeded contract-level derivatives rows, and dedicated module smoke coverage in `scripts/modules/exchanges/exchanges.sh` |
 | NFTs | removed | removed | removed from the active roadmap |
 | Public treasury | R3 | done | `/entities/list`, grouped `/:entity/public_treasury/:coin_id`, `/public_treasury/{entity_id}`, `/public_treasury/{entity_id}/{coin_id}/holding_chart`, and `/public_treasury/{entity_id}/transaction_history` are implemented from seeded curated holdings and transaction data |
-| Onchain DEX | R4 | partial | `/onchain/networks` and `/onchain/networks/{network}/dexes` are implemented from seeded network and DEX catalog data |
+| Onchain DEX | R4 | done | The full `/onchain/*` family is route-registered and validated, including networks, dexes, pools, tokens, trades, OHLCV, discovery/ranking feeds, and degraded fallback behavior where live providers are unavailable |
 
 ## Active Decisions
 
@@ -82,10 +82,10 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 ## Key Gaps
 
-1. Data sources are still the largest fidelity gap. Most market-facing endpoints continue to read from seeded static snapshots and seeded historical windows instead of a continuously refreshed live market dataset.
-2. Canonical chain and contract-address mapping coverage remains uneven; CCXT metadata is available, but normalized chain-universe ingestion and confidence reporting are not yet complete.
-3. The CCXT provider abstraction is in place, but live ingestion still needs more hardening around exchange breadth, repair behavior, and deployment ergonomics before it can be treated as fully finished.
-4. Historical chart and OHLC behavior now has a continuous worker path, but long-range retention, rolling repair, and explicit recovery-after-gap policies remain open.
+1. Data fidelity remains the largest remaining gap even though HTTP parity is complete; several endpoints still rely on seeded or fallback data when live providers are unavailable.
+2. Exchange and onchain live ingestion now cover the active surface, but broader venue breadth, richer ranking signals, and deployment ergonomics still need hardening.
+3. Historical chart and OHLC behavior now has canonical persistence, repair, and retention controls, but longer-horizon policy and hosted-worker operations remain open.
+4. Removed NFT rows remain intentionally unactioned in the parity matrix and are excluded from the active parity target.
 
 ## Known Data-Fidelity Follow-ups After Treasury/Onchain Kickoff
 
