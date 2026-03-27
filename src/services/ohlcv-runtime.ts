@@ -17,6 +17,8 @@ type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'
 type OhlcvRuntimeConfig = {
   ccxtExchanges: string[];
   ohlcvRefreshIntervalSeconds?: number;
+  ohlcvTargetHistoryDays?: number;
+  ohlcvRetentionDays?: number;
 };
 
 type OhlcvRuntimeOverrides = {
@@ -126,7 +128,9 @@ export function createOhlcvRuntime(
       return;
     }
 
-    const targets = await buildOhlcvSyncTargets(database, config.ccxtExchanges as never);
+    const targets = await buildOhlcvSyncTargets(database, config.ccxtExchanges as never, undefined, {
+      targetHistoryDays: config.ohlcvTargetHistoryDays,
+    });
     upsertOhlcvSyncTargets(database, targets, now);
     refreshOhlcvPriorityTiers(database, now);
   }

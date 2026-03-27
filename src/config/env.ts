@@ -8,6 +8,8 @@ import {
   DEFAULT_CURRENCY_REFRESH_INTERVAL_SECONDS,
   DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS,
   DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS,
+  DEFAULT_OHLCV_RETENTION_DAYS,
+  DEFAULT_OHLCV_TARGET_HISTORY_DAYS,
   DEFAULT_PROVIDER_FANOUT_CONCURRENCY,
   DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS,
 } from './runtime-policy';
@@ -27,6 +29,8 @@ const envSchema = z.object({
   SEARCH_REBUILD_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS),
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  OHLCV_TARGET_HISTORY_DAYS: z.coerce.number().int().positive().default(DEFAULT_OHLCV_TARGET_HISTORY_DAYS),
+  OHLCV_RETENTION_DAYS: z.coerce.number().int().positive().default(DEFAULT_OHLCV_RETENTION_DAYS),
   DEFILLAMA_BASE_URL: z.string().url().default('https://api.llama.fi'),
   DEFILLAMA_YIELDS_BASE_URL: z.string().url().default('https://yields.llama.fi'),
   THEGRAPH_API_KEY: z.string().trim().optional(),
@@ -48,6 +52,8 @@ export type AppConfig = {
   searchRebuildIntervalSeconds: number;
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
+  ohlcvTargetHistoryDays: number;
+  ohlcvRetentionDays: number;
   defillamaBaseUrl: string;
   defillamaYieldsBaseUrl: string;
   thegraphApiKey: string | null;
@@ -145,6 +151,8 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     searchRebuildIntervalSeconds: env.SEARCH_REBUILD_INTERVAL_SECONDS,
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
+    ohlcvTargetHistoryDays: env.OHLCV_TARGET_HISTORY_DAYS,
+    ohlcvRetentionDays: env.OHLCV_RETENTION_DAYS,
     defillamaBaseUrl: env.DEFILLAMA_BASE_URL,
     defillamaYieldsBaseUrl: env.DEFILLAMA_YIELDS_BASE_URL,
     thegraphApiKey: env.THEGRAPH_API_KEY && env.THEGRAPH_API_KEY.length > 0 ? env.THEGRAPH_API_KEY : null,

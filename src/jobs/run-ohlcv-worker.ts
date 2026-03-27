@@ -21,6 +21,8 @@ export async function runOhlcvWorkerJob(overrides: RunOhlcvWorkerJobOverrides = 
 
   const runtime = (overrides.createOhlcvRuntime ?? createOhlcvRuntime)(database, {
     ccxtExchanges: config.ccxtExchanges,
+    ohlcvTargetHistoryDays: config.ohlcvTargetHistoryDays,
+    ohlcvRetentionDays: config.ohlcvRetentionDays,
   }, logger);
 
   await runtime.start();

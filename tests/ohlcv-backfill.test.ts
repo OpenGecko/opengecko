@@ -126,7 +126,11 @@ describe('ohlcv backfill service', () => {
       return [];
     });
 
-    await runOhlcvBackfillOnce(database, { ccxtExchanges: ['binance'] }, { lookbackDays: 30 });
+    await runOhlcvBackfillOnce(database, {
+      ccxtExchanges: ['binance'],
+      ohlcvTargetHistoryDays: 365,
+      ohlcvRetentionDays: 365,
+    }, { lookbackDays: 30 });
 
     const bitcoinRows = getCanonicalCandles(database, 'bitcoin', 'usd', '1d', {
       from: Date.parse('2026-03-19T00:00:00.000Z'),

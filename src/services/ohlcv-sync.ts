@@ -1,7 +1,7 @@
 import type { AppDatabase } from '../db/client';
 import type { OhlcvSyncTargetRow } from '../db/schema';
 import { fetchExchangeOHLCV } from '../providers/ccxt';
-import { upsertCanonicalOhlcvCandle } from './candle-store';
+import { detectOhlcvGaps, enforceOhlcvRetention, repairOhlcvGaps, upsertCanonicalOhlcvCandle } from './candle-store';
 
 type OhlcvSyncTargetLike = Pick<
   OhlcvSyncTargetRow,
@@ -27,6 +27,8 @@ function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, cand
     });
   }
 }
+
+export { detectOhlcvGaps, repairOhlcvGaps, enforceOhlcvRetention };
 
 export async function syncRecentOhlcvWindow(database: AppDatabase, target: OhlcvSyncTargetLike, now: Date) {
   const seededRecentSince = now.getTime() - 30 * DAY_MS;

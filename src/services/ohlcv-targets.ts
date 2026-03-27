@@ -1,4 +1,5 @@
 import type { AppDatabase } from '../db/client';
+import { DEFAULT_OHLCV_TARGET_HISTORY_DAYS } from '../config/runtime-policy';
 import { coins } from '../db/schema';
 import { fetchExchangeMarkets, type ExchangeId } from '../providers/ccxt';
 
@@ -18,7 +19,9 @@ export async function buildOhlcvSyncTargets(
   database: AppDatabase,
   enabledExchanges: ExchangeId[],
   topCoinIds: Set<string> = new Set(),
+  options: { targetHistoryDays?: number } = {},
 ): Promise<OhlcvSyncTargetSeed[]> {
+  const targetHistoryDays = options.targetHistoryDays ?? DEFAULT_OHLCV_TARGET_HISTORY_DAYS;
   const marketIndex = new Map<ExchangeId, Set<string>>();
 
   for (const exchangeId of enabledExchanges) {
@@ -56,7 +59,7 @@ export async function buildOhlcvSyncTargets(
           exchangeId,
           symbol: `${base}/${matchedQuote}`,
           priorityTier: topCoinIds.has(row.id) ? 'top100' : 'long_tail',
-          targetHistoryDays: 365,
+          targetHistoryDays,
         } satisfies OhlcvSyncTargetSeed];
       }
     }
