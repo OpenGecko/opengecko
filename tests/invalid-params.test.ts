@@ -684,11 +684,11 @@ describe('OpenGecko invalid parameter handling', () => {
   it('rejects unsupported onchain pool include, toggle, and sort parameters explicitly', async () => {
     const invalidIncludeResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include=token',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640?include=token',
     });
     const invalidToggleResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include_volume_breakdown=yes',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640?include_volume_breakdown=yes',
     });
     const invalidSortResponse = await app!.inject({
       method: 'GET',
@@ -715,27 +715,27 @@ describe('OpenGecko invalid parameter handling', () => {
   it('rejects invalid onchain OHLCV timeframe and numeric parameters explicitly', async () => {
     const invalidPoolTimeframeResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/week',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/week',
     });
     const invalidPoolNumericResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?aggregate=abc',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?aggregate=abc',
     });
     const invalidPoolLimitResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?limit=0',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?limit=0',
     });
     const invalidPoolTimestampResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?before_timestamp=bad',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?before_timestamp=bad',
     });
     const invalidPoolCurrencyResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?currency=eur',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?currency=eur',
     });
     const invalidPoolTokenResponse = await app!.inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?token=0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?token=0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
     });
     const invalidTokenTimeframeResponse = await app!.inject({
       method: 'GET',

@@ -683,7 +683,7 @@
         }
       },
       {
-        "id": "0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b",
+        "id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
         "type": "pool",
         "attributes": {
           "name": "USDC / WETH 0.05%",
@@ -704,7 +704,7 @@
   },
   "onchainPoolEthDetail": {
     "data": {
-      "id": "0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b",
+      "id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
       "type": "pool",
       "attributes": {
         "name": "USDC / WETH 0.05%",

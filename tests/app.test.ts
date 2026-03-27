@@ -14,6 +14,7 @@ import type { MarketDataRuntimeState } from '../src/services/market-runtime-stat
 import * as candleStore from '../src/services/candle-store';
 import * as catalogModule from '../src/modules/catalog';
 import * as defillamaProvider from '../src/providers/defillama';
+import * as sqdProvider from '../src/providers/sqd';
 import * as thegraphProvider from '../src/providers/thegraph';
 import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import * as currencyRatesModule from '../src/services/currency-rates';
@@ -2002,7 +2003,7 @@ describe('OpenGecko app scaffold', () => {
       data_source: 'live',
       page: 1,
     });
-    const liveEthPool = ethPoolsResponse.json().data.find((entry: { id: string }) => entry.id === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b');
+    const liveEthPool = ethPoolsResponse.json().data.find((entry: { id: string }) => entry.id === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640');
     expect(liveEthPool).toMatchObject({
       type: 'pool',
       attributes: {
@@ -2079,7 +2080,7 @@ describe('OpenGecko app scaffold', () => {
       page: 1,
     });
 
-    const liveEthPool = ethPoolsResponse.json().data.find((entry: { id: string }) => entry.id === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b');
+    const liveEthPool = ethPoolsResponse.json().data.find((entry: { id: string }) => entry.id === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640');
     expect(liveEthPool).toMatchObject({
       type: 'pool',
       attributes: {
@@ -2261,7 +2262,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const poolDetailResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     });
 
     expect(poolsResponse.statusCode).toBe(200);
@@ -2279,7 +2280,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(poolDetailResponse.json()).toMatchObject({
       data: {
-        id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+        id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
         type: 'pool',
         attributes: {
           name: 'USDC / WETH 0.05%',
@@ -2331,17 +2332,17 @@ describe('OpenGecko app scaffold', () => {
   it('keeps onchain pool detail scoped to the requested network and supports explicit includes/toggles', async () => {
     const includedResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b?include=network,dex&include_volume_breakdown=true&include_composition=true',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640?include=network,dex&include_volume_breakdown=true&include_composition=true',
     });
     const wrongNetworkResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/solana/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      url: '/onchain/networks/solana/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     });
 
     expect(includedResponse.statusCode).toBe(200);
     expect(includedResponse.json()).toMatchObject({
       data: {
-        id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+        id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
         relationships: {
           network: { data: { id: 'eth', type: 'network' } },
           dex: { data: { id: 'uniswap_v3', type: 'dex' } },
@@ -2373,13 +2374,13 @@ describe('OpenGecko app scaffold', () => {
     expect(wrongNetworkResponse.statusCode).toBe(404);
     expect(wrongNetworkResponse.json()).toMatchObject({
       error: 'not_found',
-      message: 'Onchain pool not found: 0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      message: 'Onchain pool not found: 0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     });
   });
 
   it('normalizes mixed-case onchain pool addresses before detail and multi lookups without changing canonical response ids', async () => {
-    const lowercaseAddress = '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b';
-    const mixedCaseAddress = '0x88E6A0c2dDD26FCe6B7C8F1EC5feF66F5f8f2B4B';
+    const lowercaseAddress = '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640';
+    const mixedCaseAddress = '0x88E6A0c2DDD26fEEB64F039a2C41296fCB3F5640';
     const lowercaseSecondAddress = '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36';
     const mixedCaseSecondAddress = '0x4E68CCD3E89F51C3074CA5072BBAC773960DFA36';
 
@@ -2456,7 +2457,7 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toEqual([
       expect.objectContaining({ id: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36' }),
-      expect.objectContaining({ id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b' }),
+      expect.objectContaining({ id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640' }),
     ]);
     expect(response.json().data).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7' })]),
@@ -2492,7 +2493,7 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     expect(response.json().data[0]).toMatchObject({
@@ -2544,7 +2545,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(globalResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
@@ -2560,7 +2561,7 @@ describe('OpenGecko app scaffold', () => {
     expect(durationResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     expect(includeResponse.json()).toMatchObject({
@@ -2588,7 +2589,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(networkResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     expect(networkResponse.json().data).toEqual(
@@ -2603,7 +2604,7 @@ describe('OpenGecko app scaffold', () => {
     expect(networkDurationResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(networkDurationResponse.json().data).toEqual(
       expect.arrayContaining([
@@ -2648,7 +2649,7 @@ describe('OpenGecko app scaffold', () => {
     expect(globalResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     const globalCreatedAt = globalResponse.json().data.map((pool: { attributes: { pool_created_at: number | null } }) => pool.attributes.pool_created_at ?? 0);
@@ -2665,7 +2666,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(networkResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     expect(networkResponse.json().data.every((pool: { relationships: { network: { data: { id: string } } } }) =>
@@ -2677,7 +2678,7 @@ describe('OpenGecko app scaffold', () => {
   it('returns pool search results with exact matches ranked ahead of partial matches and supports network filtering', async () => {
     const exactAddressResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/search/pools?query=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b&page=1',
+      url: '/onchain/search/pools?query=0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640&page=1',
     });
     const exactNameResponse = await getApp().inject({
       method: 'GET',
@@ -2696,11 +2697,11 @@ describe('OpenGecko app scaffold', () => {
     expect(exactAddressResponse.json()).toMatchObject({
       meta: {
         page: 1,
-        query: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+        query: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       },
     });
     expect(exactAddressResponse.json().data[0]).toMatchObject({
-      id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       relationships: {
         network: { data: { id: 'eth', type: 'network' } },
       },
@@ -2708,11 +2709,11 @@ describe('OpenGecko app scaffold', () => {
 
     expect(exactNameResponse.statusCode).toBe(200);
     expect(exactNameResponse.json().data.length).toBeGreaterThan(0);
-    expect(exactNameResponse.json().data[0].id).toBe('0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b');
+    expect(exactNameResponse.json().data[0].id).toBe('0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640');
 
     expect(partialResponse.statusCode).toBe(200);
     expect(partialResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
@@ -2738,11 +2739,11 @@ describe('OpenGecko app scaffold', () => {
     });
     const subsetResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
+      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
     });
     const invalidSubsetResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x0000000000000000000000000000000000000000',
+      url: '/onchain/pools/trending_search?page=1&pools=0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x0000000000000000000000000000000000000000',
     });
     const pageOneResponse = await getApp().inject({
       method: 'GET',
@@ -2756,7 +2757,7 @@ describe('OpenGecko app scaffold', () => {
     expect(baselineResponse.statusCode).toBe(200);
     expect(baselineResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
@@ -2769,7 +2770,7 @@ describe('OpenGecko app scaffold', () => {
       },
     });
     expect(subsetResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
     ]);
 
@@ -2779,13 +2780,13 @@ describe('OpenGecko app scaffold', () => {
         page: 1,
         candidate_count: 1,
         ignored_candidates: [
-          '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
           '0x0000000000000000000000000000000000000000',
         ],
       },
     });
     expect(invalidSubsetResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
 
     expect(pageOneResponse.statusCode).toBe(200);
@@ -2804,7 +2805,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(pageOneResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(pageTwoResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
@@ -2850,7 +2851,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(validResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(validResponse.json().data.every((pool: {
       attributes: {
@@ -2872,7 +2873,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(maxBoundResponse.statusCode).toBe(200);
     expect(maxBoundResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
     ]);
     expect(maxBoundResponse.json().data.every((pool: { attributes: { reserve_in_usd: number } }) =>
@@ -2887,7 +2888,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(conjunctiveResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(conjunctiveResponse.json().data.every((pool: {
       attributes: { tx_count_h24: number };
@@ -2929,7 +2930,7 @@ describe('OpenGecko app scaffold', () => {
     expect(response.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(response.json()).toMatchObject({
       included: expect.arrayContaining([
@@ -2961,7 +2962,7 @@ describe('OpenGecko app scaffold', () => {
   it('returns onchain pools by multi-address lookup', async () => {
     const response = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
     });
 
     expect(response.statusCode).toBe(200);
@@ -2975,13 +2976,13 @@ describe('OpenGecko app scaffold', () => {
   it('returns deterministic pool-multi results for requested addresses only with deduplicated includes', async () => {
     const response = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36?include=network,dex',
+      url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36?include=network,dex',
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       data: [
-        expect.objectContaining({ id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b' }),
+        expect.objectContaining({ id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640' }),
         expect.objectContaining({ id: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36' }),
       ],
       included: expect.arrayContaining([
@@ -3041,13 +3042,13 @@ describe('OpenGecko app scaffold', () => {
         attributes: {
           top_pools: [
             '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
-            '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+            '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
           ],
           inactive_source: false,
           composition: {
             pools: expect.arrayContaining([
               expect.objectContaining({
-                pool_address: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+                pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
                 role: 'base',
               }),
               expect.objectContaining({
@@ -3064,7 +3065,7 @@ describe('OpenGecko app scaffold', () => {
           type: 'pool',
         }),
         expect.objectContaining({
-          id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
           type: 'pool',
         }),
       ]),
@@ -3088,7 +3089,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(tokenPoolsResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(tokenPoolsResponse.json().data.every((pool: { attributes: { base_token_address: string; quote_token_address: string } }) =>
       pool.attributes.base_token_address === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
@@ -3149,7 +3150,7 @@ describe('OpenGecko app scaffold', () => {
     });
     expect(fallbackResponse.json().data.attributes.top_pools).toEqual([
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
   });
 
@@ -3609,7 +3610,7 @@ describe('OpenGecko app scaffold', () => {
     expect(categoryPoolsResponse.json().data.map((pool: { id: string }) => pool.id)).toEqual([
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
       '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2',
     ]);
     expect(categoryPoolsResponse.json().data.every((pool: {
@@ -3720,11 +3721,11 @@ describe('OpenGecko app scaffold', () => {
     });
     const poolInfoResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/info',
     });
     const poolInfoIncludedResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info?include=pool',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/info?include=pool',
     });
     const recentlyUpdatedResponse = await getApp().inject({
       method: 'GET',
@@ -3784,7 +3785,7 @@ describe('OpenGecko app scaffold', () => {
       data: expect.any(Array),
       included: [
         expect.objectContaining({
-          id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
           type: 'pool',
         }),
       ],
@@ -3911,7 +3912,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const invalidPoolInfoIncludeResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/info?include=dex',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/info?include=dex',
     });
     const invalidRecentlyUpdatedIncludeResponse = await getApp().inject({
       method: 'GET',
@@ -3948,33 +3949,32 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns pool-scoped and token-aggregated onchain trades with threshold and token filtering semantics', async () => {
-    vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockImplementation(async (poolAddress) => {
+    const originalVitest = process.env.VITEST;
+    process.env.VITEST = 'false';
+
+    vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockImplementation(async (poolAddress) => {
       const normalized = poolAddress.toLowerCase();
-      if (normalized === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b') {
+      if (normalized === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640') {
         return [
           {
-            id: 'swap-live-1',
+            blockNumber: 100,
+            blockTimestamp: 1710000100,
+            txHash: '0xlivetx1',
             amount0: '-220000',
-            amount1: '62.85',
-            amountUSD: '220000',
-            timestamp: 1710000100,
-            sender: '0xsender1',
-            recipient: '0xrecipient1',
-            transaction: { id: '0xlivetx1', blockNumber: '100' },
-            token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-            token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+            amount1: '220500',
+            sqrtPriceX96: '0',
+            liquidity: '0',
+            tick: 0,
           },
           {
-            id: 'swap-live-2',
+            blockNumber: 99,
+            blockTimestamp: 1710000000,
+            txHash: '0xlivetx2',
             amount0: '-151000',
-            amount1: '-27.1',
-            amountUSD: '151000',
-            timestamp: 1710000000,
-            sender: '0xsender2',
-            recipient: '0xrecipient2',
-            transaction: { id: '0xlivetx2', blockNumber: '99' },
-            token0: null,
-            token1: null,
+            amount1: '151000',
+            sqrtPriceX96: '0',
+            liquidity: '0',
+            tick: 0,
           },
         ];
       }
@@ -3982,30 +3982,29 @@ describe('OpenGecko app scaffold', () => {
       if (normalized === '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7') {
         return [
           {
-            id: 'swap-live-curve-1',
+            blockNumber: 98,
+            blockTimestamp: 1709999200,
+            txHash: '0xlivetx3',
             amount0: '-180000',
             amount1: '180050',
-            amountUSD: '180000',
-            timestamp: 1709999200,
-            sender: '0xsender3',
-            recipient: '0xrecipient3',
-            transaction: { id: '0xlivetx3', blockNumber: '98' },
-            token0: null,
-            token1: null,
+            sqrtPriceX96: '0',
+            liquidity: '0',
+            tick: 0,
           },
         ];
       }
 
       return null;
     });
+    vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockResolvedValue(null);
 
     const poolTradesResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/trades',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades',
     });
     const filteredPoolTradesResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/trades?trade_volume_in_usd_greater_than=150000&token=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades?trade_volume_in_usd_greater_than=150000&token=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
     });
     const tokenTradesResponse = await getApp().inject({
       method: 'GET',
@@ -4019,7 +4018,7 @@ describe('OpenGecko app scaffold', () => {
     expect(poolTradesResponse.statusCode).toBe(200);
     expect(poolTradesResponse.json().meta).toEqual({
       network: 'eth',
-      pool_address: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       source: 'live',
     });
     expect(poolTradesResponse.json().data).toEqual(
@@ -4030,7 +4029,7 @@ describe('OpenGecko app scaffold', () => {
             pool: {
               data: {
                 type: 'pool',
-                id: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+                id: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
               },
             },
             network: {
@@ -4049,7 +4048,7 @@ describe('OpenGecko app scaffold', () => {
       '0xlivetx2',
     ]);
     expect(poolTradesResponse.json().data.every((trade: { relationships: { pool: { data: { id: string } } } }) =>
-      trade.relationships.pool.data.id === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b')).toBe(true);
+      trade.relationships.pool.data.id === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640')).toBe(true);
 
     expect(filteredPoolTradesResponse.statusCode).toBe(200);
     expect(filteredPoolTradesResponse.json().data.length).toBeGreaterThan(0);
@@ -4059,7 +4058,7 @@ describe('OpenGecko app scaffold', () => {
     }) =>
       Number(trade.attributes.volume_in_usd) > 150000
       && trade.attributes.token_address === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
-      && trade.relationships.pool.data.id === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b')).toBe(true);
+      && trade.relationships.pool.data.id === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640')).toBe(true);
 
     expect(tokenTradesResponse.statusCode).toBe(200);
     expect(tokenTradesResponse.json().meta).toEqual({
@@ -4090,7 +4089,7 @@ describe('OpenGecko app scaffold', () => {
     );
     expect(new Set(tokenTradesResponse.json().data.map((trade: { relationships: { pool: { data: { id: string } } } }) =>
       trade.relationships.pool.data.id))).toEqual(new Set([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]));
     expect(tokenTradesResponse.json().data.every((trade: { attributes: { token_address: string } }) =>
@@ -4100,16 +4099,17 @@ describe('OpenGecko app scaffold', () => {
     expect(filteredTokenTradesResponse.json().data.length).toBeGreaterThan(0);
     expect(filteredTokenTradesResponse.json().data.every((trade: { attributes: { volume_in_usd: string } }) =>
       Number(trade.attributes.volume_in_usd) > 150000)).toBe(true);
+    process.env.VITEST = originalVitest;
   });
 
   it('rejects malformed onchain trade parameters explicitly', async () => {
     const invalidPoolTokenResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/trades?token=0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades?token=0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
     });
     const malformedPoolThresholdResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/trades?trade_volume_in_usd_greater_than=abc',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades?trade_volume_in_usd_greater_than=abc',
     });
     const malformedTokenThresholdResponse = await getApp().inject({
       method: 'GET',
@@ -4117,7 +4117,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const malformedPoolTokenResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/trades?token=not-an-address',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades?token=not-an-address',
     });
 
     expect(invalidPoolTokenResponse.statusCode).toBe(400);
@@ -4146,78 +4146,74 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns pool-level onchain OHLCV with timeframe controls and currency/token semantics', async () => {
-    vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockImplementation(async (poolAddress) => {
-      if (poolAddress.toLowerCase() !== '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b') {
+    const originalVitest = process.env.VITEST;
+    process.env.VITEST = 'false';
+
+    vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockImplementation(async (poolAddress) => {
+      if (poolAddress.toLowerCase() !== '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640') {
         return null;
       }
 
       return [
         {
-          id: 'ohlcv-swap-1',
-            amount0: '-1000',
-          amount1: '0.285714',
-          amountUSD: '1000',
-            timestamp: 1714737600,
-          sender: '0xsender1',
-          recipient: '0xrecipient1',
-          transaction: { id: '0xohlcvtx1', blockNumber: '1' },
-          token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-          token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+          blockNumber: 1,
+          blockTimestamp: 1714737600,
+          txHash: '0xohlcvtx1',
+          amount0: '-1000',
+          amount1: '1000',
+          sqrtPriceX96: '0',
+          liquidity: '0',
+          tick: 0,
         },
         {
-          id: 'ohlcv-swap-2',
+          blockNumber: 2,
+          blockTimestamp: 1714741200,
+          txHash: '0xohlcvtx2',
           amount0: '-1200',
-          amount1: '0.33',
-          amountUSD: '1200',
-            timestamp: 1714741200,
-          sender: '0xsender2',
-          recipient: '0xrecipient2',
-          transaction: { id: '0xohlcvtx2', blockNumber: '2' },
-          token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-          token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+          amount1: '1200',
+          sqrtPriceX96: '0',
+          liquidity: '0',
+          tick: 0,
         },
         {
-          id: 'ohlcv-swap-3',
+          blockNumber: 3,
+          blockTimestamp: 1714744800,
+          txHash: '0xohlcvtx3',
           amount0: '-1500',
-          amount1: '0.4',
-          amountUSD: '1500',
-            timestamp: 1714744800,
-          sender: '0xsender3',
-          recipient: '0xrecipient3',
-          transaction: { id: '0xohlcvtx3', blockNumber: '3' },
-          token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-          token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+          amount1: '1500',
+          sqrtPriceX96: '0',
+          liquidity: '0',
+          tick: 0,
         },
         {
-          id: 'ohlcv-swap-4',
+          blockNumber: 4,
+          blockTimestamp: 1714748400,
+          txHash: '0xohlcvtx4',
           amount0: '900',
-          amount1: '-0.25',
-          amountUSD: '900',
-            timestamp: 1714748400,
-          sender: '0xsender4',
-          recipient: '0xrecipient4',
-          transaction: { id: '0xohlcvtx4', blockNumber: '4' },
-          token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-          token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+          amount1: '-900',
+          sqrtPriceX96: '0',
+          liquidity: '0',
+          tick: 0,
         },
       ];
     });
+    vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockResolvedValue(null);
 
     const baselineResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour',
     });
     const aggregatedResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?aggregate=2&limit=2',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?aggregate=2&limit=2',
     });
     const beforeResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?before_timestamp=1714741200&limit=2',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?before_timestamp=1714741200&limit=2',
     });
     const tokenCurrencyResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b/ohlcv/hour?currency=token&token=0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?currency=token&token=0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
     });
     const emptyIntervalsResponse = await getApp().inject({
       method: 'GET',
@@ -4230,7 +4226,7 @@ describe('OpenGecko app scaffold', () => {
         type: 'ohlcv',
         attributes: {
           network: 'eth',
-          pool_address: '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+          pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
           timeframe: 'hour',
           aggregate: 1,
           currency: 'usd',
@@ -4272,11 +4268,12 @@ describe('OpenGecko app scaffold', () => {
     const emptySeries = emptyIntervalsResponse.json().data.attributes.ohlcv_list;
     expect(emptySeries.length).toBeGreaterThan(1);
     expect(emptySeries.every((entry: { volume_usd: number }) => typeof entry.volume_usd === 'number')).toBe(true);
+    process.env.VITEST = originalVitest;
   });
 
   it('returns token-level onchain OHLCV aggregated from discoverable token pools', async () => {
     vi.spyOn(thegraphProvider, 'fetchUniswapV3PoolSwaps').mockImplementation(async (poolAddress) => {
-      if (poolAddress.toLowerCase() === '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b') {
+      if (poolAddress.toLowerCase() === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640') {
         return [
           {
             id: 'token-ohlcv-1',
@@ -4340,7 +4337,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const baselineBody = baselineResponse.json().data.attributes;
     expect(baselineBody.source_pools).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
     ]);
     expect(baselineBody.ohlcv_list.map((entry: { timestamp: number }) => entry.timestamp)).toEqual([
       1714737600,
@@ -4379,7 +4376,7 @@ describe('OpenGecko app scaffold', () => {
     const inactiveBody = inactiveSourceResponse.json().data.attributes;
     expect(inactiveBody.include_inactive_source).toBe(true);
     expect(inactiveBody.source_pools).toEqual([
-      '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+      '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
     ]);
     expect(new Set(inactiveBody.source_pools)).toEqual(new Set(
@@ -4408,7 +4405,7 @@ describe('OpenGecko app scaffold', () => {
           aggregate: 1,
           include_inactive_source: true,
           source_pools: [
-            '0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+            '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
             '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
           ],
         },

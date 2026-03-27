@@ -985,7 +985,7 @@ describe('CoinGecko API compatibility', () => {
     it('returns onchain pool detail with correct structure', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b',
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
@@ -1053,7 +1053,7 @@ describe('CoinGecko API compatibility', () => {
     it('returns multi pool lookup with correct structure', async () => {
       const response = await app.inject({
         method: 'GET',
-        url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
+        url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36',
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
@@ -1151,10 +1151,10 @@ describe('CoinGecko API compatibility', () => {
         { method: 'GET', url: '/onchain/networks', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/dexes', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/pools', expectedStatus: 200 },
-        { method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/dexes/uniswap_v3/pools', expectedStatus: 200 },
         { method: 'GET', url: '/onchain/networks/eth/new_pools', expectedStatus: 200 },
-        { method: 'GET', url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26fce6b7c8f1ec5fef66f5f8f2b4b,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36', expectedStatus: 200 },
+        { method: 'GET', url: '/onchain/networks/eth/pools/multi/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,0x4e68ccd3e89f51c3074ca5072bbac773960dfa36', expectedStatus: 200 },
         { method: 'GET', url: '/token_lists/ethereum/all.json', expectedStatus: 200 },
       ];
 
