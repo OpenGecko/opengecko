@@ -42,6 +42,32 @@ export type TheGraphSwapEvent = {
   token1: TheGraphPoolToken | null;
 };
 
+const POOL_SWAPS_QUERY = `query PoolSwaps($poolId: String!, $first: Int!) {
+  swaps(first: $first, orderBy: timestamp, orderDirection: desc, where: { pool: $poolId }) {
+    id
+    amount0
+    amount1
+    amountUSD
+    timestamp
+    sender
+    recipient
+    transaction {
+      id
+      blockNumber
+    }
+    token0 {
+      id
+      symbol
+      decimals
+    }
+    token1 {
+      id
+      symbol
+      decimals
+    }
+  }
+}`;
+
 export type TheGraphPoolSnapshot = {
   date: number | null;
   liquidity: string | null;
@@ -205,31 +231,7 @@ export async function fetchUniswapV3PoolSwaps(
   options: TheGraphRequestOptions = {},
 ): Promise<TheGraphSwapEvent[] | null> {
   const data = await postGraphql<{ swaps?: Array<Record<string, unknown>> }>(
-    `query PoolSwaps($poolId: String!, $first: Int!) {
-      swaps(first: $first, orderBy: timestamp, orderDirection: desc, where: { pool: $poolId }) {
-        id
-        amount0
-        amount1
-        amountUSD
-        timestamp
-        sender
-        recipient
-        transaction {
-          id
-          blockNumber
-        }
-        token0 {
-          id
-          symbol
-          decimals
-        }
-        token1 {
-          id
-          symbol
-          decimals
-        }
-      }
-    }`,
+    POOL_SWAPS_QUERY,
     {
       poolId: poolAddress.toLowerCase(),
       first,
@@ -260,6 +262,10 @@ export async function fetchUniswapV3PoolSwaps(
     token0: normalizeToken(swap.token0),
     token1: normalizeToken(swap.token1),
   }));
+}
+
+export function getUniswapV3PoolSwapsQuery() {
+  return POOL_SWAPS_QUERY;
 }
 
 export async function fetchUniswapV3PoolSnapshots(

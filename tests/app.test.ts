@@ -3519,8 +3519,8 @@ describe('OpenGecko app scaffold', () => {
             sender: '0xsender2',
             recipient: '0xrecipient2',
             transaction: { id: '0xlivetx2', blockNumber: '99' },
-            token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-            token1: { id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', symbol: 'WETH', decimals: 18 },
+            token0: null,
+            token1: null,
           },
         ];
       }
@@ -3536,8 +3536,8 @@ describe('OpenGecko app scaffold', () => {
             sender: '0xsender3',
             recipient: '0xrecipient3',
             transaction: { id: '0xlivetx3', blockNumber: '98' },
-            token0: { id: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', symbol: 'USDC', decimals: 6 },
-            token1: { id: '0xdac17f958d2ee523a2206206994597c13d831ec7', symbol: 'USDT', decimals: 6 },
+            token0: null,
+            token1: null,
           },
         ];
       }

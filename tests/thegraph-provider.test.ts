@@ -100,7 +100,7 @@ describe('thegraph provider', () => {
       },
     }), { status: 200 }));
 
-    const { fetchUniswapV3PoolSwaps } = await import('../src/providers/thegraph');
+    const { fetchUniswapV3PoolSwaps, getUniswapV3PoolSwapsQuery } = await import('../src/providers/thegraph');
 
     const result = await fetchUniswapV3PoolSwaps('0xPool', 25, {
       apiKey: 'inline-key',
@@ -127,9 +127,27 @@ describe('thegraph provider', () => {
 
     const request = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(request?.body as string)).toEqual({
-      query: expect.stringContaining('query PoolSwaps'),
+      query: getUniswapV3PoolSwapsQuery(),
       variables: { poolId: '0xpool', first: 25 },
     });
+  });
+
+  it('keeps the exported swap query in lockstep with normalized swap fields', async () => {
+    const { getUniswapV3PoolSwapsQuery } = await import('../src/providers/thegraph');
+
+    expect(getUniswapV3PoolSwapsQuery()).toContain('id');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('amount0');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('amount1');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('amountUSD');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('timestamp');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('sender');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('recipient');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('transaction {');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('blockNumber');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('token0 {');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('token1 {');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('symbol');
+    expect(getUniswapV3PoolSwapsQuery()).toContain('decimals');
   });
 
   it('fetches pool day snapshots for liquidity and volume data', async () => {
