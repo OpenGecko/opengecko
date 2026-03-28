@@ -43,6 +43,7 @@ async function eventually(assertion: () => void) {
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   return {
     initialSyncCompleted: false,
+    listenerBindDeferred: false,
     initialSyncCompletedWithoutUsableLiveSnapshots: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
@@ -131,11 +132,13 @@ describe('market runtime', () => {
     expect(startOhlcvRuntime).toHaveBeenCalledTimes(1);
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.listenerBound).toBe(false);
+    expect(state.listenerBindDeferred).toBe(true);
     expect(state.syncFailureReason).toBeNull();
     expect(state.hotDataRevision).toBe(2);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
 
     runtime.markListenerBound();
+    expect(state.listenerBindDeferred).toBe(false);
     await eventually(() => {
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
     });
@@ -435,14 +438,16 @@ describe('market runtime', () => {
 
     expect(state.initialSyncCompleted).toBe(true);
     expect(state.listenerBound).toBe(false);
+    expect(state.listenerBindDeferred).toBe(true);
 
     runtime.markListenerBound();
     expect(state.listenerBound).toBe(true);
+    expect(state.listenerBindDeferred).toBe(false);
 
     await runtime.stop();
     expect(state.listenerBound).toBe(false);
   });
-  it('runs startup prewarm during the background-runtime startup path before listener binding', async () => {
+  it('defers startup prewarm until after listener binding on the background-runtime startup path', async () => {
     const state = createState();
     const app = { inject: vi.fn().mockResolvedValue({ statusCode: 200 }) };
     const prewarmSpy = vi.spyOn(startupPrewarmModule, 'runStartupPrewarm').mockResolvedValue(undefined);
@@ -460,12 +465,15 @@ describe('market runtime', () => {
       await runtime.start();
       await runtime.whenReady();
 
-      expect(prewarmSpy).toHaveBeenCalledTimes(1);
-      expect(prewarmSpy).toHaveBeenCalledWith(app, state, metrics, baseConfig.startupPrewarmBudgetMs);
+      expect(prewarmSpy).toHaveBeenCalledTimes(0);
       expect(state.listenerBound).toBe(false);
+      expect(state.listenerBindDeferred).toBe(true);
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
 
       runtime.markListenerBound();
+      expect(prewarmSpy).toHaveBeenCalledTimes(1);
+      expect(prewarmSpy).toHaveBeenCalledWith(app, state, metrics, baseConfig.startupPrewarmBudgetMs);
+      expect(state.listenerBindDeferred).toBe(false);
       await eventually(() => {
         expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
       });
@@ -536,21 +544,20 @@ describe('market runtime', () => {
       });
       await flushMicrotasks();
 
-      expect(runStartupPrewarmSpy).toHaveBeenCalledTimes(1);
-      expect(readySettled).toBe(false);
+      expect(runStartupPrewarmSpy).toHaveBeenCalledTimes(0);
+      expect(readySettled).toBe(true);
       expect(state.initialSyncCompleted).toBe(true);
-      expect(state.startupPrewarm.targetResults).toMatchObject([
-        {
-          id: 'simple_price_bitcoin_usd',
-          status: 'completed',
-        },
-      ]);
+      expect(state.listenerBindDeferred).toBe(true);
+      expect(state.startupPrewarm.targetResults).toEqual([]);
+
+      runtime.markListenerBound();
+      await flushMicrotasks();
+      expect(runStartupPrewarmSpy).toHaveBeenCalledTimes(1);
+      expect(state.listenerBindDeferred).toBe(false);
 
       releaseTrailingPrewarm();
       await readyPromise;
       await startPromise;
-
-      expect(readySettled).toBe(true);
     } finally {
       runStartupPrewarmSpy.mockRestore();
       await runtime.stop();

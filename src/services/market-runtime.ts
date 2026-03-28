@@ -29,6 +29,7 @@ function clearRecoveredDegradedState(state: MarketDataRuntimeState) {
   state.syncFailureReason = null;
   state.allowStaleLiveService = false;
   state.providerFailureCooldownUntil = null;
+  state.listenerBindDeferred = false;
 }
 
 function enableFallbackFromExistingSnapshots(state: MarketDataRuntimeState) {
@@ -179,10 +180,8 @@ export function createMarketRuntime(
           rebuildSearchIndex(database);
           startupProgress?.complete('rebuild_search_index');
           finalizeStartupHotDataRevision(state);
-          readinessTask = runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
-          await readinessTask;
-          startupProgress?.begin('start_http_listener');
-          startupProgress?.complete('start_http_listener');
+          state.listenerBindDeferred = true;
+          readinessTask = Promise.resolve();
 
           logger.info('initial market sync completed successfully');
         } catch (error) {
@@ -231,6 +230,10 @@ export function createMarketRuntime(
     },
     markListenerBound() {
       state.listenerBound = true;
+      if (state.listenerBindDeferred) {
+        state.listenerBindDeferred = false;
+        readinessTask = runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
+      }
       if (listenerBoundDeferredMarketRefreshPending && !stopRequested) {
         listenerBoundDeferredMarketRefreshPending = false;
         queueMicrotask(() => {

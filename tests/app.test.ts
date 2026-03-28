@@ -886,6 +886,7 @@ describe('OpenGecko app scaffold', () => {
     } as unknown as FastifyInstance;
     const runtimeState: MarketDataRuntimeState = {
       initialSyncCompleted: true,
+      listenerBindDeferred: false,
       initialSyncCompletedWithoutUsableLiveSnapshots: false,
       allowStaleLiveService: false,
       syncFailureReason: null,
@@ -1038,17 +1039,27 @@ describe('OpenGecko app scaffold', () => {
       });
 
       expect(beforeRequestDiagnostics.statusCode).toBe(200);
-      expect(beforeRequestDiagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
+      expect(beforeRequestDiagnostics.json().data.readiness.listener_bind_deferred).toBe(true);
+      expect(beforeRequestDiagnostics.json().data.startup_prewarm.targetResults).toEqual([]);
+      expect(beforeRequestDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitPending).toBe(false);
+
+      prewarmApp.marketRuntime?.markListenerBound();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const afterBindDiagnostics = await prewarmApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(afterBindDiagnostics.statusCode).toBe(200);
+      expect(afterBindDiagnostics.json().data.readiness.listener_bind_deferred).toBe(false);
+      expect(afterBindDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitPending).toBe(true);
+      expect(afterBindDiagnostics.json().data.startup_prewarm.targetResults[0]).toMatchObject({
         id: 'simple_price_bitcoin_usd',
         status: 'completed',
         warmCacheRevision: expect.any(Number),
         firstObservedRequest: null,
       });
-
-      expect(beforeRequestDiagnostics.json().data.startup_prewarm.firstRequestWarmBenefitPending).toBe(true);
-
-      prewarmApp.marketRuntime?.markListenerBound();
-      await new Promise((resolve) => setTimeout(resolve, 50));
 
       const firstWarmRequest = await prewarmApp.inject({
         method: 'GET',

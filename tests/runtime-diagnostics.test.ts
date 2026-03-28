@@ -6,6 +6,7 @@ import type { MarketDataRuntimeState } from '../src/services/market-runtime-stat
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   const baseState: MarketDataRuntimeState = {
     initialSyncCompleted: false,
+      listenerBindDeferred: false,
     initialSyncCompletedWithoutUsableLiveSnapshots: false,
     allowStaleLiveService: false,
     syncFailureReason: null,
@@ -61,6 +62,7 @@ describe('runtime diagnostics', () => {
       readiness: {
         state: 'starting',
         listener_bound: false,
+        listener_bind_deferred: false,
         initial_sync_completed: false,
       },
       degraded: {
@@ -116,6 +118,7 @@ describe('runtime diagnostics', () => {
       readiness: {
         state: 'degraded',
         listener_bound: false,
+        listener_bind_deferred: false,
         initial_sync_completed: false,
       },
       degraded: {
@@ -171,6 +174,7 @@ describe('runtime diagnostics', () => {
       readiness: {
         state: 'degraded',
         listener_bound: false,
+        listener_bind_deferred: false,
         initial_sync_completed: false,
       },
       degraded: {
@@ -226,6 +230,7 @@ describe('runtime diagnostics', () => {
       readiness: {
         state: 'ready',
         listener_bound: true,
+        listener_bind_deferred: false,
         initial_sync_completed: true,
       },
       degraded: {
@@ -314,6 +319,7 @@ describe('runtime diagnostics', () => {
 
     expect(seededDiagnostics.readiness).toMatchObject({
       state: 'degraded',
+      listener_bind_deferred: false,
       initial_sync_completed: false,
     });
     expect(seededDiagnostics.degraded.validation_override).toEqual({
@@ -382,6 +388,7 @@ describe('runtime diagnostics', () => {
       readiness: {
         state: 'degraded',
         listener_bound: true,
+        listener_bind_deferred: false,
         initial_sync_completed: true,
       },
       degraded: {
@@ -488,6 +495,24 @@ describe('runtime diagnostics', () => {
         mode: 'off',
         reason: null,
       },
+    });
+  });
+
+  it('reports when listener bind was intentionally deferred until after initial sync', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBindDeferred: true,
+      }),
+      null,
+      300,
+    );
+
+    expect(diagnostics.readiness).toEqual({
+      state: 'ready',
+      listener_bound: false,
+      listener_bind_deferred: true,
+      initial_sync_completed: true,
     });
   });
 });
