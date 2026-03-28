@@ -17,6 +17,10 @@ type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'
 
 type JobRunner = () => Promise<void>;
 
+function formatRfc3339Timestamp() {
+  return new Date().toISOString().replace('.000Z', 'Z');
+}
+
 function bumpHotDataRevision(state: MarketDataRuntimeState) {
   state.hotDataRevision += 1;
 }
@@ -36,13 +40,30 @@ function enableFallbackFromExistingSnapshots(state: MarketDataRuntimeState) {
   state.allowStaleLiveService = true;
 }
 
+function finalizeBootstrapSuccess(state: MarketDataRuntimeState) {
+  state.initialSyncCompleted = true;
+  clearRecoveredDegradedState(state);
+
+  if (state.initialSyncCompletedWithoutUsableLiveSnapshots) {
+    bumpHotDataRevision(state);
+    return;
+  }
+
+  finalizeStartupHotDataRevision(state);
+  state.listenerBindDeferred = true;
+}
+
+function shouldDeferListenerBoundRefreshAfterBootstrap(state: MarketDataRuntimeState) {
+  return !state.initialSyncCompletedWithoutUsableLiveSnapshots;
+}
+
 function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketDataRuntimeState, runner: JobRunner) {
   let inFlight: Promise<void> | null = null;
 
   return {
     run: async () => {
       if (inFlight) {
-        logger.warn({ job: name }, 'background job skipped because the previous run is still active');
+        logger.warn({ timestamp: formatRfc3339Timestamp() }, `background job skipped because the previous run is still active job=${name}`);
         return inFlight;
       }
 
@@ -50,10 +71,11 @@ function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketD
         try {
           await runner();
           if (name === 'market_refresh') {
+            state.initialSyncCompletedWithoutUsableLiveSnapshots = false;
             clearRecoveredDegradedState(state);
             bumpHotDataRevision(state);
           }
-          logger.info(`background job completed job=${name}`);
+          logger.info({ timestamp: formatRfc3339Timestamp() }, `background job completed job=${name}`);
         } catch (error) {
           if (name === 'market_refresh') {
             state.syncFailureReason = error instanceof Error ? error.message : String(error);
@@ -126,7 +148,7 @@ export function createMarketRuntime(
     if (snapshotCount > 0) {
       enableFallbackFromExistingSnapshots(state);
       if (!startupProgress) {
-        logger.warn('using residual stale data while bootstrap is still running');
+        logger.warn({ timestamp: formatRfc3339Timestamp() }, 'using residual stale data while bootstrap is still running');
       }
       startupProgress?.reportWarning('Using residual stale data while bootstrap is still running');
     }
@@ -193,9 +215,7 @@ export function createMarketRuntime(
           // Start OHLCV runtime without awaiting — it runs independently
           void (overrides.startOhlcvRuntime ?? (() => ohlcvRuntime.start()))();
           startupProgress?.complete('start_ohlcv_worker');
-          state.initialSyncCompleted = true;
-          clearRecoveredDegradedState(state);
-          bumpHotDataRevision(state);
+          finalizeBootstrapSuccess(state);
 
           const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
           startupProgress?.begin('seed_reference_data');
@@ -205,14 +225,12 @@ export function createMarketRuntime(
           startupProgress?.begin('rebuild_search_index');
           rebuildSearchIndex(database);
           startupProgress?.complete('rebuild_search_index');
-          finalizeStartupHotDataRevision(state);
-          state.listenerBindDeferred = true;
           startupProgress?.begin('start_http_listener');
           startupProgress?.reportStatus('Waiting for Fastify to bind the HTTP listener');
           readinessTask = Promise.resolve();
 
           if (!startupProgress) {
-            logger.info('initial market sync completed successfully');
+            logger.info({ timestamp: formatRfc3339Timestamp() }, 'initial market sync completed successfully');
           }
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
@@ -230,7 +248,7 @@ export function createMarketRuntime(
         }
 
         await runCurrencyJob.run();
-        listenerBoundDeferredMarketRefreshPending = true;
+        listenerBoundDeferredMarketRefreshPending = shouldDeferListenerBoundRefreshAfterBootstrap(state);
 
         if (stopRequested) {
           return;

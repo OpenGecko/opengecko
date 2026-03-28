@@ -134,7 +134,7 @@ describe('market runtime', () => {
     expect(state.listenerBound).toBe(false);
     expect(state.listenerBindDeferred).toBe(true);
     expect(state.syncFailureReason).toBeNull();
-    expect(state.hotDataRevision).toBe(2);
+    expect(state.hotDataRevision).toBe(1);
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(0);
 
     runtime.markListenerBound();
@@ -143,14 +143,8 @@ describe('market runtime', () => {
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
     });
     await eventually(() => {
-      expect(state.hotDataRevision).toBe(3);
+      expect(state.hotDataRevision).toBe(2);
     });
-
-    await eventually(() => {
-      vi.advanceTimersByTime(60_000);
-      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
-    });
-    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
 
     await eventually(() => {
       vi.advanceTimersByTime(240_000);
@@ -163,6 +157,100 @@ describe('market runtime', () => {
       expect(runSearchRebuildOnce).toHaveBeenCalledTimes(1);
     });
     expect(runSearchRebuildOnce).toHaveBeenCalledTimes(1);
+
+    await runtime.stop();
+  });
+
+  it('keeps the fresh-boot zero-live state on background startup without deferring listener-bound refreshes', async () => {
+    const state = createState({
+      initialSyncCompletedWithoutUsableLiveSnapshots: true,
+    });
+    const runInitialMarketSync = vi.fn().mockResolvedValue({
+      coinsDiscovered: 0,
+      chainsDiscovered: 0,
+      snapshotsCreated: 0,
+      tickersWritten: 0,
+      exchangesSynced: 0,
+      ohlcvCandlesWritten: 0,
+    });
+    const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runMarketRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runSearchRebuildOnce = vi.fn().mockResolvedValue(undefined);
+    const startOhlcvRuntime = vi.fn().mockResolvedValue(undefined);
+    const runtime = createMarketRuntime({ inject: vi.fn().mockResolvedValue(injectedResponse) } as never, {} as never, baseConfig as never, logger, state, metrics, {
+      runInitialMarketSync,
+      runCurrencyRefreshOnce,
+      runMarketRefreshOnce,
+      runSearchRebuildOnce,
+      startOhlcvRuntime,
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await runtime.whenReady();
+
+    expect(state.initialSyncCompleted).toBe(true);
+    expect(state.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
+    expect(state.listenerBindDeferred).toBe(false);
+    expect(state.hotDataRevision).toBe(1);
+    expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
+
+    runtime.markListenerBound();
+    expect(state.listenerBound).toBe(true);
+    expect(state.listenerBindDeferred).toBe(false);
+
+    await advanceTimersBy(60_000);
+    await eventually(() => {
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    });
+    await eventually(() => {
+      expect(state.hotDataRevision).toBe(2);
+    });
+
+    await runtime.stop();
+  });
+
+  it('clears the fresh-boot zero-live state when a listener-bound refresh recovers usable live snapshots', async () => {
+    const state = createState({
+      initialSyncCompletedWithoutUsableLiveSnapshots: true,
+      hotDataRevision: 1,
+    });
+    const runInitialMarketSync = vi.fn().mockResolvedValue({
+      coinsDiscovered: 0,
+      chainsDiscovered: 0,
+      snapshotsCreated: 0,
+      tickersWritten: 0,
+      exchangesSynced: 0,
+      ohlcvCandlesWritten: 0,
+    });
+    const runCurrencyRefreshOnce = vi.fn().mockResolvedValue(undefined);
+    const runMarketRefreshOnce = vi.fn().mockImplementation(async () => {
+      state.initialSyncCompletedWithoutUsableLiveSnapshots = false;
+    });
+    const runtime = createMarketRuntime({ inject: vi.fn().mockResolvedValue(injectedResponse) } as never, {} as never, baseConfig as never, logger, state, metrics, {
+      runInitialMarketSync,
+      runCurrencyRefreshOnce,
+      runMarketRefreshOnce,
+      runSearchRebuildOnce: vi.fn().mockResolvedValue(undefined),
+      startOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+      stopOhlcvRuntime: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await runtime.start();
+    await runtime.whenReady();
+
+    expect(state.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
+    expect(state.hotDataRevision).toBe(2);
+
+    runtime.markListenerBound();
+    await advanceTimersBy(60_000);
+    await eventually(() => {
+      expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
+    });
+    await eventually(() => {
+      expect(state.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(false);
+      expect(state.hotDataRevision).toBe(3);
+    });
 
     await runtime.stop();
   });
@@ -208,7 +296,7 @@ describe('market runtime', () => {
     expect(readySettled).toBe(true);
     expect(startOhlcvRuntime).toHaveBeenCalledTimes(1);
     expect(state.initialSyncCompleted).toBe(true);
-    expect(state.hotDataRevision).toBe(2);
+    expect(state.hotDataRevision).toBe(1);
     await eventually(() => {
       expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(1);
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
@@ -219,7 +307,7 @@ describe('market runtime', () => {
       expect(runMarketRefreshOnce).toHaveBeenCalledTimes(1);
     });
     await eventually(() => {
-      expect(state.hotDataRevision).toBe(3);
+      expect(state.hotDataRevision).toBe(2);
     });
 
     const stopPromise = runtime.stop();
@@ -336,7 +424,12 @@ describe('market runtime', () => {
 
     await advanceTimersBy(1_000);
     expect(runCurrencyRefreshOnce).toHaveBeenCalledTimes(2);
-    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
+      }),
+      'background job skipped because the previous run is still active job=currency_refresh',
+    );
 
     releaseCurrencyJob();
     await runtime.stop();
@@ -358,7 +451,12 @@ describe('market runtime', () => {
 
     await runtime.start();
     await eventually(() => {
-      expect(logger.info).toHaveBeenCalledWith('background job completed job=currency_refresh');
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
+        }),
+        'background job completed job=currency_refresh',
+      );
     });
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
     runtime.markListenerBound();
@@ -368,7 +466,12 @@ describe('market runtime', () => {
     releaseMarketRefresh();
     await flushAsyncWork();
     await eventually(() => {
-      expect(logger.info).toHaveBeenCalledWith('background job completed job=market_refresh');
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
+        }),
+        'background job completed job=market_refresh',
+      );
     });
 
     await runtime.stop();
@@ -416,7 +519,12 @@ describe('market runtime', () => {
 
     await advanceTimersBy(1_000);
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(2);
-    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
+      }),
+      'background job skipped because the previous run is still active job=market_refresh',
+    );
 
     releaseMarketJob();
     await runtime.stop();
@@ -595,7 +703,7 @@ describe('market runtime', () => {
     expect(state.allowStaleLiveService).toBe(false);
     expect(state.providerFailureCooldownUntil).toBeNull();
     expect(state.initialSyncCompleted).toBe(true);
-    expect(state.hotDataRevision).toBe(4);
+    expect(state.hotDataRevision).toBe(3);
 
     runtime.markListenerBound();
     await eventually(() => {
@@ -617,7 +725,7 @@ describe('market runtime', () => {
       expect(state.allowStaleLiveService).toBe(false);
     });
     expect(state.initialSyncCompleted).toBe(true);
-    expect(state.hotDataRevision).toBe(5);
+    expect(state.hotDataRevision).toBe(4);
 
     await runtime.stop();
   });
@@ -716,11 +824,11 @@ describe('market runtime', () => {
 
     expect(state.syncFailureReason).toBeNull();
     expect(state.allowStaleLiveService).toBe(false);
-    expect(state.hotDataRevision).toBe(9);
+    expect(state.hotDataRevision).toBe(8);
 
     runtime.markListenerBound();
     await eventually(() => {
-      expect(state.hotDataRevision).toBe(10);
+      expect(state.hotDataRevision).toBe(9);
     });
 
     await runtime.stop();
