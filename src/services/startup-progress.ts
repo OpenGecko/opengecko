@@ -85,7 +85,7 @@ export function createStartupProgressTracker(
         return `${C.cyan}║${C.reset}${C.bold}${C.cyan}${' '.repeat(pad)}${line}${' '.repeat(right)}${C.reset}${C.cyan}║${C.reset}`;
       }),
       `${C.cyan}║${' '.repeat(68)}${C.cyan}║${C.reset}`,
-      `${C.cyan}║${C.reset}${C.dim}  v0.2.1 \u00b7 CoinGecko-compatible open-source API${' '.repeat(21)}${C.reset}${C.cyan}║${C.reset}`,
+      `${C.cyan}║${C.reset}${C.dim}  v0.5.0 \u00b7 CoinGecko-compatible open-source API${' '.repeat(21)}${C.reset}${C.cyan}║${C.reset}`,
       `${C.cyan}║${' '.repeat(68)}${C.cyan}║${C.reset}`,
       `${C.cyan}╚${'═'.repeat(68)}╝${C.reset}`,
       '',

@@ -36,6 +36,7 @@ Canonical planning documents:
 - Follow SemVer for version bumps: use `patch` for bug fixes and compatibility-preserving implementation/detail changes, `minor` for backward-compatible endpoint additions or response-field expansions, and `major` for intentional breaking changes.
 - Do not bump the version for docs-only edits, test-only changes, or internal refactors with no externally observable behavior change.
 - If a change mixes internal work with externally visible behavior, bump the version based on the highest user-visible impact in that change set.
+- When bumping `package.json` version, update every user-facing startup/version surface in the same change set, including the startup banner string in `src/services/startup-progress.ts` and any tests that assert it.
 
 ## Documentation Rules
 

@@ -20,7 +20,7 @@ describe('startup progress tracker', () => {
     tracker.begin('start_ohlcv_worker', { current: 124, total: 386 });
 
     const banner = writes[0];
-    expect(banner).toContain('v0.2.1');
+    expect(banner).toContain('v0.5.0');
 
     const last = writes.at(-1) ?? '';
     expect(last).toContain('Start OHLCV worker');
