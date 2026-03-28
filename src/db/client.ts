@@ -16,6 +16,7 @@ import {
   coins,
   derivativeTickers,
   derivativesExchanges,
+  exchanges,
   ohlcvCandles,
   ohlcvSyncTargets,
   onchainDexes,
@@ -310,6 +311,132 @@ const seededDerivativesExchanges = [
     url: 'https://www.bybit.com',
     imageUrl: 'https://assets.coingecko.com/markets/images/698/small/bybit_spot.png',
     centralised: true,
+    updatedAt: new Date(seedTimestamp),
+  },
+];
+
+const seededSpotExchanges = [
+  {
+    id: 'binance',
+    name: 'Binance',
+    yearEstablished: 2017,
+    country: 'Cayman Islands',
+    description: 'One of the world’s largest cryptocurrency exchanges by trading volume, offering a wide range of services including spot, futures, and staking options.',
+    url: 'https://www.binance.com/',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 1,
+    tradeVolume24hBtc: 139508.1218951856,
+    tradeVolume24hBtcNormalized: null,
+    facebookUrl: 'https://www.facebook.com/binanceexchange',
+    redditUrl: 'https://www.reddit.com/r/binance/',
+    telegramUrl: '',
+    slackUrl: '',
+    otherUrlJson: JSON.stringify([
+      'https://medium.com/binanceexchange',
+      'https://steemit.com/@binanceexchange',
+    ]),
+    twitterHandle: 'binance',
+    centralised: true,
+    publicNotice: '',
+    alertNotice: '',
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'bybit_spot',
+    name: 'Bybit',
+    yearEstablished: 2018,
+    country: 'British Virgin Islands',
+    description: 'Bybit is the world’s second-largest cryptocurrency exchange by trading volume.',
+    url: 'https://www.bybit.com',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/698/small/bybit_spot.png?1706864649',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 2,
+    tradeVolume24hBtc: 31354.586546252525,
+    tradeVolume24hBtcNormalized: null,
+    facebookUrl: null,
+    redditUrl: null,
+    telegramUrl: null,
+    slackUrl: null,
+    otherUrlJson: '[]',
+    twitterHandle: null,
+    centralised: true,
+    publicNotice: null,
+    alertNotice: null,
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'gdax',
+    name: 'Coinbase Exchange',
+    yearEstablished: 2012,
+    country: 'United States',
+    description: 'A leading U.S.-based exchange known for fiat-to-crypto trading.',
+    url: 'https://www.coinbase.com/',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/23/small/Coinbase_Coin_Primary.png?1706864258',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 3,
+    tradeVolume24hBtc: 28639.82177338897,
+    tradeVolume24hBtcNormalized: null,
+    facebookUrl: null,
+    redditUrl: null,
+    telegramUrl: null,
+    slackUrl: null,
+    otherUrlJson: '[]',
+    twitterHandle: null,
+    centralised: true,
+    publicNotice: null,
+    alertNotice: null,
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'gate',
+    name: 'Gate',
+    yearEstablished: 2013,
+    country: 'Panama',
+    description: 'Gate provides digital asset trading and related blockchain services.',
+    url: 'https://www.gate.com',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/60/small/Frame_1.png?1747795534',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 4,
+    tradeVolume24hBtc: 25125.993617291915,
+    tradeVolume24hBtcNormalized: null,
+    facebookUrl: null,
+    redditUrl: null,
+    telegramUrl: null,
+    slackUrl: null,
+    otherUrlJson: '[]',
+    twitterHandle: null,
+    centralised: true,
+    publicNotice: null,
+    alertNotice: null,
+    updatedAt: new Date(seedTimestamp),
+  },
+  {
+    id: 'okex',
+    name: 'OKX',
+    yearEstablished: 2017,
+    country: 'Seychelles',
+    description: 'OKX is a global cryptocurrency exchange with spot and derivatives markets.',
+    url: 'https://www.okx.com',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/96/small/WeChat_Image_20220117220452.png?1706864283',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 5,
+    tradeVolume24hBtc: 24349.950465989154,
+    tradeVolume24hBtcNormalized: null,
+    facebookUrl: null,
+    redditUrl: null,
+    telegramUrl: null,
+    slackUrl: null,
+    otherUrlJson: '[]',
+    twitterHandle: null,
+    centralised: true,
+    publicNotice: null,
+    alertNotice: null,
     updatedAt: new Date(seedTimestamp),
   },
 ];
@@ -692,12 +819,25 @@ const seededMinimalCoins = [
   updatedAt: new Date(seedTimestamp),
 }));
 
-export function seedStaticReferenceData(database: AppDatabase) {
+export type SeedStaticReferenceDataOptions = {
+  includeSeededExchanges?: boolean;
+};
+
+export function seedStaticReferenceData(
+  database: AppDatabase,
+  options: SeedStaticReferenceDataOptions = {},
+) {
   const seededChartPoints = buildSeededChartPoints();
+  const {
+    includeSeededExchanges = false,
+  } = options;
 
   database.db.insert(coins).values(seededMinimalCoins).onConflictDoNothing().run();
   database.db.insert(assetPlatforms).values(seededAssetPlatforms).onConflictDoNothing().run();
   database.db.insert(categories).values(seededCategories).onConflictDoNothing().run();
+  if (includeSeededExchanges) {
+    database.db.insert(exchanges).values(seededSpotExchanges).onConflictDoNothing().run();
+  }
   database.db.insert(derivativesExchanges).values(seededDerivativesExchanges).onConflictDoNothing().run();
   database.db.insert(derivativeTickers).values(seededDerivativeTickers).onConflictDoNothing().run();
   database.db.insert(treasuryEntities).values(seededTreasuryEntities).onConflictDoNothing().run();

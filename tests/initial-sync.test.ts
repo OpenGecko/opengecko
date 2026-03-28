@@ -112,7 +112,7 @@ describe('initial market sync', () => {
     const binance = exchangeRecords.find(e => e.id === 'binance');
     expect(binance).toBeDefined();
     expect(binance!.name).toBe('Binance');
-    expect(binance!.url).toBe('https://www.binance.com');
+    expect(binance!.url).toBe('https://www.binance.com/');
   });
 
   it('limits exchange metadata fanout concurrency during initial sync setup', async () => {

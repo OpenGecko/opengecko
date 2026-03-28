@@ -503,7 +503,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     if (runtime) {
       await runtime.start();
       await runtime.whenReady();
-      seedStaticReferenceData(database);
+      seedStaticReferenceData(database, { includeSeededExchanges: true });
       rebuildSearchIndex(database);
     } else {
       const persistentSnapshotDatabaseUrl = resolvePersistentSnapshotDatabaseUrl(
@@ -620,7 +620,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
       // Seed static reference data (treasury, derivatives, onchain) after coins exist
       options.startupProgress?.begin('seed_reference_data');
-      seedStaticReferenceData(database);
+      seedStaticReferenceData(database, { includeSeededExchanges: true });
       options.startupProgress?.complete('seed_reference_data');
       options.startupProgress?.begin('rebuild_search_index');
       rebuildSearchIndex(database);
