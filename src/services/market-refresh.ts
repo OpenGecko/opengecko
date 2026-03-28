@@ -312,7 +312,15 @@ function recordMatchedTicker(
 }
 
 function updateExchangeVolumes(database: AppDatabase, exchangeQuoteVolumes: Map<string, number>, now: Date) {
+  const knownExchangeIds = new Set(
+    database.db.select().from(exchanges).all().map((row) => row.id),
+  );
+
   for (const [normalizedExchangeId, totalQuoteVolume] of exchangeQuoteVolumes) {
+    if (!knownExchangeIds.has(normalizedExchangeId)) {
+      continue;
+    }
+
     database.db
       .insert(exchangeVolumePoints)
       .values({
@@ -439,7 +447,15 @@ function upsertPendingCoinTickers(
   pendingCoinTickers: PendingCoinTicker[],
   conversionContext: ConversionContext,
 ) {
+  const knownExchangeIds = new Set(
+    database.db.select().from(exchanges).all().map((row) => row.id),
+  );
+
   for (const pendingTicker of pendingCoinTickers) {
+    if (!knownExchangeIds.has(pendingTicker.exchangeId)) {
+      continue;
+    }
+
     upsertLiveCoinTicker(database, pendingTicker, conversionContext);
   }
 }

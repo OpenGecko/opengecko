@@ -18,6 +18,7 @@ import * as sqdProvider from '../src/providers/sqd';
 import * as thegraphProvider from '../src/providers/thegraph';
 import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import * as currencyRatesModule from '../src/services/currency-rates';
+import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 const currentDailyBucket = () => candleStore.toDailyBucket(Date.now()).getTime();
@@ -65,6 +66,7 @@ describe('OpenGecko app scaffold', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-'));
+    resetCurrencyApiSnapshotForTests();
     defaultDefillamaTokenPriceMock();
     app = buildApp({
       config: {
@@ -109,6 +111,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns chain coverage diagnostics', async () => {
+    await getApp().ready();
     const response = await getApp().inject({
       method: 'GET',
       url: '/diagnostics/chain_coverage',
@@ -129,6 +132,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns ohlcv worker lag and failure metrics', async () => {
+    await getApp().ready();
     const response = await getApp().inject({
       method: 'GET',
       url: '/diagnostics/ohlcv_sync',
@@ -141,6 +145,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns machine-readable runtime diagnostics for ready live service', async () => {
+    await getApp().ready();
     const response = await getApp().inject({
       method: 'GET',
       url: '/diagnostics/runtime',
@@ -180,6 +185,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('exposes provider failure injection only on the validation port and reports the injected state', async () => {
+    await getApp().ready();
     const nonValidationResponse = await getApp().inject({
       method: 'POST',
       url: '/diagnostics/runtime/provider_failure',
@@ -202,6 +208,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     try {
+      await validationApp.ready();
       await validationApp.listen({ host: '127.0.0.1', port: 0 });
       const enableResponse = await validationApp.inject({
         method: 'POST',
@@ -258,6 +265,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('exposes degraded-state override only on the validation port and lets validation drive stale/degraded behavior', async () => {
+    await getApp().ready();
     const nonValidationResponse = await getApp().inject({
       method: 'POST',
       url: '/diagnostics/runtime/degraded_state',
@@ -280,6 +288,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     try {
+      await validationApp.ready();
       await validationApp.listen({ host: '127.0.0.1', port: 0 });
       validationApp.marketDataRuntimeState.listenerBound = true;
       const staleTimestamp = new Date('2025-03-19T00:00:00.000Z');
@@ -508,6 +517,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns supported quote currencies', async () => {
+    await getApp().ready();
     const response = await getApp().inject({
       method: 'GET',
       url: '/simple/supported_vs_currencies',
@@ -519,6 +529,7 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns exchange rates keyed by currency code', async () => {
+    await getApp().ready();
     const response = await getApp().inject({
       method: 'GET',
       url: '/exchange_rates',
@@ -5717,7 +5728,7 @@ describe('OpenGecko app scaffold', () => {
         expect(usdcCoinAfter?.platformsJson).toContain('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
         expect(validationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(false);
         expect(validationApp.marketDataRuntimeState.validationOverride).toMatchObject({
-          mode: 'degraded_seeded_bootstrap',
+          mode: 'seeded_bootstrap',
           reason: 'validation runtime seeded from persistent live snapshots',
           snapshotSourceCountOverride: expect.any(Number),
         });
@@ -5747,30 +5758,30 @@ describe('OpenGecko app scaffold', () => {
         expect(tokenPriceResponse.json()).toMatchObject({
           '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
             usd: expect.any(Number),
-            usd_24h_vol: null,
-            usd_24h_change: null,
+            usd_24h_vol: expect.any(Number),
+            usd_24h_change: expect.any(Number),
             last_updated_at: expect.any(Number),
           },
         });
         expect(diagnosticsResponse.statusCode).toBe(200);
         expect(diagnosticsResponse.json().data).toMatchObject({
           readiness: {
-            state: 'degraded',
+            state: 'starting',
             initial_sync_completed: false,
           },
           degraded: {
-            active: true,
+            active: false,
             stale_live_enabled: true,
             reason: 'validation runtime seeded from persistent live snapshots',
             validation_override: {
               active: true,
-              mode: 'degraded_seeded_bootstrap',
+              mode: 'seeded_bootstrap',
               reason: 'validation runtime seeded from persistent live snapshots',
             },
           },
           hot_paths: {
             shared_market_snapshot: {
-              source_class: 'degraded_seeded_bootstrap',
+              source_class: 'seeded_bootstrap',
             },
           },
         });
@@ -5799,7 +5810,7 @@ describe('OpenGecko app scaffold', () => {
 
       expect(validationServerApp.marketRuntime).toBeNull();
       expect(validationServerApp.marketDataRuntimeState.validationOverride).toMatchObject({
-        mode: 'degraded_seeded_bootstrap',
+        mode: 'seeded_bootstrap',
         reason: 'validation runtime seeded from persistent live snapshots',
       });
 
@@ -5811,11 +5822,99 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnosticsResponse.statusCode).toBe(200);
       expect(diagnosticsResponse.json().data.degraded.validation_override).toMatchObject({
         active: true,
-        mode: 'degraded_seeded_bootstrap',
+        mode: 'seeded_bootstrap',
         reason: 'validation runtime seeded from persistent live snapshots',
       });
+      expect(diagnosticsResponse.json().data.hot_paths.shared_market_snapshot.source_class).toBe('seeded_bootstrap');
     } finally {
       await validationServerApp.close();
+    }
+  });
+
+  it('exposes persisted snapshots on the default/local bootstrap runtime through a distinct seeded bootstrap mode', async () => {
+    const localBootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        host: '0.0.0.0',
+        port: 3000,
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await localBootstrapApp.ready();
+
+      expect(localBootstrapApp.marketDataRuntimeState.validationOverride).toMatchObject({
+        mode: 'seeded_bootstrap',
+        reason: 'default runtime seeded from persistent live snapshots',
+      });
+
+      const [simplePriceResponse, marketsResponse, detailResponse, diagnosticsResponse] = await Promise.all([
+        localBootstrapApp.inject({
+          method: 'GET',
+          url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+        }),
+        localBootstrapApp.inject({
+          method: 'GET',
+          url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&order=market_cap_desc&page=1&per_page=3&price_change_percentage=24h,7d&sparkline=false',
+        }),
+        localBootstrapApp.inject({
+          method: 'GET',
+          url: '/coins/bitcoin?community_data=false&developer_data=false&localization=false&market_data=true&sparkline=false&tickers=false',
+        }),
+        localBootstrapApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        }),
+      ]);
+
+      expect(simplePriceResponse.statusCode).toBe(200);
+      expect(simplePriceResponse.json()).toEqual({
+        bitcoin: {
+          usd: expect.any(Number),
+        },
+      });
+      expect(marketsResponse.statusCode).toBe(200);
+      expect(marketsResponse.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: expect.any(Number),
+        market_cap: expect.any(Number),
+        total_volume: expect.any(Number),
+        last_updated: expect.any(String),
+      });
+      expect(detailResponse.statusCode).toBe(200);
+      expect(detailResponse.json().market_data).toMatchObject({
+        current_price: { usd: expect.any(Number) },
+        market_cap: { usd: expect.any(Number) },
+        total_volume: { usd: expect.any(Number) },
+        last_updated: expect.any(String),
+      });
+      expect(diagnosticsResponse.statusCode).toBe(200);
+      expect(diagnosticsResponse.json().data).toMatchObject({
+        readiness: {
+          state: 'starting',
+          initial_sync_completed: false,
+        },
+        degraded: {
+          active: false,
+          stale_live_enabled: true,
+          reason: 'default runtime seeded from persistent live snapshots',
+          validation_override: {
+            active: true,
+            mode: 'seeded_bootstrap',
+            reason: 'default runtime seeded from persistent live snapshots',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'seeded_bootstrap',
+          },
+        },
+      });
+    } finally {
+      await localBootstrapApp.close();
     }
   });
 

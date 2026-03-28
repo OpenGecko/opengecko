@@ -46,6 +46,8 @@ export type BuildAppOptions = {
 
 export type AppLifecycleState = ReturnType<typeof createMarketDataRuntimeState>;
 
+type BootstrapSnapshotAccessMode = 'disabled' | 'seeded_bootstrap';
+
 function recordStartupPrewarmObservation(
   app: FastifyInstance,
   url: string,
@@ -118,6 +120,24 @@ function tryParseSourceProvidersJson(value: string | null | undefined) {
   } catch {
     return [] as string[];
   }
+}
+
+function resolveBootstrapSnapshotAccessMode(
+  runtimeDatabaseUrl: string,
+  startBackgroundJobs: boolean,
+) : BootstrapSnapshotAccessMode {
+  if (startBackgroundJobs || runtimeDatabaseUrl !== ':memory:') {
+    return 'disabled';
+  }
+
+  const defaultPersistentDatabaseUrl = './data/opengecko.db';
+  const resolvedDefaultPersistentDatabaseUrl = resolve(process.cwd(), defaultPersistentDatabaseUrl);
+
+  if (!existsSync(resolvedDefaultPersistentDatabaseUrl)) {
+    return 'disabled';
+  }
+
+  return 'seeded_bootstrap';
 }
 
 function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, host?: string, port?: number) {
@@ -430,7 +450,7 @@ function seedRuntimeSnapshotsFromPersistentStore(
           latestSourceCount = row.source_count;
         }
 
-        if (row.exchange_id && row.base && row.target && existingExchangeIds.has(row.exchange_id) && existingCoinIds.has(row.coin_id)) {
+        if (row.exchange_id && row.base && row.target && existingExchangeIds.has(row.exchange_id)) {
           insertTicker.run(
             row.coin_id,
             row.exchange_id,
@@ -446,8 +466,8 @@ function seedRuntimeSnapshotsFromPersistentStore(
             row.trust_score,
             row.last_traded_at,
             row.last_fetch_at,
-            Boolean(row.is_anomaly),
-            Boolean(row.is_stale),
+            row.is_anomaly == null ? null : Number(Boolean(row.is_anomaly)),
+            row.is_stale == null ? null : Number(Boolean(row.is_stale)),
             row.trade_url,
             row.token_info_url,
             row.coin_gecko_url,
@@ -480,13 +500,16 @@ function seedRuntimeSnapshotsFromPersistentStore(
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const config = mergeConfig(options.config);
-  const bootstrapOnlyValidationRuntime = !options.startBackgroundJobs
+  const shouldStartBackgroundJobs = options.startBackgroundJobs ?? false;
+  const bootstrapSnapshotAccessMode = resolveBootstrapSnapshotAccessMode(
+    config.databaseUrl,
+    shouldStartBackgroundJobs,
+  );
+  const bootstrapOnlyValidationRuntime = !shouldStartBackgroundJobs
     && config.host === '127.0.0.1'
     && config.port === 3102;
-  const seedValidationSnapshotMode = !options.startBackgroundJobs
-    && config.host === '127.0.0.1'
-    && config.port === 3102
-    && config.databaseUrl === ':memory:';
+  const seedValidationSnapshotMode = bootstrapSnapshotAccessMode === 'seeded_bootstrap'
+    && bootstrapOnlyValidationRuntime;
   const suppressBuiltInLogsUntilReady = options.startupProgress != null;
   const useEmojiCompactHttpLogs = config.logPretty && config.httpLogStyle === 'emoji_compact_p';
   const loggerOpts = config.logLevel === 'silent'
@@ -536,7 +559,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (!options.startupProgress) {
     app.log.info({ timestamp: formatRfc3339Timestamp(), ...getDatabaseStartupLogContext(database) }, 'database initialized');
   }
-  const shouldStartBackgroundJobs = options.startBackgroundJobs ?? false;
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const metrics = createMetricsRegistry();
   const runtime = shouldStartBackgroundJobs
@@ -599,11 +621,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       seedStaticReferenceData(database, { includeSeededExchanges: true });
       rebuildSearchIndex(database);
     } else {
-      const persistentSnapshotDatabaseUrl = resolvePersistentSnapshotDatabaseUrl(
+      const persistentSnapshotDatabaseUrl = bootstrapSnapshotAccessMode === 'seeded_bootstrap'
+        ? resolvePersistentSnapshotDatabaseUrl(
         config.databaseUrl,
         config.host,
         config.port,
-      );
+      )
+        : null;
       if (persistentSnapshotDatabaseUrl) {
         marketDataRuntimeState.validationOverride.reason = bootstrapOnlyValidationRuntime
           ? 'validation runtime seeded from persistent live snapshots'
