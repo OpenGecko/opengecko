@@ -1,6 +1,6 @@
 {
   "reportFormatVersion": 1,
-  "generatedAt": "2026-03-28T06:31:47.874Z",
+  "generatedAt": "2026-03-28T07:18:53.412Z",
   "corpusIdentity": "e9b06018d3038ea547af71e6c0c8726f2ca4c4e51439219f7a810c6a81cdc69a",
   "manifestId": "coingecko-pro-bounded-v1",
   "replayTargetManifestIdentity": "30a1227ebb29de1f316dbdba88275d192e2622c0622d45129057c5303545c1d5",
@@ -9,8 +9,8 @@
   "replayReportPath": "/home/whoami/dev/openGecko/data/coingecko-snapshots/replay/report.json",
   "totals": {
     "findings": 9,
-    "actionable": 7,
-    "expected": 2
+    "actionable": 9,
+    "expected": 0
   },
   "actionableFindings": [
     {
@@ -399,19 +399,17 @@
         "data.total_volume.usd",
         "data.updated_at"
       ]
-    }
-  ],
-  "expectedFindings": [
+    },
     {
-      "findingId": "618ae703305107aa",
-      "findingKey": "simple-price-canonical:shape:$status",
+      "findingId": "e5ebf1200273fa42",
+      "findingKey": "simple-price-canonical:missing_field:bitcoin|ethereum",
       "entryId": "simple-price-canonical",
       "normalizedPath": "/simple/price?ids=bitcoin%2Cethereum&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true&include_market_cap=true&vs_currencies=usd",
-      "gapClass": "shape",
-      "classificationReason": "HTTP status differs (200 vs 503).",
-      "status": "expected",
-      "divergenceId": "expected-simple-price-runtime-unavailable",
-      "divergenceReason": "Offline validation runs can surface 503 simple price responses when no live market snapshots are loaded.",
+      "gapClass": "missing_field",
+      "classificationReason": "Field present on only one side.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
       "ownershipHints": [
         {
           "module_path": "src/modules/simple.ts",
@@ -422,25 +420,26 @@
       "upstreamArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
       "replayArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
       "upstreamStatus": 200,
-      "replayStatus": 503,
+      "replayStatus": 200,
       "evidencePaths": {
         "upstreamArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
         "replayArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json"
       },
       "diffPaths": [
-        "$status"
+        "bitcoin",
+        "ethereum"
       ]
     },
     {
-      "findingId": "3c62fb5e606d76c6",
-      "findingKey": "simple-token-price-ethereum-usdc:shape:$status",
+      "findingId": "7d354bda88d74d0b",
+      "findingKey": "simple-token-price-ethereum-usdc:missing_field:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
       "entryId": "simple-token-price-ethereum-usdc",
       "normalizedPath": "/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true&include_market_cap=true&vs_currencies=usd",
-      "gapClass": "shape",
-      "classificationReason": "HTTP status differs (200 vs 503).",
-      "status": "expected",
-      "divergenceId": "expected-token-price-runtime-unavailable",
-      "divergenceReason": "Offline validation runs can surface 503 token price responses when no live market snapshots are loaded.",
+      "gapClass": "missing_field",
+      "classificationReason": "Field present on only one side.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
       "ownershipHints": [
         {
           "module_path": "src/modules/simple.ts",
@@ -451,14 +450,15 @@
       "upstreamArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
       "replayArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
       "upstreamStatus": 200,
-      "replayStatus": 503,
+      "replayStatus": 200,
       "evidencePaths": {
         "upstreamArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
         "replayArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json"
       },
       "diffPaths": [
-        "$status"
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
       ]
     }
-  ]
+  ],
+  "expectedFindings": []
 }
