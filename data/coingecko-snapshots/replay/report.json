@@ -4,7 +4,7 @@
   "manifestId": "coingecko-pro-bounded-v1",
   "replayTargetManifestIdentity": "30a1227ebb29de1f316dbdba88275d192e2622c0622d45129057c5303545c1d5",
   "normalizationRulesId": "coingecko-offline-replay-rules-v1",
-  "replayedAt": "2026-03-28T23:10:38.544Z",
+  "replayedAt": "2026-03-28T23:47:40.715Z",
   "validationApiBaseUrl": "http://127.0.0.1:3102",
   "entryCount": 9,
   "findings": [

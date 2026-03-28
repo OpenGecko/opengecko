@@ -194,7 +194,14 @@ export function buildMarketRow(
     : seededBootstrapSnapshot;
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const chartSeries = getChartSeries(database, row.coin.id, 'usd');
-  const prices = chartSeries.map((point) => point.price * rate);
+  const seriesExtremes = getSeriesExtremes(
+    database,
+    row.coin.id,
+    vsCurrency,
+    marketFreshnessThresholdSeconds,
+    snapshotAccessPolicy,
+    options.precision,
+  );
   const marketCapChange24h = snapshot?.marketCap && snapshot.priceChangePercentage24h !== null && snapshot.priceChangePercentage24h !== undefined
     ? snapshot.marketCap - (snapshot.marketCap / (1 + (snapshot.priceChangePercentage24h / 100)))
     : null;
@@ -212,15 +219,15 @@ export function buildMarketRow(
   return {
     id: row.coin.id,
     symbol: coin.symbol,
-    name: coin.symbol.toUpperCase(),
+    name: coin.name,
     image: coin.imageLargeUrl,
     current_price: toNumberOrNull(snapshot ? snapshot.price * rate : null, options.precision),
     market_cap: toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
     market_cap_rank: snapshot?.marketCapRank ?? row.coin.marketCapRank,
     fully_diluted_valuation: toNumberOrNull(snapshot?.fullyDilutedValuation ? snapshot.fullyDilutedValuation * rate : null, options.precision),
     total_volume: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.totalVolume ? snapshot.totalVolume * rate : null, options.precision),
-    high_24h: degradedMarketSnapshot || validationStaleDisallowed || prices.length === 0 ? null : toNumberOrNull(Math.max(...prices), options.precision),
-    low_24h: degradedMarketSnapshot || validationStaleDisallowed || prices.length === 0 ? null : toNumberOrNull(Math.min(...prices), options.precision),
+    high_24h: degradedMarketSnapshot || validationStaleDisallowed ? null : seriesExtremes.high24h,
+    low_24h: degradedMarketSnapshot || validationStaleDisallowed ? null : seriesExtremes.low24h,
     price_change_24h: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.priceChange24h ? snapshot.priceChange24h * rate : null, options.precision),
     price_change_percentage_24h: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.priceChangePercentage24h, options.precision),
     market_cap_change_24h: degradedMarketSnapshot ? null : toNumberOrNull(marketCapChange24h !== null ? marketCapChange24h * rate : null, options.precision),

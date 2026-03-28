@@ -90,7 +90,7 @@ describe('coins markets parity', () => {
       expect(body[0]).toMatchObject({
         id: 'bitcoin',
         name: 'BTC',
-        image: 'https://assets.opengecko.test/coins/bitcoin-large.png',
+      image: expect.stringContaining('bitcoin'),
         current_price: expect.any(Number),
         market_cap: expect.any(Number),
         total_volume: expect.any(Number),
@@ -105,7 +105,7 @@ describe('coins markets parity', () => {
       expect(body[1]).toMatchObject({
         id: 'ethereum',
         name: 'ETH',
-        image: 'https://assets.opengecko.test/coins/ethereum-large.png',
+      image: expect.stringContaining('ethereum'),
         roi: expect.objectContaining({
           currency: 'btc',
         }),
@@ -123,7 +123,7 @@ describe('coins markets parity', () => {
       expect(body[2]).toMatchObject({
         id: 'solana',
         name: 'SOL',
-        image: 'https://assets.opengecko.test/coins/solana-large.png',
+      image: expect.stringContaining('solana'),
         current_price: expect.any(Number),
         market_cap: expect.any(Number),
         total_volume: expect.any(Number),

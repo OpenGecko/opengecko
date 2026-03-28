@@ -225,6 +225,9 @@ function seedRuntimeSnapshotsFromPersistentStore(
       name: string;
       api_symbol: string;
       platforms_json: string;
+      image_thumb_url: string | null;
+      image_small_url: string | null;
+      image_large_url: string | null;
       updated_at: number;
       price: number;
       market_cap: number | null;
@@ -271,6 +274,9 @@ function seedRuntimeSnapshotsFromPersistentStore(
         c.name,
         c.api_symbol,
         c.platforms_json,
+        c.image_thumb_url,
+        c.image_small_url,
+        c.image_large_url,
         c.updated_at,
         ms.price,
         ms.market_cap,
@@ -334,11 +340,14 @@ function seedRuntimeSnapshotsFromPersistentStore(
         id, symbol, name, api_symbol, hashing_algorithm, block_time_in_minutes,
         categories_json, description_json, links_json, image_thumb_url, image_small_url,
         image_large_url, market_cap_rank, genesis_date, platforms_json, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, NULL, NULL, '[]', '{}', '{}', NULL, NULL, NULL, ?, NULL, ?, 'active', ?, ?)
+      ) VALUES (?, ?, ?, ?, NULL, NULL, '[]', '{}', '{}', ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         symbol = excluded.symbol,
         name = excluded.name,
         api_symbol = excluded.api_symbol,
+        image_thumb_url = COALESCE(excluded.image_thumb_url, coins.image_thumb_url),
+        image_small_url = COALESCE(excluded.image_small_url, coins.image_small_url),
+        image_large_url = COALESCE(excluded.image_large_url, coins.image_large_url),
         market_cap_rank = COALESCE(excluded.market_cap_rank, coins.market_cap_rank),
         platforms_json = excluded.platforms_json,
         updated_at = excluded.updated_at
@@ -397,6 +406,32 @@ function seedRuntimeSnapshotsFromPersistentStore(
         token_info_url = excluded.token_info_url,
         coin_gecko_url = excluded.coin_gecko_url
     `);
+    const chartRows = persistentDatabase.client.prepare<{
+      coin_id: string;
+      timestamp: number;
+      price: number;
+      market_cap: number | null;
+      total_volume: number | null;
+    }>(`
+      SELECT
+        coin_id,
+        timestamp,
+        price,
+        market_cap,
+        total_volume
+      FROM chart_points
+      WHERE vs_currency = 'usd'
+      ORDER BY coin_id, timestamp
+    `).all();
+    const insertChartPoint = runtimeDatabase.client.prepare(`
+      INSERT INTO chart_points (
+        coin_id, vs_currency, timestamp, price, market_cap, total_volume
+      ) VALUES (?, 'usd', ?, ?, ?, ?)
+      ON CONFLICT(coin_id, vs_currency, timestamp) DO UPDATE SET
+        price = excluded.price,
+        market_cap = excluded.market_cap,
+        total_volume = excluded.total_volume
+    `);
 
     let latestSnapshotTimestamp: string | null = null;
     let latestSourceCount: number | null = null;
@@ -416,6 +451,9 @@ function seedRuntimeSnapshotsFromPersistentStore(
           row.symbol,
           row.name,
           row.api_symbol,
+          row.image_thumb_url,
+          row.image_small_url,
+          row.image_large_url,
           row.market_cap_rank,
           row.platforms_json,
           row.updated_at,
@@ -473,6 +511,15 @@ function seedRuntimeSnapshotsFromPersistentStore(
             row.coin_gecko_url,
           );
         }
+      }
+      for (const row of chartRows) {
+        insertChartPoint.run(
+          row.coin_id,
+          row.timestamp,
+          row.price,
+          row.market_cap,
+          row.total_volume,
+        );
       }
       runtimeDatabase.client.exec('COMMIT');
     } catch (error) {
@@ -735,8 +782,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       }
       if (seededBootstrapPreserved) {
         marketDataRuntimeState.initialSyncCompleted = false;
+        marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots = false;
         marketDataRuntimeState.allowStaleLiveService = true;
         marketDataRuntimeState.syncFailureReason = null;
+        if (marketDataRuntimeState.hotDataRevision === 0) {
+          marketDataRuntimeState.hotDataRevision = 1;
+        }
       } else {
         marketDataRuntimeState.initialSyncCompleted = true;
         marketDataRuntimeState.allowStaleLiveService = bootstrapOnlyValidationRuntime
