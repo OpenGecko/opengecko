@@ -229,6 +229,29 @@ export function registerGlobalRoutes(
     const btcMarketCap = marketRows.find((row) => row.coin.id === 'bitcoin')?.snapshot?.marketCap ?? 0;
     const ethMarketCap = marketRows.find((row) => row.coin.id === 'ethereum')?.snapshot?.marketCap ?? 0;
     const usdcMarketCap = marketRows.find((row) => row.coin.id === 'usd-coin')?.snapshot?.marketCap ?? 0;
+    const preferredDominanceCoinIds = ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple', 'usd-coin', 'solana'];
+    const marketCapPercentage = Object.fromEntries(
+      marketRows
+        .filter((row) => preferredDominanceCoinIds.includes(row.coin.id))
+        .sort((left, right) => {
+          const leftIndex = preferredDominanceCoinIds.indexOf(left.coin.id);
+          const rightIndex = preferredDominanceCoinIds.indexOf(right.coin.id);
+          return leftIndex - rightIndex;
+        })
+        .map((row) => [row.coin.symbol.toLowerCase(), totalMarketCapUsd === 0 ? 0 : ((row.snapshot.marketCap ?? 0) / totalMarketCapUsd) * 100]),
+    );
+    const volumeChangePercentage24hUsd = totalVolumeUsd === 0
+      ? 0
+      : marketRows.reduce((sum, row) => {
+        const volume = row.snapshot.totalVolume;
+        const changePercentage = row.snapshot.priceChangePercentage24h;
+
+        if (volume === null || changePercentage === null || changePercentage <= -100) {
+          return sum;
+        }
+
+        return sum + (volume / (1 + (changePercentage / 100)));
+      }, 0);
     const updatedAt = marketRows.reduce((maxTimestamp, row) => Math.max(maxTimestamp, row.snapshot.lastUpdated.getTime()), 0);
 
     return {
@@ -244,8 +267,12 @@ export function registerGlobalRoutes(
           btc: totalMarketCapUsd === 0 ? 0 : (btcMarketCap / totalMarketCapUsd) * 100,
           eth: totalMarketCapUsd === 0 ? 0 : (ethMarketCap / totalMarketCapUsd) * 100,
           usdc: totalMarketCapUsd === 0 ? 0 : (usdcMarketCap / totalMarketCapUsd) * 100,
+          ...marketCapPercentage,
         },
         market_cap_change_percentage_24h_usd: computeMarketCapChangePercentage24hUsd(marketRows),
+        volume_change_percentage_24h_usd: volumeChangePercentage24hUsd === 0
+          ? 0
+          : ((totalVolumeUsd - volumeChangePercentage24hUsd) / volumeChangePercentage24hUsd) * 100,
         updated_at: Math.floor(updatedAt / 1000),
       },
     };

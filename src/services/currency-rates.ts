@@ -53,6 +53,11 @@ export function getSupportedVsCurrencies() {
     .sort();
 }
 
+export function resetCurrencyApiSnapshotForTests() {
+  currentSnapshot = BOOTSTRAP_CURRENCY_API_SNAPSHOT;
+  inFlightRefresh = null;
+}
+
 export async function refreshCurrencyApiRatesOnce(fetchImpl: typeof fetch = fetch) {
   if (inFlightRefresh) {
     return inFlightRefresh;
