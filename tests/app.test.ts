@@ -5657,6 +5657,131 @@ describe('OpenGecko app scaffold', () => {
     expect(countSharedAssetCalls()).toBe(warmCallCountBeforeRequests + 2);
   });
 
+  it('seeds validation bootstrap-only in-memory runtime from persistent live snapshots before zero-live policy evaluation', async () => {
+    await getApp().close();
+    app = undefined;
+
+    const sourceDatabasePath = join(tempDir, 'opengecko.db');
+    const seededValidationApp = buildApp({
+      config: {
+        databaseUrl: sourceDatabasePath,
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await seededValidationApp.ready();
+
+      const bitcoinSnapshotBefore = seededValidationApp.db.db
+        .select()
+        .from(marketSnapshots)
+        .where(eq(marketSnapshots.coinId, 'bitcoin'))
+        .get();
+      const usdcCoinBefore = seededValidationApp.db.db
+        .select()
+        .from(coins)
+        .where(eq(coins.id, 'usd-coin'))
+        .get();
+
+      expect(bitcoinSnapshotBefore?.sourceCount).toBeGreaterThan(0);
+      expect(usdcCoinBefore?.platformsJson).toContain('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
+
+      const validationApp = buildApp({
+        config: {
+          databaseUrl: ':memory:',
+          ccxtExchanges: [],
+          logLevel: 'silent',
+          host: '127.0.0.1',
+          port: 3102,
+        },
+        startBackgroundJobs: false,
+      });
+
+      try {
+        await validationApp.ready();
+
+        const bitcoinSnapshotAfter = validationApp.db.db
+          .select()
+          .from(marketSnapshots)
+          .where(eq(marketSnapshots.coinId, 'bitcoin'))
+          .get();
+        const usdcCoinAfter = validationApp.db.db
+          .select()
+          .from(coins)
+          .where(eq(coins.id, 'usd-coin'))
+          .get();
+
+        expect(bitcoinSnapshotAfter?.sourceCount).toBeGreaterThan(0);
+        expect(usdcCoinAfter?.platformsJson).toContain('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
+        expect(validationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(false);
+        expect(validationApp.marketDataRuntimeState.validationOverride).toMatchObject({
+          mode: 'degraded_seeded_bootstrap',
+          reason: 'validation runtime seeded from persistent live snapshots',
+          snapshotSourceCountOverride: expect.any(Number),
+        });
+
+        const [simplePriceResponse, tokenPriceResponse, diagnosticsResponse] = await Promise.all([
+          validationApp.inject({
+            method: 'GET',
+            url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          }),
+          validationApp.inject({
+            method: 'GET',
+            url: '/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true',
+          }),
+          validationApp.inject({
+            method: 'GET',
+            url: '/diagnostics/runtime',
+          }),
+        ]);
+
+        expect(simplePriceResponse.statusCode).toBe(200);
+        expect(simplePriceResponse.json()).toEqual({
+          bitcoin: {
+            usd: expect.any(Number),
+          },
+        });
+        expect(tokenPriceResponse.statusCode).toBe(200);
+        expect(tokenPriceResponse.json()).toMatchObject({
+          '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
+            usd: expect.any(Number),
+            usd_24h_vol: null,
+            usd_24h_change: null,
+            last_updated_at: expect.any(Number),
+          },
+        });
+        expect(diagnosticsResponse.statusCode).toBe(200);
+        expect(diagnosticsResponse.json().data).toMatchObject({
+          readiness: {
+            state: 'degraded',
+            initial_sync_completed: false,
+          },
+          degraded: {
+            active: true,
+            stale_live_enabled: true,
+            reason: 'validation runtime seeded from persistent live snapshots',
+            validation_override: {
+              active: true,
+              mode: 'degraded_seeded_bootstrap',
+              reason: 'validation runtime seeded from persistent live snapshots',
+            },
+          },
+          hot_paths: {
+            shared_market_snapshot: {
+              source_class: 'degraded_seeded_bootstrap',
+            },
+          },
+        });
+      } finally {
+        await validationApp.close();
+      }
+    } finally {
+      await seededValidationApp.close();
+    }
+  });
+
   it('fails startup with a targeted initial sync timeout message before Fastify hook timeout masking', async () => {
     const bootstrapApp = buildApp({
       config: {
