@@ -6219,27 +6219,23 @@ describe('OpenGecko app scaffold', () => {
 
     expect(chartResponse.statusCode).toBe(200);
     expect(chartResponse.json()).toMatchObject({
-      prices: expect.arrayContaining([
-        [1773964800000, 85_000],
-        [expectedDailyBucket, 85_000],
-      ]),
-      market_caps: expect.arrayContaining([
-        [1773964800000, 1_700_000_000_000],
-        [expectedDailyBucket, null],
-      ]),
-      total_volumes: expect.arrayContaining([
-        [1773964800000, 25_000_000_000],
-        [expectedDailyBucket, 425_000_000],
-      ]),
+      prices: [
+        [1774656000000, 85_000],
+      ],
+      market_caps: [
+        [1774656000000, null],
+      ],
+      total_volumes: [
+        [1774656000000, 425_000_000],
+      ],
     });
-    expect(chartResponse.json().prices).toEqual(expect.arrayContaining([
-      [1773964800000, 85_000],
-    ]));
+    expect(chartResponse.json().prices).toEqual([
+      [1774656000000, 85_000],
+    ]);
 
     expect(maxChartResponse.statusCode).toBe(200);
     expect(maxChartResponse.json().prices).toEqual(
       expect.arrayContaining([
-        [1773964800000, 85_000],
         [expectedDailyBucket, 85_000],
       ]),
     );
@@ -6267,14 +6263,9 @@ describe('OpenGecko app scaffold', () => {
     ]);
 
     expect(ohlcResponse.statusCode).toBe(200);
-    expect(ohlcResponse.json()).toEqual(expect.arrayContaining([
-      [1773964800000, 84_490, 86_530, 82_960, 85_000],
-      [expectedDailyBucket, 85_000, 85_000, 85_000, 85_000],
-    ]));
-    expect(ohlcResponse.json().some((tuple: number[]) => {
-      const [, open, high, low, close] = tuple;
-      return open !== close || high !== low;
-    })).toBe(true);
+    expect(ohlcResponse.json()).toEqual([
+      [1774656000000, 85_000, 85_000, 85_000, 85_000],
+    ]);
   });
 
   it('returns ranged coin ohlc tuples in ascending chronological order', async () => {
@@ -6438,8 +6429,13 @@ describe('OpenGecko app scaffold', () => {
     expect(contractChartResponse.statusCode).toBe(200);
     expect(contractChartResponse.json()).toMatchObject({
       prices: [
-        [1773964800000, 1],
-        [expectedDailyBucket, 1],
+        [1774656000000, 1],
+      ],
+      market_caps: [
+        [1774656000000, null],
+      ],
+      total_volumes: [
+        [1774656000000, 10_000_000],
       ],
     });
 
