@@ -231,6 +231,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         onCatalogResult: (id, category, count, durationMs) => {
           options.startupProgress?.reportCatalogResult(id, category, count, durationMs);
         },
+        onStatusDetail: (message) => {
+          options.startupProgress?.reportStatus(message);
+        },
+        onTickerFetchStart: (exchangeId) => {
+          options.startupProgress?.reportStatus(`Fetching tickers: ${exchangeId}`);
+        },
+        onTickerFetchComplete: (exchangeId, durationMs) => {
+          options.startupProgress?.reportStatus(`Completed tickers: ${exchangeId} (${(durationMs / 1000).toFixed(1)}s)`);
+        },
+        onTickerFetchFailed: (exchangeId, _message, durationMs) => {
+          options.startupProgress?.reportStatus(`Failed tickers: ${exchangeId} (${(durationMs / 1000).toFixed(1)}s)`);
+        },
+        onWaitingExchangeStatus: (exchangeIds) => {
+          options.startupProgress?.reportStatus(`Still waiting for ticker responses: ${exchangeIds.join(', ')}`);
+        },
       }, marketDataRuntimeState);
       await (shouldEnforceInitialSyncTimeout
         ? withStartupTimeout(

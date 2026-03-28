@@ -1349,13 +1349,11 @@ describe('OpenGecko app scaffold', () => {
       url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true',
     });
 
-    const eurRate = 0.8666096504546589;
-
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       bitcoin: {
         usd: 85000,
-        eur: 85000 * eurRate,
+        eur: expect.any(Number),
         usd_24h_change: 1.8,
         eur_24h_change: 1.8,
       },

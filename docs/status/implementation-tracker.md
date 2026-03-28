@@ -26,7 +26,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 ## Current Priorities
 
-1. Expand canonical chain coverage by ingesting and normalizing all CCXT-discoverable networks from the active exchange set.
+1. Expand canonical chain coverage by ingesting and normalizing all CCXT-discoverable networks from the curated active exchange set.
 2. Expand the onchain DEX family beyond the initial seeded network and DEX catalogs.
 3. Harden the continuous OHLCV worker with deeper retention, repair, and hosted-worker operating guidance.
 4. Broaden repository-layer and fixture coverage across treasury, onchain, and remaining data-fidelity edge cases.
@@ -66,7 +66,7 @@ Use this tracker for current status, active priorities, completed milestones, an
 - Use Bun as the default package manager.
 - Prefer the smallest practical dependency set.
 - Use CCXT first for exchange and market integrations; only add custom exchange support when required data is missing.
-- Use `binance`, `coinbase`, `kraken`, and `okx` as the primary validated live CCXT exchange set in tests and worker diagnostics.
+- Use `binance`, `bybit`, `coinbase`, `kraken`, `okx`, `gate`, `mexc`, and `bitget` as the default active CCXT exchange set, while treating default enablement as a curated allowlist rather than "all CCXT exchanges".
 - Treat CCXT-discoverable chains from the active exchange set as the baseline network universe for contract and platform compatibility mapping.
 - Use a default market refresh cadence of `60s`, a search rebuild cadence of `900s`, and a live freshness threshold of `300s`.
 - Treat fresh-by-default market responses as a central product value; REST reads should come from continuously updated internal snapshots.

@@ -91,6 +91,7 @@ export async function syncCoinCatalogFromExchanges(
   exchangeIds: ExchangeId[],
   logger?: Logger,
   concurrency = exchangeIds.length,
+  options?: { suppressSummaryLog?: boolean },
 ) {
   const startTime = Date.now();
   const existingCoinsById = new Map(database.db.select().from(coins).all().map((coin) => [coin.id, coin]));
@@ -135,7 +136,9 @@ export async function syncCoinCatalogFromExchanges(
 
   const count = flushDiscoveredCoins(database, discoveredCoins);
   const durationMs = Date.now() - startTime;
-  logger?.info({ coinsDiscovered: count, exchangeCount: exchangeIds.length, succeeded, failed, durationMs }, 'coin catalog sync complete');
+  if (logger && !options?.suppressSummaryLog) {
+    logger.info({ coinsDiscovered: count, exchangeCount: exchangeIds.length, succeeded, failed, durationMs }, 'coin catalog sync complete');
+  }
 
   return { insertedOrUpdated: count };
 }

@@ -20,6 +20,7 @@ export async function syncChainCatalogFromExchanges(
   exchangeIds: ExchangeId[],
   logger?: Logger,
   concurrency = exchangeIds.length,
+  options?: { suppressSummaryLog?: boolean },
 ): Promise<ChainCatalogSyncResult> {
   const startTime = Date.now();
 
@@ -127,7 +128,9 @@ export async function syncChainCatalogFromExchanges(
   }
 
   const durationMs = Date.now() - startTime;
-  logger?.info({ chainsDiscovered: upserted, exchangeCount: exchangeIds.length, succeeded, failed, durationMs }, 'chain catalog sync complete');
+  if (logger && !options?.suppressSummaryLog) {
+    logger.info({ chainsDiscovered: upserted, exchangeCount: exchangeIds.length, succeeded, failed, durationMs }, 'chain catalog sync complete');
+  }
 
   return { insertedOrUpdated: upserted };
 }

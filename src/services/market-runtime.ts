@@ -170,6 +170,21 @@ export function createMarketRuntime(
                 onCatalogResult: (id, category, count, durationMs) => {
                   startupProgress?.reportCatalogResult(id, category, count, durationMs);
                 },
+                onStatusDetail: (message) => {
+                  startupProgress?.reportStatus(message);
+                },
+                onTickerFetchStart: (exchangeId) => {
+                  startupProgress?.reportStatus(`Fetching tickers: ${exchangeId}`);
+                },
+                onTickerFetchComplete: (exchangeId, durationMs) => {
+                  startupProgress?.reportStatus(`Completed tickers: ${exchangeId} (${(durationMs / 1000).toFixed(1)}s)`);
+                },
+                onTickerFetchFailed: (exchangeId, _message, durationMs) => {
+                  startupProgress?.reportStatus(`Failed tickers: ${exchangeId} (${(durationMs / 1000).toFixed(1)}s)`);
+                },
+                onWaitingExchangeStatus: (exchangeIds) => {
+                  startupProgress?.reportStatus(`Still waiting for ticker responses: ${exchangeIds.join(', ')}`);
+                },
               }, state);
 
           await initialSync();

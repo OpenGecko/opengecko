@@ -15,6 +15,7 @@ import type { MarketDataRuntimeState } from './market-runtime-state';
 import type { MetricsRegistry } from './metrics';
 
 const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
+const EXCHANGE_TICKER_FETCH_TIMEOUT_MS = 60_000;
 
 type SymbolIndexEntry = {
   coinId: string;
@@ -53,6 +54,67 @@ type RefreshTickerProcessingState = {
   pendingCoinTickers: PendingCoinTicker[];
   exchangeQuoteVolumes: Map<string, number>;
 };
+
+type MarketRefreshProgressHandlers = {
+  onLongPhaseStatus?: (message: string) => void;
+  onExchangeFetchStart?: (exchangeId: string) => void;
+  onExchangeFetchComplete?: (exchangeId: string, durationMs: number) => void;
+  onExchangeFetchFailed?: (exchangeId: string, message: string, durationMs: number) => void;
+  onWaitingExchangeStatus?: (exchangeIds: string[]) => void;
+  suppressSummaryLogs?: boolean;
+};
+
+function createLongPhaseReporter(progress?: MarketRefreshProgressHandlers) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let reported = false;
+
+  return {
+    start(message: string) {
+      reported = false;
+      if (!progress?.onLongPhaseStatus) {
+        return;
+      }
+
+      timeout = setTimeout(() => {
+        reported = true;
+        progress.onLongPhaseStatus?.(message);
+      }, 10_000);
+    },
+    update(message: string) {
+      if (reported) {
+        progress?.onLongPhaseStatus?.(message);
+      }
+    },
+    stop() {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      reported = false;
+    },
+  };
+}
+
+export async function withExchangeFetchTimeout<T>(exchangeId: string, operation: Promise<T>, timeoutMs = EXCHANGE_TICKER_FETCH_TIMEOUT_MS) {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const error = new Error(`${exchangeId} ticker fetch timed out after ${timeoutMs}ms`);
+          error.name = 'ExchangeTickerTimeoutError';
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
 
 function buildRequestedSymbolIndex(database: AppDatabase) {
   const symbolEntries: Array<[string, SymbolIndexEntry]> = [];
@@ -388,6 +450,7 @@ export async function runMarketRefreshOnce(
   logger?: Logger,
   runtimeState?: MarketDataRuntimeState,
   metrics?: Pick<MetricsRegistry, 'recordProviderRefresh'>,
+  progress?: MarketRefreshProgressHandlers,
 ) {
   const refreshLogger = logger?.child({ operation: 'market_refresh' });
   const startTime = Date.now();
@@ -415,9 +478,18 @@ export async function runMarketRefreshOnce(
 
   refreshLogger?.debug({ exchanges: exchangeIds }, 'starting market refresh');
 
-  await syncCoinCatalogFromExchanges(database, exchangeIds, refreshLogger, config.providerFanoutConcurrency);
+  await syncCoinCatalogFromExchanges(
+    database,
+    exchangeIds,
+    refreshLogger,
+    config.providerFanoutConcurrency,
+    { suppressSummaryLog: Boolean(progress?.suppressSummaryLogs) },
+  );
 
+  const symbolIndexPhase = createLongPhaseReporter(progress);
+  symbolIndexPhase.start('Still working: building symbol index for market snapshot refresh');
   const symbolIndex = buildRequestedSymbolIndex(database);
+  symbolIndexPhase.stop();
   const requestedSymbols = [...symbolIndex.keys()];
   const processingState = createRefreshTickerProcessingState();
   const exchangeTrustScoreById = new Map(
@@ -425,11 +497,50 @@ export async function runMarketRefreshOnce(
   );
 
   // Fetch all exchange tickers in parallel
+  const pendingExchangeIds = new Set(exchangeIds);
+  let waitingStatusTimer: ReturnType<typeof setInterval> | null = null;
+  const stopWaitingStatus = () => {
+    if (waitingStatusTimer) {
+      clearInterval(waitingStatusTimer);
+      waitingStatusTimer = null;
+    }
+  };
+
+  if (progress?.onWaitingExchangeStatus) {
+    waitingStatusTimer = setInterval(() => {
+      if (pendingExchangeIds.size > 0) {
+        progress.onWaitingExchangeStatus?.([...pendingExchangeIds]);
+      }
+    }, 10_000);
+  }
+
+  const fetchTickersPhase = createLongPhaseReporter(progress);
+  fetchTickersPhase.start(`Still working: fetching tickers from ${exchangeIds.length} exchanges`);
   const tickerResults = await mapWithConcurrency(
     exchangeIds,
     config.providerFanoutConcurrency,
-    async (exchangeId) => Promise.allSettled([fetchExchangeTickers(exchangeId, requestedSymbols)]).then(([result]) => result),
+    async (exchangeId) => {
+      const exchangeFetchStart = Date.now();
+      progress?.onExchangeFetchStart?.(exchangeId);
+      const result = await Promise.allSettled([
+        withExchangeFetchTimeout(exchangeId, fetchExchangeTickers(exchangeId, requestedSymbols)),
+      ]).then(([settled]) => settled);
+      const durationMs = Date.now() - exchangeFetchStart;
+
+      if (result.status === 'fulfilled') {
+        pendingExchangeIds.delete(exchangeId);
+        progress?.onExchangeFetchComplete?.(exchangeId, durationMs);
+      } else {
+        const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        pendingExchangeIds.delete(exchangeId);
+        progress?.onExchangeFetchFailed?.(exchangeId, message, durationMs);
+      }
+
+      return result;
+    },
   );
+  stopWaitingStatus();
+  fetchTickersPhase.stop();
   let failedExchanges = 0;
 
   for (let i = 0; i < exchangeIds.length; i++) {
@@ -437,8 +548,11 @@ export async function runMarketRefreshOnce(
     const result = tickerResults[i];
     const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
     const exchangeStart = Date.now();
+    const processingPhase = createLongPhaseReporter(progress);
+    processingPhase.start(`Still working: processing ${exchangeId} ticker results`);
 
     if (result.status === 'rejected') {
+      processingPhase.stop();
       failedExchanges += 1;
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
@@ -460,6 +574,7 @@ export async function runMarketRefreshOnce(
       matchedCount += 1;
       recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker);
     }
+    processingPhase.stop();
 
     exchangeLogger?.debug({
       tickerCount: tickers.length,
@@ -494,16 +609,22 @@ export async function runMarketRefreshOnce(
 
   const now = new Date();
   updateExchangeVolumes(database, processingState.exchangeQuoteVolumes, now);
+  const writeSnapshotsPhase = createLongPhaseReporter(progress);
+  writeSnapshotsPhase.start(`Still working: writing ${processingState.accumulators.size.toLocaleString()} market snapshots`);
   const usdPriceByCoinId = writeMarketSnapshots(database, processingState.accumulators, now);
   const conversionContext = buildConversionContext(database, usdPriceByCoinId);
+  writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
   upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext);
+  writeSnapshotsPhase.stop();
 
   const durationMs = Date.now() - startTime;
-  refreshLogger?.info({
-    snapshotCount: processingState.accumulators.size,
-    tickerCount: processingState.pendingCoinTickers.length,
-    exchangeCount: exchangeIds.length,
-    failedExchangeCount: failedExchanges,
-    durationMs,
-  }, 'market refresh complete');
+  if (!progress) {
+    refreshLogger?.info({
+      snapshotCount: processingState.accumulators.size,
+      tickerCount: processingState.pendingCoinTickers.length,
+      exchangeCount: exchangeIds.length,
+      failedExchangeCount: failedExchanges,
+      durationMs,
+    }, 'market refresh complete');
+  }
 }

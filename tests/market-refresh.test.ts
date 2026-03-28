@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
 import { coinTickers, coins, exchanges, exchangeVolumePoints } from '../src/db/schema';
-import { runMarketRefreshOnce } from '../src/services/market-refresh';
+import { runMarketRefreshOnce, withExchangeFetchTimeout } from '../src/services/market-refresh';
 import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 import { createMetricsRegistry } from '../src/services/metrics';
 
@@ -603,6 +603,84 @@ describe('market refresh service', () => {
     ]));
     expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
   });
+
+  it('times out hung exchange ticker fetches after 60 seconds and continues with other exchanges', { timeout: 70000 }, async () => {
+    vi.useFakeTimers();
+
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'kraken',
+        symbol: 'ETH/USD',
+        base: 'ETH',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Ethereum',
+        raw: {},
+      },
+    ]);
+
+    mockedFetchExchangeTickers.mockImplementation((exchangeId) => {
+      if (exchangeId === 'kraken') {
+        return new Promise(() => undefined);
+      }
+
+      return Promise.resolve([{
+        exchangeId,
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: 90_500,
+        bid: 90_490,
+        ask: 90_510,
+        high: null,
+        low: null,
+        baseVolume: 1_000,
+        quoteVolume: 90_500_000,
+        percentage: 1,
+        timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+        raw: {} as never,
+      }]);
+    });
+
+    try {
+      const refreshPromise = runMarketRefreshOnce(database, {
+        ccxtExchanges: ['binance', 'kraken'],
+        providerFanoutConcurrency: 2,
+      });
+
+      vi.advanceTimersByTime(60_000);
+      vi.useRealTimers();
+      await expect(refreshPromise).resolves.toBeUndefined();
+
+      const ingestedTickers = database.db.select().from(coinTickers).all();
+      expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'binance')).toBe(true);
+      expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times out a hung exchange fetch helper after 60 seconds', { timeout: 70000 }, async () => {
+    const startedAt = Date.now();
+
+    await expect(
+      withExchangeFetchTimeout('kraken', new Promise(() => undefined), 60_000),
+    ).rejects.toThrow('kraken ticker fetch timed out after 60000ms');
+
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(60_000);
+  });
+
 
   it('surfaces live exchange volumes and ticker stale flags through HTTP routes', async () => {
     mockedFetchExchangeMarkets.mockResolvedValue([

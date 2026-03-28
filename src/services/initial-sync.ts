@@ -23,6 +23,11 @@ export type InitialSyncProgressHandlers = {
   onOhlcvBackfillProgress?: (current: number, total: number) => void;
   onExchangeResult?: (exchangeId: string, status: 'ok' | 'failed', message?: string) => void;
   onCatalogResult?: (id: string, category: string, count: number, durationMs: number) => void;
+  onStatusDetail?: (message: string) => void;
+  onTickerFetchStart?: (exchangeId: string) => void;
+  onTickerFetchComplete?: (exchangeId: string, durationMs: number) => void;
+  onTickerFetchFailed?: (exchangeId: string, message: string, durationMs: number) => void;
+  onWaitingExchangeStatus?: (exchangeIds: string[]) => void;
 };
 
 export type ExchangeSyncResult = {
@@ -145,6 +150,7 @@ export async function runInitialMarketSync(
     activeExchangeIds,
     syncLogger,
     config.providerFanoutConcurrency,
+    { suppressSummaryLog: !shouldEmitStartupLogger(progress) },
   );
   progress?.onCatalogResult?.('cat_01', 'Coin Catalog', coinsDiscovered, Date.now() - coinCatalogStartTime);
   if (shouldEmitStartupLogger(progress)) {
@@ -160,6 +166,7 @@ export async function runInitialMarketSync(
     activeExchangeIds,
     syncLogger,
     config.providerFanoutConcurrency,
+    { suppressSummaryLog: !shouldEmitStartupLogger(progress) },
   );
   progress?.onCatalogResult?.('cat_02', 'Chain Catalog', chainsDiscovered, Date.now() - chainCatalogStartTime);
   if (shouldEmitStartupLogger(progress)) {
@@ -172,7 +179,24 @@ export async function runInitialMarketSync(
   await runMarketRefreshOnce(database, {
     ccxtExchanges: activeExchangeIds,
     providerFanoutConcurrency: config.providerFanoutConcurrency,
-  }, syncLogger, runtimeState);
+  }, syncLogger, runtimeState, undefined, {
+    onLongPhaseStatus: (message) => {
+      progress?.onStatusDetail?.(message);
+    },
+    onExchangeFetchStart: (exchangeId) => {
+      progress?.onTickerFetchStart?.(exchangeId);
+    },
+    onExchangeFetchComplete: (exchangeId, durationMs) => {
+      progress?.onTickerFetchComplete?.(exchangeId, durationMs);
+    },
+    onExchangeFetchFailed: (exchangeId, message, durationMs) => {
+      progress?.onTickerFetchFailed?.(exchangeId, message, durationMs);
+    },
+    onWaitingExchangeStatus: (exchangeIds) => {
+      progress?.onWaitingExchangeStatus?.(exchangeIds);
+    },
+    suppressSummaryLogs: !shouldEmitStartupLogger(progress),
+  });
 
   // Step 4: Count live snapshots
   const { marketSnapshots } = await import('../db/schema');

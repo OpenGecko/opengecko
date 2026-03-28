@@ -29,11 +29,11 @@ The repository has reached R4 with the following in place:
 - Complete R1 core coin endpoints: `/coins/markets`, `/coins/{id}`, history, chart, OHLC, categories, contract-address variants
 - Complete R2 exchange/derivatives endpoints: `/exchanges/*`, `/derivatives/*`
 - Complete R3 public treasury endpoints: `/entities/list`, `/public_treasury/*`, holding charts, transaction history
-- Partial R4 onchain endpoints: `/onchain/networks`, `/onchain/networks/{network}/dexes`
+- Complete R4 onchain DEX family with route registration, validation coverage, and degraded fallback behavior
 
 ### 2.2 Current release focus
 
-- Current target: `R4` partial — onchain DEX catalog expansion
+- Current target: `R4` hardening and post-parity data-fidelity improvement
 - Current architecture: `Bun + TypeScript + Fastify + Zod + SQLite + Drizzle + better-sqlite3 + SQLite FTS5 + CCXT + Vitest`
 
 ### 2.3 Current priorities
@@ -41,9 +41,9 @@ The repository has reached R4 with the following in place:
 The R4 phase focuses on:
 
 1. Making hot market endpoints fresh by default via boot-time snapshot sync and continuous internal refresh updates
-2. Expanding the onchain DEX family beyond the initial seeded network and DEX catalogs
-3. Broadening repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases
-4. Replacing seeded ticker and history slices with CCXT-backed refresh and continuous worker-owned history ingestion where practical
+2. Broadening repository-layer and fixture coverage across treasury, onchain, and remaining seeded data-fidelity edge cases
+3. Replacing seeded ticker and history slices with CCXT-backed refresh and continuous worker-owned history ingestion where practical
+4. Hardening exchange breadth with a curated default CCXT allowlist instead of enabling every CCXT exchange by default
 
 ## 3. Execution Principles
 
@@ -75,11 +75,15 @@ For supported hot-price endpoints, the system should maintain an always-hot inte
 
 The external CoinGecko-style HTTP contract is the product. Internal implementation changes must not break it.
 
+### 3.8 Curate default exchange breadth deliberately
+
+Supporting many CCXT exchanges is a product goal, but enabling every CCXT venue by default is not. The runtime should use a curated default allowlist and only promote exchanges into that set after reliability, data quality, and operational behavior are proven acceptable.
+
 ## 4. Delivery Objectives
 
 ### 4.1 Near-term objective
 
-Complete the R4 onchain DEX surface: network catalogs, DEX catalogs, pool detail/list, token detail, trades, and OHLCV endpoints — all with seeded curated data and explicit divergence notes.
+Harden the post-parity runtime: improve live data fidelity, expand canonical chain coverage, and continue replacing seeded market/history ownership with live or persisted canonical paths.
 
 ### 4.2 Mid-term objective
 
@@ -110,17 +114,17 @@ This execution plan provides strategic framing; the tracker is the operational t
 
 **Scope:** Parameter precedence, null vs omitted semantics, pagination, ordering, serializer parity, divergence tracking.
 
-**Status:** Ongoing — R0-R3 endpoints are `done`; R4 onchain endpoints need compatibility work as surface expands.
+**Status:** Done for the active non-NFT surface — compatibility hardening now focuses on regression protection and divergence tracking.
 
 ### WS-B: Live market ingestion and freshness
 
 **Goal:** Move from seeded confidence to fresh-by-default live-backed market behavior.
 
-**Scope:** Boot-time snapshot sync, continuous in-process or worker-driven refresh scheduling, stale snapshot policy, CCXT exchange set.
+**Scope:** Boot-time snapshot sync, continuous in-process or worker-driven refresh scheduling, stale snapshot policy, curated CCXT exchange allowlist.
 
 **Current cadence:** market refresh every `60s`, search rebuild every `900s`, live freshness threshold `300s`.
 
-**Status:** Partial — hot snapshot startup and continuous refresh are locked, but deployment guidance for separate workers and operational hardening remain open.
+**Status:** Partial — hot snapshot startup and continuous refresh are locked, but hosted-worker guidance, deeper alerting, and longer-tail exchange hardening remain open.
 
 ### WS-C: Historical chart and OHLC semantics
 
@@ -136,7 +140,7 @@ This execution plan provides strategic framing; the tracker is the operational t
 
 **Scope:** Coin/platform ID resolution, contract-address resolution, exchange venue identity, onchain network/DEX IDs.
 
-**Status:** Ongoing — works for seeded data; needs expansion for live ingestion and onchain families.
+**Status:** Done for the active endpoint surface; continued chain/platform coverage expansion remains an incremental hardening track.
 
 ### WS-E: Contract testing and fixtures
 
@@ -144,7 +148,7 @@ This execution plan provides strategic framing; the tracker is the operational t
 
 **Scope:** Representative fixture corpus, invalid-parameter matrices, repository/service-layer tests, freshness assertions.
 
-**Status:** Partial — smoke tests exist; broader fixture and repository-layer coverage is ongoing.
+**Status:** Partial — broad coverage exists, but deeper repository-layer characterization and data-fidelity edge cases remain ongoing.
 
 ### WS-F: Jobs, operations, and observability
 
@@ -154,31 +158,27 @@ This execution plan provides strategic framing; the tracker is the operational t
 
 **Status:** Partial — jobs and diagnostics exist, but hosted-worker operating guidance, alerting, and repair workflows need hardening.
 
-## 7. R4 Focus
+## 7. Post-R4 Focus
 
-The current phase is R4 — onchain DEX expansion. The recommended R4 build order:
+The active endpoint roadmap has reached R4 for the non-NFT surface. The recommended next build order is:
 
-1. **Catalogs first** — `/onchain/networks`, `/onchain/networks/{network}/dexes` (already done)
-2. **Pool and token primitives** — pool detail, pool list, token detail, token multi, token info
-3. **Trade and OHLCV** — pool trades, pool OHLCV, token OHLCV
-4. **Trending and search** — trending pools, onchain pool search
-5. **Advanced analytics** — top holders, top traders, holder charts (P3/premium scope)
-
-Do not start advanced analytics before pool/token primitives are stable.
+1. **Live-data fidelity first** — replace remaining seeded ticker/history ownership with live or persisted canonical paths
+2. **Canonical chain/platform breadth** — expand and normalize exchange-discovered networks across the curated active exchange set
+3. **Operational hardening** — improve worker deployment guidance, lag visibility, and failure recovery
+4. **Exchange breadth expansion** — evaluate additional CCXT venues behind explicit promotion criteria rather than enabling all venues by default
+5. **Advanced analytics later** — only after the underlying live/historical systems are trustworthy
 
 ## 8. Immediate Backlog
 
 The current implementation cycle should execute in order:
 
-1. Expand onchain pool and token endpoints with seeded compatibility fixtures
-2. Define fixture source policy for onchain compatibility tests
-3. Add repository-layer tests for onchain queries
-4. Add chart/OHLCV edge-case tests for onchain routes
-5. Define retention/backfill assumptions for onchain OHLCV data
-6. Encode seed-vs-live ownership for onchain data in services
-7. Define pool ranking and trending signal inputs before starting trending endpoints
-8. Expose scheduling/lag assumptions for local and hosted execution
-9. Replace seeded ticker and history slices with CCXT-backed paths where practical
+1. Replace seeded ticker and history slices with CCXT-backed paths where practical
+2. Expand canonical chain/platform coverage from the curated active exchange set
+3. Add repository-layer tests for remaining data-fidelity-sensitive queries
+4. Add chart/OHLCV edge-case tests for canonical historical reads
+5. Define deeper retention/backfill assumptions for worker-owned OHLCV data
+6. Expose scheduling/lag assumptions for local and hosted execution
+7. Define objective promotion criteria for adding more CCXT exchanges to the default allowlist
 
 ## 8.1 Data-Fidelity Remediation Plan
 

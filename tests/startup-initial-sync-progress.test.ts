@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { runInitialMarketSync } from '../src/services/initial-sync';
+import * as marketRefreshModule from '../src/services/market-refresh';
 
 vi.mock('../src/services/coin-catalog-sync', () => ({
   syncCoinCatalogFromExchanges: vi.fn().mockResolvedValue({ insertedOrUpdated: 1 }),
@@ -127,5 +128,121 @@ describe('initial sync startup progress', () => {
     expect(catalogResults[0]).toMatchObject({ id: 'cat_01', category: 'Coin Catalog', count: 1 });
     expect(catalogResults[1]).toMatchObject({ id: 'cat_02', category: 'Chain Catalog', count: 0 });
     expect(catalogResults.every((result) => result.durationMs >= 0)).toBe(true);
+  });
+
+  it('forwards long-running market snapshot status details', async () => {
+    const statusDetails: string[] = [];
+    const runMarketRefreshOnceSpy = vi.spyOn(marketRefreshModule, 'runMarketRefreshOnce')
+      .mockImplementation(async (_database, _config, _logger, _runtimeState, _metrics, progress) => {
+        progress?.onLongPhaseStatus?.('Still working: fetching tickers from 1 exchanges');
+      });
+
+    const database = {
+      db: {
+        insert: () => ({ values: () => ({ onConflictDoUpdate: () => ({ run: () => undefined }) }) }),
+        select: () => ({
+          from: () => ({ all: () => [{ value: 1 }] }),
+        }),
+      },
+    } as never;
+
+    try {
+      await runInitialMarketSync(
+        database,
+        { ccxtExchanges: ['binance'], marketFreshnessThresholdSeconds: 300, providerFanoutConcurrency: 2 },
+        undefined,
+        {
+          onStatusDetail: (message) => {
+            statusDetails.push(message);
+          },
+        },
+      );
+    } finally {
+      runMarketRefreshOnceSpy.mockRestore();
+    }
+
+    expect(statusDetails).toEqual(['Still working: fetching tickers from 1 exchanges']);
+  });
+
+  it('forwards per-exchange ticker fetch lifecycle details', async () => {
+    const tickerEvents: string[] = [];
+    const runMarketRefreshOnceSpy = vi.spyOn(marketRefreshModule, 'runMarketRefreshOnce')
+      .mockImplementation(async (_database, _config, _logger, _runtimeState, _metrics, progress) => {
+        progress?.onExchangeFetchStart?.('binance');
+        progress?.onExchangeFetchComplete?.('binance', 1200);
+        progress?.onExchangeFetchStart?.('kraken');
+        progress?.onExchangeFetchFailed?.('kraken', 'timeout', 2300);
+      });
+
+    const database = {
+      db: {
+        insert: () => ({ values: () => ({ onConflictDoUpdate: () => ({ run: () => undefined }) }) }),
+        select: () => ({
+          from: () => ({ all: () => [{ value: 1 }] }),
+        }),
+      },
+    } as never;
+
+    try {
+      await runInitialMarketSync(
+        database,
+        { ccxtExchanges: ['binance'], marketFreshnessThresholdSeconds: 300, providerFanoutConcurrency: 2 },
+        undefined,
+        {
+          onTickerFetchStart: (exchangeId) => {
+            tickerEvents.push(`start:${exchangeId}`);
+          },
+          onTickerFetchComplete: (exchangeId, durationMs) => {
+            tickerEvents.push(`complete:${exchangeId}:${durationMs}`);
+          },
+          onTickerFetchFailed: (exchangeId, message, durationMs) => {
+            tickerEvents.push(`failed:${exchangeId}:${message}:${durationMs}`);
+          },
+        },
+      );
+    } finally {
+      runMarketRefreshOnceSpy.mockRestore();
+    }
+
+    expect(tickerEvents).toEqual([
+      'start:binance',
+      'complete:binance:1200',
+      'start:kraken',
+      'failed:kraken:timeout:2300',
+    ]);
+  });
+
+  it('forwards waiting exchange status details', async () => {
+    const waitingStatus: string[][] = [];
+    const runMarketRefreshOnceSpy = vi.spyOn(marketRefreshModule, 'runMarketRefreshOnce')
+      .mockImplementation(async (_database, _config, _logger, _runtimeState, _metrics, progress) => {
+        progress?.onWaitingExchangeStatus?.(['kraken']);
+      });
+
+    const database = {
+      db: {
+        insert: () => ({ values: () => ({ onConflictDoUpdate: () => ({ run: () => undefined }) }) }),
+        select: () => ({
+          from: () => ({ all: () => [{ value: 1 }] }),
+        }),
+      },
+    } as never;
+
+    try {
+      await runInitialMarketSync(
+        database,
+        { ccxtExchanges: ['binance'], marketFreshnessThresholdSeconds: 300, providerFanoutConcurrency: 2 },
+        undefined,
+        {
+          onWaitingExchangeStatus: (exchangeIds) => {
+            waitingStatus.push(exchangeIds);
+          },
+        },
+      );
+    } finally {
+      runMarketRefreshOnceSpy.mockRestore();
+    }
+
+    expect(waitingStatus).toEqual([['kraken']]);
   });
 });

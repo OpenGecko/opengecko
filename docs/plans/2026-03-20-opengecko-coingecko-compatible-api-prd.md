@@ -606,7 +606,7 @@ For each domain, OpenGecko must define:
 
 ### 16.3 CCXT policy
 
-CCXT should be the default first-choice integration layer for exchange and market data whenever it provides required data with acceptable fidelity. Only add custom exchange-specific adapters when important required fields or behaviors are materially missing.
+CCXT should be the default first-choice integration layer for exchange and market data whenever it provides required data with acceptable fidelity. OpenGecko should support broad exchange coverage over time, but the default runtime exchange set should remain a curated allowlist rather than enabling every CCXT venue automatically. Only add custom exchange-specific adapters when important required fields or behaviors are materially missing.
 
 ### 16.4 Legal and licensing constraints
 
