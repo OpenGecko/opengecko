@@ -24,6 +24,7 @@ export type OfflineReplayOptions = {
 export type ReplayArtifactMetadata = {
   entryId: string;
   manifestId: string;
+  replayTargetManifestIdentity: string;
   rulesetId: string;
   reportFormatVersion: number;
   replayedAt: string;
@@ -40,6 +41,7 @@ export type ReplayFinding = {
   findingId: string;
   entryId: string;
   normalizedPath: string;
+  replayTargetManifestIdentity: string;
   upstreamArtifactPath: string;
   replayArtifactPath: string;
   upstreamStatus: number;
@@ -52,6 +54,7 @@ export type OfflineReplayReport = {
   reportFormatVersion: number;
   corpusIdentity: string;
   manifestId: string;
+  replayTargetManifestIdentity: string;
   normalizationRulesId: string;
   replayedAt: string;
   validationApiBaseUrl: string;
@@ -92,16 +95,39 @@ function readJson<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, 'utf8')) as T;
 }
 
-function createCorpusIdentity(snapshotDir: string) {
-  const files = listFiles(snapshotDir)
+function createDirectoryCorpusIdentity(rootDir: string) {
+  const files = listFiles(rootDir)
     .sort()
     .map((filePath) => {
-      const relativePath = filePath.slice(snapshotDir.length + 1);
-      const contents = readFileSync(filePath);
+      const relativePath = filePath.slice(rootDir.length + 1);
+      const contents = readFileSync(filePath, 'utf8');
       return `${relativePath}:${createHash('sha256').update(contents).digest('hex')}`;
     });
 
   return createHash('sha256').update(files.join('\n')).digest('hex');
+}
+
+function createCorpusIdentity(snapshotDir: string) {
+  return createDirectoryCorpusIdentity(resolve(snapshotDir, 'artifacts'));
+}
+
+function createReplayTargetManifestIdentity(manifest: SnapshotManifest) {
+  return createHash('sha256').update(JSON.stringify({
+    manifestId: manifest.manifestId,
+    formatVersion: manifest.formatVersion,
+    artifactFormatVersion: manifest.artifactFormatVersion,
+    maxRequests: manifest.maxRequests,
+    entries: manifest.entries
+      .filter((entry) => entry.enabled !== false)
+      .map((entry) => ({
+        id: entry.id,
+        path: entry.path,
+        query: entry.query
+          ? Object.fromEntries(Object.entries(entry.query).sort(([left], [right]) => left.localeCompare(right)))
+          : undefined,
+        variantId: entry.variantId,
+      })),
+  })).digest('hex');
 }
 
 function listFiles(rootDir: string): string[] {
@@ -123,6 +149,7 @@ function listFiles(rootDir: string): string[] {
 function createReplayArtifactMetadata(
   entry: SnapshotManifestEntry,
   manifest: SnapshotManifest,
+  replayTargetManifestIdentity: string,
   rulesetId: string,
   replayedAt: string,
   responseStatus: number,
@@ -132,6 +159,7 @@ function createReplayArtifactMetadata(
   return {
     entryId: entry.id,
     manifestId: manifest.manifestId,
+    replayTargetManifestIdentity,
     rulesetId,
     reportFormatVersion: OFFLINE_REPLAY_REPORT_FORMAT_VERSION,
     replayedAt,
@@ -155,6 +183,7 @@ export async function runOfflineReplay(options: OfflineReplayOptions = {}): Prom
 
   const findings: ReplayFinding[] = [];
   const corpusIdentity = createCorpusIdentity(snapshotDir);
+  const replayTargetManifestIdentity = createReplayTargetManifestIdentity(manifest);
 
   for (const entry of manifest.entries.filter((candidate) => candidate.enabled !== false)) {
     const upstreamArtifactRelativePath = getSnapshotArtifactRelativePath(entry);
@@ -186,6 +215,7 @@ export async function runOfflineReplay(options: OfflineReplayOptions = {}): Prom
       createReplayArtifactMetadata(
         entry,
         manifest,
+        replayTargetManifestIdentity,
         OFFLINE_REPLAY_RULESET_ID,
         replayedAt,
         response.status,
@@ -198,6 +228,7 @@ export async function runOfflineReplay(options: OfflineReplayOptions = {}): Prom
       findingId: createHash('sha256').update(`${entry.id}:${upstreamMetadata.payloadSha256}:${response.status}:${replayBodyText}`).digest('hex').slice(0, 16),
       entryId: entry.id,
       normalizedPath: normalizedPath(entry),
+      replayTargetManifestIdentity,
       upstreamArtifactPath: upstreamArtifactRelativePath,
       replayArtifactPath: replayArtifactRelativePath,
       upstreamStatus: upstreamMetadata.upstreamStatus,
@@ -213,6 +244,7 @@ export async function runOfflineReplay(options: OfflineReplayOptions = {}): Prom
     reportFormatVersion: OFFLINE_REPLAY_REPORT_FORMAT_VERSION,
     corpusIdentity,
     manifestId: manifest.manifestId,
+    replayTargetManifestIdentity,
     normalizationRulesId: OFFLINE_REPLAY_RULESET_ID,
     replayedAt,
     validationApiBaseUrl,

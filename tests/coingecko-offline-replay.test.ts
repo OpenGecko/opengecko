@@ -29,7 +29,7 @@ describe('CoinGecko offline replay', () => {
     fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
   }
 
-  it('replays local snapshots against the validation API and records evidence links plus run identity', async () => {
+  it('replays local snapshots against the validation API and records stable upstream corpus identity plus replay-target traceability', async () => {
     const snapshotDir = createTempDir();
     const outputDir = createTempDir();
     const manifest: SnapshotManifest = {
@@ -115,9 +115,12 @@ describe('CoinGecko offline replay', () => {
     expect(report.manifestId).toBe('offline-replay-manifest');
     expect(report.normalizationRulesId).toBe('coingecko-offline-replay-rules-v1');
     expect(report.entryCount).toBe(2);
+    expect(report.corpusIdentity).toBe('187fea2d77765be348bc1025660422a6a34897f8451ef96677da76f9f38037e8');
+    expect(report.replayTargetManifestIdentity).toBe('2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d');
     expect(report.findings).toMatchObject([
       {
         entryId: 'global',
+        replayTargetManifestIdentity: '2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d',
         upstreamArtifactPath: 'artifacts/global-d3cbd6bcc95fe9ba.json',
         replayArtifactPath: 'artifacts/global-d3cbd6bcc95fe9ba.json',
         statusMatches: true,
@@ -125,6 +128,7 @@ describe('CoinGecko offline replay', () => {
       },
       {
         entryId: 'simple-price',
+        replayTargetManifestIdentity: '2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d',
         upstreamArtifactPath: 'artifacts/simple-price-277522b7c75ada35.json',
         replayArtifactPath: 'artifacts/simple-price-277522b7c75ada35.json',
         statusMatches: true,
@@ -143,26 +147,29 @@ describe('CoinGecko offline replay', () => {
     expect(replayMetadata).toMatchObject({
       entryId: 'simple-price',
       manifestId: 'offline-replay-manifest',
+      replayTargetManifestIdentity: '2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d',
       rulesetId: 'coingecko-offline-replay-rules-v1',
       normalizedPath: '/simple/price?ids=bitcoin&vs_currencies=usd',
       responseStatus: 200,
       artifactRelativePath: 'artifacts/simple-price-277522b7c75ada35.json',
     });
     expect(savedReport.manifestId).toBe('offline-replay-manifest');
+    expect(savedReport.corpusIdentity).toBe('187fea2d77765be348bc1025660422a6a34897f8451ef96677da76f9f38037e8');
+    expect(savedReport.replayTargetManifestIdentity).toBe('2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d');
     expect(savedReport.normalizationRulesId).toBe('coingecko-offline-replay-rules-v1');
     expect(savedReport.findings).toMatchObject([
       {
         entryId: 'global',
+        replayTargetManifestIdentity: '2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d',
         upstreamArtifactPath: 'artifacts/global-d3cbd6bcc95fe9ba.json',
         replayArtifactPath: 'artifacts/global-d3cbd6bcc95fe9ba.json',
       },
       {
         entryId: 'simple-price',
+        replayTargetManifestIdentity: '2e725837c50f21c8b149de8e348cd697e881042163b10c59ea9248b4cd4d0b2d',
         upstreamArtifactPath: 'artifacts/simple-price-277522b7c75ada35.json',
         replayArtifactPath: 'artifacts/simple-price-277522b7c75ada35.json',
       },
     ]);
-    expect(typeof report.corpusIdentity).toBe('string');
-    expect(report.corpusIdentity.length).toBeGreaterThan(0);
   });
 });
