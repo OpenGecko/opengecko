@@ -9,7 +9,7 @@ import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } fr
 import { getConversionRate } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray } from './catalog';
-import { getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
   buildSupplySeriesRowsFromChart,
   buildChartPayload,
@@ -299,7 +299,7 @@ export function registerCoinRoutes(
       throw new HttpError(404, 'not_found', `Coin not found: ${params.id}`);
     }
 
-    return buildCoinDetail(database, row.coin, getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    return buildCoinDetail(database, row.coin, getUsableSnapshot(getEffectiveSnapshot(row.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       includeLocalization: parseBooleanQuery(query.localization, true),
       includeMarketData: parseBooleanQuery(query.market_data, true),
       includeTickers: parseBooleanQuery(query.tickers, true),
@@ -493,7 +493,7 @@ export function registerCoinRoutes(
     const marketRow = getMarketRows(database, 'usd', { ids: [coin.id] })[0] ?? { coin, snapshot: null };
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
 
-    return buildCoinDetail(database, marketRow.coin, getUsableSnapshot(marketRow.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    return buildCoinDetail(database, marketRow.coin, getUsableSnapshot(getEffectiveSnapshot(marketRow.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       includeLocalization: parseBooleanQuery(query.localization, true),
       includeMarketData: parseBooleanQuery(query.market_data, true),
       includeTickers: parseBooleanQuery(query.tickers, true),
