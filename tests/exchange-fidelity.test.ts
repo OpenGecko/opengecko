@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -87,13 +87,56 @@ describe('exchange live fidelity contracts', () => {
     }
   });
 
-  it('documents exchange divergences in a structured analysis file', () => {
-    const filePath = '/home/whoami/dev/openGecko/docs/analysis/exchange-divergences.md';
-    const contents = readFileSync(filePath, 'utf8');
+  it('keeps canonical Binance detail/ticker breadth aligned with the stored baseline fields', async () => {
+    const app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
 
-    expect(contents).toContain('| endpoint | field | description |');
-    expect(contents).toContain('/exchanges/{id}/tickers');
-    expect(contents).toContain('/derivatives');
+    try {
+      await app.ready();
+
+      const [detailResponse, tickersResponse] = await Promise.all([
+        app.inject({ method: 'GET', url: '/exchanges/binance' }),
+        app.inject({ method: 'GET', url: '/exchanges/binance/tickers?page=1' }),
+      ]);
+
+      expect(detailResponse.statusCode).toBe(200);
+      expect(tickersResponse.statusCode).toBe(200);
+
+      const detail = detailResponse.json();
+      const tickers = tickersResponse.json().tickers;
+
+      expect(detail.name).toBe('Binance');
+      expect(detail.status_updates).toEqual([]);
+      expect(typeof detail.trade_volume_24h_btc).toBe('number');
+      expect(detail.trade_volume_24h_btc_normalized).toBeNull();
+      expect(typeof detail.coins).toBe('number');
+      expect(typeof detail.pairs).toBe('number');
+      expect(detail.coins).toBe(8);
+      expect(detail.pairs).toBe(19);
+      expect(tickers[0]).toEqual(expect.objectContaining({
+        base: 'BTC',
+        target: 'USDT',
+        target_coin_id: 'tether',
+      }));
+      expect(tickers[0]).toHaveProperty('coin_mcap_usd');
+      expect(tickers.slice(0, 5).map((ticker: { base: string; target: string }) => `${ticker.base}/${ticker.target}`)).toEqual([
+        'BTC/USDT',
+        'USDC/USDT',
+        'ETH/USDT',
+        'SOL/USDT',
+        'XRP/USDT',
+      ]);
+    } finally {
+      await app.close();
+    }
   });
 
 });

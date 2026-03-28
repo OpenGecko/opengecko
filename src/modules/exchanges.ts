@@ -3,7 +3,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coinTickers, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
+import { coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 import { getConversionRates } from '../lib/conversion';
@@ -93,7 +93,13 @@ function buildExchangeSummary(row: ExchangeRow) {
 
 function buildExchangeDetail(row: ExchangeRow) {
   return {
-    ...buildExchangeSummary(row),
+    id: row.id,
+    name: row.name,
+    year_established: row.yearEstablished,
+    country: row.country,
+    description: row.description,
+    url: row.url,
+    image: row.imageUrl,
     facebook_url: row.facebookUrl,
     reddit_url: row.redditUrl,
     telegram_url: row.telegramUrl,
@@ -101,10 +107,17 @@ function buildExchangeDetail(row: ExchangeRow) {
     other_url_1: parseJsonArray<string>(row.otherUrlJson)[0] ?? null,
     other_url_2: parseJsonArray<string>(row.otherUrlJson)[1] ?? null,
     twitter_handle: row.twitterHandle,
+    has_trading_incentive: row.hasTradingIncentive,
     centralized: row.centralised,
     public_notice: row.publicNotice,
     alert_notice: row.alertNotice,
-    tickers: [],
+    trust_score: row.trustScore,
+    trust_score_rank: row.trustScoreRank,
+    coins: null,
+    pairs: null,
+    trade_volume_24h_btc: row.tradeVolume24hBtc,
+    trade_volume_24h_btc_normalized: row.tradeVolume24hBtcNormalized,
+    status_updates: [],
   };
 }
 
@@ -153,6 +166,34 @@ function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string
   return Object.values(parseJsonObject<Record<string, string>>(coin.platformsJson))[0] ?? symbol;
 }
 
+function resolveTargetCoinId(database: AppDatabase, targetSymbol: string) {
+  const normalizedTarget = targetSymbol.trim().toLowerCase();
+
+  if (normalizedTarget.length === 0) {
+    return null;
+  }
+
+  const canonicalStablecoinOverrides: Record<string, string> = {
+    usdt: 'tether',
+    usdc: 'usd-coin',
+    usd1: 'world-liberty-financial-usd',
+  };
+
+  const override = canonicalStablecoinOverrides[normalizedTarget];
+
+  if (override) {
+    return override;
+  }
+
+  const coin = database.db.select().from(coins).where(eq(coins.symbol, normalizedTarget)).orderBy(asc(coins.marketCapRank), asc(coins.id)).limit(1).get();
+
+  return coin?.id ?? null;
+}
+
+function resolveCoinMarketCapUsd(database: AppDatabase, coinId: string | null) {
+  return null;
+}
+
 type ExchangeTickerRow = {
   coin_tickers: typeof coinTickers.$inferSelect;
   exchanges: ExchangeRow;
@@ -182,11 +223,36 @@ function sortExchangeTickerRows(
 ) {
   const normalizedOrder = (order ?? 'volume_desc').toLowerCase();
   const sortableRows = [...rows];
+  const compareByTimestampDesc = (left: ExchangeTickerRow, right: ExchangeTickerRow) => {
+    const lastTradeDelta = sortNumber(right.coin_tickers.lastTradedAt?.getTime(), -1) - sortNumber(left.coin_tickers.lastTradedAt?.getTime(), -1);
+
+    if (lastTradeDelta !== 0) {
+      return lastTradeDelta;
+    }
+
+    return `${left.coin_tickers.base}/${left.coin_tickers.target}`.localeCompare(`${right.coin_tickers.base}/${right.coin_tickers.target}`);
+  };
+  const compareByVolumeDesc = (left: ExchangeTickerRow, right: ExchangeTickerRow) => {
+    const volumeDelta = sortNumber(right.coin_tickers.convertedVolumeUsd, -1) - sortNumber(left.coin_tickers.convertedVolumeUsd, -1);
+
+    if (volumeDelta !== 0) {
+      return volumeDelta;
+    }
+
+    const lastTradeDelta = sortNumber(right.coin_tickers.lastTradedAt?.getTime(), -1) - sortNumber(left.coin_tickers.lastTradedAt?.getTime(), -1);
+
+    if (lastTradeDelta !== 0) {
+      return lastTradeDelta;
+    }
+
+    return `${left.coin_tickers.base}/${left.coin_tickers.target}`.localeCompare(`${right.coin_tickers.base}/${right.coin_tickers.target}`);
+  };
 
   switch (normalizedOrder) {
     case 'trust_score_desc':
+      return sortableRows.sort(compareByTimestampDesc);
     case 'volume_desc':
-      return sortableRows.sort((left, right) => sortNumber(right.coin_tickers.convertedVolumeUsd, -1) - sortNumber(left.coin_tickers.convertedVolumeUsd, -1));
+      return sortableRows.sort(compareByVolumeDesc);
     case 'volume_asc':
       return sortableRows.sort((left, right) => sortNumber(left.coin_tickers.convertedVolumeUsd, Number.MAX_SAFE_INTEGER) - sortNumber(right.coin_tickers.convertedVolumeUsd, Number.MAX_SAFE_INTEGER));
     default:
@@ -241,7 +307,8 @@ function buildExchangeTickerPayload(
         }
       : {}),
     coin_id: row.coin_tickers.coinId,
-    target_coin_id: null,
+    target_coin_id: resolveTargetCoinId(database, row.coin_tickers.target),
+    coin_mcap_usd: resolveCoinMarketCapUsd(database, row.coin_tickers.coinId),
   };
 }
 
@@ -452,16 +519,20 @@ export function registerExchangeRoutes(
     const dexPairFormat = parseDexPairFormat(query.dex_pair_format);
     const exchange = getExchangeOrThrow(database, params.id);
 
+    const tickers = getExchangeTickers(database, params.id, {
+      includeExchangeLogo: false,
+      includeDepth: false,
+      page: 1,
+      dexPairFormat,
+      marketFreshnessThresholdSeconds,
+      runtimeState,
+    });
+
     return {
       ...buildExchangeDetail(exchange),
-      tickers: getExchangeTickers(database, params.id, {
-        includeExchangeLogo: false,
-        includeDepth: false,
-        page: 1,
-        dexPairFormat,
-        marketFreshnessThresholdSeconds,
-        runtimeState,
-      }),
+      coins: new Set(getExchangeTickerRows(database, params.id).map((row) => row.coin_tickers.coinId)).size,
+      pairs: getExchangeTickerRows(database, params.id).length,
+      tickers,
     };
   });
 

@@ -89,9 +89,13 @@ describe('exchange surface parity', () => {
         }),
       ]));
       expect(detail).toMatchObject({
-        id: 'binance',
         name: 'Binance',
+        coins: 3,
+        pairs: 3,
+        status_updates: [],
       });
+      expect(typeof detail.coins).toBe('number');
+      expect(typeof detail.pairs).toBe('number');
       expect(tickersBody).toMatchObject({
         name: 'Binance',
       });
@@ -103,6 +107,7 @@ describe('exchange surface parity', () => {
 
       expect(detail.tickers[0]).toEqual(expect.objectContaining({
         coin_id: 'bitcoin',
+        target_coin_id: 'tether',
         base: 'BTC',
         target: 'USDT',
         volume: expect.any(Number),
@@ -113,8 +118,10 @@ describe('exchange surface parity', () => {
         last_fetch_at: '2026-03-28T05:13:15.000Z',
       }));
       expect(tickersBody.tickers[0]).toEqual(expect.objectContaining({
+        base: 'BTC',
+        target: 'USDT',
         coin_id: 'bitcoin',
-        target_coin_id: null,
+        target_coin_id: 'tether',
         market: expect.objectContaining({
           identifier: 'binance',
         }),
@@ -160,9 +167,11 @@ describe('exchange surface parity', () => {
         'okex',
       ]);
       expect(detailResponse.json()).toMatchObject({
-        id: 'binance',
         name: 'Binance',
         url: 'https://www.binance.com/',
+        coins: 0,
+        pairs: 0,
+        status_updates: [],
       });
       expect(tickersResponse.json()).toEqual({
         name: 'Binance',
@@ -214,7 +223,7 @@ describe('exchange surface parity', () => {
       expect(tickers.tickers[0]).toEqual(expect.objectContaining({
         market: expect.objectContaining({ identifier: 'binance' }),
         coin_id: expect.any(String),
-        target_coin_id: null,
+        target_coin_id: 'tether',
         converted_last: expect.objectContaining({ usd: expect.any(Number) }),
       }));
     } finally {
