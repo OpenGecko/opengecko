@@ -1,0 +1,464 @@
+{
+  "reportFormatVersion": 1,
+  "generatedAt": "2026-03-28T06:31:47.874Z",
+  "corpusIdentity": "e9b06018d3038ea547af71e6c0c8726f2ca4c4e51439219f7a810c6a81cdc69a",
+  "manifestId": "coingecko-pro-bounded-v1",
+  "replayTargetManifestIdentity": "30a1227ebb29de1f316dbdba88275d192e2622c0622d45129057c5303545c1d5",
+  "normalizationRulesId": "coingecko-diff-normalization-rules-v1",
+  "divergenceRegistryId": "coingecko-diff-divergence-registry-v1",
+  "replayReportPath": "/home/whoami/dev/openGecko/data/coingecko-snapshots/replay/report.json",
+  "totals": {
+    "findings": 9,
+    "actionable": 7,
+    "expected": 2
+  },
+  "actionableFindings": [
+    {
+      "findingId": "bcacbe586a0dc457",
+      "findingKey": "coin-detail-bitcoin:shape:market_data|categories_details|coingecko_rank|coingecko_score|community_data|community_score|detail_platforms.|developer_data|developer_score|links.announcement_url|links.bitcointalk_thread_identifier|links.blockchain_site|links.chat_url|links.facebook_username|links.homepage|links.official_forum_url|links.repos_url|links.snapshot_url|links.subreddit_url|links.telegram_channel_identifier|links.twitter_screen_name|links.whitepaper|liquidity_score|localization|market_cap_rank_with_rehypothecated|platforms.|preview_listing|public_interest_score|public_interest_stats|tickers|categories|last_updated|image.large|image.small|image.thumb|block_time_in_minutes|country_origin|description.en|hashing_algorithm|sentiment_votes_down_percentage|sentiment_votes_up_percentage|watchlist_portfolio_users",
+      "entryId": "coin-detail-bitcoin",
+      "normalizedPath": "/coins/bitcoin?community_data=false&developer_data=false&localization=false&market_data=true&sparkline=false&tickers=false",
+      "gapClass": "shape",
+      "classificationReason": "Object shape differs.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/coins.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "coins"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/coin-detail-bitcoin-d45b12dcc964fe47.json",
+      "replayArtifactPath": "artifacts/coin-detail-bitcoin-d45b12dcc964fe47.json",
+      "upstreamStatus": 200,
+      "replayStatus": 200,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/coin-detail-bitcoin-d45b12dcc964fe47.json",
+        "replayArtifactPath": "artifacts/coin-detail-bitcoin-d45b12dcc964fe47.json"
+      },
+      "diffPaths": [
+        "market_data",
+        "categories_details",
+        "coingecko_rank",
+        "coingecko_score",
+        "community_data",
+        "community_score",
+        "detail_platforms.",
+        "developer_data",
+        "developer_score",
+        "links.announcement_url",
+        "links.bitcointalk_thread_identifier",
+        "links.blockchain_site",
+        "links.chat_url",
+        "links.facebook_username",
+        "links.homepage",
+        "links.official_forum_url",
+        "links.repos_url",
+        "links.snapshot_url",
+        "links.subreddit_url",
+        "links.telegram_channel_identifier",
+        "links.twitter_screen_name",
+        "links.whitepaper",
+        "liquidity_score",
+        "localization",
+        "market_cap_rank_with_rehypothecated",
+        "platforms.",
+        "preview_listing",
+        "public_interest_score",
+        "public_interest_stats",
+        "tickers",
+        "categories",
+        "last_updated",
+        "image.large",
+        "image.small",
+        "image.thumb",
+        "block_time_in_minutes",
+        "country_origin",
+        "description.en",
+        "hashing_algorithm",
+        "sentiment_votes_down_percentage",
+        "sentiment_votes_up_percentage",
+        "watchlist_portfolio_users"
+      ]
+    },
+    {
+      "findingId": "d166f88532c307e4",
+      "findingKey": "coins-markets-canonical:ranking:$array",
+      "entryId": "coins-markets-canonical",
+      "normalizedPath": "/coins/markets?ids=bitcoin%2Cethereum%2Csolana&order=market_cap_desc&page=1&per_page=3&price_change_percentage=24h%2C7d&sparkline=false&vs_currency=usd",
+      "gapClass": "ranking",
+      "classificationReason": "Array membership or ordering differs.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/coins.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "coins"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/coins-markets-canonical-8e6bc66badca39c9.json",
+      "replayArtifactPath": "artifacts/coins-markets-canonical-8e6bc66badca39c9.json",
+      "upstreamStatus": 200,
+      "replayStatus": 200,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/coins-markets-canonical-8e6bc66badca39c9.json",
+        "replayArtifactPath": "artifacts/coins-markets-canonical-8e6bc66badca39c9.json"
+      },
+      "diffPaths": [
+        "$array"
+      ]
+    },
+    {
+      "findingId": "d72f08d396622479",
+      "findingKey": "exchange-rates-canonical:missing_field:data|rates",
+      "entryId": "exchange-rates-canonical",
+      "normalizedPath": "/exchange_rates",
+      "gapClass": "missing_field",
+      "classificationReason": "Field present on only one side.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/simple.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "simple"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/exchange-rates-canonical-27a57fc26d421567.json",
+      "replayArtifactPath": "artifacts/exchange-rates-canonical-27a57fc26d421567.json",
+      "upstreamStatus": 200,
+      "replayStatus": 200,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/exchange-rates-canonical-27a57fc26d421567.json",
+        "replayArtifactPath": "artifacts/exchange-rates-canonical-27a57fc26d421567.json"
+      },
+      "diffPaths": [
+        "data",
+        "rates"
+      ]
+    },
+    {
+      "findingId": "1f48dcee3a88ab8f",
+      "findingKey": "exchanges-canonical:ranking:$array",
+      "entryId": "exchanges-canonical",
+      "normalizedPath": "/exchanges?page=1&per_page=5",
+      "gapClass": "ranking",
+      "classificationReason": "Array membership or ordering differs.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/exchanges.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "exchanges"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/exchanges-canonical-64d37d90dceea47b.json",
+      "replayArtifactPath": "artifacts/exchanges-canonical-64d37d90dceea47b.json",
+      "upstreamStatus": 200,
+      "replayStatus": 200,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/exchanges-canonical-64d37d90dceea47b.json",
+        "replayArtifactPath": "artifacts/exchanges-canonical-64d37d90dceea47b.json"
+      },
+      "diffPaths": [
+        "$array"
+      ]
+    },
+    {
+      "findingId": "4dceeb2c2753c5cc",
+      "findingKey": "exchange-detail-binance:shape:$status",
+      "entryId": "exchange-detail-binance",
+      "normalizedPath": "/exchanges/binance",
+      "gapClass": "shape",
+      "classificationReason": "HTTP status differs (200 vs 404).",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/exchanges.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "exchanges"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/exchange-detail-binance-5aaa2abfd9182393.json",
+      "replayArtifactPath": "artifacts/exchange-detail-binance-5aaa2abfd9182393.json",
+      "upstreamStatus": 200,
+      "replayStatus": 404,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/exchange-detail-binance-5aaa2abfd9182393.json",
+        "replayArtifactPath": "artifacts/exchange-detail-binance-5aaa2abfd9182393.json"
+      },
+      "diffPaths": [
+        "$status"
+      ]
+    },
+    {
+      "findingId": "4d1fe07d323ec6af",
+      "findingKey": "exchange-tickers-binance:shape:$status",
+      "entryId": "exchange-tickers-binance",
+      "normalizedPath": "/exchanges/binance/tickers?page=1",
+      "gapClass": "shape",
+      "classificationReason": "HTTP status differs (200 vs 404).",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/exchanges.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "exchanges"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/exchange-tickers-binance-dcd526e6fa26d41d.json",
+      "replayArtifactPath": "artifacts/exchange-tickers-binance-dcd526e6fa26d41d.json",
+      "upstreamStatus": 200,
+      "replayStatus": 404,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/exchange-tickers-binance-dcd526e6fa26d41d.json",
+        "replayArtifactPath": "artifacts/exchange-tickers-binance-dcd526e6fa26d41d.json"
+      },
+      "diffPaths": [
+        "$status"
+      ]
+    },
+    {
+      "findingId": "cb1bf9b010c8c2c6",
+      "findingKey": "global-canonical:missing_field:data.market_cap_percentage.bnb|data.market_cap_percentage.figr_heloc|data.market_cap_percentage.sol|data.market_cap_percentage.steth|data.market_cap_percentage.trx|data.market_cap_percentage.usdt|data.market_cap_percentage.xrp|data.total_market_cap.aed|data.total_market_cap.ars|data.total_market_cap.aud|data.total_market_cap.bch|data.total_market_cap.bdt|data.total_market_cap.bhd|data.total_market_cap.bits|data.total_market_cap.bmd|data.total_market_cap.bnb|data.total_market_cap.brl|data.total_market_cap.cad|data.total_market_cap.chf|data.total_market_cap.clp|data.total_market_cap.cny|data.total_market_cap.czk|data.total_market_cap.dkk|data.total_market_cap.dot|data.total_market_cap.eos|data.total_market_cap.gbp|data.total_market_cap.gel|data.total_market_cap.hkd|data.total_market_cap.huf|data.total_market_cap.idr|data.total_market_cap.ils|data.total_market_cap.inr|data.total_market_cap.jpy|data.total_market_cap.krw|data.total_market_cap.kwd|data.total_market_cap.link|data.total_market_cap.lkr|data.total_market_cap.ltc|data.total_market_cap.mmk|data.total_market_cap.mxn|data.total_market_cap.myr|data.total_market_cap.ngn|data.total_market_cap.nok|data.total_market_cap.nzd|data.total_market_cap.php|data.total_market_cap.pkr|data.total_market_cap.pln|data.total_market_cap.rub|data.total_market_cap.sar|data.total_market_cap.sats|data.total_market_cap.sek|data.total_market_cap.sgd|data.total_market_cap.sol|data.total_market_cap.thb|data.total_market_cap.try|data.total_market_cap.twd|data.total_market_cap.uah|data.total_market_cap.vef|data.total_market_cap.vnd|data.total_market_cap.xag|data.total_market_cap.xau|data.total_market_cap.xdr|data.total_market_cap.xlm|data.total_market_cap.xrp|data.total_market_cap.yfi|data.total_market_cap.zar|data.total_volume.aed|data.total_volume.ars|data.total_volume.aud|data.total_volume.bch|data.total_volume.bdt|data.total_volume.bhd|data.total_volume.bits|data.total_volume.bmd|data.total_volume.bnb|data.total_volume.brl|data.total_volume.cad|data.total_volume.chf|data.total_volume.clp|data.total_volume.cny|data.total_volume.czk|data.total_volume.dkk|data.total_volume.dot|data.total_volume.eos|data.total_volume.gbp|data.total_volume.gel|data.total_volume.hkd|data.total_volume.huf|data.total_volume.idr|data.total_volume.ils|data.total_volume.inr|data.total_volume.jpy|data.total_volume.krw|data.total_volume.kwd|data.total_volume.link|data.total_volume.lkr|data.total_volume.ltc|data.total_volume.mmk|data.total_volume.mxn|data.total_volume.myr|data.total_volume.ngn|data.total_volume.nok|data.total_volume.nzd|data.total_volume.php|data.total_volume.pkr|data.total_volume.pln|data.total_volume.rub|data.total_volume.sar|data.total_volume.sats|data.total_volume.sek|data.total_volume.sgd|data.total_volume.sol|data.total_volume.thb|data.total_volume.try|data.total_volume.twd|data.total_volume.uah|data.total_volume.vef|data.total_volume.vnd|data.total_volume.xag|data.total_volume.xau|data.total_volume.xdr|data.total_volume.xlm|data.total_volume.xrp|data.total_volume.yfi|data.total_volume.zar|data.volume_change_percentage_24h_usd|data.active_cryptocurrencies|data.ended_icos|data.market_cap_change_percentage_24h_usd|data.market_cap_percentage.btc|data.market_cap_percentage.eth|data.market_cap_percentage.usdc|data.markets|data.ongoing_icos|data.total_market_cap.btc|data.total_market_cap.eth|data.total_market_cap.eur|data.total_market_cap.usd|data.total_volume.btc|data.total_volume.eth|data.total_volume.eur|data.total_volume.usd|data.updated_at",
+      "entryId": "global-canonical",
+      "normalizedPath": "/global",
+      "gapClass": "missing_field",
+      "classificationReason": "Field present on only one side.",
+      "status": "actionable",
+      "divergenceId": null,
+      "divergenceReason": null,
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/global.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "global"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/global-canonical-fe098f3084b0bff4.json",
+      "replayArtifactPath": "artifacts/global-canonical-fe098f3084b0bff4.json",
+      "upstreamStatus": 200,
+      "replayStatus": 200,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/global-canonical-fe098f3084b0bff4.json",
+        "replayArtifactPath": "artifacts/global-canonical-fe098f3084b0bff4.json"
+      },
+      "diffPaths": [
+        "data.market_cap_percentage.bnb",
+        "data.market_cap_percentage.figr_heloc",
+        "data.market_cap_percentage.sol",
+        "data.market_cap_percentage.steth",
+        "data.market_cap_percentage.trx",
+        "data.market_cap_percentage.usdt",
+        "data.market_cap_percentage.xrp",
+        "data.total_market_cap.aed",
+        "data.total_market_cap.ars",
+        "data.total_market_cap.aud",
+        "data.total_market_cap.bch",
+        "data.total_market_cap.bdt",
+        "data.total_market_cap.bhd",
+        "data.total_market_cap.bits",
+        "data.total_market_cap.bmd",
+        "data.total_market_cap.bnb",
+        "data.total_market_cap.brl",
+        "data.total_market_cap.cad",
+        "data.total_market_cap.chf",
+        "data.total_market_cap.clp",
+        "data.total_market_cap.cny",
+        "data.total_market_cap.czk",
+        "data.total_market_cap.dkk",
+        "data.total_market_cap.dot",
+        "data.total_market_cap.eos",
+        "data.total_market_cap.gbp",
+        "data.total_market_cap.gel",
+        "data.total_market_cap.hkd",
+        "data.total_market_cap.huf",
+        "data.total_market_cap.idr",
+        "data.total_market_cap.ils",
+        "data.total_market_cap.inr",
+        "data.total_market_cap.jpy",
+        "data.total_market_cap.krw",
+        "data.total_market_cap.kwd",
+        "data.total_market_cap.link",
+        "data.total_market_cap.lkr",
+        "data.total_market_cap.ltc",
+        "data.total_market_cap.mmk",
+        "data.total_market_cap.mxn",
+        "data.total_market_cap.myr",
+        "data.total_market_cap.ngn",
+        "data.total_market_cap.nok",
+        "data.total_market_cap.nzd",
+        "data.total_market_cap.php",
+        "data.total_market_cap.pkr",
+        "data.total_market_cap.pln",
+        "data.total_market_cap.rub",
+        "data.total_market_cap.sar",
+        "data.total_market_cap.sats",
+        "data.total_market_cap.sek",
+        "data.total_market_cap.sgd",
+        "data.total_market_cap.sol",
+        "data.total_market_cap.thb",
+        "data.total_market_cap.try",
+        "data.total_market_cap.twd",
+        "data.total_market_cap.uah",
+        "data.total_market_cap.vef",
+        "data.total_market_cap.vnd",
+        "data.total_market_cap.xag",
+        "data.total_market_cap.xau",
+        "data.total_market_cap.xdr",
+        "data.total_market_cap.xlm",
+        "data.total_market_cap.xrp",
+        "data.total_market_cap.yfi",
+        "data.total_market_cap.zar",
+        "data.total_volume.aed",
+        "data.total_volume.ars",
+        "data.total_volume.aud",
+        "data.total_volume.bch",
+        "data.total_volume.bdt",
+        "data.total_volume.bhd",
+        "data.total_volume.bits",
+        "data.total_volume.bmd",
+        "data.total_volume.bnb",
+        "data.total_volume.brl",
+        "data.total_volume.cad",
+        "data.total_volume.chf",
+        "data.total_volume.clp",
+        "data.total_volume.cny",
+        "data.total_volume.czk",
+        "data.total_volume.dkk",
+        "data.total_volume.dot",
+        "data.total_volume.eos",
+        "data.total_volume.gbp",
+        "data.total_volume.gel",
+        "data.total_volume.hkd",
+        "data.total_volume.huf",
+        "data.total_volume.idr",
+        "data.total_volume.ils",
+        "data.total_volume.inr",
+        "data.total_volume.jpy",
+        "data.total_volume.krw",
+        "data.total_volume.kwd",
+        "data.total_volume.link",
+        "data.total_volume.lkr",
+        "data.total_volume.ltc",
+        "data.total_volume.mmk",
+        "data.total_volume.mxn",
+        "data.total_volume.myr",
+        "data.total_volume.ngn",
+        "data.total_volume.nok",
+        "data.total_volume.nzd",
+        "data.total_volume.php",
+        "data.total_volume.pkr",
+        "data.total_volume.pln",
+        "data.total_volume.rub",
+        "data.total_volume.sar",
+        "data.total_volume.sats",
+        "data.total_volume.sek",
+        "data.total_volume.sgd",
+        "data.total_volume.sol",
+        "data.total_volume.thb",
+        "data.total_volume.try",
+        "data.total_volume.twd",
+        "data.total_volume.uah",
+        "data.total_volume.vef",
+        "data.total_volume.vnd",
+        "data.total_volume.xag",
+        "data.total_volume.xau",
+        "data.total_volume.xdr",
+        "data.total_volume.xlm",
+        "data.total_volume.xrp",
+        "data.total_volume.yfi",
+        "data.total_volume.zar",
+        "data.volume_change_percentage_24h_usd",
+        "data.active_cryptocurrencies",
+        "data.ended_icos",
+        "data.market_cap_change_percentage_24h_usd",
+        "data.market_cap_percentage.btc",
+        "data.market_cap_percentage.eth",
+        "data.market_cap_percentage.usdc",
+        "data.markets",
+        "data.ongoing_icos",
+        "data.total_market_cap.btc",
+        "data.total_market_cap.eth",
+        "data.total_market_cap.eur",
+        "data.total_market_cap.usd",
+        "data.total_volume.btc",
+        "data.total_volume.eth",
+        "data.total_volume.eur",
+        "data.total_volume.usd",
+        "data.updated_at"
+      ]
+    }
+  ],
+  "expectedFindings": [
+    {
+      "findingId": "618ae703305107aa",
+      "findingKey": "simple-price-canonical:shape:$status",
+      "entryId": "simple-price-canonical",
+      "normalizedPath": "/simple/price?ids=bitcoin%2Cethereum&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true&include_market_cap=true&vs_currencies=usd",
+      "gapClass": "shape",
+      "classificationReason": "HTTP status differs (200 vs 503).",
+      "status": "expected",
+      "divergenceId": "expected-simple-price-runtime-unavailable",
+      "divergenceReason": "Offline validation runs can surface 503 simple price responses when no live market snapshots are loaded.",
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/simple.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "simple"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
+      "replayArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
+      "upstreamStatus": 200,
+      "replayStatus": 503,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json",
+        "replayArtifactPath": "artifacts/simple-price-canonical-f1665b11559445e7.json"
+      },
+      "diffPaths": [
+        "$status"
+      ]
+    },
+    {
+      "findingId": "3c62fb5e606d76c6",
+      "findingKey": "simple-token-price-ethereum-usdc:shape:$status",
+      "entryId": "simple-token-price-ethereum-usdc",
+      "normalizedPath": "/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true&include_market_cap=true&vs_currencies=usd",
+      "gapClass": "shape",
+      "classificationReason": "HTTP status differs (200 vs 503).",
+      "status": "expected",
+      "divergenceId": "expected-token-price-runtime-unavailable",
+      "divergenceReason": "Offline validation runs can surface 503 token price responses when no live market snapshots are loaded.",
+      "ownershipHints": [
+        {
+          "module_path": "src/modules/simple.ts",
+          "provider_name": "ccxt",
+          "endpoint_family": "simple"
+        }
+      ],
+      "upstreamArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
+      "replayArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
+      "upstreamStatus": 200,
+      "replayStatus": 503,
+      "evidencePaths": {
+        "upstreamArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json",
+        "replayArtifactPath": "artifacts/simple-token-price-ethereum-usdc-4eee7197a10aab86.json"
+      },
+      "diffPaths": [
+        "$status"
+      ]
+    }
+  ]
+}

@@ -214,4 +214,101 @@ describe('CoinGecko diff report', () => {
       'market_data.current_price',
     ]);
   });
+
+  it('marks token-price runtime status mismatches as expected when registered alongside simple-price runtime limitations', () => {
+    const root = mkdtempSync(join(tmpdir(), 'opengecko-diff-report-token-runtime-'));
+    tempDirs.push(root);
+    const snapshotDir = join(root, 'snapshots');
+    const replayDir = join(snapshotDir, 'replay');
+    const registryDir = join(snapshotDir, 'registry');
+    mkdirSync(join(snapshotDir, 'artifacts'), { recursive: true });
+    mkdirSync(join(replayDir, 'artifacts'), { recursive: true });
+    mkdirSync(registryDir, { recursive: true });
+
+    writeFileSync(join(snapshotDir, 'artifacts/simple-price.json'), `${JSON.stringify({ bitcoin: { usd: 1 } }, null, 2)}\n`);
+    writeFileSync(join(snapshotDir, 'artifacts/token-price.json'), `${JSON.stringify({ '0xa0b8': { usd: 1 } }, null, 2)}\n`);
+    writeFileSync(join(replayDir, 'artifacts/simple-price.json'), `${JSON.stringify({ status: 503, body: { error: 'runtime_unavailable' } }, null, 2)}\n`);
+    writeFileSync(join(replayDir, 'artifacts/token-price.json'), `${JSON.stringify({ status: 503, body: { error: 'runtime_unavailable' } }, null, 2)}\n`);
+    writeFileSync(join(replayDir, 'report.json'), `${JSON.stringify({
+      reportFormatVersion: 1,
+      corpusIdentity: 'corpus-runtime',
+      manifestId: 'manifest-runtime',
+      replayTargetManifestIdentity: 'target-runtime',
+      normalizationRulesId: 'legacy',
+      replayedAt: '2026-03-28T00:00:00.000Z',
+      validationApiBaseUrl: 'http://127.0.0.1:3102',
+      entryCount: 2,
+      findings: [
+        {
+          findingId: 'simple-runtime',
+          entryId: 'simple-price-canonical',
+          normalizedPath: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          replayTargetManifestIdentity: 'target-runtime',
+          upstreamArtifactPath: 'artifacts/simple-price.json',
+          replayArtifactPath: 'artifacts/simple-price.json',
+          upstreamStatus: 200,
+          replayStatus: 503,
+          statusMatches: false,
+          bodyMatches: false,
+        },
+        {
+          findingId: 'token-runtime',
+          entryId: 'simple-token-price-ethereum-usdc',
+          normalizedPath: '/simple/token_price/ethereum?contract_addresses=0xa0b8&vs_currencies=usd',
+          replayTargetManifestIdentity: 'target-runtime',
+          upstreamArtifactPath: 'artifacts/token-price.json',
+          replayArtifactPath: 'artifacts/token-price.json',
+          upstreamStatus: 200,
+          replayStatus: 503,
+          statusMatches: false,
+          bodyMatches: false,
+        },
+      ],
+    }, null, 2)}\n`);
+    writeFileSync(join(snapshotDir, 'normalization-rules.json'), `${JSON.stringify({
+      rulesetId: 'rules-runtime',
+      ignoredPaths: [],
+      orderingInsensitivePaths: [],
+      freshnessPaths: [],
+      sourcePaths: [],
+      numericTolerances: {},
+    }, null, 2)}\n`);
+    writeFileSync(join(registryDir, 'divergence-registry.json'), `${JSON.stringify({
+      registryId: 'registry-runtime',
+      entries: [
+        {
+          id: 'expected-simple-price-runtime-unavailable',
+          findingKey: 'simple-price-canonical:shape:$status',
+          reason: 'Offline validation runs can surface 503 simple price responses when no live market snapshots are loaded.',
+        },
+        {
+          id: 'expected-token-price-runtime-unavailable',
+          findingKey: 'simple-token-price-ethereum-usdc:shape:$status',
+          reason: 'Offline validation runs can surface 503 token price responses when no live market snapshots are loaded.',
+        },
+      ],
+    }, null, 2)}\n`);
+
+    const report = createDiffReport({
+      replayReportPath: join(replayDir, 'report.json'),
+      snapshotDir,
+      rulesetPath: join(snapshotDir, 'normalization-rules.json'),
+      divergenceRegistryPath: join(registryDir, 'divergence-registry.json'),
+      generatedAt: () => new Date('2026-03-28T00:10:00.000Z'),
+    });
+
+    expect(report.totals).toMatchObject({
+      findings: 2,
+      actionable: 0,
+      expected: 2,
+    });
+    expect(report.expectedFindings.map((finding) => finding.entryId)).toEqual([
+      'simple-price-canonical',
+      'simple-token-price-ethereum-usdc',
+    ]);
+    expect(report.expectedFindings.map((finding) => finding.divergenceId)).toEqual([
+      'expected-simple-price-runtime-unavailable',
+      'expected-token-price-runtime-unavailable',
+    ]);
+  });
 });

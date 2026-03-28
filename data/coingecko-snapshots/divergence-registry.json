@@ -1,0 +1,15 @@
+{
+  "registryId": "coingecko-diff-divergence-registry-v1",
+  "entries": [
+    {
+      "id": "expected-simple-price-runtime-unavailable",
+      "findingKey": "simple-price-canonical:shape:$status",
+      "reason": "Offline validation runs can surface 503 simple price responses when no live market snapshots are loaded."
+    },
+    {
+      "id": "expected-token-price-runtime-unavailable",
+      "findingKey": "simple-token-price-ethereum-usdc:shape:$status",
+      "reason": "Offline validation runs can surface 503 token price responses when no live market snapshots are loaded."
+    }
+  ]
+}
