@@ -5940,6 +5940,187 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('treats a live local server host override on port 3000 as the same default seeded bootstrap runtime', async () => {
+    const hostOverrideBootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        host: '127.0.0.1',
+        port: 3000,
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await hostOverrideBootstrapApp.ready();
+
+      expect(hostOverrideBootstrapApp.marketDataRuntimeState.validationOverride).toMatchObject({
+        mode: 'seeded_bootstrap',
+        reason: 'default runtime seeded from persistent live snapshots',
+      });
+
+      const [simplePriceResponse, marketsResponse, detailResponse, diagnosticsResponse] = await Promise.all([
+        hostOverrideBootstrapApp.inject({
+          method: 'GET',
+          url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+        }),
+        hostOverrideBootstrapApp.inject({
+          method: 'GET',
+          url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&order=market_cap_desc&page=1&per_page=3&price_change_percentage=24h,7d&sparkline=false',
+        }),
+        hostOverrideBootstrapApp.inject({
+          method: 'GET',
+          url: '/coins/bitcoin?community_data=false&developer_data=false&localization=false&market_data=true&sparkline=false&tickers=false',
+        }),
+        hostOverrideBootstrapApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        }),
+      ]);
+
+      expect(simplePriceResponse.statusCode).toBe(200);
+      expect(simplePriceResponse.json()).toEqual({
+        bitcoin: {
+          usd: expect.any(Number),
+        },
+      });
+      expect(marketsResponse.statusCode).toBe(200);
+      expect(marketsResponse.json()[0]).toMatchObject({
+        id: 'bitcoin',
+        current_price: expect.any(Number),
+        market_cap: expect.any(Number),
+        total_volume: expect.any(Number),
+      });
+      expect(detailResponse.statusCode).toBe(200);
+      expect(detailResponse.json().market_data).toMatchObject({
+        current_price: { usd: expect.any(Number) },
+        market_cap: { usd: expect.any(Number) },
+        total_volume: { usd: expect.any(Number) },
+      });
+      expect(diagnosticsResponse.statusCode).toBe(200);
+      expect(diagnosticsResponse.json().data).toMatchObject({
+        readiness: {
+          state: 'starting',
+          initial_sync_completed: false,
+        },
+        degraded: {
+          active: false,
+          stale_live_enabled: true,
+          reason: 'default runtime seeded from persistent live snapshots',
+          validation_override: {
+            active: true,
+            mode: 'seeded_bootstrap',
+            reason: 'default runtime seeded from persistent live snapshots',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'seeded_bootstrap',
+          },
+        },
+      });
+    } finally {
+      await hostOverrideBootstrapApp.close();
+    }
+  });
+
+  it('preserves seeded bootstrap runtime semantics after listen() for a live local host override on port 3000', async () => {
+    const liveHostOverrideApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        host: '127.0.0.1',
+        port: 3000,
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await liveHostOverrideApp.listen({ host: '127.0.0.1', port: 0 });
+      liveHostOverrideApp.marketRuntime?.markListenerBound();
+      liveHostOverrideApp.marketDataRuntimeState.listenerBound = true;
+
+      expect(liveHostOverrideApp.marketDataRuntimeState.validationOverride).toMatchObject({
+        mode: 'seeded_bootstrap',
+        reason: 'default runtime seeded from persistent live snapshots',
+      });
+
+      const address = liveHostOverrideApp.server.address();
+      const livePort = typeof address === 'object' && address ? address.port : null;
+      expect(typeof livePort).toBe('number');
+
+      const [diagnosticsResponse, simplePriceResponse, marketsResponse, detailResponse] = await Promise.all([
+        fetch(`http://127.0.0.1:${livePort}/diagnostics/runtime`),
+        fetch(`http://127.0.0.1:${livePort}/simple/price?ids=bitcoin&vs_currencies=usd`),
+        fetch(`http://127.0.0.1:${livePort}/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&order=market_cap_desc&page=1&per_page=3&price_change_percentage=24h,7d&sparkline=false`),
+        fetch('http://127.0.0.1:' + livePort + '/coins/bitcoin?community_data=false&developer_data=false&localization=false&market_data=true&sparkline=false&tickers=false'),
+      ]);
+
+      expect(diagnosticsResponse.status).toBe(200);
+      await expect(diagnosticsResponse.json()).resolves.toMatchObject({
+        data: {
+          readiness: {
+            state: 'starting',
+            initial_sync_completed: false,
+            listener_bound: true,
+          },
+          degraded: {
+            active: false,
+            stale_live_enabled: true,
+            reason: 'default runtime seeded from persistent live snapshots',
+            validation_override: {
+              active: true,
+              mode: 'seeded_bootstrap',
+              reason: 'default runtime seeded from persistent live snapshots',
+            },
+          },
+          hot_paths: {
+            shared_market_snapshot: {
+              available: true,
+              source_class: 'seeded_bootstrap',
+              provider_count: expect.any(Number),
+            },
+          },
+        },
+      });
+
+      expect(simplePriceResponse.status).toBe(200);
+      await expect(simplePriceResponse.json()).resolves.toEqual({
+        bitcoin: {
+          usd: expect.any(Number),
+        },
+      });
+
+      expect(marketsResponse.status).toBe(200);
+      await expect(marketsResponse.json()).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'bitcoin',
+            current_price: expect.any(Number),
+            market_cap: expect.any(Number),
+            total_volume: expect.any(Number),
+            last_updated: expect.any(String),
+          }),
+        ]),
+      );
+
+      expect(detailResponse.status).toBe(200);
+      await expect(detailResponse.json()).resolves.toMatchObject({
+        id: 'bitcoin',
+        market_data: {
+          current_price: { usd: expect.any(Number) },
+          market_cap: { usd: expect.any(Number) },
+          total_volume: { usd: expect.any(Number) },
+          last_updated: expect.any(String),
+        },
+      });
+    } finally {
+      await liveHostOverrideApp.close();
+    }
+  });
+
   it('fails startup with a targeted initial sync timeout message before Fastify hook timeout masking', async () => {
     const bootstrapApp = buildApp({
       config: {

@@ -134,7 +134,7 @@ function resolveBootstrapSnapshotAccessMode(
 
   const bootstrapOnlyRuntime = !startBackgroundJobs;
   const manifestValidationRuntime = host === '127.0.0.1' && port === 3102;
-  const defaultLocalBootstrapRuntime = host === '0.0.0.0' && port === 3000;
+  const defaultLocalBootstrapRuntime = port === 3000;
 
   if (!bootstrapOnlyRuntime && !manifestValidationRuntime && !defaultLocalBootstrapRuntime) {
     return 'disabled';
@@ -684,11 +684,6 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
           : 'default runtime seeded from persistent live snapshots';
         const canonicalCoinIds = ['bitcoin', 'ethereum', 'solana'] as const;
         const canonicalCoinPlaceholders = canonicalCoinIds.map(() => '?').join(', ');
-        seedRuntimeSnapshotsFromPersistentStore(
-          database,
-          persistentSnapshotDatabaseUrl,
-          marketDataRuntimeState,
-        );
         seedStaticReferenceData(database, { includeSeededExchanges: true });
         database.client.prepare(`
           DELETE FROM coins
@@ -776,12 +771,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       }
       if (
         config.databaseUrl === ':memory:'
+        && bootstrapSnapshotAccessMode === 'seeded_bootstrap'
         && (
           seedValidationSnapshotMode
-          || (
-            config.host === '0.0.0.0'
-            && config.port === 3000
-          )
+          || config.port === 3000
         )
         && (
           marketDataRuntimeState.validationOverride.reason === 'validation runtime seeded from persistent live snapshots'
