@@ -32,6 +32,19 @@ function getRankDrivenScore(marketCapRank: number | null | undefined) {
   return marketCapRank ?? 0;
 }
 
+function compareAscendingRankWithNullsLast(
+  left: { marketCapRank: number | null; coinId: string },
+  right: { marketCapRank: number | null; coinId: string },
+) {
+  const rankDelta = (left.marketCapRank ?? Number.MAX_SAFE_INTEGER) - (right.marketCapRank ?? Number.MAX_SAFE_INTEGER);
+
+  if (rankDelta !== 0) {
+    return rankDelta;
+  }
+
+  return left.coinId.localeCompare(right.coinId);
+}
+
 export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/search', async (request) => {
     const query = searchQuerySchema.parse(request.query).query.toLowerCase();
@@ -99,25 +112,22 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
     const showMax = parseShowMax(query.show_max);
     const marketRows = getMarketRows(database, 'usd', { status: 'all' });
     const coins = marketRows
-      .slice()
-      .sort((left, right) => {
-        const rankDelta = (left.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER) - (right.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER);
-
-        if (rankDelta !== 0) {
-          return rankDelta;
-        }
-
-        return left.coin.id.localeCompare(right.coin.id);
-      })
+      .filter((row) => row.snapshot !== null)
+      .map((row) => ({
+        row,
+        marketCapRank: row.snapshot?.marketCapRank ?? row.coin.marketCapRank ?? null,
+      }))
+      .sort((left, right) => compareAscendingRankWithNullsLast(
+        { marketCapRank: left.marketCapRank, coinId: left.row.coin.id },
+        { marketCapRank: right.marketCapRank, coinId: right.row.coin.id },
+      ))
       .slice(0, showMax ?? 7)
-      .map((row) => {
+      .map(({ row, marketCapRank }) => {
         const snapshot = row.snapshot;
 
         if (!snapshot) {
           return null;
         }
-
-        const marketCapRank = snapshot.marketCapRank ?? row.coin.marketCapRank;
 
         return ({
           item: {

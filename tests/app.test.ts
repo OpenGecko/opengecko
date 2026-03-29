@@ -5122,7 +5122,15 @@ describe('OpenGecko app scaffold', () => {
     expect(body.coins.map((entry: { item: { id: string } }) => entry.item.id)).toContain('ethereum');
     expect(body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)).toEqual(
       [...body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)]
-        .sort((left, right) => (left ?? Number.MAX_SAFE_INTEGER) - (right ?? Number.MAX_SAFE_INTEGER)),
+        .sort((left, right) => {
+          const rankDelta = (left ?? Number.MAX_SAFE_INTEGER) - (right ?? Number.MAX_SAFE_INTEGER);
+
+          if (rankDelta !== 0) {
+            return rankDelta;
+          }
+
+          return 0;
+        }),
     );
     body.coins.forEach((entry: { item: { market_cap_rank: number | null; score: number } }) => {
       expect(entry.item.score).toBe(entry.item.market_cap_rank ?? 0);
@@ -5134,6 +5142,75 @@ describe('OpenGecko app scaffold', () => {
     expect(Array.isArray(body.nfts)).toBe(true);
     expect(Array.isArray(body.categories)).toBe(true);
   });
+
+  it('serializes trending coins in ascending runtime market_cap_rank order with nulls last', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/search/trending?show_max=20',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const rankedCoins = body.coins.map((entry: { item: { id: string; market_cap_rank: number | null; score: number } }) => entry.item);
+
+    expect(rankedCoins.length).toBeGreaterThan(1);
+    expect(rankedCoins).toEqual(
+      [...rankedCoins].sort((left, right) => {
+        const rankDelta = (left.market_cap_rank ?? Number.MAX_SAFE_INTEGER) - (right.market_cap_rank ?? Number.MAX_SAFE_INTEGER);
+
+        if (rankDelta !== 0) {
+          return rankDelta;
+        }
+
+        return left.id.localeCompare(right.id);
+      }),
+    );
+    rankedCoins.forEach((item: { market_cap_rank: number | null; score: number }) => {
+      expect(item.score).toBe(item.market_cap_rank ?? 0);
+    });
+
+    const firstNullRankIndex = rankedCoins.findIndex((item: { market_cap_rank: number | null }) => item.market_cap_rank === null);
+
+    if (firstNullRankIndex !== -1) {
+      expect(rankedCoins.slice(firstNullRankIndex).every((item: { market_cap_rank: number | null }) => item.market_cap_rank === null)).toBe(true);
+    }
+  });
+
+  it('keeps runtime ordering deterministic when multiple trending coins share the same market_cap_rank', async () => {
+    await getApp().ready();
+    const sharedRank = 42;
+
+    getApp().db.db
+      .update(marketSnapshots)
+      .set({ marketCapRank: sharedRank })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+
+    getApp().db.db
+      .update(marketSnapshots)
+      .set({ marketCapRank: sharedRank })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/search/trending?show_max=20',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const rankedCoins = response.json().coins.map((entry: { item: { id: string; market_cap_rank: number | null; score: number } }) => entry.item);
+    const sharedRankIds = rankedCoins
+      .filter((item: { market_cap_rank: number | null }) => item.market_cap_rank === sharedRank)
+      .map((item: { id: string }) => item.id);
+
+    expect(sharedRankIds).toEqual(['bitcoin', 'ethereum']);
+    rankedCoins
+      .filter((item: { market_cap_rank: number | null }) => item.market_cap_rank === sharedRank)
+      .forEach((item: { market_cap_rank: number | null; score: number }) => {
+        expect(item.score).toBe(sharedRank);
+      });
+  });
+
 
   it('supports deterministic show_max truncation for trending search groups', async () => {
     const response = await getApp().inject({
