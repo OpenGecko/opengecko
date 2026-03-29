@@ -93,8 +93,12 @@ export function buildCoinDetail(
         price_change_percentage_7d_in_currency: Object.fromEntries(
           SUPPORTED_VS_CURRENCIES.map((c) => [c, toNumberOrNull(priceChangePercentage7d, 'full')]),
         ),
-        market_cap_change_24h: null,
-        market_cap_change_percentage_24h: null,
+        market_cap_change_24h: snapshot.marketCap && snapshot.priceChange24h !== null && snapshot.price !== null && snapshot.price !== 0
+          ? snapshot.marketCap * (snapshot.priceChange24h / snapshot.price)
+          : null,
+        market_cap_change_percentage_24h: snapshot.marketCap && snapshot.priceChange24h !== null && snapshot.price !== null && snapshot.price !== 0
+          ? snapshot.priceChangePercentage24h
+          : null,
         market_cap_rank: snapshot.marketCapRank,
         last_updated: snapshot.lastUpdated.toISOString(),
         sparkline_7d: options.includeSparkline

@@ -85,10 +85,25 @@ describe('CoinGecko diff classifier', () => {
     expect(report.actionableFindings[0]?.gapClass).toBe('value');
   });
 
-  it('classifies ranking diffs for arrays', () => {
-    const paths = setupCase('ranking', { ...baseFinding, normalizedPath: '/coins/markets' }, [{ id: 'bitcoin' }, { id: 'ethereum' }], [{ id: 'ethereum' }, { id: 'bitcoin' }]);
+  it('classifies nested row-field differences instead of root-array ranking when array membership and order match', () => {
+    const paths = setupCase(
+      'coins-markets-nested',
+      { ...baseFinding, normalizedPath: '/coins/markets' },
+      [
+        { id: 'bitcoin', market_cap_rank: 1, current_price: 100 },
+        { id: 'ethereum', market_cap_rank: 2, current_price: 50 },
+      ],
+      [
+        { id: 'bitcoin', market_cap_rank: 1, current_price: 101 },
+        { id: 'ethereum', market_cap_rank: 2, current_price: 49 },
+      ],
+    );
     const report = createDiffReport(paths);
-    expect(report.actionableFindings[0]?.gapClass).toBe('ranking');
+    expect(report.actionableFindings[0]?.gapClass).toBe('value');
+    expect(report.actionableFindings[0]?.diffPaths).toEqual([
+      '$array[0].current_price',
+      '$array[1].current_price',
+    ]);
   });
 
   it('classifies freshness paths using rules', () => {

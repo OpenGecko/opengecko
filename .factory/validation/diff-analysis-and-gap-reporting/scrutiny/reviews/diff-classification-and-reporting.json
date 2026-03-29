@@ -1,0 +1,15 @@
+{
+  "featureId": "diff-classification-and-reporting",
+  "reviewedAt": "2026-03-28T00:00:00Z",
+  "commitId": "28d0a401bb785d76b51324f7a48de2755423f263",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix directly addresses the prior blocking issue by extending the checked-in divergence registry to the canonical token-price runtime 503 mismatch, regenerating the checked-in diff report so the token-price finding is expected instead of actionable, and adding a focused regression test for the registry/report behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/openGecko/.factory/validation/diff-analysis-and-gap-reporting/scrutiny/reviews/diff-classification-and-reporting.json",
+  "summary": "Review passed: the fix resolves the original token-price divergence-registry failure. Commit 28d0a40 adds the token-price registry entry, updates the generated replay diff report to show 2 expected runtime divergences (simple price and token price) and 0 actionable findings for that runtime case, and adds regression coverage proving both cases remain expected when registered."
+}

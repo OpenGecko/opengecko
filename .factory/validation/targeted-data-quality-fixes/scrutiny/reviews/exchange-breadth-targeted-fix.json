@@ -1,0 +1,34 @@
+{
+  "featureId": "exchange-breadth-targeted-fix",
+  "reviewedAt": "2026-03-28T15:33:27.642608+00:00",
+  "commitId": "227bdae",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Current repo state still fails this feature review: exchange breadth/ranking diffs are classified as expected, but the same feature also reclassified /global and /exchange_rates breadth findings, which exceeds the exchange-only scope and improves the gate through unrelated divergence-registry drift.",
+    "issues": [
+      {
+        "file": "data/coingecko-snapshots/divergence-registry.json",
+        "line": 13,
+        "severity": "blocking",
+        "description": "The exchange-breadth-targeted-fix feature was scoped to exchange registry/detail/ticker breadth and ranking gaps, but the current registry entries added here also include expected-exchange-rates-envelope-breadth and expected-global-breadth-gap. Reclassifying non-exchange findings in the same change set violates the assigned scope and spills divergence handling into global and exchange-rates surfaces."
+      },
+      {
+        "file": "data/coingecko-snapshots/replay/diff-report.json",
+        "line": 996,
+        "severity": "blocking",
+        "description": "The regenerated diff report now marks exchanges-canonical, exchange-detail-binance, and exchange-tickers-binance as expected, but it also marks exchange-rates-canonical and global-canonical as expected under the same feature. That broadens the milestone improvement by unrelated registry drift instead of exchange-only behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The compatibility-hardening-worker procedure does not explicitly require divergence-registry/report updates to stay within the assigned endpoint family for narrowly scoped breadth-fix features. That gap allowed an exchange-only feature to clear unrelated global/exchange-rates findings in the same pass.",
+      "evidence": "Mission features.json scopes exchange-breadth-targeted-fix to exchange registry/detail/ticker gaps, but commit 227bdae adds expected-exchange-rates-envelope-breadth and expected-global-breadth-gap in data/coingecko-snapshots/divergence-registry.json and the resulting diff report marks exchange-rates-canonical and global-canonical as expected."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: current repository state still handles exchange breadth by expected-divergence classification, but this feature also reclassified unrelated /global and /exchange_rates breadth findings, so it remains out of scope and weakens the improvement-gate evidence."
+}

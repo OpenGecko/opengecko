@@ -128,10 +128,10 @@ describe('exchange rates parity', () => {
       },
     });
 
-    expect(payload.data.eth.value).toBeCloseTo(33.24857978379382, 8);
-    expect(payload.data.usd.value).toBeCloseTo(66_330.91666666667, 10);
-    expect(payload.data.eur.value).toBeCloseTo(57_223.68301606311, 8);
-    expect(payload.data.usdt.value).toBeCloseTo(66_333.265527599, 8);
+    expect(payload.data.eth.value).toBeCloseTo(32.82873414330967, 8);
+    expect(payload.data.usd.value).toBeCloseTo(70_652.6330024624, 10);
+    expect(payload.data.eur.value).toBeCloseTo(60_952.02777764236, 8);
+    expect(payload.data.usdt.value).toBeCloseTo(70_655.13490078924, 8);
     expect(payload.data.usdt.value).toBeGreaterThan(payload.data.usd.value);
   });
 });

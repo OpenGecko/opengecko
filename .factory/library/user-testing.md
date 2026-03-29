@@ -8,9 +8,20 @@ Testing surface, required testing skills/tools, and resource cost classification
 
 - **Surface type**: REST API endpoints (no browser UI)
 - **Testing tool**: curl against local server
-- **Server startup**: `PORT=3102 CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts`
+- **Server startup**: `PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts`
 - **Startup time**: ~4-6 seconds (with CCXT_EXCHANGES='' for fast boot)
 - **Database**: SQLite at `./data/opengecko.db` (or `:memory:` for tests)
+
+### Snapshot-Parity Mission Surface
+
+- **Primary acceptance flow**:
+  1. bounded CoinGecko Pro capture writes artifacts under `data/coingecko-snapshots/`
+  2. local validation API runs on `3102`
+  3. offline replay compares local responses to stored upstream artifacts
+  4. machine-readable diff reports provide pass/fail evidence
+- **Primary tools**: local API + curl + targeted tests + offline replay/diff commands
+- **Important constraint**: do not re-hit live CoinGecko during replay, reporting, or repeated validation runs
+- **Evidence chain**: stored upstream artifact -> replay-captured OpenGecko artifact -> structured diff/report entry
 
 ### Endpoints to Test Per Milestone
 
@@ -20,6 +31,7 @@ Testing surface, required testing skills/tools, and resource cost classification
 **historical-durability**: `/coins/bitcoin/market_chart`, `/coins/bitcoin/ohlc`, `/diagnostics/ohlcv_sync`
 **exchange-live-fidelity**: `/exchanges`, `/exchanges/binance/tickers`, `/derivatives/exchanges`, `/exchanges/binance/volume_chart`
 **compatibility-hardening**: All endpoints with invalid parameters, response shape validation
+**snapshot-parity**: stored snapshot capture corpus, canonical `/simple/price`, `/simple/token_price/{id}`, `/coins/markets`, `/coins/{id}`, `/global`, `/exchange_rates`, `/exchanges`, `/exchanges/{id}`, `/exchanges/{id}/tickers`, plus offline replay/diff reports
 
 ## Validation Concurrency
 
@@ -34,15 +46,19 @@ Testing surface, required testing skills/tools, and resource cost classification
 - Holder/trader analytics remain fixture-backed
 - Ethereum trades/OHLCV recovery is shifting to SQD/Subsquid raw log queries; validation should prefer `DATABASE_URL=:memory:` and verify non-fixture responses from the SQD-backed path
 - Server startup with CCXT exchanges enabled takes 30+ seconds (use CCXT_EXCHANGES='' for validation)
+- The legacy `scripts/modules/simple/simple.sh` flow is not a hard gate for the snapshot-parity mission because it assumes live market snapshots instead of the stored-artifact replay workflow.
 
 
 ## Flow Validator Guidance: api
 
 - Shared validation server on `http://127.0.0.1:3102` is allowed for concurrent curl-based checks.
 - If the server is not running, start exactly one instance on port `3102`; prefer `DATABASE_URL=:memory:` to avoid lock conflicts with any dev server using `data/opengecko.db`.
+- If port `3102` is occupied by a stale or incompatible mission-owned validation server (for example diagnostics show `shared_market_snapshot.available=false` for a flow that needs live snapshots), stop it with the manifest stop command and start a fresh validation instance on `3102` before continuing.
+- For the bootstrap runtime-mode change, the validation API on `3102` should expose the same seeded-bootstrap semantics as the default/local bootstrap path when persisted rows are present. User-testing flows should verify `/diagnostics/runtime`, `/simple/price`, `/simple/token_price/*`, `/coins/markets`, and `/coins/{id}` against that seeded-bootstrap contract rather than the older stale/degraded-only behavior.
 - Do not use ports outside `3100-3199`.
 - Save response artifacts only under the assigned mission evidence directory.
 - Do not modify repository source files while validating.
+- For snapshot-parity validation, prefer stored artifacts under `data/coingecko-snapshots/` and verify replay/diff results offline rather than by making repeated upstream requests.
 
 ## Flow Validator Guidance: repo-validations
 

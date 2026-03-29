@@ -1,0 +1,40 @@
+{
+  "featureId": "simple-price-live-parity",
+  "reviewedAt": "2026-03-28T14:47:27.143251Z",
+  "commitId": "18a510b2c0355540a02ad8f88c29b5b232d17d65",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature added useful characterization tests and refreshed replay artifacts, but it did not fully satisfy the feature contract because it made no runtime code changes and the authoritative validation evidence still showed canonical /simple/price and /simple/token_price returning empty 200 bodies instead of populated live-backed payloads.",
+    "issues": [
+      {
+        "file": "data/coingecko-snapshots/replay/diff-report.json",
+        "line": 1263,
+        "severity": "blocking",
+        "description": "The regenerated diff report still contains active findings for `simple-price-canonical` and `simple-token-price-ethereum-usdc`, now classified as freshness drift rather than cleared parity. The feature expected these canonical requests to be hardened so replay/diff would reflect current correct runtime behavior, but the authoritative artifact still records unresolved simple-price/token-price parity differences."
+      },
+      {
+        "file": "tests/simple-price-parity.test.ts",
+        "line": 141,
+        "severity": "blocking",
+        "description": "The new simple-price test only exercises `warmSimplePriceCache` against a hand-seeded SQLite fixture and even forces `validationOverride.mode = 'stale_allowed'`, so it does not verify the real 3102 validation-runtime/bootstrap path named in the feature. The worker's own handoff confirms the live validation server still returned `{}` for the canonical request, which means the implemented coverage missed the actual regression surface."
+      },
+      {
+        "file": "tests/token-price-parity.test.ts",
+        "line": 38,
+        "severity": "blocking",
+        "description": "The token-price test verifies platform alias identity on an inject-built local app with mocked CCXT data, but it does not assert the sampled canonical replay surface is populated from the stored baseline corpus on port 3102. This leaves the feature's main requirement unverified and unmet, as shown by the worker's recorded manual checks returning empty `{}` payloads for the canonical token-price request."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `core-api-worker` skill says snapshot-parity work should inspect relevant diff/report artifacts before changes and implement the behavior via failing tests first, but it does not explicitly guard against stopping after characterization-only tests when the authoritative 3102 replay/manual surface still fails. This feature followed the written procedure yet still shipped a test-only commit that did not satisfy the feature's expected behavior.",
+      "evidence": "Skill file `.factory/skills/core-api-worker/SKILL.md` requires targeted tests and manual curl verification, while the worker handoff records `curl .../simple/price` and `curl .../simple/token_price/...` both returned `{}` and the regenerated diff report still contained simple-price/token-price findings; commit `18a510b2c0355540a02ad8f88c29b5b232d17d65` only changed test files plus the diff report."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the reviewed commit added characterization tests and refreshed artifacts, but it did not harden canonical simple-price/token-price behavior on the authoritative validation surface. Replay/diff evidence after the commit still shows unresolved simple-price and token-price findings, and the worker's own manual checks recorded empty `{}` responses on port 3102."
+}

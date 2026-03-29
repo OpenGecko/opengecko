@@ -1,0 +1,15 @@
+{
+  "featureId": "snapshot-capture-env-loader-hardening",
+  "reviewedAt": "2026-03-28T05:56:22Z",
+  "commitId": "b913c2ae42ddc023b2612ef3326ba5faab9fad7e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix closes the prior env-loader seam by making the shared repo dotenv loader reload when the cwd changes, and the targeted tests now reset loader state, clear ambient process state, and explicitly prove snapshot capture pulls COINGECKO_API_KEY from the intended temporary repo env source. I did not find remaining blocking issues in the reviewed fix scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/snapshot-capture-and-baselines/scrutiny/reviews/snapshot-capture-foundation.json",
+  "summary": "Pass: the fix addresses both blocking findings from snapshot-capture-foundation. The loader now keys its one-shot cache by cwd, snapshot-capture tests reset shared loader state and delete ambient COINGECKO_API_KEY between cases, and an added regression proves capture reloads the centralized env source after prior consumption from another cwd while preserving existing capture/reuse behavior."
+}

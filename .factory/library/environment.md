@@ -9,7 +9,7 @@ Environment variables, external dependencies, and setup notes.
 
 ## Environment Variables
 
-All defined in `src/config/env.ts` with defaults. The current onchain-live-data recovery plan prefers public DeFiLlama and SQD gateways, so no secret should be required for the remaining milestone work.
+All defined in `src/config/env.ts` with defaults unless noted otherwise.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -20,6 +20,14 @@ All defined in `src/config/env.ts` with defaults. The current onchain-live-data 
 | `MARKET_FRESHNESS_THRESHOLD_SECONDS` | `300` | Stale data threshold |
 | `DEFILLAMA_BASE_URL` | `https://api.llama.fi` | Base URL for DeFiLlama protocol, overview, and price requests |
 | `THEGRAPH_API_KEY` | (none) | Legacy The Graph API key path still exists in code, but the active recovery plan is moving live Ethereum trades/OHLCV to SQD public queries |
+| `COINGECKO_API_KEY` | (none) | Required for the snapshot-parity mission's bounded CoinGecko Pro capture workflow; consume from runtime environment or centralized env-loading path only, never by directly parsing `.env` |
+
+## Snapshot Parity Notes
+
+- The snapshot-parity mission uses CoinGecko **Pro** root/header conventions only.
+- `COINGECKO_API_KEY` is for the dedicated bounded capture workflow only; replay, reporting, and validation must use stored local artifacts instead of repeated upstream calls.
+- Never log, print, serialize, or persist the API key in artifacts, reports, or test output.
+- Snapshot artifacts live under `data/coingecko-snapshots/`.
 
 ## External Dependencies
 

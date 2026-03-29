@@ -14,6 +14,79 @@ function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
 }
 
+const EXCHANGE_METADATA_OVERRIDES: Record<string, Partial<typeof exchanges.$inferInsert>> = {
+  binance: {
+    name: 'Binance',
+    yearEstablished: 2017,
+    country: 'Cayman Islands',
+    url: 'https://www.binance.com/',
+    imageUrl: 'https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274',
+    description: 'One of the world’s largest cryptocurrency exchanges by trading volume, offering a wide range of services including spot, futures, and staking options.',
+    hasTradingIncentive: false,
+    trustScore: 10,
+    trustScoreRank: 1,
+    facebookUrl: 'https://www.facebook.com/binanceexchange',
+    redditUrl: 'https://www.reddit.com/r/binance/',
+    telegramUrl: '',
+    slackUrl: '',
+    otherUrlJson: JSON.stringify([
+      'https://medium.com/binanceexchange',
+      'https://steemit.com/@binanceexchange',
+    ]),
+    twitterHandle: 'binance',
+    centralised: true,
+    publicNotice: '',
+    alertNotice: '',
+  },
+  coinbase: {
+    name: 'Coinbase Exchange',
+    url: 'https://www.coinbase.com/',
+  },
+  gdax: {
+    name: 'Coinbase Exchange',
+    url: 'https://www.coinbase.com/',
+  },
+  okx: {
+    id: 'okex',
+    name: 'OKX',
+    url: 'https://www.okx.com',
+  },
+  bybit: {
+    id: 'bybit_spot',
+    name: 'Bybit',
+    url: 'https://www.bybit.com',
+  },
+};
+
+function getExchangeInsertValues(exchangeId: ExchangeId, updatedAt: Date): typeof exchanges.$inferInsert {
+  const override = EXCHANGE_METADATA_OVERRIDES[exchangeId] ?? {};
+
+  return {
+    id: override.id ?? exchangeId,
+    name: override.name ?? exchangeId.charAt(0).toUpperCase() + exchangeId.slice(1),
+    yearEstablished: override.yearEstablished ?? null,
+    country: override.country ?? null,
+    description: override.description ?? '',
+    url: override.url ?? `https://www.${exchangeId}.com`,
+    imageUrl: override.imageUrl ?? null,
+    hasTradingIncentive: override.hasTradingIncentive ?? false,
+    trustScore: override.trustScore ?? null,
+    trustScoreRank: override.trustScoreRank ?? null,
+    tradeVolume24hBtc: override.tradeVolume24hBtc ?? null,
+    tradeVolume24hBtcNormalized: override.tradeVolume24hBtcNormalized ?? null,
+    facebookUrl: override.facebookUrl ?? null,
+    redditUrl: override.redditUrl ?? null,
+    telegramUrl: override.telegramUrl ?? null,
+    slackUrl: override.slackUrl ?? null,
+    otherUrlJson: override.otherUrlJson ?? '[]',
+    twitterHandle: override.twitterHandle ?? null,
+    centralised: override.centralised ?? true,
+    publicNotice: override.publicNotice ?? null,
+    alertNotice: override.alertNotice ?? null,
+    updatedAt,
+  };
+}
+
 function shouldEmitStartupLogger(progress?: InitialSyncProgressHandlers) {
   return progress === undefined;
 }
@@ -82,18 +155,14 @@ export async function syncExchangesFromCCXT(
 
     succeeded += 1;
     succeededExchangeIds.push(exchangeId);
+    const exchangeInsertValues = getExchangeInsertValues(exchangeId, now);
     database.db
       .insert(exchanges)
-      .values({
-        id: exchangeId,
-        name: exchangeId.charAt(0).toUpperCase() + exchangeId.slice(1),
-        description: '',
-        url: `https://www.${exchangeId}.com`,
-        updatedAt: now,
-      })
+      .values(exchangeInsertValues)
       .onConflictDoUpdate({
         target: exchanges.id,
         set: {
+          ...exchangeInsertValues,
           updatedAt: now,
         },
       })

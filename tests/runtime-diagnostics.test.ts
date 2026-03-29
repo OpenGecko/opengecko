@@ -330,6 +330,43 @@ describe('runtime diagnostics', () => {
     expect(seededDiagnostics.hot_paths.shared_market_snapshot.source_class).toBe('degraded_seeded_bootstrap');
   });
 
+  it('reports seeded bootstrap runtime mode distinctly from degraded seeded bootstrap', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        validationOverride: {
+          mode: 'seeded_bootstrap',
+          reason: 'default runtime seeded from persistent live snapshots',
+          snapshotTimestampOverride: null,
+          snapshotSourceCountOverride: null,
+        },
+      }),
+      {
+        lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-20T00:02:00.000Z').getTime(),
+    );
+
+    expect(diagnostics.readiness).toMatchObject({
+      state: 'starting',
+      initial_sync_completed: false,
+    });
+    expect(diagnostics.degraded).toMatchObject({
+      active: false,
+      stale_live_enabled: true,
+      reason: 'default runtime seeded from persistent live snapshots',
+      validation_override: {
+        active: true,
+        mode: 'seeded_bootstrap',
+        reason: 'default runtime seeded from persistent live snapshots',
+      },
+    });
+    expect(diagnostics.hot_paths.shared_market_snapshot.source_class).toBe('seeded_bootstrap');
+  });
+
   it('reports ready state after recovery whenever failure indicators are cleared', () => {
     const diagnostics = buildRuntimeDiagnostics(
       createState({

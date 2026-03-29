@@ -1,0 +1,80 @@
+{
+  "milestone": "misc-bootstrap-runtime-followups",
+  "featureId": "misc-live-server-seeded-bootstrap-followup",
+  "timestamp": "2026-03-29T00:00:00Z",
+  "status": "pass",
+  "testedAssertions": [],
+  "assertionAssessment": {
+    "hasMappedAssertions": false,
+    "reason": "The only completed implementation feature in this milestone has an empty fulfills list in features.json, so no validation-contract assertions are assigned to this milestone."
+  },
+  "contextReviewed": {
+    "readme": "/home/whoami/dev/openGecko/README.md",
+    "mission": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/mission.md",
+    "validationContract": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/validation-contract.md",
+    "userTestingGuide": "/home/whoami/dev/openGecko/.factory/library/user-testing.md",
+    "services": "/home/whoami/dev/openGecko/.factory/services.yaml",
+    "scrutinySynthesis": "/home/whoami/dev/openGecko/.factory/validation/misc-bootstrap-runtime-followups/scrutiny/synthesis.json",
+    "scrutinyReview": "/home/whoami/dev/openGecko/.factory/validation/misc-bootstrap-runtime-followups/scrutiny/reviews/misc-live-server-seeded-bootstrap-followup.json"
+  },
+  "practicalVerification": {
+    "server": {
+      "surface": "existing local validation API",
+      "baseUrl": "http://127.0.0.1:3102",
+      "port": 3102,
+      "startedByThisFlow": false,
+      "notes": "Port 3102 was already occupied by a healthy validation server, so the flow reused it rather than starting a second instance."
+    },
+    "checks": [
+      {
+        "name": "ping",
+        "path": "/ping",
+        "result": "pass",
+        "summary": "Returned the expected liveness payload."
+      },
+      {
+        "name": "runtime diagnostics",
+        "path": "/diagnostics/runtime",
+        "result": "pass",
+        "summary": "Validation override reported active seeded bootstrap mode with shared_market_snapshot.available=true and source_class=seeded_bootstrap."
+      },
+      {
+        "name": "simple price seeded payload",
+        "path": "/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true",
+        "result": "pass",
+        "summary": "Returned populated seeded market fields for bitcoin and ethereum."
+      },
+      {
+        "name": "token price seeded payload",
+        "path": "/simple/token_price/ethereum?...",
+        "result": "pass",
+        "summary": "Returned populated seeded payload for the sampled USDC Ethereum contract."
+      },
+      {
+        "name": "coins markets seeded payload",
+        "path": "/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&price_change_percentage=24h,7d",
+        "result": "pass",
+        "summary": "Returned populated canonical rows with current_price, market_cap, market_cap_rank, total_volume, and last_updated."
+      },
+      {
+        "name": "coin detail seeded payload",
+        "path": "/coins/bitcoin",
+        "result": "pass",
+        "summary": "Returned populated market_data and ticker content for bitcoin, consistent with seeded bootstrap visibility."
+      }
+    ]
+  },
+  "evidence": [
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/misc-bootstrap-runtime-followups/misc-live-server-seeded-bootstrap-followup/diagnostics-runtime.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/misc-bootstrap-runtime-followups/misc-live-server-seeded-bootstrap-followup/simple-price.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/misc-bootstrap-runtime-followups/misc-live-server-seeded-bootstrap-followup/token-price.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/misc-bootstrap-runtime-followups/misc-live-server-seeded-bootstrap-followup/coins-markets.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/misc-bootstrap-runtime-followups/misc-live-server-seeded-bootstrap-followup/coin-bitcoin.json"
+  ],
+  "blockers": [],
+  "setupFindings": [
+    "No milestone-owned validation-contract assertions are currently assigned to misc-bootstrap-runtime-followups.",
+    "An existing validation server on port 3102 was already healthy and exposed seeded bootstrap runtime semantics, so no additional server startup was required."
+  ],
+  "conclusion": "No contract assertions were testable for this milestone, but the real local validation surface did confirm the intended seeded-bootstrap runtime/server behavior for diagnostics, simple price, token price, coins markets, and coin detail."
+}

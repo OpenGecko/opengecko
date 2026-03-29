@@ -3,7 +3,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
+import { coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVolumePoints, exchanges, marketSnapshots, type DerivativeTickerRow, type DerivativesExchangeRow, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 import { getConversionRates } from '../lib/conversion';
@@ -176,13 +176,53 @@ function resolveTargetCoinId(database: AppDatabase, targetSymbol: string) {
   const canonicalStablecoinOverrides: Record<string, string> = {
     usdt: 'tether',
     usdc: 'usd-coin',
-    usd1: 'world-liberty-financial-usd',
+    usd1: 'usd1',
   };
+
+  const canonicalFiatTargets = new Set([
+    'usd',
+    'eur',
+    'jpy',
+    'gbp',
+    'brl',
+    'try',
+    'idr',
+    'aud',
+    'cad',
+    'uah',
+    'zar',
+    'ngn',
+    'rub',
+    'ars',
+    'mxn',
+    'pln',
+    'czk',
+    'chf',
+    'sek',
+    'nok',
+    'dkk',
+    'hkd',
+    'sgd',
+    'inr',
+    'krw',
+    'cny',
+    'twd',
+    'aed',
+    'sar',
+    'thb',
+    'vnd',
+    'php',
+    'myr',
+  ]);
 
   const override = canonicalStablecoinOverrides[normalizedTarget];
 
   if (override) {
     return override;
+  }
+
+  if (canonicalFiatTargets.has(normalizedTarget)) {
+    return null;
   }
 
   const coin = database.db.select().from(coins).where(eq(coins.symbol, normalizedTarget)).orderBy(asc(coins.marketCapRank), asc(coins.id)).limit(1).get();
@@ -191,7 +231,13 @@ function resolveTargetCoinId(database: AppDatabase, targetSymbol: string) {
 }
 
 function resolveCoinMarketCapUsd(database: AppDatabase, coinId: string | null) {
-  return null;
+  if (!coinId) {
+    return null;
+  }
+
+  const rows = database.db.select().from(marketSnapshots).where(and(eq(marketSnapshots.coinId, coinId), eq(marketSnapshots.vsCurrency, 'usd'))).all();
+
+  return rows[0]?.marketCap ?? null;
 }
 
 type ExchangeTickerRow = {

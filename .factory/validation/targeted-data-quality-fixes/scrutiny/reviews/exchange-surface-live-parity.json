@@ -1,0 +1,21 @@
+{
+  "featureId": "exchange-surface-live-parity",
+  "reviewedAt": "2026-03-28T14:47:32Z",
+  "commitId": "1eae608",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature restores seeded exchange availability on the validation surface by gating static exchange seeding behind an explicit option and enabling it in app bootstrap paths. The commit scope matches the feature intent, targeted tests cover seeded and persisted-bootstrap exchange behavior, and the regenerated replay evidence confirms the canonical exchange routes now return 200 instead of 404 on the 3102 validation surface. I did not find blocking correctness regressions in the reviewed change set.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker used the `core-api-worker` skill for a change that also modified shared bootstrap seeding/runtime wiring in `src/app.ts` and `src/db/client.ts`. The current `core-api-worker` guidance appears underspecified about when route-parity fixes are allowed to touch shared runtime/bootstrap seams versus handing off to the runtime-provider workflow.",
+      "evidence": "Reviewed commit `1eae608` changes `src/app.ts` and `src/db/client.ts` in addition to exchange parity tests/artifacts, while the feature metadata still lists `skillName: \"core-api-worker\"` and the transcript skeleton for session `643f258c-0a56-4ee9-bdf2-e36d91b3bbd4` reports `followedProcedure: true`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. Exchange availability parity is restored for the canonical validation-surface routes: the reviewed commit seeds representative exchanges in app bootstrap mode, adds focused exchange-surface parity coverage, and replay artifacts now show 200 responses for `/exchanges`, `/exchanges/binance`, and `/exchanges/binance/tickers?page=1`. No blocking code issues found; one shared-state observation notes a skill-boundary gap between route-parity and runtime/bootstrap work."
+}

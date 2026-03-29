@@ -1,0 +1,34 @@
+{
+  "featureId": "persisted-corpus-market-data-enrichment",
+  "reviewedAt": "2026-03-28T14:47:32Z",
+  "commitId": "d75fdee69c65e2079cbf959ff85d460b8086fd25",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The reviewed change does not implement the feature description. It adds parity tests only, leaves the persisted corpus file untouched, and the committed tests assert stale behavior on the default/local runtime instead of verifying corpus enrichment end-to-end.",
+    "issues": [
+      {
+        "file": "tests/coins-markets-parity.test.ts",
+        "line": 32,
+        "severity": "blocking",
+        "description": "The committed characterization test expects `current_price`, `market_cap`, and `last_updated` to be null for the checked-in `./data/opengecko.db` runtime, which contradicts the feature requirement to enrich the persisted corpus so `/coins/markets` core fields are populated for sampled parity assets."
+      },
+      {
+        "file": "tests/coin-detail-parity.test.ts",
+        "line": 22,
+        "severity": "blocking",
+        "description": "The only committed coin-detail test exercises the validation bootstrap `:memory:` path on port 3102 rather than directly verifying the checked-in persisted corpus at `data/opengecko.db`, so it does not prove the owned behavior that the persisted corpus itself contains the required `/coins/{id}.market_data` inputs."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-provider-worker procedure is a poor fit for this data-only corpus-enrichment feature: the worker followed it toward shared-runtime investigation and ended up shipping tests without the required corpus change.",
+      "evidence": "Handoff skillFeedback reports deviations because the worker focused on characterization/runtime exposure instead of completing the corpus update; the feature description in mission features.json explicitly says not to spend this feature on runtime seeding-boundary changes."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: commit d75fdee only adds tests and does not deliver the persisted corpus enrichment required by the feature. One committed test encodes the old null-field behavior for `data/opengecko.db`, and the other verifies only the validation bootstrap path rather than the checked-in corpus itself."
+}

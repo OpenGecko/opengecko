@@ -1,0 +1,15 @@
+{
+  "featureId": "diff-divergence-registry-token-price-hardening",
+  "reviewedAt": "2026-03-28T06:36:27.377647Z",
+  "commitId": "28d0a401bb785d76b51324f7a48de2755423f263",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature correctly extends the checked-in divergence registry to cover the canonical token-price offline-runtime 200-vs-503 mismatch, regenerates the diff report so the token-price case moves into expectedFindings beside simple-price, and adds focused regression coverage for the paired classification behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature handoff, transcript skeleton, commit 28d0a401bb785d76b51324f7a48de2755423f263, divergence registry, regenerated diff report, and targeted diff-report test. The token-price runtime mismatch is now registered as an expected divergence and no longer appears in actionable findings. No blocking or non-blocking review issues found."
+}

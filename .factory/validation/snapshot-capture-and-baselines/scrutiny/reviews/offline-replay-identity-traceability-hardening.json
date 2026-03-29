@@ -1,0 +1,15 @@
+{
+  "featureId": "offline-replay-identity-traceability-hardening",
+  "reviewedAt": "2026-03-28T00:00:00Z",
+  "commitId": "e59d3de81b2aa49ad11fa327f67084feb42a8909",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix addresses both prior blocking findings. `corpusIdentity` is now derived only from immutable upstream snapshot artifacts, and replay metadata, findings, and the top-level report all persist a separate `replayTargetManifestIdentity`, preserving traceability without regressing existing evidence links.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/snapshot-capture-and-baselines/scrutiny/reviews/offline-replay-and-evidence-linking.json",
+  "summary": "Pass: reviewed the original replay feature diff and the fix diff, plus the fix transcript skeleton and handoff. The hardening change resolves the earlier unstable corpus identity and missing replay-target manifest identity issues while keeping replay evidence/report wiring intact."
+}

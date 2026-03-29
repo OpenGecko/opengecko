@@ -1,0 +1,21 @@
+{
+  "featureId": "offline-replay-and-evidence-linking",
+  "reviewedAt": "2026-03-28T05:56:23Z",
+  "commitId": "a9a2fda9bfc40b4136e1bb23f062d61c0ecf00a5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature implementation satisfies the assigned offline replay behavior. It replays solely from stored snapshot artifacts to the local validation API, persists replay evidence, records run identities, and links each finding to the matching upstream and replay artifacts. The later identity hardening commit addressed the original scrutiny concerns without exposing a defect in the final reviewed behavior.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The replay workflow records `normalizationRulesId`, but the repository still lacks a checked-in normalization rules file for offline replay; the ruleset currently exists only as an in-code identifier.",
+      "evidence": "src/coingecko/offline-replay.ts defines `OFFLINE_REPLAY_RULESET_ID = 'coingecko-offline-replay-rules-v1'`, while .factory/library/data-quality-parity.md requires recording normalization-rules identity and does not point to a concrete rules file."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. I reviewed the feature metadata, handoff, transcript skeleton, skill/context docs, commit diff, and resulting replay artifacts. The implementation delivers offline replay against the local validation API with persisted replay evidence, stable run identity recording, and end-to-end artifact traceability for each finding."
+}

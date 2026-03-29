@@ -54,12 +54,12 @@ describe('seedStaticReferenceData', () => {
       .all()
       .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime())[0];
     expect(bitcoinFirstCandle).toMatchObject({
-      open: 77_815,
-      high: 80_896,
-      low: 76_788,
-      close: 79_000,
-      marketCap: 1_580_000_000_000,
-      totalVolume: 22_000_000_000,
+      open: 69_621.00966809,
+      high: 72_377.57756358,
+      low: 68_702.15370293,
+      close: 70_681.22808943377,
+      marketCap: 1_413_000_000_000,
+      totalVolume: 47_657_767_940,
     });
 
     const tickerCount = db.db.select().from(coinTickers).all().length;

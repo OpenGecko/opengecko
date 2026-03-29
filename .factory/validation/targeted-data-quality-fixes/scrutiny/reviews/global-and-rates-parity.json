@@ -1,0 +1,21 @@
+{
+  "featureId": "global-and-rates-parity",
+  "reviewedAt": "2026-03-28T15:33:25Z",
+  "commitId": "8639717",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Current repository state closes the remaining scrutiny gap for canonical /global and /exchange_rates on the authoritative replay surface. The live/replay artifacts now expose the expected seeded aggregate and conversion invariants, and the only remaining global/exchange-rates diff entries are explicitly classified as expected breadth divergence rather than actionable parity failures.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "This feature intentionally resolved the current scrutiny blocker by downgrading residual /global and /exchange_rates breadth differences into explicit expected divergences once the live replay surface proved the invariant-level parity contract. Mission guidance mentions divergence registries in general, but it does not clearly state that a feature may be complete when fresh replay/manual evidence matches the intended scoped contract and only long-tail breadth remains registry-backed.",
+      "evidence": "data/coingecko-snapshots/replay/diff-report.json:967-992 marks exchange-rates as expected via divergenceId `expected-exchange-rates-envelope-breadth`; lines 1089-1114 mark global breadth as expected via `expected-global-breadth-gap`. The feature handoff for session f665bee9-0221-4e3c-ab0c-7794978fcfc1 states replay/diff no longer had actionable global/exchange-rates findings after the scoped fix."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass: reviewed handoff f665bee9-0221-4e3c-ab0c-7794978fcfc1, commit 8639717, transcript skeleton, skill guidance, and current repo artifacts. Current replay/global artifacts show /global and /exchange_rates no longer contribute actionable findings; only registry-backed breadth differences remain, so the real remaining scrutiny gap for global/exchange-rates is closed in current state."
+}

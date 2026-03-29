@@ -36,6 +36,7 @@ const envSchema = z.object({
   THEGRAPH_API_KEY: z.string().trim().optional(),
   RESPONSE_COMPRESSION_THRESHOLD_BYTES: z.coerce.number().int().nonnegative().default(1024),
   STARTUP_PREWARM_BUDGET_MS: z.coerce.number().int().nonnegative().default(250),
+  DISABLE_REMOTE_CURRENCY_REFRESH: z.boolean().default(false),
 });
 
 export type AppConfig = {
@@ -59,6 +60,7 @@ export type AppConfig = {
   thegraphApiKey: string | null;
   responseCompressionThresholdBytes: number;
   startupPrewarmBudgetMs: number;
+  disableRemoteCurrencyRefresh: boolean;
 };
 
 let repoEnvLoaded = false;
@@ -165,6 +167,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     thegraphApiKey: env.THEGRAPH_API_KEY && env.THEGRAPH_API_KEY.length > 0 ? env.THEGRAPH_API_KEY : null,
     responseCompressionThresholdBytes: env.RESPONSE_COMPRESSION_THRESHOLD_BYTES,
     startupPrewarmBudgetMs: env.STARTUP_PREWARM_BUDGET_MS,
+    disableRemoteCurrencyRefresh: env.DISABLE_REMOTE_CURRENCY_REFRESH,
   };
 }
 

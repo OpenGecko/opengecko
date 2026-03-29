@@ -1,0 +1,34 @@
+{
+  "featureId": "coins-runtime-snapshot-exposure-prep",
+  "reviewedAt": "2026-03-28T15:33:15Z",
+  "commitId": "aae489504b8700abae08ed62b6d1c35b80ac380e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature added a first-class `seeded_bootstrap` runtime mode and aligned diagnostics plus targeted inject tests around it, but the current repo state still does not close the intended runtime-bootstrap gap on the real default/local server path. The implementation remains tied to host/port heuristics in `src/app.ts`, and the live `src/server.ts` entrypoint still fails to expose seeded snapshots for the default/local bootstrap-only path described by the feature.",
+    "issues": [
+      {
+        "file": "src/app.ts",
+        "line": 123,
+        "severity": "blocking",
+        "description": "`resolvePersistentSnapshotDatabaseUrl` gates persisted snapshot import on a hard-coded host/port allowlist (3102, 3000, 3100, plus a few loopback variants) and explicitly returns `null` for `port === 0`. The feature description calls for seeded-bootstrap semantics for bootstrap-only `buildApp({ startBackgroundJobs: false })` when persisted rows are the intended source, not just these specific listener profiles. Bootstrap-only app instances on other ports or ephemeral ports still skip persisted snapshot import entirely, so the runtime-mode contract is not actually first-class."
+      },
+      {
+        "file": "src/server.ts",
+        "line": 13,
+        "severity": "blocking",
+        "description": "The server entrypoint only switches to bootstrap-only mode for the validation profile on `127.0.0.1:3102`. The worker handoff for this feature confirms that a live default/local server started with `PORT=3000 HOST=0.0.0.0 DATABASE_URL=:memory:` still reported `validation_override.mode: \"off\"`, `shared_market_snapshot.available: false`, and failed its first hot-endpoint probe, even though inject-based tests passed. Because the feature explicitly required broad default/local runtime behavior and the same seeded-bootstrap semantics on the manifest-managed validation API, this unresolved live-server drift means the runtime bootstrap gap is not fully closed in current repo state."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The mission runtime notes mention earlier live-vs-inject validation drift, but they still do not capture the default/local bootstrap-specific drift discovered here: a live `src/server.ts` bootstrap-only server on port 3000 can diverge from `buildApp(...).inject()` for seeded snapshot exposure.",
+      "evidence": "Feature handoff interactive check for `coins-runtime-snapshot-exposure-prep` reports port 3000 live server diagnostics showing `validation_override.mode: \"off\"` and no shared snapshot while inject-based tests passed; `.factory/library/runtime.md` documents validation-surface drift generally but not this default/local bootstrap case."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: current repo state still does not deliver the promised broad bootstrap seeded-snapshot behavior on the real default/local server path, and the runtime-mode logic is still host/port-special-cased rather than first-class."
+}

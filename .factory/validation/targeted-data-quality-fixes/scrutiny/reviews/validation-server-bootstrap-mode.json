@@ -1,0 +1,39 @@
+{
+  "featureId": "validation-server-bootstrap-mode",
+  "reviewedAt": "2026-03-28T14:47:22Z",
+  "commitId": "51f39ec",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The server entrypoint correctly switches the manifest-managed 3102 profile into bootstrap-only mode, but the implementation hard-codes that detection to an exact host/database tuple and the new regression test only exercises buildApp directly, not the actual server/manifest wiring promised by the feature.",
+    "issues": [
+      {
+        "file": "src/server.ts",
+        "line": 17,
+        "severity": "blocking",
+        "description": "Bootstrap-only validation mode is gated by the exact triple `host === '127.0.0.1' && port === 3102 && databaseUrl === ':memory:'`. The feature requirement was to expose a manifest-supported validation server mode, but this implementation silently falls back to background-runtime startup for the same manifest port if the host string differs (for example `localhost`) or if the validation database path changes. That makes the mode fragile and tied to one incidental process configuration instead of an explicit validation-startup contract."
+      },
+      {
+        "file": "tests/app.test.ts",
+        "line": 5787,
+        "severity": "blocking",
+        "description": "The added regression test does not cover the server-entrypoint/manifest wiring that the feature owns. It calls `buildApp({... startBackgroundJobs: false })` directly, so it would still pass even if `src/server.ts` stopped selecting bootstrap-only mode for the 3102 validation service. This leaves the core behavior uncharacterized and would not catch regressions in the manifest-managed startup path."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "services",
+      "observation": "The implementation changed the semantics of the existing `api-validation` service in `.factory/services.yaml` by introducing implicit bootstrap-only behavior inside `src/server.ts`, but the service manifest still looks like an ordinary `bun run src/server.ts` invocation with no explicit mode flag or declaration. Shared state currently does not document that port 3102 now relies on hidden host/port/database detection inside the entrypoint.",
+      "evidence": ".factory/services.yaml:16-19 still declares only `PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: ... bun run src/server.ts`, while src/server.ts:17-22 now special-cases that exact tuple to disable background jobs."
+    },
+    {
+      "area": "skills",
+      "observation": "The worker followed the runtime-provider procedure on research and manual probing, but step 2's 'write failing characterization or regression tests first' was only partially realized for the owned behavior. The committed test characterizes `buildApp` bootstrap semantics rather than the server-entrypoint startup path, so the skill guidance may need to emphasize that manifest/server wiring features require an end-to-end entrypoint regression rather than a lower-level app-only test.",
+      "evidence": "runtime-provider-worker SKILL.md step 2 requires regression tests for the exact externally observable behavior; tests/app.test.ts:5787-5822 constructs `buildApp` directly instead of exercising src/server.ts or the manifest-managed startup contract."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail. Commit `51f39ec` flips the 3102 manifest profile onto bootstrap-only mode, but the behavior is implemented via brittle host/port/database heuristics and the new regression test does not actually cover the server/manifest wiring the feature was supposed to expose."
+}

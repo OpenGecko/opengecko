@@ -23,7 +23,7 @@ None.
 ## Work Procedure
 
 1. Read `mission.md`, `AGENTS.md`, `validation-contract.md`, the assigned feature, and the relevant `.factory/library/` notes before changing anything.
-2. Identify the exact externally observable behaviors the feature owns from `fulfills`. Write failing characterization or regression tests first for those behaviors and any closely coupled runtime lifecycle paths.
+2. Identify the exact externally observable behaviors the feature owns from `fulfills`. Write failing characterization or regression tests first for those behaviors and any closely coupled runtime lifecycle paths. If the bug appears only after `listen()` or only on a live server entrypoint, first reproduce it manually on the declared port so you can target the right listener-path behavior before adding the regression test.
 3. Trace the runtime path end to end before editing:
    - `src/app.ts`
    - `src/server.ts`

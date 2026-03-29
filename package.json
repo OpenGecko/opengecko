@@ -25,7 +25,8 @@
     "markets:refresh": "tsx src/jobs/refresh-market-snapshots.ts",
     "coingecko:snapshots:capture": "tsx src/jobs/capture-coingecko-snapshots.ts",
     "coingecko:replay:offline": "tsx src/jobs/replay-coingecko-offline.ts",
-    "coingecko:report:diff": "tsx src/jobs/report-coingecko-diff.ts"
+    "coingecko:report:diff": "tsx src/jobs/report-coingecko-diff.ts",
+    "coingecko:report:improvement-gate": "tsx src/jobs/report-coingecko-improvement-gate.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

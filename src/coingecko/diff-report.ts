@@ -169,9 +169,7 @@ function collectDiffLeaves(upstreamValue: unknown, replayValue: unknown, path: s
       leaves.push(classifyLeaf(path, normalizedUpstream, normalizedReplay, rules));
       return;
     }
-    if (JSON.stringify(normalizedUpstream) !== JSON.stringify(normalizedReplay)) {
-      leaves.push(classifyLeaf(path || '$array', normalizedUpstream, normalizedReplay, rules));
-    }
+    collectArrayDiffLeaves(normalizedUpstream, normalizedReplay, path || '$array', rules, leaves);
     return;
   }
 
@@ -188,6 +186,17 @@ function collectDiffLeaves(upstreamValue: unknown, replayValue: unknown, path: s
       rules,
       leaves,
     );
+  }
+}
+
+function collectArrayDiffLeaves(upstreamValue: unknown[], replayValue: unknown[], path: string, rules: NormalizationRuleset, leaves: DiffLeaf[]) {
+  if (upstreamValue.length !== replayValue.length) {
+    leaves.push(classifyLeaf(path, upstreamValue, replayValue, rules));
+    return;
+  }
+
+  for (let index = 0; index < upstreamValue.length; index += 1) {
+    collectDiffLeaves(upstreamValue[index], replayValue[index], `${path}[${index}]`, rules, leaves);
   }
 }
 

@@ -1,0 +1,24 @@
+{
+  "milestone": "targeted-data-quality-fixes",
+  "round": 2,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-QUALITY-001",
+    "VAL-QUALITY-002",
+    "VAL-QUALITY-003",
+    "VAL-QUALITY-004",
+    "VAL-QUALITY-005",
+    "VAL-QUALITY-006",
+    "VAL-CROSS-002"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": "/home/whoami/dev/openGecko/.factory/validation/targeted-data-quality-fixes/user-testing/synthesis.json"
+}

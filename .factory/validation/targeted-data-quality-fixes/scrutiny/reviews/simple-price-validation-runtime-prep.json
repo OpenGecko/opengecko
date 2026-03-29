@@ -1,0 +1,34 @@
+{
+  "featureId": "simple-price-validation-runtime-prep",
+  "reviewedAt": "2026-03-28T14:47:39.138755Z",
+  "commitId": "416c76d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature correctly preserves the fresh-boot zero-live 503 gate in runtime state, but it does not satisfy the core requirement to expose usable live snapshots for canonical /simple/price and /simple/token_price on the port-3102 validation profile when snapshots are available. The implementation only changes deferred refresh scheduling in market-runtime and adds runtime-only tests; it leaves the validation bootstrap/import path untouched, and the handoff\u2019s own manual probe still observed 503 responses on 3102.",
+    "issues": [
+      {
+        "file": "src/services/market-runtime.ts",
+        "line": 40,
+        "severity": "blocking",
+        "description": "`finalizeBootstrapSuccess` now preserves `initialSyncCompletedWithoutUsableLiveSnapshots` and skips the listener-bound deferred refresh when bootstrap had zero usable live snapshots, but the feature description required the shared validation-runtime/bootstrap path on port 3102 to expose usable live snapshots when they are actually available. This commit never changes the validation bootstrap/import path (`src/app.ts`) that decides whether persisted snapshots are seeded into the validation runtime, so it cannot make 3102 serve live-backed simple-price/token-price payloads in the positive case. The worker handoff confirms the manual 3102 probe still returned the zero-live 503 path."
+      },
+      {
+        "file": "tests/market-runtime.test.ts",
+        "line": 164,
+        "severity": "blocking",
+        "description": "The new tests only exercise `createMarketRuntime` state transitions in isolation and do not cover the owned externally observable behavior on the validation profile (`buildApp`/port 3102 serving canonical `/simple/price` and `/simple/token_price`). Existing parity tests were merely re-run unchanged, so the feature lacks characterization proving that seeded validation snapshots become visible on the actual validation surface when available."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `runtime-provider-worker` skill says to manually verify startup on the mission port plus the affected hot endpoints and diagnostics after runtime changes, but this worker\u2019s transcript shows only a negative manual probe (still 503 on 3102) and no successful positive-case validation with usable snapshots. For this class of validation-runtime feature, the skill could more explicitly require proving both branches: zero-live preservation and seeded-live success on the manifest-managed validation surface.",
+      "evidence": ".factory/skills/runtime-provider-worker/SKILL.md steps 8-10 require targeted tests and live probes; handoff `2026-03-28T07-10-27-347Z__simple-price-validation-runtime-prep__b2362962-d607-4724-9a93-ef6807f42233.json` reports the 3102 manual probe still returned 503 because no usable snapshots were loaded, with the positive branch verified only via isolated runtime tests."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the commit hardens zero-live gating but does not implement or verify the required 3102 validation-runtime behavior of exposing live snapshots to canonical simple-price/token-price requests when snapshots are available."
+}

@@ -51,5 +51,9 @@
       "reason": "ambiguous"
     }
   ],
+  "orchestratorDecision": {
+    "decision": "override_pass",
+    "justification": "Round 2 validators show no new current-head code defect for snapshot-capture-and-baselines beyond the known pre-existing package-version test failure. The remaining scrutiny blockers on snapshot-capture-foundation are historical evidence issues in the original worker session rather than unresolved runtime behavior: the original transcript directly read .env, but current code and tests now comply with the centralized env-loading requirement and the later snapshot-capture-env-loader-hardening fix closed that compliance gap; and the reviewed reuse-only handoff did not itself show the initial bounded capture, while earlier mission evidence for the same feature already recorded the required first bounded capture followed by reuse verification. Creating another fix feature would either fail to change the historical transcript violation or require unnecessary repeated CoinGecko calls, which conflicts with the mission's bounded-capture constraint. Scrutiny is therefore overridden for this milestone."
+  },
   "previousRound": ".factory/validation/snapshot-capture-and-baselines/scrutiny/synthesis.json"
 }

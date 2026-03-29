@@ -1,0 +1,21 @@
+{
+  "featureId": "misc-live-server-seeded-bootstrap-followup",
+  "reviewedAt": "2026-03-29T00:00:00Z",
+  "commitId": "318c9d3",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature correctly broadens the port-3000 seeded-bootstrap detection to cover local host overrides and adds live-listener coverage proving seeded snapshot visibility survives listen() for the default/local bootstrap entrypoint. The change stays centralized in shared bootstrap/runtime wiring and matches the feature\u2019s requirement to align src/server.ts local bootstrap behavior with the previously proven seeded-bootstrap contract.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-provider-worker skill tells workers to write failing characterization tests first, but the reviewed transcript shows investigation and manual reproduction before the new regression tests were added. The skill may need to acknowledge that live-listener/runtime drift sometimes requires initial manual reproduction before test-first characterization is practical.",
+      "evidence": "Skill: /home/whoami/dev/openGecko/.factory/skills/runtime-provider-worker/SKILL.md step 2 says to write failing characterization tests first. Transcript skeleton for workerSessionId 0f8e19ce-41a3-4070-917f-6be5e78efb35 reports reproducing the live server mismatch first, then adding the listener regression in tests/app.test.ts."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed commit 318c9d3 and the worker transcript/handoff. The implementation passes review: src/app.ts now treats any port-3000 in-memory bootstrap runtime as the default seeded-bootstrap path, and tests/app.test.ts adds both inject-time and post-listen host-override regressions covering diagnostics, simple price, coins markets, and coin detail. No blocking correctness issues found for this feature."
+}

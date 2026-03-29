@@ -1,0 +1,157 @@
+{
+  "surface": "api",
+  "assertions": [
+    {
+      "id": "VAL-DIFF-001",
+      "status": "pass",
+      "reason": "Offline replay completed against local corpus e9b06018d3038ea547af71e6c0c8726f2ca4c4e51439219f7a810c6a81cdc69a on http://127.0.0.1:3102 with 9 replay findings and replay artifacts present.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-DIFF-002",
+      "status": "pass",
+      "reason": "All 9 report findings used approved primary classes and produced 9 unique finding keys with no duplicates.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-DIFF-003",
+      "status": "pass",
+      "reason": "Diff report separated 2 divergence-registry-backed expected findings from 7 actionable findings.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-DIFF-004",
+      "status": "pass",
+      "reason": "Every actionable finding included normalized endpoint identity, ownership hints, and upstream/replay evidence paths that resolve on disk.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-DIFF-005",
+      "status": "pass",
+      "reason": "Two consecutive replay+diff runs preserved corpus e9b06018d3038ea547af71e6c0c8726f2ca4c4e51439219f7a810c6a81cdc69a, manifest 30a1227ebb29de1f316dbdba88275d192e2622c0622d45129057c5303545c1d5, ruleset coingecko-diff-normalization-rules-v1, and identical normalized results.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "pass",
+      "reason": "Repeated offline replay runs over the same stored corpus and manifest produced identical normalized replay and diff results aside from timestamps.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "reason": "Every finding mapped to the same manifest entry in index.json and linked both stored upstream and replay artifacts that exist on disk.",
+      "evidence": {
+        "reportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+        "reportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+        "diffReportRun1": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+        "diffReportRun2": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+        "index": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+        "ruleset": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+        "divergenceRegistry": "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json"
+      }
+    }
+  ],
+  "summary": {
+    "tested": 7,
+    "passed": 7,
+    "failed": 0,
+    "blocked": 0
+  },
+  "commandsRun": [
+    "curl -sS http://127.0.0.1:3102/ping",
+    "bun run coingecko:replay:offline",
+    "bun run coingecko:report:diff",
+    "bun run coingecko:replay:offline",
+    "bun run coingecko:report:diff"
+  ],
+  "evidencePaths": [
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/command-log.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-1.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report-run-2.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/diff-report.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/divergence-registry.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/index.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/normalization-rules.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/replay-run-1.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-1.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report-run-2.json",
+    "/home/whoami/.factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/evidence/diff-analysis-and-gap-reporting/diff-assertions/report.json"
+  ],
+  "frictions": [
+    {
+      "description": "The /health endpoint returned 404 on the shared validation server, so /ping was used to verify server availability before replay.",
+      "resolved": true,
+      "resolution": "Switched health verification to curl http://127.0.0.1:3102/ping.",
+      "affectedAssertions": [
+        "VAL-DIFF-001"
+      ]
+    },
+    {
+      "description": "The diff-report CLI resolves replay artifacts relative to the replay report directory, so redirecting replay output to /tmp broke report generation.",
+      "resolved": true,
+      "resolution": "Reran replay and diff using the default in-repo replay directory and copied resulting artifacts into the mission evidence directory.",
+      "affectedAssertions": [
+        "VAL-DIFF-003",
+        "VAL-DIFF-004",
+        "VAL-DIFF-005",
+        "VAL-CROSS-001",
+        "VAL-CROSS-003"
+      ]
+    }
+  ],
+  "blockers": [],
+  "toolsUsed": [
+    "curl",
+    "bun",
+    "python3"
+  ]
+}

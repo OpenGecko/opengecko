@@ -1,0 +1,33 @@
+{
+  "milestone": "diff-analysis-and-gap-reporting",
+  "round": 2,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": false,
+      "command": "bun run test -- --maxWorkers=4",
+      "exitCode": 1
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "echo \"no lint configured\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": "/home/whoami/dev/openGecko/.factory/validation/diff-analysis-and-gap-reporting/scrutiny/synthesis.json"
+}

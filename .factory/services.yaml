@@ -2,7 +2,7 @@ commands:
   install: bun install --frozen-lockfile
   typecheck: bun run typecheck
   build: bun run build
-  test: bun run test
+  test: TMPDIR=/home/whoami/dev/openGecko/data bun run test -- --maxWorkers=4
   lint: echo "no lint configured"
 
 services:
@@ -14,7 +14,7 @@ services:
     depends_on: []
 
   api-validation:
-    start: PORT=3102 CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts
+    start: PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts
     stop: lsof -ti :3102 | xargs kill 2>/dev/null || true
     healthcheck: curl -sf http://localhost:3102/ping
     port: 3102

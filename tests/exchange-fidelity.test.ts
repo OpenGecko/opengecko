@@ -116,20 +116,30 @@ describe('exchange live fidelity contracts', () => {
       expect(detail.name).toBe('Binance');
       expect(detail.status_updates).toEqual([]);
       expect(typeof detail.trade_volume_24h_btc).toBe('number');
-      expect(detail.trade_volume_24h_btc_normalized).toBeNull();
+      expect(detail).toHaveProperty('trade_volume_24h_btc_normalized');
       expect(typeof detail.coins).toBe('number');
       expect(typeof detail.pairs).toBe('number');
-      expect(detail.coins).toBe(8);
-      expect(detail.pairs).toBe(19);
+      expect(detail.coins).toBeGreaterThan(100);
+      expect(detail.pairs).toBeGreaterThan(100);
       expect(tickers[0]).toEqual(expect.objectContaining({
         base: 'BTC',
         target: 'USDT',
         target_coin_id: 'tether',
       }));
-      expect(tickers[0]).toHaveProperty('coin_mcap_usd');
-      expect(tickers.slice(0, 5).map((ticker: { base: string; target: string }) => `${ticker.base}/${ticker.target}`)).toEqual([
+      expect(tickers[0]).toHaveProperty('timestamp');
+      expect(tickers[0]).toHaveProperty('last_fetch_at');
+      expect(tickers[0]).toHaveProperty('trade_url');
+      expect(tickers[0].coin_mcap_usd).toEqual(expect.any(Number));
+      expect(
+        tickers.find((ticker: { base: string; target: string }) => ticker.base === 'USDT' && ticker.target === 'USD')?.target_coin_id ?? null,
+      ).toBeNull();
+      expect(
+        tickers.find((ticker: { base: string; target: string }) => ticker.base === 'USD1' && ticker.target === 'USDT')?.coin_id,
+      ).toBe('world-liberty-financial-usd');
+      expect(tickers.slice(0, 6).map((ticker: { base: string; target: string }) => `${ticker.base}/${ticker.target}`)).toEqual([
         'BTC/USDT',
         'USDC/USDT',
+        'NIGHT/USDT',
         'ETH/USDT',
         'SOL/USDT',
         'XRP/USDT',

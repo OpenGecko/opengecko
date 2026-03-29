@@ -1,0 +1,34 @@
+{
+  "featureId": "global-rates-validation-surface-prep",
+  "reviewedAt": "2026-03-28T14:47:05Z",
+  "commitId": "d7c9f1efb6dce9bb4e7a9a73849d9cca6e59e579",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The runtime classification tweak is narrowly scoped and the new test covers inject-based bootstrap behavior, but the feature does not verify or characterize the actual listen()/live validation-server path it was supposed to fix. Because the stale 3102 process was not restarted and no live-server regression test was added, the reported manual evidence still shows the authoritative validation surface remaining in degraded_seeded_bootstrap after startup.",
+    "issues": [
+      {
+        "file": "tests/validation-runtime-global-rates.test.ts",
+        "line": 10,
+        "severity": "blocking",
+        "description": "Both new tests only exercise buildApp()+app.ready()+inject on an unbound Fastify instance. The feature description and expectedBehavior explicitly target the manifest-managed validation API listen path on port 3102 that was still drifting after startup, but this suite never calls listen() or otherwise reproduces the live-server transition that was supposed to be fixed."
+      },
+      {
+        "file": "src/app.ts",
+        "line": 669,
+        "severity": "blocking",
+        "description": "The code change was accepted based on inject-mode tests even though the handoff's own manual probe still observed the live 3102 server reporting degraded_seeded_bootstrap. Since the feature did not restart the validation service or add a characterization for the post-listen runtime state, there is no evidence this patch fixes the authoritative live validation surface rather than only the bootstrap-only in-process path."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "services",
+      "observation": "The worker relied on a pre-existing process on port 3102 for manual verification, and the handoff concludes that the stale process must be restarted downstream for the new classification to appear live. That dependency on service freshness is important for scrutiny/user-testing, but services.yaml only defines start/stop commands and does not note that parity checks against the validation surface can be invalidated by a stale already-running instance after runtime/bootstrap changes.",
+      "evidence": "Handoff verification for `curl -sf http://127.0.0.1:3102/diagnostics/runtime ...` says the already-running server still reported `degraded_seeded_bootstrap` because it predated the fix. `.factory/services.yaml` lists `api-validation.start`/`stop` but has no note about restarting before parity validation when runtime wiring changes."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: reviewed handoff `7eb356d1-a588-4322-9b1d-182a64ab54f6`, commit `d7c9f1efb6dce9bb4e7a9a73849d9cca6e59e579`, transcript skeleton, and the runtime-provider skill. The patch only adds inject-based bootstrap tests and a small app.ts classification tweak; it never characterizes the live listen-path drift that the feature owns, and the worker's own manual probe still saw the authoritative 3102 server in `degraded_seeded_bootstrap`."
+}

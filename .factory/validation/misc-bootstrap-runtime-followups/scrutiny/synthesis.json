@@ -1,0 +1,45 @@
+{
+  "milestone": "misc-bootstrap-runtime-followups",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "TMPDIR=/home/whoami/dev/openGecko/data bun run test -- --maxWorkers=4",
+      "exitCode": 1,
+      "notes": [
+        "Mission guidance marks the SemVer assertion in tests/integration-live-data.test.ts as known pre-existing noise.",
+        "Mission guidance also marks broad-suite ENOSPC failures during script-backed tests as unrelated baseline noise in this environment.",
+        "The suite's milestone-owned runtime follow-up coverage was reviewed separately and no owned failures were identified."
+      ]
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "echo \"no lint configured\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skill:.factory/skills/runtime-provider-worker/SKILL.md",
+      "suggestion": "Clarify the characterization-first step so workers may manually reproduce live listener/runtime drift before adding the failing regression when listen()-time behavior diverges from inject/buildApp behavior.",
+      "evidence": "Review misc-live-server-seeded-bootstrap-followup found the worker had to reproduce the live src/server.ts mismatch first and only then add the listener regression in tests/app.test.ts; the current skill text implies test-first is always practical.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": null
+}

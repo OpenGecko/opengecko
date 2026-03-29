@@ -1,0 +1,20 @@
+{
+  "milestone": "misc-bootstrap-runtime-followups",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null,
+  "notes": [
+    "No completed implementation features in this milestone mapped to validation-contract assertions because misc-live-server-seeded-bootstrap-followup has an empty fulfills list.",
+    "Practical verification reused the existing validation API on http://127.0.0.1:3102 and confirmed seeded-bootstrap runtime behavior on diagnostics, simple price, token price, coins markets, and coin detail surfaces."
+  ]
+}

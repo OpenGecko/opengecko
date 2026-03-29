@@ -1,0 +1,34 @@
+{
+  "featureId": "global-rates-breadth-targeted-fix",
+  "reviewedAt": "2026-03-28T14:47:08Z",
+  "commitId": "290f4241f62d12c740db2e1eb990c08d68d6ad46",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The worker correctly aligned the ETH exchange-rates parity expectations and regenerated replay/diff artifacts, but the handoff references the wrong commit and the feature does not introduce or verify any implementation that actually reduces the /global or /exchange_rates breadth gap; it only relies on pre-existing divergence-registry entries to classify those findings as expected.",
+    "issues": [
+      {
+        "file": ".factory/missions/040cc8f0-4b2b-46d2-a13a-3d90eb518072/handoffs/2026-03-28T13-45-09-519Z__global-rates-breadth-targeted-fix__b151fe81-0511-4a39-a553-791fdcd3a22d.json",
+        "line": 6,
+        "severity": "blocking",
+        "description": "The handoff records commitId `290f4241f62d12c740db2e1eb990c08d68d6ad46`, but `git show` proves that commit is the earlier exchange-payload feature (`fix: enrich exchange payload fidelity`) and does not contain this feature's test/artifact-only edits. The review target is therefore not traceable to the implementation being claimed."
+      },
+      {
+        "file": "data/coingecko-snapshots/divergence-registry.json",
+        "line": 25,
+        "severity": "blocking",
+        "description": "The feature claims to convert the remaining canonical /global and /exchange_rates breadth gaps into expected divergence, but the registry entries `expected-exchange-rates-envelope-breadth` and `expected-global-breadth-gap` were already present before this worker ran and were merely consumed by regenerated artifacts. Because no new divergence-registry change or breadth implementation landed, the feature does not actually deliver the requested breadth reduction/classification work beyond updating expectations."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The compatibility-hardening skill says these features should run `bun run test` and, when replay/report behavior changes, manually verify a canonical flow against the validation API on port 3102. The transcript only ran scoped parity tests plus replay/report generation and then inspected generated JSON artifacts; there is no evidence of the required full-suite run or any manual 3102 curl verification.",
+      "evidence": "Transcript skeleton for worker session `b151fe81-0511-4a39-a553-791fdcd3a22d` shows `bun test tests/global-parity.test.ts tests/exchange-rates-parity.test.ts tests/parity-improvement-gate.test.ts`, `bun run typecheck`, `bun run coingecko:replay:offline`, and `bun run coingecko:report:diff`, but no `bun run test` and no live HTTP/curl command against port 3102; compare with `.factory/skills/compatibility-hardening-worker/SKILL.md` steps 8-9."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the worker updated the ETH exchange-rates parity expectation and regenerated replay/diff artifacts, but the recorded commit is unrelated to this feature and the claimed /global + /exchange_rates breadth classification work was already present in the divergence registry rather than introduced here."
+}

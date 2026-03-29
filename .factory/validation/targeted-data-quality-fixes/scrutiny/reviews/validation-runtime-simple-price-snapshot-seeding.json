@@ -1,0 +1,45 @@
+{
+  "featureId": "validation-runtime-simple-price-snapshot-seeding",
+  "reviewedAt": "2026-03-28T14:47:12Z",
+  "commitId": "cad5ae637a400442470924fb92aeebdcb46fee8f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The bootstrap seeding change imports persisted market snapshots and coin identity into the in-memory validation runtime, but it leaves the runtime in degraded mode and does not actually meet the feature contract to expose live-backed seeded rows on the canonical validation surface without the zero-live path.",
+    "issues": [
+      {
+        "file": "src/app.ts",
+        "line": 296,
+        "severity": "blocking",
+        "description": "The seeding helper unconditionally sets validationOverride.mode to degraded_seeded_bootstrap with a zero-source degraded contract, so the seeded runtime is still classified as degraded instead of a usable seeded-bootstrap source. This contradicts the feature requirement to expose seeded live rows before stale-live policy evaluation and is why the follow-up feature had to rework the mode to seeded_bootstrap."
+      },
+      {
+        "file": "src/app.ts",
+        "line": 433,
+        "severity": "blocking",
+        "description": "Bootstrap seeding is hard-coded only for buildApp({ startBackgroundJobs: false, host: 127.0.0.1, port: 3102, databaseUrl: :memory: }), while the actual manifest-managed validation server still starts through src/server.ts with startBackgroundJobs: true. The feature handoff and transcript both show live port 3102 still returned 503 for canonical /simple/price and /simple/token_price and replay/diff remained unchanged, so the expected behavior on the validation surface was not delivered."
+      },
+      {
+        "file": "tests/app.test.ts",
+        "line": 5662,
+        "severity": "blocking",
+        "description": "Test coverage only exercises inject-based buildApp startup and explicitly accepts degraded_seeded_bootstrap diagnostics plus null token 24h fields, but it never verifies the authoritative manifest-managed server path or replay/diff clearing required by the feature. This let the implementation pass despite the real validation server still serving the old runtime-unavailable behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-provider-worker skill tells workers to manually verify startup on the declared mission port and affected hot endpoints, but it does not warn that src/server.ts may exercise a different background-runtime path than buildApp({ startBackgroundJobs: false }) for validation-only features. The worker followed the skill, discovered this mismatch, and still had to hand off a non-blocking issue for a separate startup/manifest feature.",
+      "evidence": "runtime-provider-worker/SKILL.md step 10 requires live probes; worker transcript and handoff for session 996eb316-ddb2-4834-be7f-6ba62ada0055 record that PORT=3102 ... src/server.ts still returned service_unavailable because server.ts always forced startBackgroundJobs: true."
+    },
+    {
+      "area": "services",
+      "observation": "The shared services manifest lists api-validation as PORT=3102 ... bun run src/server.ts with no bootstrap-only toggle, so the mission-standard validation surface could not exercise the seeded bootstrap runtime this feature implemented.",
+      "evidence": ".factory/services.yaml: api-validation.start is `PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts`, while the feature only seeds when buildApp runs with startBackgroundJobs: false in src/app.ts."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the commit adds bootstrap snapshot import logic and inject-based regression coverage, but it does not satisfy the feature's expected behavior on the actual port-3102 validation surface. Live validation startup still used the background-runtime path and returned 503/runtime-unavailable responses, and the implementation left seeded validation state in degraded_seeded_bootstrap rather than a usable seeded-bootstrap mode."
+}

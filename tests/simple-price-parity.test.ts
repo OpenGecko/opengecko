@@ -147,7 +147,14 @@ describe('simple price parity helpers', () => {
 
   it('populates requested canonical simple-price quote fields from usable live snapshots', () => {
     const cache = new Map();
-    const runtimeState = createRuntimeState();
+    const runtimeState = createRuntimeState({
+      validationOverride: {
+        mode: 'stale_allowed',
+        reason: 'seeded default/local runtime exposes persisted snapshots',
+        snapshotTimestampOverride: null,
+        snapshotSourceCountOverride: null,
+      },
+    });
     const query: SimplePriceRequestQuery = {
       ids: 'bitcoin,ethereum',
       vs_currencies: 'usd',

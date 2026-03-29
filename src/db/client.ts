@@ -733,14 +733,14 @@ const seededOnchainPools = [
 
 const seededChartPointValues = {
   bitcoin: {
-    prices: [79_000, 80_500, 82_250, 81_750, 83_000, 84_250, 85_000],
-    marketCaps: [1_580_000_000_000, 1_610_000_000_000, 1_640_000_000_000, 1_630_000_000_000, 1_650_000_000_000, 1_680_000_000_000, 1_700_000_000_000],
-    volumes: [22_000_000_000, 23_500_000_000, 24_000_000_000, 21_500_000_000, 23_000_000_000, 24_500_000_000, 25_000_000_000],
+    prices: [70_681.22808943377, 68_882, 67_850, 66_904, 66_145, 66_587, 66_194],
+    marketCaps: [1_413_000_000_000, 1_377_800_000_000, 1_356_900_000_000, 1_339_400_000_000, 1_325_500_000_000, 1_332_400_000_000, 1_323_878_876_195],
+    volumes: [47_657_767_940, 50_700_000_000, 49_300_000_000, 48_200_000_000, 47_900_000_000, 47_657_767_940, 47_657_767_940],
   },
   ethereum: {
-    prices: [1_850, 1_890, 1_920, 1_930, 1_960, 1_980, 2_000],
-    marketCaps: [222_000_000_000, 226_000_000_000, 230_000_000_000, 231_000_000_000, 235_000_000_000, 238_000_000_000, 240_000_000_000],
-    volumes: [8_000_000_000, 8_300_000_000, 8_700_000_000, 8_900_000_000, 9_200_000_000, 9_600_000_000, 10_000_000_000],
+    prices: [2_153.248566172594, 2_068.73, 2_041.62, 2_021.44, 2_006.21, 1_972.03, 1_987.94],
+    marketCaps: [260_000_000_000, 250_300_000_000, 246_900_000_000, 243_900_000_000, 241_800_000_000, 238_100_000_000, 239_883_065_644],
+    volumes: [18_589_171_218, 20_900_000_000, 19_700_000_000, 19_100_000_000, 18_800_000_000, 18_589_171_218, 18_589_171_218],
   },
   ripple: {
     prices: [2.2, 2.25, 2.3, 2.34, 2.4, 2.48, 2.55],
@@ -748,9 +748,9 @@ const seededChartPointValues = {
     volumes: [8_800_000_000, 9_100_000_000, 9_500_000_000, 9_800_000_000, 10_400_000_000, 11_200_000_000, 12_000_000_000],
   },
   solana: {
-    prices: [154, 158, 160, 162, 166, 170, 175],
-    marketCaps: [74_000_000_000, 76_000_000_000, 77_000_000_000, 78_000_000_000, 80_000_000_000, 82_000_000_000, 84_000_000_000],
-    volumes: [6_200_000_000, 6_500_000_000, 6_700_000_000, 7_100_000_000, 7_500_000_000, 8_200_000_000, 9_000_000_000],
+    prices: [90.41360474280566, 86.47, 85.18, 84.02, 83.41, 82.14, 82.41],
+    marketCaps: [51_800_000_000, 49_600_000_000, 48_900_000_000, 48_200_000_000, 47_900_000_000, 47_100_000_000, 47_168_389_011],
+    volumes: [3_382_702_577, 3_900_000_000, 3_700_000_000, 3_550_000_000, 3_480_000_000, 3_382_702_577, 3_382_702_577],
   },
   dogecoin: {
     prices: [0.24, 0.245, 0.252, 0.258, 0.265, 0.273, 0.28],
@@ -790,10 +790,31 @@ function buildSeededChartPoints() {
 }
 
 const seededMinimalCoins = [
-  { id: 'bitcoin', symbol: 'btc', name: 'Bitcoin' },
-  { id: 'ethereum', symbol: 'eth', name: 'Ethereum' },
+  {
+    id: 'bitcoin',
+    symbol: 'btc',
+    name: 'Bitcoin',
+    imageThumbUrl: 'https://coin-images.coingecko.com/coins/images/1/thumb/bitcoin.png?1696501400',
+    imageSmallUrl: 'https://coin-images.coingecko.com/coins/images/1/small/bitcoin.png?1696501400',
+    imageLargeUrl: 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400',
+  },
+  {
+    id: 'ethereum',
+    symbol: 'eth',
+    name: 'Ethereum',
+    imageThumbUrl: 'https://coin-images.coingecko.com/coins/images/279/thumb/ethereum.png?1696501628',
+    imageSmallUrl: 'https://coin-images.coingecko.com/coins/images/279/small/ethereum.png?1696501628',
+    imageLargeUrl: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628',
+  },
   { id: 'ripple', symbol: 'xrp', name: 'XRP' },
-  { id: 'solana', symbol: 'sol', name: 'Solana' },
+  {
+    id: 'solana',
+    symbol: 'sol',
+    name: 'Solana',
+    imageThumbUrl: 'https://coin-images.coingecko.com/coins/images/4128/thumb/solana.png?1718769756',
+    imageSmallUrl: 'https://coin-images.coingecko.com/coins/images/4128/small/solana.png?1718769756',
+    imageLargeUrl: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756',
+  },
   { id: 'dogecoin', symbol: 'doge', name: 'Dogecoin' },
   { id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' },
   { id: 'cardano', symbol: 'ada', name: 'Cardano' },
@@ -808,9 +829,9 @@ const seededMinimalCoins = [
     en: `${coin.name} is available in the OpenGecko fixture catalog.`,
   }),
   linksJson: '{}',
-  imageThumbUrl: `https://assets.opengecko.test/coins/${coin.id}-thumb.png`,
-  imageSmallUrl: `https://assets.opengecko.test/coins/${coin.id}-small.png`,
-  imageLargeUrl: `https://assets.opengecko.test/coins/${coin.id}-large.png`,
+  imageThumbUrl: coin.imageThumbUrl ?? `https://assets.opengecko.test/coins/${coin.id}-thumb.png`,
+  imageSmallUrl: coin.imageSmallUrl ?? `https://assets.opengecko.test/coins/${coin.id}-small.png`,
+  imageLargeUrl: coin.imageLargeUrl ?? `https://assets.opengecko.test/coins/${coin.id}-large.png`,
   marketCapRank: index + 1,
   genesisDate: coin.id === 'bitcoin' ? '2009-01-03' : null,
   platformsJson: coin.id === 'usd-coin' ? JSON.stringify({ ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' }) : '{}',

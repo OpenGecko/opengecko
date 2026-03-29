@@ -9,7 +9,7 @@ NOTE: Startup and cleanup are handled by `worker-base`. This skill defines the w
 
 ## When to Use This Skill
 
-Use for compatibility audit features, invalid-parameter coverage expansion, serializer fixture creation, parity report generation, and any feature focused on cross-endpoint consistency rather than new functionality.
+Use for compatibility audit features, snapshot capture/replay infrastructure, normalization rules, divergence registries, serializer fixture creation, parity report generation, and any feature focused on cross-endpoint consistency rather than new functionality.
 
 ## Required Skills
 
@@ -19,14 +19,14 @@ None.
 
 1. Read `mission.md`, `AGENTS.md`, the assigned feature, and all assigned assertions in `validation-contract.md`.
 2. Read the endpoint parity matrix at `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md` to understand the full endpoint surface.
-3. Read existing test coverage in `tests/invalid-params.test.ts` and `tests/compare-coingecko.test.ts`.
-4. For audit features: systematically inventory every endpoint, cross-reference with tests and fixtures, produce a structured report.
-5. For invalid-param features: write failing tests first for each untested parameter validation path, then verify the implementation handles them correctly. Add implementation fixes if needed.
-6. For fixture features: create response shape fixtures in `tests/fixtures/` and add `toMatchObject` assertions.
-7. For report features: generate markdown documents in `docs/status/` with per-endpoint compatibility analysis.
-8. Run `bun run test` to verify no regressions. Run `bun run typecheck`.
-9. Start the API on port 3102 and manually verify at least 3 representative endpoints with curl.
-10. In the handoff, list every endpoint covered and the specific validation checks added.
+3. Read existing comparison coverage in `tests/invalid-params.test.ts`, `tests/compare-coingecko.test.ts`, and any mission-specific snapshot/replay tests or rules files already present.
+4. If the feature touches snapshot parity infrastructure, read `.factory/library/data-quality-parity.md` plus any checked-in capture manifest, normalization ruleset, or divergence registry before editing.
+5. Write failing tests first for the exact behavior you are adding: capture manifest accounting, offline replay, classification, report schema, divergence labeling, or regression gate behavior.
+6. For snapshot/replay features: prove the workflow can run from stored local artifacts without repeated upstream calls; preserve raw payloads and request-identifying metadata/evidence links.
+7. For report features: emit machine-readable artifacts with stable ordering and enough ownership/evidence context to route fixes. Do not generate docs in `docs/status/` unless the assigned feature explicitly asks for it.
+8. Run `bun run test` and `bun run typecheck`. If the baseline test suite fails only on issues already listed in mission `AGENTS.md` as pre-existing, continue with scoped work and record the baseline failure exactly in the handoff.
+9. If the feature changes replay/report behavior, start the validation API on port 3102 and manually verify at least one canonical replay/report flow against stored artifacts. If the feature is purely internal test/rules wiring, explain why curl verification was not needed.
+10. In the handoff, list every manifest entry, endpoint family, or report artifact covered and the specific validation checks added.
 
 ## Example Handoff
 
