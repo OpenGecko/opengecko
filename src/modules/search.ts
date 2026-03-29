@@ -28,6 +28,10 @@ function parseShowMax(value: string | undefined) {
   return Number.parseInt(value, 10);
 }
 
+function getRankDrivenScore(marketCapRank: number | null | undefined) {
+  return marketCapRank ?? 0;
+}
+
 export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/search', async (request) => {
     const query = searchQuerySchema.parse(request.query).query.toLowerCase();
@@ -116,30 +120,30 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
         const marketCapRank = snapshot.marketCapRank ?? row.coin.marketCapRank;
 
         return ({
-        item: {
-          id: row.coin.id,
-          coin_id: marketCapRank ?? 0,
-          name: row.coin.name,
-          symbol: row.coin.symbol,
-          market_cap_rank: marketCapRank ?? null,
-          thumb: row.coin.imageThumbUrl,
-          small: row.coin.imageSmallUrl,
-          large: row.coin.imageLargeUrl,
-          slug: row.coin.id,
-          price_btc: snapshot.price / 85_000,
-          score: marketCapRank ?? 0,
-          data: {
-            price: snapshot.price,
+          item: {
+            id: row.coin.id,
+            coin_id: getRankDrivenScore(marketCapRank),
+            name: row.coin.name,
+            symbol: row.coin.symbol,
+            market_cap_rank: marketCapRank ?? null,
+            thumb: row.coin.imageThumbUrl,
+            small: row.coin.imageSmallUrl,
+            large: row.coin.imageLargeUrl,
+            slug: row.coin.id,
             price_btc: snapshot.price / 85_000,
-            market_cap: snapshot.marketCap,
-            market_cap_btc: snapshot.marketCap ? snapshot.marketCap / 85_000 : null,
-            total_volume: snapshot.totalVolume,
-            total_volume_btc: snapshot.totalVolume ? snapshot.totalVolume / 85_000 : null,
-            sparkline: '',
-            content: null,
+            score: getRankDrivenScore(marketCapRank),
+            data: {
+              price: snapshot.price,
+              price_btc: snapshot.price / 85_000,
+              market_cap: snapshot.marketCap,
+              market_cap_btc: snapshot.marketCap ? snapshot.marketCap / 85_000 : null,
+              total_volume: snapshot.totalVolume,
+              total_volume_btc: snapshot.totalVolume ? snapshot.totalVolume / 85_000 : null,
+              sparkline: '',
+              content: null,
+            },
           },
-        },
-      });
+        });
       })
       .filter((row): row is NonNullable<typeof row> => row !== null);
 

@@ -5080,7 +5080,16 @@ describe('OpenGecko app scaffold', () => {
     expect(body.coins[0].item.name).toBe('Bitcoin');
     expect(body.coins[0].item.symbol).toBe('btc');
     expect(typeof body.coins[0].item.market_cap_rank === 'number' || body.coins[0].item.market_cap_rank === null).toBe(true);
+    expect(body.coins[0].item.score).toBe(body.coins[0].item.market_cap_rank ?? 0);
+    expect(typeof body.coins[0].item.data.market_cap === 'number' || body.coins[0].item.data.market_cap === null).toBe(true);
     expect(body.coins.map((entry: { item: { id: string } }) => entry.item.id)).toContain('ethereum');
+    expect(body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)).toEqual(
+      [...body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)]
+        .sort((left, right) => (left ?? Number.MAX_SAFE_INTEGER) - (right ?? Number.MAX_SAFE_INTEGER)),
+    );
+    body.coins.forEach((entry: { item: { market_cap_rank: number | null; score: number } }) => {
+      expect(entry.item.score).toBe(entry.item.market_cap_rank ?? 0);
+    });
     expect(body.nfts).toEqual([]);
     expect(body.categories[0]).toMatchObject(contractFixtures.searchTrending.categories[0]);
     expect(body.categories[1]).toMatchObject(contractFixtures.searchTrending.categories[1]);
