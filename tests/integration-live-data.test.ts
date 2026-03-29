@@ -332,7 +332,7 @@ describe('live data integration', () => {
 
     const percentDivergence = Math.abs(cefiUsd - defiUsd) / cefiUsd;
     expect(percentDivergence).toBeLessThan(0.1);
-  });
+  }, 10_000);
 
   it('links the compatibility audit to >=95% field compatibility coverage or explicit divergences', async () => {
     const auditFamilies = [
