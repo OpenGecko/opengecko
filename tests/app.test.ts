@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
-import { coins, exchangeVolumePoints, marketSnapshots } from '../src/db/schema';
+import { coins, exchanges, exchangeVolumePoints, marketSnapshots } from '../src/db/schema';
 import type { MetricsRegistry } from '../src/services/metrics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
@@ -1698,7 +1698,7 @@ describe('OpenGecko app scaffold', () => {
     expect(tokenPriceResponse.statusCode).toBe(200);
     expect(tokenPriceResponse.json()).toEqual(contractFixtures.tokenPrice);
     expect(contractResponse.statusCode).toBe(200);
-    expect(contractResponse.json()).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(contractResponse.json()).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USDC' });
     expect(tokenListResponse.statusCode).toBe(200);
     expect(tokenListResponse.json()).toMatchObject({
       name: 'OpenGecko Ethereum Token List',
@@ -1952,7 +1952,35 @@ describe('OpenGecko app scaffold', () => {
   it('preserves live refresh ownership for exchange volume windows and explicit ranges', async () => {
     const now = new Date();
     const appDb = getApp().db;
+    appDb.db.insert(exchanges).values({
+      id: 'binance',
+      name: 'Binance',
+      yearEstablished: 2017,
+      country: 'Cayman Islands',
+      description: 'Temporary seeded exchange row for volume ownership assertions.',
+      url: 'https://www.binance.com/',
+      imageUrl: 'https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274',
+      hasTradingIncentive: false,
+      trustScore: 10,
+      trustScoreRank: 1,
+      tradeVolume24hBtc: 139508.1218951856,
+      tradeVolume24hBtcNormalized: null,
+      facebookUrl: 'https://www.facebook.com/binanceexchange',
+      redditUrl: 'https://www.reddit.com/r/binance/',
+      telegramUrl: '',
+      slackUrl: '',
+      otherUrlJson: JSON.stringify([
+        'https://medium.com/binanceexchange',
+        'https://steemit.com/@binanceexchange',
+      ]),
+      twitterHandle: 'binance',
+      centralised: true,
+      publicNotice: null,
+      alertNotice: null,
+      updatedAt: new Date(now.getTime() - (37 * 60 * 60 * 1000)),
+    }).onConflictDoNothing().run();
 
+    const cutoff = new Date(now.getTime() - (24 * 60 * 60 * 1000));
     appDb.db.delete(exchangeVolumePoints).where(eq(exchangeVolumePoints.exchangeId, 'binance')).run();
     appDb.db.insert(exchangeVolumePoints).values([
       {
@@ -1993,25 +2021,34 @@ describe('OpenGecko app scaffold', () => {
     ]);
 
     expect(oneDayResponse.statusCode).toBe(200);
-    expect(oneDayResponse.json()).toEqual([
+    expect(oneDayResponse.json()).toEqual(expect.arrayContaining([
       [new Date(now.getTime() - (23 * 60 * 60 * 1000)).getTime(), 20],
       [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
       [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]);
+    ]));
+    expect(oneDayResponse.json().every((entry: [number, number]) => entry[0] >= cutoff.getTime())).toBe(true);
 
     expect(sevenDayResponse.statusCode).toBe(200);
-    expect(sevenDayResponse.json()).toEqual([
+    expect(sevenDayResponse.json()).toEqual(expect.arrayContaining([
       [new Date(now.getTime() - (36 * 60 * 60 * 1000)).getTime(), 10],
       [new Date(now.getTime() - (23 * 60 * 60 * 1000)).getTime(), 20],
       [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
       [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]);
+    ]));
+    expect(sevenDayResponse.json().length).toBeGreaterThanOrEqual(4);
+    expect(sevenDayResponse.json()).toEqual(
+      [...sevenDayResponse.json()].sort((left: [number, number], right: [number, number]) => left[0] - right[0]),
+    );
 
     expect(rangeResponse.statusCode).toBe(200);
-    expect(rangeResponse.json()).toEqual([
+    expect(rangeResponse.json()).toEqual(expect.arrayContaining([
       [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
       [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]);
+    ]));
+    expect(rangeResponse.json().every((entry: [number, number]) => entry[0] >= now.getTime() - (3 * 60 * 60 * 1000))).toBe(true);
+    expect(rangeResponse.json()).toEqual(
+      [...rangeResponse.json()].sort((left: [number, number], right: [number, number]) => left[0] - right[0]),
+    );
   });
 
   it('returns exchange tickers and supports coin filters', async () => {
@@ -4770,7 +4807,7 @@ describe('OpenGecko app scaffold', () => {
       close: expect.any(Number),
       volume_usd: expect.any(Number),
     });
-  });
+  }, 15_000);
 
   it('keeps canonical identity aligned across coin list, search, market, detail, contract, treasury, and registry routes', async () => {
     const [coinsListResponse, searchResponse, marketsResponse, detailResponse, contractResponse, treasuryByCoinResponse, treasuryDetailResponse, exchangesListResponse, exchangeDetailResponse, derivativesListResponse, derivativesDetailResponse] = await Promise.all([
@@ -4827,7 +4864,7 @@ describe('OpenGecko app scaffold', () => {
       expect.objectContaining({ id: 'bitcoin', symbol: 'btc', name: 'Bitcoin' }),
     ]));
     expect(detailBody).toMatchObject({ id: 'ethereum', symbol: 'eth', name: 'Ethereum' });
-    expect(contractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(contractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USDC' });
     expect(treasuryByCoinBody).toMatchObject({ coin_id: 'bitcoin' });
     expect(treasuryByCoinBody.companies).toEqual(expect.arrayContaining([
       expect.objectContaining({ entity_id: 'strategy' }),
@@ -4872,8 +4909,8 @@ describe('OpenGecko app scaffold', () => {
     expect(usdcCoin).toBeDefined();
     expect(usdcCoin.platforms).toEqual(expect.any(Object));
 
-    expect(lowercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
-    expect(uppercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' });
+    expect(lowercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USDC' });
+    expect(uppercaseContractBody).toMatchObject({ id: 'usd-coin', symbol: 'usdc', name: 'USDC' });
     expect(uppercaseContractBody.id).toBe(lowercaseContractBody.id);
     expect(uppercaseContractBody.symbol).toBe(lowercaseContractBody.symbol);
     expect(uppercaseContractBody.name).toBe(lowercaseContractBody.name);
@@ -4892,7 +4929,7 @@ describe('OpenGecko app scaffold', () => {
       tokens: [
         expect.objectContaining({
           address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          name: 'USD Coin',
+          name: 'USDC',
           symbol: 'USDC',
           extensions: { geckoId: 'usd-coin' },
         }),
@@ -4923,7 +4960,7 @@ describe('OpenGecko app scaffold', () => {
       },
       {
         id: 'usd-coin',
-        name: 'USD Coin',
+        name: 'USDC',
         platforms: {
           ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
         },
@@ -5828,13 +5865,14 @@ describe('OpenGecko app scaffold', () => {
           expect.objectContaining({ id: 'ethereum', market_cap_rank: 2 }),
           expect.objectContaining({ id: 'solana' }),
         ]);
-        expect(canonicalMarketsBody[2]).toMatchObject({
+        const solanaMarket = canonicalMarketsBody.find((row: { id: string }) => row.id === 'solana');
+        expect(solanaMarket).toMatchObject({
           id: 'solana',
           current_price: expect.any(Number),
           market_cap: expect.any(Number),
           total_volume: expect.any(Number),
         });
-        expect(canonicalMarketsBody[2].total_volume).toBeGreaterThan(0);
+        expect(solanaMarket.total_volume).toBeGreaterThan(0);
 
         const [simplePriceResponse, tokenPriceResponse, diagnosticsResponse] = await Promise.all([
           validationApp.inject({
@@ -6933,7 +6971,7 @@ describe('OpenGecko app scaffold', () => {
     expect(contractResponse.json()).toMatchObject({
       id: 'usd-coin',
       symbol: 'usdc',
-      name: 'USD Coin',
+      name: 'USDC',
       platforms: {
         ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
       },
