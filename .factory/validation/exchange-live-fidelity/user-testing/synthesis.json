@@ -1,27 +1,29 @@
 {
   "milestone": "exchange-live-fidelity",
-  "round": 1,
+  "round": 3,
   "status": "pass",
   "assertionsSummary": {
-    "total": 10,
-    "passed": 10,
+    "total": 12,
+    "passed": 12,
     "failed": 0,
     "blocked": 0
   },
   "passedAssertions": [
-    "VAL-EXLF-001",
-    "VAL-EXLF-002",
-    "VAL-EXLF-003",
-    "VAL-EXLF-004",
-    "VAL-EXLF-005",
-    "VAL-EXLF-006",
-    "VAL-EXLF-007",
-    "VAL-EXLF-008",
-    "VAL-EXLF-009",
-    "VAL-EXLF-010"
+    "VAL-EXCHANGE-001",
+    "VAL-EXCHANGE-002",
+    "VAL-EXCHANGE-003",
+    "VAL-EXCHANGE-004",
+    "VAL-EXCHANGE-005",
+    "VAL-EXCHANGE-006",
+    "VAL-EXCHANGE-007",
+    "VAL-EXCHANGE-008",
+    "VAL-EXCHANGE-009",
+    "VAL-EXCHANGE-010",
+    "VAL-EXCHANGE-011",
+    "VAL-CROSS-003"
   ],
   "failedAssertions": [],
   "blockedAssertions": [],
   "appliedUpdates": [],
-  "previousRound": null
+  "previousRound": ".factory/validation/exchange-live-fidelity/user-testing/synthesis.json"
 }

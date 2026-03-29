@@ -1,0 +1,128 @@
+{
+  "groupId": "exchange-http",
+  "surface": "api",
+  "testedAt": "2026-03-29T13:33:16.615Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3100",
+    "missionDir": "/home/whoami/.factory/missions/7ff75bc4-a557-428f-9948-e887c2634709",
+    "port": 3100
+  },
+  "toolsUsed": [
+    "curl",
+    "jq"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-EXCHANGE-001",
+      "status": "pass",
+      "reason": "HTTP 200 with 100 tickers; sampled ticker included coin_id, target_coin_id, base, target, market, last, converted_last.usd, converted_volume.usd, and is_stale.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-001.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-002",
+      "status": "pass",
+      "reason": "HTTP 200 with 3 filtered tickers; unique returned coin_ids were only ['bitcoin'].",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-002.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-003",
+      "status": "pass",
+      "reason": "Unsupported order returned HTTP 400 with error=invalid_parameter and a message naming the invalid order value.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-003.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-004",
+      "status": "pass",
+      "reason": "Unknown exchange tickers route returned HTTP 404 with error=not_found and a missing-exchange message.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-004.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-005",
+      "status": "pass",
+      "reason": "HTTP 200 returned 1708 timestamp-volume pairs; sampled rows were numeric, non-negative, and strictly chronological.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-005.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-006",
+      "status": "pass",
+      "reason": "Both invalid range variants returned HTTP 400 with the invalid_parameter error family.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-006.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-007",
+      "status": "pass",
+      "reason": "HTTP 200 returned coins ordered by ascending market_cap_rank [1,2,3,6,7,8,8], and every item kept score == market_cap_rank.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-007.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-008",
+      "status": "pass",
+      "reason": "Exchange detail returned HTTP 200 with 100 embedded tickers; sampled ticker exposed live-fidelity fields and market.identifier='binance'.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-008.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-009",
+      "status": "pass",
+      "reason": "One-day volume chart returned HTTP 200 with 83 recent points, preserving granular short-window history.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-009.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-010",
+      "status": "pass",
+      "reason": "Unknown exchange volume_chart and volume_chart/range both returned HTTP 404 with the standard not_found envelope.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-010.txt"
+      ]
+    },
+    {
+      "id": "VAL-EXCHANGE-011",
+      "status": "pass",
+      "reason": "show_max=0 returned HTTP 200 with exactly { coins: [], nfts: [], categories: [] }.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-EXCHANGE-011.txt"
+      ]
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "reason": "Runtime tickers expose fresh live-backed fields and volume_chart returned 1731 retained live-history points over 7 days, while canonical docs now classify tickers as live-backed and volume_chart as hybrid-from-live.",
+      "evidence": [
+        "exchange-live-fidelity/exchange-http/VAL-CROSS-003-http.txt",
+        "docs/status/implementation-tracker.md",
+        "docs/status/compatibility-audit.md"
+      ]
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Using /bin/sh for combined evidence commands printed 'printf: Illegal option --' when the format string started with dashes, but the curl requests still completed and the HTTP evidence remained usable.",
+      "resolved": true,
+      "resolution": "Ignored the shell warning because it did not affect the request/response capture.",
+      "affectedAssertions": [
+        "VAL-EXCHANGE-006",
+        "VAL-EXCHANGE-010",
+        "VAL-CROSS-003"
+      ]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 12 assigned assertions: 12 passed and 0 failed."
+}
