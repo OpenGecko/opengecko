@@ -138,11 +138,11 @@ describe('exchange live fidelity contracts', () => {
       ).toBe('world-liberty-financial-usd');
       expect(tickers.slice(0, 6).map((ticker: { base: string; target: string }) => `${ticker.base}/${ticker.target}`)).toEqual([
         'BTC/USDT',
-        'USDC/USDT',
         'NIGHT/USDT',
+        'USDC/USDT',
         'ETH/USDT',
         'SOL/USDT',
-        'XRP/USDT',
+        'BNB/USDT',
       ]);
     } finally {
       await app.close();

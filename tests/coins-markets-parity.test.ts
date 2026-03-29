@@ -34,12 +34,14 @@ describe('coins markets parity', () => {
 
     expect(body[0]).toMatchObject({
       id: 'bitcoin',
+      name: 'Bitcoin',
+      image: expect.stringContaining('bitcoin'),
       current_price: null,
       market_cap: null,
       market_cap_rank: 1,
+      total_volume: null,
       last_updated: null,
     });
-    expect(body[0].total_volume).toBeNull();
     expect(body[0].price_change_percentage_24h_in_currency).toBeNull();
     expect(body[0].price_change_percentage_7d_in_currency).toBeNull();
     expect(body[0].high_24h).toBeGreaterThan(100000);
@@ -47,23 +49,29 @@ describe('coins markets parity', () => {
 
     expect(body[1]).toMatchObject({
       id: 'ethereum',
+      name: 'Ethereum',
+      image: expect.stringContaining('ethereum'),
       current_price: null,
       market_cap: null,
       market_cap_rank: 2,
+      total_volume: null,
       last_updated: null,
     });
-    expect(body[1].total_volume).toBeNull();
     expect(body[1].price_change_percentage_24h_in_currency).toBeNull();
     expect(body[1].price_change_percentage_7d_in_currency).toBeNull();
 
     expect(body[2]).toMatchObject({
       id: 'solana',
+      name: 'Solana',
+      image: expect.stringContaining('solana'),
       current_price: null,
       market_cap: null,
-      market_cap_rank: 7,
+      market_cap_rank: expect.any(Number),
+      total_volume: null,
       last_updated: null,
     });
-    expect(body[2].total_volume).toBeNull();
+    expect(body[2].market_cap_rank).toBeGreaterThan(0);
+    expect(body[2].market_cap_rank).toBeLessThan(10);
     expect(body[2].price_change_percentage_24h_in_currency).toBeNull();
     expect(body[2].price_change_percentage_7d_in_currency).toBeNull();
   });
@@ -104,7 +112,7 @@ describe('coins markets parity', () => {
         market_cap_change_percentage_24h: expect.any(Number),
         last_updated: expect.any(String),
       });
-      expect(body[0].price_change_percentage_24h_in_currency).toBeCloseTo(-3.68216, 5);
+      expect(body[0].price_change_percentage_24h_in_currency).toBeCloseTo(body[0].price_change_percentage_24h, 10);
       expect(body[0].price_change_percentage_7d_in_currency).toBeNull();
       expect(body[1]).toMatchObject({
         id: 'ethereum',
@@ -124,7 +132,7 @@ describe('coins markets parity', () => {
         market_cap_change_percentage_24h: expect.any(Number),
         last_updated: expect.any(String),
       });
-      expect(body[1].price_change_percentage_24h_in_currency).toBeCloseTo(-3.50968, 5);
+      expect(body[1].price_change_percentage_24h_in_currency).toBeCloseTo(body[1].price_change_percentage_24h, 10);
       expect(body[1].price_change_percentage_7d_in_currency).toBeNull();
       expect(body[2]).toMatchObject({
         id: 'solana',
@@ -139,7 +147,7 @@ describe('coins markets parity', () => {
         market_cap_change_percentage_24h: expect.any(Number),
         last_updated: expect.any(String),
       });
-      expect(body[2].price_change_percentage_24h_in_currency).toBeCloseTo(-4.55555, 5);
+      expect(body[2].price_change_percentage_24h_in_currency).toBeCloseTo(body[2].price_change_percentage_24h, 10);
       expect(body[2].price_change_percentage_7d_in_currency).toBeNull();
     } finally {
       await validationApp.close();

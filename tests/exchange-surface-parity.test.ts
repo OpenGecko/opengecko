@@ -6,8 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 
-const mockedFetchExchangeMarkets = vi.fn();
-const mockedFetchExchangeTickers = vi.fn();
+const {
+  mockedFetchExchangeMarkets,
+  mockedFetchExchangeTickers,
+} = vi.hoisted(() => ({
+  mockedFetchExchangeMarkets: vi.fn(),
+  mockedFetchExchangeTickers: vi.fn(),
+}));
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: mockedFetchExchangeMarkets,
