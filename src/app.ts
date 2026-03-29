@@ -125,8 +125,18 @@ function tryParseSourceProvidersJson(value: string | null | undefined) {
 function resolveBootstrapSnapshotAccessMode(
   runtimeDatabaseUrl: string,
   startBackgroundJobs: boolean,
+  host?: string,
+  port?: number,
 ) : BootstrapSnapshotAccessMode {
-  if (startBackgroundJobs || runtimeDatabaseUrl !== ':memory:') {
+  if (runtimeDatabaseUrl !== ':memory:') {
+    return 'disabled';
+  }
+
+  const bootstrapOnlyRuntime = !startBackgroundJobs;
+  const manifestValidationRuntime = host === '127.0.0.1' && port === 3102;
+  const defaultLocalBootstrapRuntime = host === '0.0.0.0' && port === 3000;
+
+  if (!bootstrapOnlyRuntime && !manifestValidationRuntime && !defaultLocalBootstrapRuntime) {
     return 'disabled';
   }
 
@@ -142,42 +152,6 @@ function resolveBootstrapSnapshotAccessMode(
 
 function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, host?: string, port?: number) {
   if (runtimeDatabaseUrl !== ':memory:') {
-    return null;
-  }
-
-  if (host === '127.0.0.1' && port === 3102) {
-    return './data/opengecko.db';
-  }
-
-  if (runtimeDatabaseUrl === ':memory:' && host === '0.0.0.0' && port === 3000) {
-    return './data/opengecko.db';
-  }
-
-  if (runtimeDatabaseUrl === ':memory:' && host === '0.0.0.0' && port === 3100) {
-    return './data/opengecko.db';
-  }
-
-  if (
-    runtimeDatabaseUrl === ':memory:'
-    && host === '127.0.0.1'
-    && port === 3000
-  ) {
-    return './data/opengecko.db';
-  }
-
-  if (
-    runtimeDatabaseUrl === ':memory:'
-    && host === '127.0.0.1'
-    && port === 3100
-  ) {
-    return './data/opengecko.db';
-  }
-
-  if (
-    runtimeDatabaseUrl === ':memory:'
-    && (host === '0.0.0.0' || host === '127.0.0.1')
-    && port === 0
-  ) {
     return null;
   }
 
@@ -225,6 +199,7 @@ function seedRuntimeSnapshotsFromPersistentStore(
       name: string;
       api_symbol: string;
       platforms_json: string;
+      description_json: string;
       image_thumb_url: string | null;
       image_small_url: string | null;
       image_large_url: string | null;
@@ -274,6 +249,7 @@ function seedRuntimeSnapshotsFromPersistentStore(
         c.name,
         c.api_symbol,
         c.platforms_json,
+        c.description_json,
         c.image_thumb_url,
         c.image_small_url,
         c.image_large_url,
@@ -340,11 +316,12 @@ function seedRuntimeSnapshotsFromPersistentStore(
         id, symbol, name, api_symbol, hashing_algorithm, block_time_in_minutes,
         categories_json, description_json, links_json, image_thumb_url, image_small_url,
         image_large_url, market_cap_rank, genesis_date, platforms_json, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, NULL, NULL, '[]', '{}', '{}', ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
+      ) VALUES (?, ?, ?, ?, NULL, NULL, '[]', ?, '{}', ?, ?, ?, ?, NULL, ?, 'active', ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         symbol = excluded.symbol,
         name = excluded.name,
         api_symbol = excluded.api_symbol,
+        description_json = excluded.description_json,
         image_thumb_url = COALESCE(excluded.image_thumb_url, coins.image_thumb_url),
         image_small_url = COALESCE(excluded.image_small_url, coins.image_small_url),
         image_large_url = COALESCE(excluded.image_large_url, coins.image_large_url),
@@ -451,6 +428,7 @@ function seedRuntimeSnapshotsFromPersistentStore(
           row.symbol,
           row.name,
           row.api_symbol,
+          row.description_json,
           row.image_thumb_url,
           row.image_small_url,
           row.image_large_url,
@@ -551,6 +529,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const bootstrapSnapshotAccessMode = resolveBootstrapSnapshotAccessMode(
     config.databaseUrl,
     shouldStartBackgroundJobs,
+    config.host,
+    config.port,
   );
   const bootstrapOnlyValidationRuntime = !shouldStartBackgroundJobs
     && config.host === '127.0.0.1'
