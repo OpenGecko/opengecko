@@ -10,6 +10,7 @@ Canonical planning documents:
 - `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md`
 - `docs/plans/2026-03-20-opengecko-engineering-execution-plan.md`
 - `docs/plans/2026-03-22-opengecko-compatibility-gap-closure-plan.md`
+- `docs/plans/2026-03-29-data-fidelity-uplift-plan.md`
 - `docs/status/implementation-tracker.md`
 
 ## Product Principles
