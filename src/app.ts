@@ -181,6 +181,25 @@ function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, host?:
   }
 }
 
+function canonicalCoinImportClause(coinColumn: string, canonicalCoinCount: number) {
+  if (canonicalCoinCount === 0) {
+    return '1 = 1';
+  }
+
+  return `(
+          ${coinColumn} NOT IN ('bitcoin', 'ethereum', 'solana')
+          OR ${coinColumn} IN (${new Array(canonicalCoinCount).fill('?').join(', ')})
+        )`;
+}
+
+function canonicalCoinImportParameters(runtimeCanonicalSnapshotCoinIds: Set<string>) {
+  if (runtimeCanonicalSnapshotCoinIds.size === 0) {
+    return [] as string[];
+  }
+
+  return [...runtimeCanonicalSnapshotCoinIds];
+}
+
 function seedRuntimeSnapshotsFromPersistentStore(
   runtimeDatabase: ReturnType<typeof createDatabase>,
   persistentDatabaseUrl: string,
@@ -193,6 +212,8 @@ function seedRuntimeSnapshotsFromPersistentStore(
   const persistentDatabase = createDatabase(persistentDatabaseUrl);
 
   try {
+    const canonicalCoinIds = ['bitcoin', 'ethereum', 'solana'] as const;
+    const canonicalCoinPreservationClause = canonicalCoinImportClause('ms.coin_id', canonicalCoinIds.length);
     const sourceRows = persistentDatabase.client.prepare<{
       coin_id: string;
       symbol: string;
@@ -298,9 +319,10 @@ function seedRuntimeSnapshotsFromPersistentStore(
       LEFT JOIN exchanges e ON e.id = ct.exchange_id
       WHERE ms.vs_currency = 'usd'
         AND ms.source_count > 0
+        AND ${canonicalCoinPreservationClause}
         AND (ct.exchange_id IS NULL OR e.id IS NOT NULL)
       ORDER BY ms.coin_id, ct.exchange_id, ct.base, ct.target
-    `).all();
+    `).all(...canonicalCoinIds);
 
     if (sourceRows.length === 0) {
       return {
@@ -398,8 +420,9 @@ function seedRuntimeSnapshotsFromPersistentStore(
         total_volume
       FROM chart_points
       WHERE vs_currency = 'usd'
+        AND ${canonicalCoinImportClause('chart_points.coin_id', canonicalCoinIds.length)}
       ORDER BY coin_id, timestamp
-    `).all();
+    `).all(...canonicalCoinIds);
     const insertChartPoint = runtimeDatabase.client.prepare(`
       INSERT INTO chart_points (
         coin_id, vs_currency, timestamp, price, market_cap, total_volume
@@ -659,7 +682,25 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         marketDataRuntimeState.validationOverride.reason = bootstrapOnlyValidationRuntime
           ? 'validation runtime seeded from persistent live snapshots'
           : 'default runtime seeded from persistent live snapshots';
+        const canonicalCoinIds = ['bitcoin', 'ethereum', 'solana'] as const;
+        const canonicalCoinPlaceholders = canonicalCoinIds.map(() => '?').join(', ');
+        seedRuntimeSnapshotsFromPersistentStore(
+          database,
+          persistentSnapshotDatabaseUrl,
+          marketDataRuntimeState,
+        );
         seedStaticReferenceData(database, { includeSeededExchanges: true });
+        database.client.prepare(`
+          DELETE FROM coins
+          WHERE id IN (${canonicalCoinPlaceholders})
+            AND updated_at = created_at
+            AND image_large_url LIKE 'https://assets.opengecko.test/%'
+        `).run(...canonicalCoinIds);
+        database.client.prepare(`
+          DELETE FROM chart_points
+          WHERE coin_id IN (${canonicalCoinPlaceholders})
+            AND vs_currency = 'usd'
+        `).run(...canonicalCoinIds);
         seedRuntimeSnapshotsFromPersistentStore(
           database,
           persistentSnapshotDatabaseUrl,
