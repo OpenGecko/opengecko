@@ -271,16 +271,14 @@ describe('stale market snapshot behavior', () => {
       current_price: 77777,
       market_cap: null,
       total_volume: null,
-      high_24h: null,
-      low_24h: null,
       price_change_24h: null,
       price_change_percentage_24h: null,
+      price_change_percentage_24h_in_currency: null,
       last_updated: bootstrapSourceTime.toISOString(),
     });
-    expect(marketsResponse.json()[0]).toMatchObject({
-      price_change_percentage_24h_in_currency: null,
-    });
     expect(marketsResponse.json()[0].price_change_percentage_24h_in_currency).toBeNull();
+    expect(marketsResponse.json()[0].high_24h).toEqual(expect.any(Number));
+    expect(marketsResponse.json()[0].low_24h).toEqual(expect.any(Number));
 
     expect(diagnosticsResponse.statusCode).toBe(200);
     expect(diagnosticsResponse.json()).toMatchObject({

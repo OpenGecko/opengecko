@@ -6,23 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 
-const {
-  mockedFetchExchangeMarkets,
-  mockedFetchExchangeTickers,
-} = vi.hoisted(() => ({
-  mockedFetchExchangeMarkets: vi.fn(),
-  mockedFetchExchangeTickers: vi.fn(),
-}));
-
 vi.mock('../src/providers/ccxt', () => ({
-  fetchExchangeMarkets: mockedFetchExchangeMarkets,
-  fetchExchangeTickers: mockedFetchExchangeTickers,
+  fetchExchangeMarkets: vi.fn(),
+  fetchExchangeTickers: vi.fn(),
   fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
     ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
 }));
+
+import { fetchExchangeMarkets, fetchExchangeTickers } from '../src/providers/ccxt';
+
+const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.fn>;
+const mockedFetchExchangeTickers = fetchExchangeTickers as ReturnType<typeof vi.fn>;
 
 describe('exchange surface parity', () => {
   let tempDir: string;
