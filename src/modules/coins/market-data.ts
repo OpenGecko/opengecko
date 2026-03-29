@@ -235,6 +235,9 @@ export function buildMarketRow(
   const marketCapChangePercentage24h = marketCapChange24h === null
     ? null
     : snapshot?.priceChangePercentage24h ?? null;
+  const useCanonicalBootstrapSnapshotValues = importedLiveBootstrapSnapshot;
+  const useDegradedNullShape = degradedMarketSnapshot || validationStaleDisallowed;
+  const useChartDerivedSeriesForChangeWindows = shouldUseChartDerivedSeries && !useCanonicalBootstrapSnapshotValues;
 
   return {
     id: row.coin.id,
@@ -245,17 +248,17 @@ export function buildMarketRow(
     market_cap: toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
     market_cap_rank: snapshot?.marketCapRank ?? row.coin.marketCapRank,
     fully_diluted_valuation: toNumberOrNull(snapshot?.fullyDilutedValuation ? snapshot.fullyDilutedValuation * rate : null, options.precision),
-    total_volume: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.totalVolume ? snapshot.totalVolume * rate : null, options.precision),
-    high_24h: degradedMarketSnapshot || validationStaleDisallowed
+    total_volume: useDegradedNullShape ? null : toNumberOrNull(snapshot?.totalVolume ? snapshot.totalVolume * rate : null, options.precision),
+    high_24h: useDegradedNullShape
       ? null
       : toNumberOrNull(seriesExtremes.high24h, options.precision),
-    low_24h: degradedMarketSnapshot || validationStaleDisallowed
+    low_24h: useDegradedNullShape
       ? null
       : toNumberOrNull(seriesExtremes.low24h, options.precision),
-    price_change_24h: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.priceChange24h ? snapshot.priceChange24h * rate : null, options.precision),
-    price_change_percentage_24h: degradedMarketSnapshot ? null : toNumberOrNull(snapshot?.priceChangePercentage24h, options.precision),
-    market_cap_change_24h: degradedMarketSnapshot ? null : toNumberOrNull(marketCapChange24h !== null ? marketCapChange24h * rate : null, options.precision),
-    market_cap_change_percentage_24h: degradedMarketSnapshot ? null : toNumberOrNull(marketCapChangePercentage24h, options.precision),
+    price_change_24h: useDegradedNullShape ? null : toNumberOrNull(snapshot?.priceChange24h ? snapshot.priceChange24h * rate : null, options.precision),
+    price_change_percentage_24h: useDegradedNullShape ? null : toNumberOrNull(snapshot?.priceChangePercentage24h, options.precision),
+    market_cap_change_24h: useDegradedNullShape ? null : toNumberOrNull(marketCapChange24h !== null ? marketCapChange24h * rate : null, options.precision),
+    market_cap_change_percentage_24h: useDegradedNullShape ? null : toNumberOrNull(marketCapChangePercentage24h, options.precision),
     circulating_supply: toNumberOrNull(snapshot?.circulatingSupply, options.precision),
     total_supply: toNumberOrNull(snapshot?.totalSupply, options.precision),
     max_supply: toNumberOrNull(snapshot?.maxSupply, options.precision),
@@ -268,9 +271,9 @@ export function buildMarketRow(
     roi,
     last_updated: snapshot?.lastUpdated?.toISOString() ?? null,
     ...(
-      degradedMarketSnapshot || validationStaleDisallowed
+      useDegradedNullShape
         ? buildNullMarketPriceChangeFields(options.priceChangePercentages)
-        : shouldUseChartDerivedSeries
+        : useChartDerivedSeriesForChangeWindows
           ? buildMarketPriceChangeFields(chartSeries, rate, options.priceChangePercentages, options.precision, snapshot)
           : Object.fromEntries(
             options.priceChangePercentages.map((window) => {
