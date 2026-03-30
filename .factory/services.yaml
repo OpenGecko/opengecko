@@ -1,28 +1,28 @@
 commands:
-  install: bun install --frozen-lockfile
-  typecheck: bun run typecheck
-  build: bun run build
-  test: TMPDIR=/home/whoami/dev/openGecko/data bun run test -- --maxWorkers=4
-  lint: echo "no lint configured"
-  endpoint_smoke: BASE_URL=http://localhost:3000 bun run test:endpoint
-  endpoint_coins: BASE_URL=http://localhost:3000 bun run test:endpoint:coins
-  endpoint_exchanges: BASE_URL=http://localhost:3000 bun run test:endpoint:exchanges
-  endpoint_global: BASE_URL=http://localhost:3000 bun run test:endpoint:global
-  endpoint_search: BASE_URL=http://localhost:3000 bun run test:endpoint:search
-  endpoint_simple: BASE_URL=http://localhost:3000 bun run test:endpoint:simple
-  endpoint_assets: BASE_URL=http://localhost:3000 bun run test:endpoint:assets
+  install: "bun install --frozen-lockfile"
+  typecheck: "bun run typecheck"
+  build: "bun run build"
+  test: "TMPDIR=/home/whoami/dev/openGecko/data bun run test -- --maxWorkers=4"
+  lint: "echo \"no lint configured\""
+  endpoint_smoke: "BASE_URL=http://localhost:3000 bun run test:endpoint"
+  endpoint_coins: "BASE_URL=http://localhost:3000 bun run test:endpoint:coins"
+  endpoint_exchanges: "BASE_URL=http://localhost:3000 bun run test:endpoint:exchanges"
+  endpoint_global: "BASE_URL=http://localhost:3000 bun run test:endpoint:global"
+  endpoint_search: "BASE_URL=http://localhost:3000 bun run test:endpoint:search"
+  endpoint_simple: "BASE_URL=http://localhost:3000 bun run test:endpoint:simple"
+  endpoint_assets: "BASE_URL=http://localhost:3000 bun run test:endpoint:assets"
 
 services:
   api:
-    start: PORT=3000 HOST=127.0.0.1 CCXT_EXCHANGES=binance,coinbase,okx LOG_LEVEL=error bun run src/server.ts
-    stop: lsof -ti :3000 | xargs kill 2>/dev/null || true
-    healthcheck: curl -sf http://localhost:3000/ping
+    start: "PORT=3000 HOST=127.0.0.1 CCXT_EXCHANGES=binance,coinbase,okx LOG_LEVEL=error bun run src/server.ts"
+    stop: "lsof -ti :3000 | xargs kill 2>/dev/null || true"
+    healthcheck: "curl -sf http://localhost:3000/ping"
     port: 3000
     depends_on: []
 
   api-validation:
-    start: OPEN_GECKO_DISABLE_REPO_DOTENV=1 PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts
-    stop: lsof -ti :3102 | xargs kill 2>/dev/null || true
-    healthcheck: curl -sf http://localhost:3102/ping
+    start: "OPEN_GECKO_DISABLE_REPO_DOTENV=1 PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES=\"\" LOG_LEVEL=error bun run src/server.ts"
+    stop: "lsof -ti :3102 | xargs kill 2>/dev/null || true"
+    healthcheck: "curl -sf http://localhost:3102/ping"
     port: 3102
     depends_on: []
