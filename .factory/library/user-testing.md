@@ -113,6 +113,7 @@ Reasoning: the live provider path is the dominant source of boot cost, latency, 
 ### isolated-api
 - Use `3102` only for validation-only override routes or structural checks that should not share live state.
 - Current baseline runtime override routes are `POST /diagnostics/runtime/degraded_state` and `POST /diagnostics/runtime/provider_failure` on `3102`; keep validator prompts aligned to those exact paths.
+- For zero-live completed-boot reruns on `3102`, start from a fresh validation listener and temporarily move `data/opengecko.db` aside before boot so the isolated API cannot inherit persisted snapshot state.
 - Stop any pre-existing listener on `3102` before launching a fresh isolated validation API instance; stale validation servers can otherwise cause `EADDRINUSE` and misleading setup failures.
 - Confirm the same route is absent or gated on `3000` when the contract requires validation-only access.
 
