@@ -303,7 +303,7 @@ describe('live data integration', () => {
     expect(packageJson.version.startsWith('0.5.')).toBe(true);
   });
 
-  it('keeps CeFi and DeFi USD prices within the contract coherence threshold for overlapping tokens', async () => {
+  it('keeps CeFi and DeFi USD prices within the contract coherence threshold for overlapping tokens', { timeout: 15_000 }, async () => {
     const overlappingToken = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
     const overlappingCoinId = 'usd-coin';
 
@@ -332,7 +332,7 @@ describe('live data integration', () => {
 
     const percentDivergence = Math.abs(cefiUsd - defiUsd) / cefiUsd;
     expect(percentDivergence).toBeLessThan(0.1);
-  }, 10_000);
+  });
 
   it('links the compatibility audit to >=95% field compatibility coverage or explicit divergences', async () => {
     const auditFamilies = [
