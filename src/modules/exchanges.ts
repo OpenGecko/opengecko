@@ -240,6 +240,38 @@ function resolveCoinMarketCapUsd(database: AppDatabase, coinId: string | null) {
   return rows[0]?.marketCap ?? null;
 }
 
+function buildCoinTickerIdentity(row: ExchangeTickerRow) {
+  return `${row.coin_tickers.exchangeId}:${row.coin_tickers.base}:${row.coin_tickers.target}`;
+}
+
+function dedupeExchangeTickerRows(rows: ExchangeTickerRow[]) {
+  const rowsByIdentity = new Map<string, ExchangeTickerRow>();
+
+  for (const row of rows) {
+    const identity = buildCoinTickerIdentity(row);
+    const existing = rowsByIdentity.get(identity);
+
+    if (!existing) {
+      rowsByIdentity.set(identity, row);
+      continue;
+    }
+
+    const existingCoinRank = sortNumber(existing.coin_tickers.convertedVolumeUsd, -1);
+    const currentCoinRank = sortNumber(row.coin_tickers.convertedVolumeUsd, -1);
+
+    if (currentCoinRank > existingCoinRank) {
+      rowsByIdentity.set(identity, row);
+      continue;
+    }
+
+    if (currentCoinRank === existingCoinRank && row.coin_tickers.coinId.localeCompare(existing.coin_tickers.coinId) < 0) {
+      rowsByIdentity.set(identity, row);
+    }
+  }
+
+  return [...rowsByIdentity.values()];
+}
+
 type ExchangeTickerRow = {
   coin_tickers: typeof coinTickers.$inferSelect;
   exchanges: ExchangeRow;
@@ -255,12 +287,12 @@ function getExchangeTickerRows(database: AppDatabase, exchangeId: string, coinId
     ? and(eq(coinTickers.exchangeId, exchangeId), inArray(coinTickers.coinId, coinIds))
     : eq(coinTickers.exchangeId, exchangeId);
 
-  return database.db
+  return dedupeExchangeTickerRows(database.db
     .select()
     .from(coinTickers)
     .innerJoin(exchanges, eq(exchanges.id, coinTickers.exchangeId))
     .where(whereCondition)
-    .all();
+    .all());
 }
 
 function sortExchangeTickerRows(

@@ -147,12 +147,17 @@ describe('exchange live fidelity contracts', () => {
       ).toBe('world-liberty-financial-usd');
       expect(tickers.slice(0, 6).map((ticker: { base: string; target: string }) => `${ticker.base}/${ticker.target}`)).toEqual([
         'BTC/USDT',
-        'NIGHT/USDT',
         'USDC/USDT',
         'ETH/USDT',
+        'NIGHT/USDT',
         'SOL/USDT',
-        'BNB/USDT',
+        'XRP/USDT',
       ]);
+      expect(tickers.find((ticker: { base: string; target: string }) => ticker.base === 'BNB' && ticker.target === 'USDT')).toEqual(
+        expect.objectContaining({
+          coin_id: 'binancecoin',
+        }),
+      );
     } finally {
       await app.close();
     }
