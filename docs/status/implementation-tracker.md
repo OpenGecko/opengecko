@@ -26,11 +26,11 @@ Use this tracker for current status, active priorities, completed milestones, an
 
 ## Current Priorities
 
-1. Restore the main test suite to green and treat parity claims as blocked until the current core regressions are resolved.
-2. Replace remaining seeded and fallback-heavy coin, exchange, derivatives, treasury, and onchain slices with canonical live/backfilled paths where practical.
-3. Harden the continuous OHLCV worker with deeper retention, repair, and hosted-worker operating guidance.
-4. Expand canonical chain coverage by ingesting and normalizing all CCXT-discoverable networks from the curated active exchange set.
-5. Tighten observability, cache invalidation, and startup/runtime failure behavior so hot endpoints remain predictable under degraded upstream conditions.
+1. Restore the main Vitest suite to green so parity and milestone-sealing claims reflect actual repository state rather than planned state.
+2. Finish the active `platform-and-catalog-discovery` milestone by landing live new-listings discovery plus the remaining `/search` relevance and `/global` breadth uplifts.
+3. Continue the `onchain-discovery-uplift` milestone, including deterministic invalid-params coverage and multi-network DeFiLlama-backed discovery hardening.
+4. Improve coin enrichment and chart fidelity while preserving the top-100-first OHLCV policy and honest fallback behavior.
+5. Keep derivatives, treasury, categories, and unresolved supply-chart surfaces honest and contract-compatible as accepted fixture families while tightening observability, cache invalidation, and runtime failure behavior.
 
 ## Data Quality Summary (as of 2026-03-29 audit)
 
@@ -38,9 +38,9 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 
 | Tier | Coverage | Endpoints | Data source |
 |------|----------|-----------|-------------|
-| **Live** (~30%) | Real-time | `/simple/price`, `/simple/token_price`, `/exchange_rates` (currency-api), `/coins/markets`, `/exchanges` metadata, `/exchanges/{id}/tickers` (live CCXT ticker ingestion persisted to DB), `/onchain/networks/eth/pools` (DeFiLlama-patched), `/onchain/networks/eth/pools/*/trades` (Subsquid) | CCXT snapshots/tickers → DB → read |
-| **Hybrid** (~35%) | Partial live | `/coins/{id}` (market_data live, description/links/community/developer seeded/null), `/coins/markets` sparkline (seeded 7-day synthetic candles), `/coins/{id}/history`, `/coins/{id}/market_chart`, `/coins/{id}/ohlc`, `/coins/{id}/ohlc/range`, `/global`, `/search` (seeded index + live enrichment), `/search/trending` (live market-cap rank, not true trending), `/coins/top_gainers_losers`, `/exchanges/{id}/volume_chart*` (live refresh ownership accumulated from ticker ingestion; historical depth remains bounded to retained points), `/onchain/networks` (seeded networks, DeFiLlama enriches ETH), `/onchain/networks/*/tokens/*` (ETH live price), `/public_treasury/*` (USD from live snapshots, holdings/transactions seeded) | Mixed |
-| **Fixture/Seeded** (~35%) | Zero live | `/derivatives*` (3 tickers, 2 exchanges, frozen data), `/public_treasury/holding_chart` (seeded), `/public_treasury/transaction_history` (seeded 6 tx), `/onchain/*/top_holders` (fixture USDC only), `/onchain/*/top_traders` (fixture USDC only), `/onchain/*/holders_chart` (fixture USDC only), `/onchain/pool OHLCV` (synthetic fallback), `/onchain/pool trades` (fixture fallback), `/coins/list/new` (seeded `createdAt`), `/asset_platforms` (3 seeded platforms), `/coins/*/circulating_supply_chart`, `/coins/*/total_supply_chart`, `/global/market_cap_chart` | 100% seeded/fixture |
+| **Live** (~30%) | Real-time | `/simple/price`, `/simple/token_price`, `/exchange_rates` (currency-api), `/coins/markets`, `/asset_platforms` (canonical CCXT-discovered platforms), `/exchanges` metadata, `/exchanges/{id}/tickers` (live CCXT ticker ingestion persisted to DB), `/onchain/networks/eth/pools` (DeFiLlama-patched), `/onchain/networks/eth/pools/*/trades` (Subsquid) | CCXT snapshots/tickers → DB → read |
+| **Hybrid** (~35%) | Partial live | `/coins/{id}` (market_data live, description/links/community/developer seeded/null), `/coins/markets` sparkline (seeded 7-day synthetic candles), `/coins/{id}/history`, `/coins/{id}/market_chart`, `/coins/{id}/ohlc`, `/coins/{id}/ohlc/range`, `/global`, `/search` (seeded index + live enrichment), `/search/trending` (live market-cap rank, not true trending), `/coins/top_gainers_losers`, `/token_lists/{asset_platform_id}/all.json` (canonical discovered platforms routed to seeded/reference-backed token-list payloads), `/exchanges/{id}/volume_chart*` (live refresh ownership accumulated from ticker ingestion; historical depth remains bounded to retained points), `/onchain/networks` (seeded networks, DeFiLlama enriches ETH), `/onchain/networks/*/tokens/*` (ETH live price), `/public_treasury/*` (USD from live snapshots, holdings/transactions seeded) | Mixed |
+| **Fixture/Seeded** (~35%) | Zero live | `/derivatives*` (3 tickers, 2 exchanges, frozen data), `/public_treasury/holding_chart` (seeded), `/public_treasury/transaction_history` (seeded 6 tx), `/onchain/*/top_holders` (fixture USDC only), `/onchain/*/top_traders` (fixture USDC only), `/onchain/*/holders_chart` (fixture USDC only), `/onchain/pool OHLCV` (synthetic fallback), `/onchain/pool trades` (fixture fallback), `/coins/list/new` (seeded `createdAt`), `/coins/*/circulating_supply_chart`, `/coins/*/total_supply_chart`, `/global/market_cap_chart` | 100% seeded/fixture |
 
 **Key gap**: "Route implemented" ≠ "has live data". The 76/76 parity claim refers to HTTP contract surface (routing, parameters, response structure), not data fidelity. Several families serve seeded, fixture, or hybrid data.
 
@@ -54,7 +54,7 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 | WS-D Canonical entity resolution | Coin, platform, contract, venue, treasury, network, and DEX identity mapping | done | Canonical chain/platform resolution, alias-aware contract lookup, multi-exchange chain merging, and onchain network/platform identity mapping now cover the active compatibility surface |
 | WS-E Contract testing and fixtures | Endpoint fixtures, invalid-parameter coverage, repository/service-layer assertions | partial | Coverage is broad across active families, but the main Vitest suite is currently failing in parity and runtime-sensitive areas, so this workstream should not be treated as complete |
 | WS-F Jobs, operations, and observability | Refresh scheduling, search rebuilds, job failure handling, lag visibility | partial | Initial-sync failure handling, serialized runtime jobs, standalone `ohlcv:worker`, diagnostics for runtime/ohlcv/chain coverage, exchange durability hardening, and startup prewarm are in place; hosted-worker deployment guidance and deeper alerting remain open |
-| WS-G Data fidelity uplift | Replace seeded/fixture data with live sources | partial | Exchange ticker ingestion, exchange volume accumulation, and rank-honest trending semantics have landed; remaining per-family uplift work stays tracked in `docs/plans/2026-03-29-data-fidelity-uplift-plan.md` |
+| WS-G Data fidelity uplift | Replace seeded/fixture data with live sources | partial | Exchange live-fidelity is sealed; canonical platform discovery, bootstrap backfill repair, Bun compatibility, and BigNumber calculation foundation have landed; remaining per-family uplift work stays tracked in `docs/plans/2026-03-29-data-fidelity-uplift-plan.md` |
 
 ## Endpoint Family Progress
 
@@ -62,13 +62,13 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 | --- | --- | --- | --- | --- |
 | `/ping` | R0 | done | live | CoinGecko-style ping response implemented and tested |
 | `/simple/*` | R0 | done | live | `/simple/supported_vs_currencies`, `/simple/price`, `/simple/token_price/{id}`, and `/exchange_rates` are implemented and tested; all backed by live CCXT snapshots or currency-api |
-| `/asset_platforms` | R0 | done | seeded | Seeded 3 platforms (eth, btc, sol); no live discovery |
-| `/token_lists/{asset_platform_id}/all.json` | R1 | done | seeded | Seeded Ethereum token list; no live discovery |
-| `/search` | R0 | partial | hybrid | FTS5-backed search over seeded coin/exchange tables; ranking is approximation-heavy; `search/trending` returns top market-cap coins, not true trending |
-| `/global` | R0 | partial | hybrid | Aggregate market routes exist; data from live snapshots but breadth is limited by seed coin catalog |
-| `/coins/list` | R0 | done | seeded | Seeded coin registry; no live discovery for new coins |
-| `/coins/list/new` | R0 | done | seeded | Returns coins sorted by seeded `createdAt`; not true newly-listed detection |
-| Core coin market endpoints | R1 | partial | hybrid | `/coins/markets` (live snapshots), `/coins/{id}` (market_data live, description/links null), history/chart/ohlc (seeded 7-day synthetic candles); sparkline from seeded data; regressions remain |
+| `/asset_platforms` | R0 | done | live | Canonical CCXT-discovered platforms are now exposed; legacy aliases are suppressed as top-level ids |
+| `/token_lists/{asset_platform_id}/all.json` | R1 | done | hybrid | Canonical platform ids and contract routing now align with the discovered platform catalog; token-list payloads remain seeded/reference-backed |
+| `/search` | R0 | partial | hybrid | FTS5-backed search over seeded coin/exchange tables; exact-match relevance uplift is pending, while `search/trending` is now an explicitly rank-honest top-market-cap proxy |
+| `/global` | R0 | partial | hybrid | Aggregate market routes exist and read live snapshots, but breadth uplift across the broader discovered catalog is still pending |
+| `/coins/list` | R0 | done | seeded | Seeded coin registry remains in place; canonical identity propagation is improved, but true new-coin discovery is still pending |
+| `/coins/list/new` | R0 | partial | seeded | Still returns seeded `createdAt` ordering today; live newly-listed detection is the next pending platform/discovery task |
+| Core coin market endpoints | R1 | partial | hybrid | `/coins/markets` live snapshots now include canonical bootstrap backfill fixes; `/coins/{id}` detail enrichment plus history/chart/OHLC fidelity work remain pending, and sparklines still rely on seeded/synthetic history |
 | `/exchanges/*` | R2 | partial | hybrid | Exchange metadata and list are live from CCXT; `/exchanges/{id}/tickers` is live-backed via persisted CCXT ticker ingestion; `/exchanges/{id}/volume_chart*` is hybrid-from-live, accumulated from the same ticker refresh ownership while historical depth remains limited to retained points |
 | `/derivatives/*` | R2 | partial | seeded | 3 hardcoded tickers (BTC/ETH perpetual + 1 expired), 2 exchanges; data frozen at 2026-03-20 |
 | NFTs | removed | removed | — | removed from the active roadmap |
@@ -108,7 +108,7 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 4. **Onchain holders/traders are fake**: `top_holders`, `top_traders`, `holders_chart` return fixture data for USDC only; all other tokens return empty arrays.
 5. **Chart history is synthetic**: All `/coins/*/market_chart`, `/ohlc`, `/ohlc/range` serve seeded 7-day synthetic candles. Real OHLCV accumulates after boot but top-100-first policy means most coins never get real candles.
 6. **Treasury is static**: 2 entities, 6 transactions, fixed holdings. No live disclosure ingestion.
-7. **The main Vitest suite is not currently green**, so release confidence is below the level implied by route-coverage parity claims.
+7. **Platform-and-catalog-discovery is not sealed yet**: live newly-listed discovery, exact-match search relevance, and broader global breadth still need to land and validate, and the main Vitest suite is still failing in parity/runtime-sensitive areas.
 8. **Historical chart and OHLC** now has canonical persistence, but longer-horizon policy and hosted-worker operations remain open.
 9. **Removed NFT rows** remain intentionally unactioned in the parity matrix and are excluded from the active parity target.
 
@@ -125,8 +125,9 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 - `/onchain/*/top_holders`, `/onchain/*/top_traders`, `/onchain/*/holders_chart`: fixture only (USDC on ETH, fake addresses). All other tokens return empty arrays.
 - `/onchain/pool OHLCV` (fallback): 6 synthetic candles when Subsquid returns nothing.
 - `/onchain/pool trades` (fallback): 6 synthetic trades when Subsquid returns nothing.
-- `/coins/list/new`: sorted by seeded `createdAt` — not a true newly-listed feed.
-- `/search/trending`: top market-cap coins from snapshots — not true trending signal.
+- `/asset_platforms`: now live-backed via canonical CCXT-discovered platform rows; remove older references that still describe it as the original 3-platform seed.
+- `/coins/list/new`: still sorted by seeded `createdAt`; live newly-listed discovery is pending in the active platform milestone.
+- `/search`: exact-match relevance uplift remains pending even though `/search/trending` has been hardened to honest rank-driven semantics.
 - The Graph provider was removed in 08e4b39 — Subsquid is now the sole live-trade provider for onchain pool trades.
 
 ## Completed Milestones

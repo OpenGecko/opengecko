@@ -27,28 +27,28 @@ For each family, we classify **what is live** vs **what is not**, and decide the
 |---|---|---|
 | `/simple/price`, `/simple/token_price` | Live from CCXT snapshots | ✅ Done |
 | `/exchange_rates` | Live from currency-api (fiat) + DB snapshot (BTC/ETH) | ✅ Done |
-| `/global`, `/global/decentralized_finance_defi` | Live from snapshots (limited catalog) | **Improve**: expand catalog breadth |
-| `/search` | Seeded index, live enrichment | **Improve**: true search relevance |
-| `/search/trending` | Top market-cap rank, not trending | **Decide**: rename to reflect reality or implement real trending signal |
-| `/asset_platforms` | 3 seeded platforms | **Decide**: implement CCXT-based platform discovery |
+| `/global`, `/global/decentralized_finance_defi` | Live from snapshots (limited catalog) | In progress: expand catalog breadth |
+| `/search` | Seeded index, live enrichment | In progress: improve exact-match relevance |
+| `/search/trending` | Rank-honest top market-cap proxy (not true trending) | ✅ Done for current honest semantics |
+| `/asset_platforms` | Canonical CCXT-discovered platforms | ✅ Done |
 
 ### Family: Coins
 
 | Endpoint | Currently | Target |
 |---|---|---|
-| `/coins/markets` | Live from CCXT snapshots | ✅ Done |
+| `/coins/markets` | Live from CCXT snapshots with canonical bootstrap backfill fixes | ✅ Done |
 | `/coins/{id}` market_data | Live from snapshots | ✅ Done |
-| `/coins/{id}` description/links | Seeded "fixture catalog" / null | **Uplift**: enrich from CCXT or accept as known divergence |
-| `/coins/{id}` community/developer | All null | **Decide**: accept null or fetch from optional source |
-| `/coins/{id}` images | 8 coins: CoinGecko URLs; others: test placeholder | **Decide**: accept placeholder or fetch from CCXT |
-| `/coins/{id}/history` | Recent: live snapshots; historical: seeded 7-day synthetic | **Uplift**: real candles accumulate post-boot |
-| `/coins/{id}/market_chart` | Seeded synthetic candles (7 days) | **Uplift**: real candles accumulate post-boot |
-| `/coins/{id}/ohlc`, `/ohlc/range` | Seeded synthetic candles (7 days) | **Uplift**: real candles accumulate post-boot |
-| `/coins/list/new` | Seeded `createdAt` ordering | **Decide**: implement live coin discovery or accept as fixture |
+| `/coins/{id}` description/links | Seeded "fixture catalog" / null | In progress: enrich where approved providers can support it |
+| `/coins/{id}` community/developer | All null | In progress: keep honest nulls unless a reliable source is added |
+| `/coins/{id}` images | 8 coins: CoinGecko URLs; others: test placeholder | In progress: improve image fidelity without breaking contract shape |
+| `/coins/{id}/history` | Recent: live snapshots; historical: seeded 7-day synthetic | In progress: tighten history fidelity |
+| `/coins/{id}/market_chart` | Seeded synthetic candles (7 days) | In progress: real candles accumulate post-boot |
+| `/coins/{id}/ohlc`, `/ohlc/range` | Seeded synthetic candles (7 days) | In progress: real candles accumulate post-boot |
+| `/coins/list/new` | Seeded `createdAt` ordering | In progress: implement live coin discovery |
 | `/coins/top_gainers_losers` | Live from snapshots, simple ranking | ✅ Done (ranking logic is honest) |
-| `/coins/categories*` | Seeded 2 categories | **Decide**: implement live category discovery |
-| `/coins/*/circulating_supply_chart` | Seeded | **Accept**: no live source readily available |
-| `/coins/*/total_supply_chart` | Seeded | **Accept**: no live source readily available |
+| `/coins/categories*` | Seeded 2 categories | Accepted fixture for this mission unless later follow-up expands it |
+| `/coins/*/circulating_supply_chart` | Seeded | Accepted unresolved / fixture-backed |
+| `/coins/*/total_supply_chart` | Seeded | Accepted unresolved / fixture-backed |
 
 ### Family: Exchanges + Derivatives
 
@@ -56,23 +56,23 @@ For each family, we classify **what is live** vs **what is not**, and decide the
 |---|---|---|
 | `/exchanges/list`, `/exchanges` | Live from CCXT metadata sync | ✅ Done |
 | `/exchanges/{id}` | Live from CCXT metadata sync | ✅ Done |
-| `/exchanges/{id}/tickers` | Seeded `coinTickers` table (not live) | **Uplift**: implement live CCXT `fetchTickers` ingestion |
-| `/exchanges/{id}/volume_chart` | Seeded `exchangeVolumePoints` (not accumulated) | **Uplift**: accumulate from live ticker volumes |
-| `/exchanges/{id}/volume_chart/range` | Same as above | **Uplift**: same as above |
-| `/derivatives/exchanges/list` | Seeded 2 exchanges | **Decide**: implement CCXT derivatives exchange discovery |
-| `/derivatives/exchanges/{id}` | Seeded 2 exchanges | **Decide**: same as above |
-| `/derivatives` | Seeded 3 tickers (BTC/ETH perpetual + 1 expired) | **Decide**: implement CCXT derivatives ticker fetch |
-| `/derivatives` ticker `price` | Frozen at 2026-03-20 | **Decide**: same as above |
+| `/exchanges/{id}/tickers` | Live CCXT-backed ticker ingestion persisted to DB | ✅ Done |
+| `/exchanges/{id}/volume_chart` | Hybrid-from-live accumulated from ticker refreshes | ✅ Done for current bounded-history target |
+| `/exchanges/{id}/volume_chart/range` | Hybrid-from-live accumulated from ticker refreshes | ✅ Done for current bounded-history target |
+| `/derivatives/exchanges/list` | Seeded 2 exchanges | Accepted fixture for now |
+| `/derivatives/exchanges/{id}` | Seeded 2 exchanges | Accepted fixture for now |
+| `/derivatives` | Seeded 3 tickers (BTC/ETH perpetual + 1 expired) | Accepted fixture for now |
+| `/derivatives` ticker `price` | Frozen at 2026-03-20 | Accepted fixture for now |
 
 ### Family: Public Treasury
 
 | Endpoint | Currently | Target |
 |---|---|---|
-| `/entities/list` | Seeded 2 entities | **Decide**: add more entities or accept as dev fixture |
+| `/entities/list` | Seeded 2 entities | Accepted fixture for now |
 | `/:entity/public_treasury/:coin_id` USD value | Live from snapshots | ✅ Done |
-| `/public_treasury/{id}` holdings | Seeded (2 entities, fixed BTC amounts) | **Decide**: accept as dev fixture or ingest real disclosures |
-| `/public_treasury/{id}/holding_chart` | Seeded synthetic price series + fixed holdings | **Decide**: same as above |
-| `/public_treasury/{id}/transaction_history` | Seeded 6 transactions | **Decide**: same as above |
+| `/public_treasury/{id}` holdings | Seeded (2 entities, fixed BTC amounts) | Accepted fixture for now |
+| `/public_treasury/{id}/holding_chart` | Seeded synthetic price series + fixed holdings | Accepted fixture for now |
+| `/public_treasury/{id}/transaction_history` | Seeded 6 transactions | Accepted fixture for now |
 
 ### Family: Onchain DEX
 
@@ -85,62 +85,62 @@ For each family, we classify **what is live** vs **what is not**, and decide the
 | `/onchain/networks/{id}/pools/{id}/trades` | Subsquid live swap logs | ✅ Done (ETH only) |
 | `/onchain/networks/{id}/pools/{id}/ohlcv` | Subsquid → derived; fallback: 6 synthetic candles | ✅ Done (live path exists; fallback is explicit) |
 | `/onchain/networks/{id}/tokens/{id}` | ETH: DeFiLlama price; others: seed-only | **Improve**: DeFiLlama for more tokens on ETH |
-| `/onchain/*/top_holders` | Fixture USDC only; all others: empty | **Decide**: no affordable source → accept fixture or deprecate |
-| `/onchain/*/top_traders` | Fixture USDC only; all others: empty | **Decide**: no affordable source → accept fixture or deprecate |
-| `/onchain/*/holders_chart` | Fixture USDC only; all others: empty | **Decide**: no affordable source → accept fixture or deprecate |
+| `/onchain/*/top_holders` | Fixture USDC only; all others: empty | Accepted fixture for now |
+| `/onchain/*/top_traders` | Fixture USDC only; all others: empty | Accepted fixture for now |
+| `/onchain/*/holders_chart` | Fixture USDC only; all others: empty | Accepted fixture for now |
 | `/onchain/pool` (OHLCV fallback) | 6 synthetic candles | ✅ Done (fallback is explicit) |
 | `/onchain/pool` (trades fallback) | 6 synthetic trades | ✅ Done (fallback is explicit) |
 
 ---
 
-## Open Decisions (Must Answer Before Executing)
+## Resolved Decisions
 
 These choices gate specific uplift tasks. Each has a **recommended position** below.
 
 ### D1: `/search/trending` semantics
 > Rename to `/search/top_coins` and document that it returns top market-cap coins, or implement a real trending signal?
 
-**Recommended**: Rename. True trending requires a separate data pipeline (social volume, search volume, news) that is out of scope for a CEX/DEX API. The current "top market-cap" behavior is honest — rename it in the route handler and docs.
+**Decision taken**: Keep the route shape and harden honest rank-driven semantics/documentation for this mission. True trending remains out of scope; the current response is explicitly treated as a top-market-cap proxy rather than a social trending feed.
 
 ### D2: `/asset_platforms` — CCXT-based discovery?
 > Should we discover platforms dynamically from CCXT exchange metadata instead of 3 seeded platforms?
 
-**Recommended**: Yes. CCXT's exchange metadata already lists which chains each exchange supports. A one-time scan at boot can populate `asset_platforms` dynamically. This removes the need for a hardcoded seed list and makes platform discovery self-sustaining.
+**Decision taken**: Yes, and this is now implemented. The runtime discovers canonical platforms from CCXT-backed chain metadata and suppresses legacy aliases as top-level platform ids.
 
 ### D3: `/derivatives/*` — live data or accept fixture?
 > Should we invest in live CCXT derivatives fetch, or accept derivatives as a lower-priority seeded fixture family?
 
-**Recommended**: Accept fixture for now. CCXT derivatives support varies by exchange and requires significant endpoint-specific work. Derivatives are low-frequency compared to spot. Mark derivatives as `fixture` in the tracker and revisit if a real use case demands live derivatives data.
+**Decision taken**: Accept fixture for now. Mission follow-up remains focused on keeping derivatives reachable and honestly documented rather than adding a new live derivatives provider path.
 
 ### D4: `/exchanges/{id}/tickers` — live ingestion?
 > Should we implement live CCXT `fetchTickers` ingestion for exchange tickers, replacing the seeded table?
 
-**Recommended**: Yes. This is high-value: exchange tickers are a core API surface. Implement a periodic `fetchTickers` from each configured exchange and upsert into `coinTickers` during market refresh. Estimated: 1 task.
+**Decision taken**: Yes, and this is complete. Exchange tickers are now live-backed via persisted CCXT ingestion and validated in the sealed `exchange-live-fidelity` milestone.
 
 ### D5: `/exchanges/{id}/volume_chart` — live accumulation?
 > Should we accumulate volume from live tickers into `exchangeVolumePoints`, replacing seeded points?
 
-**Recommended**: Yes. During market refresh, sum all `quoteVolume` values from tickers per exchange and write one volume snapshot point per refresh cycle. Estimated: 1 task.
+**Decision taken**: Yes, and this is complete for the current target. Exchange volume routes now accumulate from live ticker refreshes, with bounded retained history rather than deep venue-native archives.
 
 ### D6: Onchain `top_holders`, `top_traders`, `holders_chart` — fixture or deprecate?
 > These require on-chain indexer data (e.g., Dune Analytics, Nansen, Glassnode) which have prohibitive costs for open-source/self-hosted use. Should we keep them as documented fixture endpoints, or remove them from the router?
 
-**Recommended**: Keep as documented fixture. These endpoints exist in the CoinGecko API and removing them would create a contract gap. Document them clearly as "fixture data for USDC on Ethereum; returns empty for all other tokens" in the tracker and route comments.
+**Decision taken**: Keep as documented fixture. The pending onchain analytics workstream is scoped to honesty and contract hardening, not live holder/trader ingestion.
 
 ### D7: Treasury — live ingestion or accept fixture?
 > Should we ingest real Strategy/MicroStrategy and El Salvador BTC disclosures, or accept the 2-entity fixture as sufficient for development?
 
-**Recommended**: Accept fixture. Real treasury disclosures require manual curation (Strategy's SEC filings, El Salvador's official announcements). No automated feed exists. Keep the fixture, add a note that this is intentionally limited, and revisit if a specific use case requires it.
+**Decision taken**: Accept fixture. Remaining work is to keep treasury routes coherent and documented honestly, not to add disclosure ingestion.
 
 ### D8: Chart history — maintain top-100-first or deeper backfill?
 > The OHLCV worker prioritizes top-100 coins. Should we keep this policy or implement broader backfill?
 
-**Recommended**: Keep top-100-first. A full 365-day backfill for all discovered coins would be prohibitively expensive in API rate limits and storage. Top-100-first is the right policy. The 7-day seeded synthetic candles provide a graceful degradation for coins without real history.
+**Decision taken**: Keep top-100-first. Remaining chart work is scoped to broader recent active-coin coverage and honest fallback windows rather than full deep backfill for every discovered coin.
 
 ### D9: New coins discovery
 > Should `/coins/list/new` be a true newly-listed feed, or is the current seeded ordering acceptable?
 
-**Recommended**: Implement live discovery. During each market refresh, newly discovered coins (not in the existing catalog) can be marked as `newly_listed` based on when they first appeared in CCXT exchange markets. Estimated: 1 task.
+**Decision taken**: Implement live discovery. This remains one of the next pending platform-and-catalog-discovery tasks.
 
 ---
 
@@ -148,17 +148,21 @@ These choices gate specific uplift tasks. Each has a **recommended position** be
 
 ### Phase 1: Quick Wins (1-2 cycles)
 
+Status update: exchange ticker ingestion, exchange volume accumulation, rank-honest `/search/trending`, canonical platform discovery, BigNumber calculation foundation, bootstrap catalog repair, and related Bun test compatibility work are complete. The main remaining Phase 1/platform work is live newly-listed coin detection, followed by search/global fidelity uplift before the milestone can validate.
+
 High impact, low effort. All items below are confirmed viable with existing providers.
 
 | # | Task | Endpoints affected | Provider | Effort |
 |---|---|---|---|---|
-| 1.1 | Live exchange ticker ingestion | `/exchanges/{id}/tickers` | CCXT `fetchTickers` | Low |
-| 1.2 | Live exchange volume accumulation | `/exchanges/{id}/volume_chart`, `/volume_chart/range` | CCXT tickers → `exchangeVolumePoints` | Low |
-| 1.3 | Rename `/search/trending` → documented "top market-cap" | `/search/trending` | N/A (route rename + docs) | Trivial |
-| 1.4 | CCXT-based asset platform discovery at boot | `/asset_platforms` | CCXT exchange metadata scan | Medium |
-| 1.5 | Live newly-listed coin detection | `/coins/list/new` | CCXT market diff | Medium |
+| 1.1 | Live exchange ticker ingestion | `/exchanges/{id}/tickers` | CCXT `fetchTickers` | Complete |
+| 1.2 | Live exchange volume accumulation | `/exchanges/{id}/volume_chart`, `/volume_chart/range` | CCXT tickers → `exchangeVolumePoints` | Complete |
+| 1.3 | Honest `/search/trending` semantics and docs | `/search/trending` | Market-rank proxy + docs | Complete |
+| 1.4 | CCXT-based asset platform discovery at boot | `/asset_platforms` | CCXT exchange metadata scan | Complete |
+| 1.5 | Live newly-listed coin detection | `/coins/list/new` | CCXT market diff | Pending |
 
 ### Phase 2: Meaningful Uplift (2-3 cycles)
+
+Status update: no Phase 2 feature is sealed yet, but the mission backlog has already been refined into concrete worker tasks for search relevance, global breadth, onchain discovery, token scope, analytics honesty, coin-detail enrichment, and chart/OHLC fidelity.
 
 Medium effort, significant fidelity improvement.
 
@@ -172,6 +176,8 @@ Medium effort, significant fidelity improvement.
 
 ### Phase 3: Known Fixtures (Documentation + Deprecation)
 
+Status update: the mission has already accepted fixture-first positions for derivatives, treasury, onchain analytics, categories, and unresolved supply-chart surfaces. The remaining work is to harden those runtime families and update canonical docs consistently.
+
 These families are accepted as fixture or have no affordable live source.
 
 | # | Task | Endpoints affected | Action |
@@ -184,6 +190,8 @@ These families are accepted as fixture or have no affordable live source.
 
 ### Phase 4: Chart History (Continuous Worker, No New Provider)
 
+Status update: the top-100-first worker policy remains in force and BigNumber math has been introduced in active calculation-heavy paths. Remaining work is focused on extending recent real-candle coverage and shrinking fallback windows honestly.
+
 | # | Task | Endpoints affected | Notes |
 |---|---|---|---|
 | 4.1 | Extend OHLCV worker to 7d candles for all active coins | `/coins/{id}/market_chart`, `/ohlc`, `/ohlc/range` | Top-100 already covered; extend to "coins seen in last 30d" |
@@ -195,11 +203,11 @@ These families are accepted as fixture or have no affordable live source.
 
 | Phase | Tasks | Total effort | Impact |
 |---|---|---|---|
-| Phase 1 | 5 | ~1.5 cycles | Removes 2 major seeded gaps (exchange tickers/volume), improves 3 |
-| Phase 2 | 5 | ~2.5 cycles | Significant onchain coverage uplift, coin enrichment |
-| Phase 3 | 5 | ~0.5 cycles | Documentation; no code changes |
-| Phase 4 | 2 | ~1 cycle | Chart history improvement |
-| **Total** | **17** | **~5.5 cycles** | **Live coverage: ~30% → ~55%** |
+| Phase 1 | 5 | 4 complete, 1 pending | Exchange and platform fidelity gaps substantially reduced |
+| Phase 2 | 5 | pending | Significant onchain coverage uplift, coin enrichment |
+| Phase 3 | 5 | pending | Runtime honesty + documentation alignment for accepted fixture families |
+| Phase 4 | 2 | pending | Chart history improvement |
+| **Total** | **17** | mission in progress | Live coverage target remains approximately **~30% → ~55%** |
 
 ---
 
@@ -210,7 +218,7 @@ These families are accepted as fixture or have no affordable live source.
 - **Live derivatives data**: accepted as fixture unless a concrete use case emerges
 - **On-chain holder/trader indexer data**: no affordable source for open-source/self-hosted use
 - **365-day backfill for all coins**: rate-limit and storage prohibitive; top-100-first is the right policy
-- **Real-time WebSocket feeds**:bun: bun: HTTP REST is the primary delivery model
+- **Real-time WebSocket feeds**: HTTP REST is the primary delivery model
 - **Custom exchange adapters** beyond CCXT: only if CCXT materially lacks required data
 
 ---
@@ -231,11 +239,11 @@ These families are accepted as fixture or have no affordable live source.
 
 ## Execution Notes
 
-- Execute by phase: complete Phase 1 before starting Phase 2.
+- Execute by phase: the exchange-live-fidelity milestone is sealed; platform-and-catalog-discovery is the current active milestone.
 - Each task should update the tracker: mark family status, update "Data quality" column.
 - After Phase 3 documentation, the tracker should accurately reflect fixture families with explicit labels.
 - Any task that requires a new external provider dependency must be approved as a new Active Decision before implementation.
-- Update `docs/plans/2026-03-22-opengecko-compatibility-gap-closure-plan.md` Milestone M5 (Exchange/Derivative Live-Fidelity Upgrade) to reference this plan's Phase 1 tasks.
+- Current next tasks: `new-listings-discovery-propagation`, `search-relevance-uplift`, and `global-catalog-breadth-uplift`.
 
 ## GSTACK REVIEW REPORT
 
@@ -247,4 +255,4 @@ These families are accepted as fixture or have no affordable live source.
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 
 - **UNRESOLVED:** 0
-- **VERDICT:** ENG REVIEW OPEN — eng review required before implementation.
+- **VERDICT:** Mission execution proceeded with user approval despite open eng-review findings; continue reconciling plan/tracker/docs with actual shipped behavior.
