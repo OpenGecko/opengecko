@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -6141,6 +6141,102 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnosticsResponse.json().data.hot_paths.shared_market_snapshot.source_class).toBe('seeded_bootstrap');
     } finally {
       await validationServerApp.close();
+    }
+  });
+
+  it('keeps a deterministic zero-live completed-boot contract on the isolated validation surface when no persisted live snapshots exist', { timeout: 20_000 }, async () => {
+    const originalDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db');
+    const backupDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db.backup');
+    let restoredDefaultDatabase = false;
+
+    if (existsSync(originalDefaultDatabasePath)) {
+      copyFileSync(originalDefaultDatabasePath, backupDefaultDatabasePath);
+      unlinkSync(originalDefaultDatabasePath);
+    }
+
+    try {
+      const zeroLiveValidationApp = buildApp({
+        config: {
+          databaseUrl: ':memory:',
+          ccxtExchanges: [],
+          logLevel: 'silent',
+          host: '127.0.0.1',
+          port: 3102,
+          startupPrewarmBudgetMs: 0,
+        },
+        startBackgroundJobs: false,
+      });
+
+      try {
+        const [simplePriceResponse, tokenPriceResponse, diagnosticsResponse] = await Promise.all([
+          zeroLiveValidationApp.inject({
+            method: 'GET',
+            url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          }),
+          zeroLiveValidationApp.inject({
+            method: 'GET',
+            url: '/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=usd',
+          }),
+          zeroLiveValidationApp.inject({
+            method: 'GET',
+            url: '/diagnostics/runtime',
+          }),
+        ]);
+
+        expect(simplePriceResponse.statusCode).toBe(503);
+        expect(simplePriceResponse.json()).toEqual({
+          error: 'service_unavailable',
+          message: 'No usable live market snapshots are available for simple/price.',
+        });
+        expect(tokenPriceResponse.statusCode).toBe(503);
+        expect(tokenPriceResponse.json()).toEqual({
+          error: 'service_unavailable',
+          message: 'No usable live market snapshots are available for simple/token_price.',
+        });
+
+        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompleted).toBe(true);
+        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
+        expect(zeroLiveValidationApp.marketDataRuntimeState.validationOverride.mode).toBe('off');
+
+        expect(diagnosticsResponse.statusCode).toBe(200);
+        expect(diagnosticsResponse.json().data).toMatchObject({
+          readiness: {
+            state: 'degraded',
+            initial_sync_completed: true,
+            degraded: true,
+            zero_live_completed_boot: true,
+            validation_override_active: false,
+          },
+          degraded: {
+            active: true,
+            stale_live_enabled: true,
+            reason: null,
+            validation_override: {
+              active: false,
+              mode: 'off',
+              reason: null,
+            },
+          },
+          hot_paths: {
+            shared_market_snapshot: {
+              available: false,
+              source_class: 'unavailable',
+              provider_count: 0,
+            },
+          },
+        });
+      } finally {
+        await zeroLiveValidationApp.close();
+      }
+    } finally {
+      if (existsSync(backupDefaultDatabasePath)) {
+        renameSync(backupDefaultDatabasePath, originalDefaultDatabasePath);
+        restoredDefaultDatabase = true;
+      }
+
+      if (!restoredDefaultDatabase && existsSync(originalDefaultDatabasePath) === false && existsSync(backupDefaultDatabasePath)) {
+        renameSync(backupDefaultDatabasePath, originalDefaultDatabasePath);
+      }
     }
   });
 
