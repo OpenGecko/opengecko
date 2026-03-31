@@ -82,6 +82,19 @@ describe('onchain pool discovery', () => {
             '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
           ],
         },
+        {
+          chain: 'Ethereum',
+          project: 'curve',
+          symbol: 'FRAX-USDC',
+          pool: 'discovered-frax-usdc',
+          tvlUsd: 5000000,
+          volumeUsd1d: 1200000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0x853d955acef822db058eb8505911ed77f175b99e',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          ],
+        },
       ],
     });
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
@@ -91,20 +104,6 @@ describe('onchain pool discovery', () => {
       total30d: null,
       totalAllTime: null,
     });
-    vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue([
-      {
-        chain: 'Ethereum',
-        project: 'curve',
-        symbol: 'FRAX-USDC',
-        pool: 'discovered-frax-usdc',
-        tvlUsd: 5000000,
-        volumeUsd1d: 1200000,
-        underlyingTokens: [
-          '0x853d955acef822db058eb8505911ed77f175b99e',
-          '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        ],
-      },
-    ]);
 
     const response = await getApp().inject({
       method: 'GET',
@@ -144,6 +143,19 @@ describe('onchain pool discovery', () => {
             '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
           ],
         },
+        {
+          chain: 'Ethereum',
+          project: 'uniswap-v3',
+          symbol: 'USDC-WETH-DUPE',
+          pool: 'discovered-usdc-weth-dupe',
+          tvlUsd: 1000000,
+          volumeUsd1d: 500000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+          ],
+        },
       ],
     });
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
@@ -153,20 +165,6 @@ describe('onchain pool discovery', () => {
       total30d: null,
       totalAllTime: null,
     });
-    vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue([
-      {
-        chain: 'Ethereum',
-        project: 'uniswap-v3',
-        symbol: 'USDC-WETH-DUPE',
-        pool: 'discovered-usdc-weth-dupe',
-        tvlUsd: 1000000,
-        volumeUsd1d: 500000,
-        underlyingTokens: [
-          '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
-        ],
-      },
-    ]);
 
     const response = await getApp().inject({
       method: 'GET',
@@ -226,8 +224,37 @@ describe('onchain pool discovery', () => {
   });
 
   it('filters discovered pools by chain', async () => {
-    const discoveredPoolsSpy = vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue([]);
-    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({ protocols: [], pools: [] });
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        {
+          chain: 'Ethereum',
+          project: 'aave-v3',
+          symbol: 'ETH-POOL',
+          pool: 'eth-pool-1',
+          tvlUsd: 5000000,
+          volumeUsd1d: 1000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0x6b175474e89094c44da98b954eedeac495271d0f',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          ],
+        },
+        {
+          chain: 'Arbitrum',
+          project: 'aave-v3',
+          symbol: 'ARB-POOL',
+          pool: 'arb-pool-1',
+          tvlUsd: 5000000,
+          volumeUsd1d: 1000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0x6b175474e89094c44da98b954eedeac495271d0f',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          ],
+        },
+      ],
+    });
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
       protocols: [],
       total24h: null,
@@ -236,16 +263,37 @@ describe('onchain pool discovery', () => {
       totalAllTime: null,
     });
 
-    await getApp().inject({
+    const response = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks?page=1',
+      url: '/onchain/networks/eth/pools?page=1',
     });
 
-    expect(discoveredPoolsSpy).toHaveBeenCalledWith('Ethereum');
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const poolDexIds = body.data.map((entry: { relationships: { dex: { data: { id: string } } } }) => entry.relationships?.dex?.data?.id).filter(Boolean);
+
+    expect(poolDexIds).toContain('aave_v3');
   });
 
   it('generates consistent addresses for the same discovered pool across catalog rebuilds', async () => {
-    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({ protocols: [], pools: [] });
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        {
+          chain: 'Ethereum',
+          project: 'aave-v3',
+          symbol: 'DAI-USDC',
+          pool: 'discovered-aave-dai-usdc',
+          tvlUsd: 15000000,
+          volumeUsd1d: 3000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0x6b175474e89094c44da98b954eedeac495271d0f',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          ],
+        },
+      ],
+    });
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
       protocols: [],
       total24h: null,
@@ -253,20 +301,6 @@ describe('onchain pool discovery', () => {
       total30d: null,
       totalAllTime: null,
     });
-    vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue([
-      {
-        chain: 'Ethereum',
-        project: 'aave-v3',
-        symbol: 'DAI-USDC',
-        pool: 'discovered-aave-dai-usdc',
-        tvlUsd: 15000000,
-        volumeUsd1d: 3000000,
-        underlyingTokens: [
-          '0x6b175474e89094c44da98b954eedeac495271d0f',
-          '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        ],
-      },
-    ]);
 
     const response1 = await getApp().inject({
       method: 'GET',

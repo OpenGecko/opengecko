@@ -2308,7 +2308,7 @@ describe('OpenGecko app scaffold', () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],
       pools: [
-        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
         { chain: 'Arbitrum', project: 'uniswap-v3', symbol: 'ARB-WETH', pool: 'pool-2', tvlUsd: 10000000, volumeUsd1d: 1000000, volumeUsd7d: 7000000, underlyingTokens: ['0xarb', '0xweth'] },
         { chain: 'Base', project: 'aerodrome', symbol: 'cbBTC-USDC', pool: 'pool-3', tvlUsd: 20000000, volumeUsd1d: 2000000, volumeUsd7d: 14000000, underlyingTokens: ['0xcbbtc', '0xusdc'] },
         { chain: 'Polygon', project: 'sushiswap', symbol: 'USDC-WMATIC', pool: 'pool-4', tvlUsd: 8000000, volumeUsd1d: 500000, volumeUsd7d: 3000000, underlyingTokens: ['0xusdc', '0xwmatic'] },
@@ -2359,7 +2359,7 @@ describe('OpenGecko app scaffold', () => {
     const poolDataSpy = vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],
       pools: [
-        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
         { chain: 'Arbitrum', project: 'uniswap-v3', symbol: 'ARB-WETH', pool: 'pool-2', tvlUsd: 10000000, volumeUsd1d: 1000000, volumeUsd7d: 7000000, underlyingTokens: ['0xarb', '0xweth'] },
         { chain: 'Base', project: 'aerodrome', symbol: 'cbBTC-USDC', pool: 'pool-3', tvlUsd: 20000000, volumeUsd1d: 2000000, volumeUsd7d: 14000000, underlyingTokens: ['0xcbbtc', '0xusdc'] },
         { chain: 'Polygon', project: 'sushiswap', symbol: 'USDC-WMATIC', pool: 'pool-4', tvlUsd: 8000000, volumeUsd1d: 500000, volumeUsd7d: 3000000, underlyingTokens: ['0xusdc', '0xwmatic'] },
@@ -2467,7 +2467,7 @@ describe('OpenGecko app scaffold', () => {
     const poolDataSpy = vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],
       pools: [
-        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
         { chain: 'Arbitrum', project: 'uniswap-v3', symbol: 'ARB-WETH', pool: 'pool-2', tvlUsd: 10000000, volumeUsd1d: 1000000, volumeUsd7d: 7000000, underlyingTokens: ['0xarb', '0xweth'] },
         { chain: 'Base', project: 'aerodrome', symbol: 'cbBTC-USDC', pool: 'pool-3', tvlUsd: 20000000, volumeUsd1d: 2000000, volumeUsd7d: 14000000, underlyingTokens: ['0xcbbtc', '0xusdc'] },
       ],
@@ -2674,9 +2674,9 @@ describe('OpenGecko app scaffold', () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],
       pools: [
-        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'USDC-WETH', pool: 'pool-1', tvlUsd: 222000000, volumeUsd1d: 88000000, volumeUsd7d: 600000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'] },
         { chain: 'Ethereum', project: 'curve', symbol: 'DAI-USDC-USDT', pool: 'pool-2', tvlUsd: 515000000, volumeUsd1d: 41000000, volumeUsd7d: 287000000, underlyingTokens: ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', '0xdac17f958d2ee523a2206206994597c13d831ec7'] },
-        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'WETH-USDT', pool: 'pool-3', tvlUsd: 350000000, volumeUsd1d: 95000000, volumeUsd7d: 650000000, underlyingTokens: ['0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2', '0xdac17f958d2ee523a2206206994597c13d831ec7'] },
+        { chain: 'Ethereum', project: 'uniswap-v3', symbol: 'WETH-USDT', pool: 'pool-3', tvlUsd: 350000000, volumeUsd1d: 95000000, volumeUsd7d: 650000000, underlyingTokens: ['0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', '0xdac17f958d2ee523a2206206994597c13d831ec7'] },
       ],
     });
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
@@ -2793,7 +2793,7 @@ describe('OpenGecko app scaffold', () => {
               symbol: 'USDC',
             },
             quote_token: {
-              address: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+              address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
               symbol: 'WETH',
             },
           },
@@ -3385,7 +3385,7 @@ describe('OpenGecko app scaffold', () => {
           type: 'token',
         }),
         expect.objectContaining({
-          id: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+          id: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
           type: 'token',
         }),
       ]),
@@ -3796,13 +3796,13 @@ describe('OpenGecko app scaffold', () => {
             '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '1.1111',
           },
           market_cap_usd: {
-            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '423765432',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '222222221',
           },
           h24_volume_usd: {
-            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '122222221',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '55555555',
           },
           total_reserve_in_usd: {
-            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '423765432',
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': '222222221',
           },
         },
       },
@@ -4140,7 +4140,7 @@ describe('OpenGecko app scaffold', () => {
         confidence: 0.99,
         timestamp: 1710000000,
       },
-      'ethereum:0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+      'ethereum:0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
         price: 3495.12,
         symbol: 'WETH',
         decimals: 18,
@@ -4198,7 +4198,7 @@ describe('OpenGecko app scaffold', () => {
     expect(poolInfoResponse.statusCode).toBe(200);
     expect(poolInfoResponse.json().data).toHaveLength(2);
     expect(poolInfoResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('eth_0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
-    expect(poolInfoResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('eth_0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2');
+    expect(poolInfoResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('eth_0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2');
     expect(poolInfoResponse.json().data[0]).toMatchObject({
       type: 'token_info',
       attributes: {
@@ -4209,7 +4209,7 @@ describe('OpenGecko app scaffold', () => {
     expect(poolInfoResponse.json().data[1]).toMatchObject({
       type: 'token_info',
       attributes: {
-        address: '0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+        address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
         symbol: 'WETH',
       },
     });
@@ -4712,7 +4712,7 @@ describe('OpenGecko app scaffold', () => {
     });
     const tokenCurrencyResponse = await getApp().inject({
       method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?currency=token&token=0xc02aa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?currency=token&token=0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
     });
     const emptyIntervalsResponse = await getApp().inject({
       method: 'GET',
@@ -4758,10 +4758,8 @@ describe('OpenGecko app scaffold', () => {
     expect(beforeResponse.json().data.attributes.ohlcv_list.every((entry: { timestamp: number }) =>
       entry.timestamp <= 1714741200)).toBe(true);
 
-    expect(tokenCurrencyResponse.statusCode).toBe(400);
-    expect(tokenCurrencyResponse.json()).toMatchObject({
-      error: 'invalid_parameter',
-    });
+    expect(tokenCurrencyResponse.statusCode).toBe(200);
+    expect(tokenCurrencyResponse.json().data.attributes.currency).toBe('token');
 
     expect(emptyIntervalsResponse.statusCode).toBe(200);
     const emptySeries = emptyIntervalsResponse.json().data.attributes.ohlcv_list;
