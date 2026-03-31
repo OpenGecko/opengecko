@@ -225,6 +225,22 @@ const DEFILLAMA_NETWORK_CONFIG = {
     nativeCurrencyCoinId: 'solana',
     imageUrl: 'https://assets.coingecko.com/asset_platforms/images/4128/small/solana.png',
   },
+  Avalanche: {
+    networkId: 'avalanche',
+    name: 'Avalanche',
+    chainIdentifier: 43114,
+    coingeckoAssetPlatformId: 'avalanche',
+    nativeCurrencyCoinId: 'avalanche-2',
+    imageUrl: 'https://assets.coingecko.com/asset_platforms/images/127/small/avalanche.png',
+  },
+  Fantom: {
+    networkId: 'fantom',
+    name: 'Fantom',
+    chainIdentifier: 250,
+    coingeckoAssetPlatformId: 'fantom',
+    nativeCurrencyCoinId: 'fantom',
+    imageUrl: 'https://assets.coingecko.com/asset_platforms/images/87/small/fantom.png',
+  },
 } as const;
 
 const DEFILLAMA_DEX_OVERRIDES: Record<string, { id: string; name: string; url: string; imageUrl: string | null }> = {
@@ -413,6 +429,11 @@ async function buildLiveOnchainCatalog(database: AppDatabase): Promise<LiveOncha
     ensureNetworkAndDex(entry.chain, projectSlug, maps);
   }
 
+  const networkConfigByNetworkId = new Map<string, { chainName: string; networkId: string }>();
+  for (const [chainName, config] of Object.entries(DEFILLAMA_NETWORK_CONFIG)) {
+    networkConfigByNetworkId.set(config.networkId, { chainName, networkId: config.networkId });
+  }
+
   const dexVolumeByName = new Map(
     (dexVolumes?.protocols ?? [])
       .filter((entry) => entry.name)
@@ -420,12 +441,13 @@ async function buildLiveOnchainCatalog(database: AppDatabase): Promise<LiveOncha
   );
 
   for (const [address, row] of seededPoolMap) {
-    if (row.networkId !== 'eth') {
+    const chainInfo = networkConfigByNetworkId.get(row.networkId);
+    if (!chainInfo) {
       continue;
     }
 
     const matchedPool = poolData.pools.find((pool) => {
-      if (pool.chain !== 'Ethereum') {
+      if (pool.chain !== chainInfo.chainName) {
         return false;
       }
 
@@ -452,53 +474,55 @@ async function buildLiveOnchainCatalog(database: AppDatabase): Promise<LiveOncha
     });
   }
 
-  const discoveredPools = poolData.pools
-    .filter((pool) =>
-      pool.chain === 'Ethereum'
-      && typeof pool.tvlUsd === 'number'
-      && pool.tvlUsd > 100_000,
-    );
+  for (const [chainName, networkConfig] of Object.entries(DEFILLAMA_NETWORK_CONFIG)) {
+    const discoveredPools = poolData.pools
+      .filter((pool) =>
+        pool.chain === chainName
+        && typeof pool.tvlUsd === 'number'
+        && pool.tvlUsd > 100_000,
+      );
 
-  for (const pool of discoveredPools) {
-    const projectSlug = pool.project ? slugifyOnchainId(pool.project) : null;
-    if (!projectSlug) continue;
+    for (const pool of discoveredPools) {
+      const projectSlug = pool.project ? slugifyOnchainId(pool.project) : null;
+      if (!projectSlug) continue;
 
-    if (!pool.underlyingTokens || pool.underlyingTokens.length < 2) continue;
+      if (!pool.underlyingTokens || pool.underlyingTokens.length < 2) continue;
 
-    const poolTokens = new Set(pool.underlyingTokens.map(normalizeAddress));
+      const poolTokens = new Set(pool.underlyingTokens.map(normalizeAddress));
 
-    const alreadyMatched = [...seededPoolMap.values()].some((seeded) => {
-      if (seeded.networkId !== 'eth') return false;
-      const baseNorm = normalizeAddress(seeded.baseTokenAddress);
-      const quoteNorm = normalizeAddress(seeded.quoteTokenAddress);
-      return poolTokens.has(baseNorm) && poolTokens.has(quoteNorm);
-    });
-
-    if (alreadyMatched) continue;
-
-    const result = ensureNetworkAndDex('Ethereum', projectSlug, maps);
-    if (!result) continue;
-    const { networkConfig, dexConfig } = result;
-
-    const poolIdentifier = pool.pool ?? `${pool.chain ?? ''}-${pool.project ?? ''}-${pool.symbol ?? ''}-${(pool.underlyingTokens ?? []).join(',')}`;
-    const poolAddress = generateDeterministicAddress(poolIdentifier);
-    const baseToken = pool.underlyingTokens[0];
-    const quoteToken = pool.underlyingTokens[1];
-
-    if (!poolsByAddress.has(poolAddress)) {
-      poolsByAddress.set(poolAddress, {
-        priceUsd: null,
-        reserveUsd: pool.tvlUsd ?? null,
-        volume24hUsd: pool.volumeUsd1d ?? null,
-        source: 'live',
-        dexId: dexConfig.id,
-        name: pool.symbol ?? `${poolAddress.slice(0, 8)}...`,
-        baseTokenAddress: baseToken,
-        baseTokenSymbol: baseToken.slice(0, 8),
-        quoteTokenAddress: quoteToken,
-        quoteTokenSymbol: quoteToken.slice(0, 8),
-        networkId: networkConfig.networkId,
+      const alreadyMatched = [...seededPoolMap.values()].some((seeded) => {
+        if (seeded.networkId !== networkConfig.networkId) return false;
+        const baseNorm = normalizeAddress(seeded.baseTokenAddress);
+        const quoteNorm = normalizeAddress(seeded.quoteTokenAddress);
+        return poolTokens.has(baseNorm) && poolTokens.has(quoteNorm);
       });
+
+      if (alreadyMatched) continue;
+
+      const result = ensureNetworkAndDex(chainName, projectSlug, maps);
+      if (!result) continue;
+      const { networkConfig: resolvedNetworkConfig, dexConfig } = result;
+
+      const poolIdentifier = pool.pool ?? `${pool.chain ?? ''}-${pool.project ?? ''}-${pool.symbol ?? ''}-${(pool.underlyingTokens ?? []).join(',')}`;
+      const poolAddress = generateDeterministicAddress(poolIdentifier);
+      const baseToken = pool.underlyingTokens[0];
+      const quoteToken = pool.underlyingTokens[1];
+
+      if (!poolsByAddress.has(poolAddress)) {
+        poolsByAddress.set(poolAddress, {
+          priceUsd: null,
+          reserveUsd: pool.tvlUsd ?? null,
+          volume24hUsd: pool.volumeUsd1d ?? null,
+          source: 'live',
+          dexId: dexConfig.id,
+          name: pool.symbol ?? `${poolAddress.slice(0, 8)}...`,
+          baseTokenAddress: baseToken,
+          baseTokenSymbol: baseToken.slice(0, 8),
+          quoteTokenAddress: quoteToken,
+          quoteTokenSymbol: quoteToken.slice(0, 8),
+          networkId: resolvedNetworkConfig.networkId,
+        });
+      }
     }
   }
 

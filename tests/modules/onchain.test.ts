@@ -327,6 +327,82 @@ describe('onchain pool discovery', () => {
     expect(discoveredPool2).toBeDefined();
     expect(discoveredPool1!.id).toBe(discoveredPool2!.id);
   });
+
+  it('discovers pools from multiple networks (Solana, Avalanche, Fantom)', async () => {
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        {
+          chain: 'Solana',
+          project: 'raydium',
+          symbol: 'SOL-USDC',
+          pool: 'solana-raydium-sol-usdc',
+          tvlUsd: 50000000,
+          volumeUsd1d: 10000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            'So11111111111111111111111111111111111111112',
+            'EPjFWdd5AufqSSqeM2qN1xzybapC8gQbucZwYH7QBdSg',
+          ],
+        },
+        {
+          chain: 'Avalanche',
+          project: 'trader-joe',
+          symbol: 'AVAX-USDC',
+          pool: 'avalanche-traderjoe-avax-usdc',
+          tvlUsd: 20000000,
+          volumeUsd1d: 5000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7',
+            '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e',
+          ],
+        },
+        {
+          chain: 'Fantom',
+          project: 'spookyswap',
+          symbol: 'FTM-USDC',
+          pool: 'fantom-spooky-ftm-usdc',
+          tvlUsd: 8000000,
+          volumeUsd1d: 2000000,
+          volumeUsd7d: null,
+          underlyingTokens: [
+            '0x21be370d5312f44cb42ce377bc9b8a0cef1a4c83',
+            '0x04068da6c83afcfa0e13ba15a6696662335d5b75',
+          ],
+        },
+      ],
+    });
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
+      protocols: [],
+      total24h: null,
+      total7d: null,
+      total30d: null,
+      totalAllTime: null,
+    });
+
+    const networksResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks',
+    });
+
+    expect(networksResponse.statusCode).toBe(200);
+    const networksBody = networksResponse.json();
+    const networkIds = networksBody.data.map((n: { id: string }) => n.id);
+    expect(networkIds).toContain('solana');
+    expect(networkIds).toContain('avalanche');
+    expect(networkIds).toContain('fantom');
+
+    const dexesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/solana/dexes',
+    });
+
+    expect(dexesResponse.statusCode).toBe(200);
+    const dexesBody = dexesResponse.json();
+    const dexIds = dexesBody.data.map((d: { id: string }) => d.id);
+    expect(dexIds).toContain('raydium');
+  });
 });
 
 describe('token discovery', () => {
