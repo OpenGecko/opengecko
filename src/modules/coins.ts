@@ -11,7 +11,6 @@ import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray } from './catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
-  buildSupplySeriesRowsFromChart,
   buildChartPayload,
   getChartRowsForDays,
   getChartRowsForRange,
@@ -40,7 +39,6 @@ import {
 } from './coins/market-data';
 import {
   buildNewListingRow,
-  buildSupplyPayload,
   normalizeCategoryId,
   parseChartInterval,
   parseDexPairFormat,
@@ -419,50 +417,54 @@ export function registerCoinRoutes(
 
   app.get('/coins/:id/circulating_supply_chart', async (request) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const query = z.object({ days: z.string(), interval: z.string().optional() }).parse(request.query);
-    getRequiredCoin(database, params.id);
-    const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
 
-    return buildSupplyPayload(
-      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.circulatingSupply),
-      'circulating_supply',
-    );
+    return {
+      data: [],
+      meta: {
+        fixture: true,
+        coin_id: params.id,
+        note: 'Circulating supply chart data is not available',
+      },
+    };
   });
 
   app.get('/coins/:id/circulating_supply_chart/range', async (request) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const query = z.object({ from: z.string(), to: z.string(), interval: z.string().optional() }).parse(request.query);
-    getRequiredCoin(database, params.id);
-    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
 
-    return buildSupplyPayload(
-      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.circulatingSupply),
-      'circulating_supply',
-    );
+    return {
+      data: [],
+      meta: {
+        fixture: true,
+        coin_id: params.id,
+        note: 'Circulating supply chart data is not available',
+      },
+    };
   });
 
   app.get('/coins/:id/total_supply_chart', async (request) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const query = z.object({ days: z.string(), interval: z.string().optional() }).parse(request.query);
-    getRequiredCoin(database, params.id);
-    const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
 
-    return buildSupplyPayload(
-      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.totalSupply),
-      'total_supply',
-    );
+    return {
+      data: [],
+      meta: {
+        fixture: true,
+        coin_id: params.id,
+        note: 'Total supply chart data is not available',
+      },
+    };
   });
 
   app.get('/coins/:id/total_supply_chart/range', async (request) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const query = z.object({ from: z.string(), to: z.string(), interval: z.string().optional() }).parse(request.query);
-    getRequiredCoin(database, params.id);
-    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
 
-    return buildSupplyPayload(
-      buildSupplySeriesRowsFromChart(database, params.id, rows, (snapshot) => snapshot.totalSupply),
-      'total_supply',
-    );
+    return {
+      data: [],
+      meta: {
+        fixture: true,
+        coin_id: params.id,
+        note: 'Total supply chart data is not available',
+      },
+    };
   });
 
   app.get('/coins/categories/list', async () => {
