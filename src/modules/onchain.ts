@@ -2968,8 +2968,6 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       if (liveTokens) {
         const tokenData = liveTokens.find((t) => normalizeAddress(t.address) === normalizeAddress(params.address));
         if (tokenData) {
-          tokenResource.attributes.name = tokenData.name;
-          tokenResource.attributes.symbol = tokenData.symbol;
           tokenResource.attributes.decimals = tokenData.decimals;
           tokenResource.attributes.price_usd = tokenData.priceUsd;
         }

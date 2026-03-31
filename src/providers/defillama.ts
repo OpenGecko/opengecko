@@ -234,16 +234,26 @@ export async function fetchDefillamaDiscoveredPools(
   }
 }
 
-export async function fetchDefillamaTokens(
-  chain: string = 'Ethereum',
-  options: DefillamaRequestOptions = {},
-): Promise<Array<{
+type DefillamaToken = {
   address: string;
   name: string;
   symbol: string;
   decimals: number;
   priceUsd: number | null;
-}> | null> {
+};
+
+const defillamaTokensCache = new Map<string, { data: DefillamaToken[] | null; timestamp: number }>();
+const DEFI_LLAMA_TOKENS_TTL_MS = 60_000;
+
+export async function fetchDefillamaTokens(
+  chain: string = 'Ethereum',
+  options: DefillamaRequestOptions = {},
+): Promise<DefillamaToken[] | null> {
+  const cacheKey = chain;
+  const cached = defillamaTokensCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < DEFI_LLAMA_TOKENS_TTL_MS) {
+    return cached.data;
+  }
   try {
     const response = await fetchJson<Record<string, {
       coins?: Record<string, { price?: number; symbol?: string; decimals?: number }>;
@@ -278,10 +288,20 @@ export async function fetchDefillamaTokens(
       }
     }
 
+    defillamaTokensCache.set(cacheKey, { data: tokens, timestamp: Date.now() });
     return tokens;
   } catch (error) {
     console.error('Failed to fetch DeFiLlama tokens', error);
+    defillamaTokensCache.set(cacheKey, { data: null, timestamp: Date.now() });
     return null;
+  }
+}
+
+export function clearDefillamaTokensCache(chain?: string): void {
+  if (chain) {
+    defillamaTokensCache.delete(chain);
+  } else {
+    defillamaTokensCache.clear();
   }
 }
 

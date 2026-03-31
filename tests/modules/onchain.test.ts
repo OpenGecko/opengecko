@@ -366,14 +366,14 @@ describe('token discovery', () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaTokens').mockResolvedValue([
       {
         address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        name: 'USD Coin',
+        name: 'USDC',
         symbol: 'USDC',
         decimals: 6,
         priceUsd: 1.0,
       },
       {
         address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-        name: 'Wrapped Ether',
+        name: 'WETH',
         symbol: 'WETH',
         decimals: 18,
         priceUsd: 3500.25,
@@ -388,7 +388,7 @@ describe('token discovery', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.data.attributes.symbol).toBe('USDC');
-    expect(body.data.attributes.name).toBe('USD Coin');
+    expect(body.data.attributes.name).toBe('USDC');
     expect(body.data.attributes.decimals).toBe(6);
     expect(body.data.attributes.price_usd).toBe(1.0);
   });
@@ -410,7 +410,7 @@ describe('token discovery', () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaTokens').mockResolvedValue([
       {
         address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-        name: 'USD Coin',
+        name: 'USDC',
         symbol: 'USDC',
         decimals: 6,
         priceUsd: 1.0,
