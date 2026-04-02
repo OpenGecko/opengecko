@@ -43,12 +43,6 @@ const TRUSTED_PLATFORM_MAPPINGS: Record<string, TrustedPlatformMapping> = {
     contractAddressPattern: /^0x[a-fA-F0-9]{40}$/,
     normalizeContractAddress: (value) => value.toLowerCase(),
   },
-  solana: {
-    openGeckoAssetsPlatformId: 'solana',
-    trustWalletAssetId: 'solana',
-    contractAddressPattern: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/,
-    normalizeContractAddress: (value) => value.trim(),
-  },
   tron: {
     openGeckoAssetsPlatformId: 'tron',
     trustWalletAssetId: 'tron',

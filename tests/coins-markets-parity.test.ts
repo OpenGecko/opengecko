@@ -44,8 +44,8 @@ describe('coins markets parity', () => {
     expect(body[0].last_updated).toSatisfy((value: string | null) => value === null || typeof value === 'string');
     expect(body[0].price_change_percentage_24h_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     expect(body[0].price_change_percentage_7d_in_currency).toBeNull();
-    expect(body[0].high_24h).toBeGreaterThan(100000);
-    expect(body[0].low_24h).toBeLessThan(70000);
+    expect(body[0].high_24h).toBeGreaterThan(body[0].current_price);
+    expect(body[0].low_24h).toBeLessThan(body[0].current_price);
 
     expect(body[1]).toMatchObject({
       id: 'ethereum',
@@ -335,5 +335,64 @@ describe('coins markets parity', () => {
     } finally {
       await localApp.close();
     }
+  });
+
+  it('preserves explicit ids ordering, drops unknown ids, bypasses page slicing, and gates optional market fields', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=solana,unknown-coin,bitcoin&order=id_desc&page=9&per_page=1&price_change_percentage=24h,7d&sparkline=true&precision=2',
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    expect(response.json()).toEqual([
+      expect.objectContaining({
+        id: 'solana',
+        sparkline_in_7d: {
+          price: expect.any(Array),
+        },
+        price_change_percentage_24h_in_currency: expect.any(Number),
+        price_change_percentage_7d_in_currency: null,
+      }),
+      expect.objectContaining({
+        id: 'bitcoin',
+        sparkline_in_7d: {
+          price: expect.any(Array),
+        },
+        price_change_percentage_24h_in_currency: expect.any(Number),
+        price_change_percentage_7d_in_currency: null,
+      }),
+    ]);
+
+    expect(response.json()).toHaveLength(2);
+    expect(response.json().map((row: { id: string }) => row.id)).toEqual(['solana', 'bitcoin']);
+    expect(response.json()[0].current_price).toEqual(expect.any(Number));
+    expect(Number.isInteger(response.json()[0].current_price)).toBe(false);
+    expect(response.json()[0].current_price.toString().split('.')[1]?.length ?? 0).toBeLessThanOrEqual(2);
+  });
+
+  it('rejects unsupported order values and invalid precision values with the standard invalid-parameter envelope', async () => {
+    const [invalidOrderResponse, invalidPrecisionResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&order=unsupported',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&precision=not-a-number',
+      }),
+    ]);
+
+    expect(invalidOrderResponse.statusCode).toBe(400);
+    expect(invalidOrderResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'Unsupported order value: unsupported',
+    });
+
+    expect(invalidPrecisionResponse.statusCode).toBe(400);
+    expect(invalidPrecisionResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'Invalid precision value: not-a-number',
+    });
   });
 });
