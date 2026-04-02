@@ -1,0 +1,64 @@
+{
+  "milestone": "regression-gate-restoration",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": false,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2",
+      "exitCode": 1
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && bun run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 7,
+    "passed": 6,
+    "failed": 1,
+    "failedFeatures": [
+      "treasury-compare-contract-alignment-fix"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "treasury-compare-contract-alignment-fix",
+      "severity": "blocking",
+      "description": "GET /entities/list now returns an object with { data, meta } instead of the top-level array shipped by the reviewed feature. The assigned feature was specifically meant to repair compare-coingecko mismatches against the repository baseline, and the original handoff plus app fixture checks expected the entity rows at the top level with metadata attached. This reintroduces contract drift for callers that depend on the original list shape rather than just the updated test baseline."
+    },
+    {
+      "featureId": "treasury-compare-contract-alignment-fix",
+      "severity": "blocking",
+      "description": "GET /:entity/public_treasury/:coin_id and GET /public_treasury/:entity_id now wrap treasury payload fields inside body.data, whereas the reviewed feature commit 88f0c3a intentionally exposed those fields at the top level to match the repository comparison baseline while still carrying fixture metadata. This changes the API contract of the treasury comparison surface rather than keeping it aligned."
+    },
+    {
+      "featureId": "treasury-compare-contract-alignment-fix",
+      "severity": "blocking",
+      "description": "The compare test was rewritten to assert the new data-envelope shape instead of guarding the original baseline behavior. Because the feature scope was to make implementation match the existing comparison baseline, updating the test here masks the regression instead of verifying contract-faithful treasury/entity response shapes."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills",
+      "suggestion": "Clarify in the regression-gate-worker skill that workers should preserve a clear record of the exact failing promoted gate command before narrowing to targeted reruns, even when partial hunks already exist.",
+      "evidence": "Review of promote-full-regression-gate found the worker moved from the initial full-suite readout into targeted reruns without an explicit initial-red artifact for the exact promoted gate, while still marking the procedure as fully followed.",
+      "isSystemic": true
+    },
+    {
+      "target": "skills",
+      "suggestion": "Clarify in scrutiny/review guidance that current HEAD must be evaluated for regressions introduced by later follow-up features against earlier completed feature contracts, rather than assuming the earlier feature remains satisfied once merged.",
+      "evidence": "Review of treasury-compare-contract-alignment-fix found commit 88f0c3a was correct when authored, but later commit 4bbd419 changed both the treasury route shape and compare baseline, regressing the original repaired contract.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": null
+}

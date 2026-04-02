@@ -1,0 +1,21 @@
+{
+  "featureId": "promote-full-regression-gate",
+  "reviewedAt": "2026-04-03T00:00:00Z",
+  "commitId": "49164e0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature correctly promotes `.factory/services.yaml` test back to the full suite, closes the supply-chart invalid-parameter gap by validating the previously fixture-backed supply-chart routes, aligns the app timeout tests with the current `buildApp` timeout plumbing, and updates the simple/coins smoke scripts plus their harness expectations to match the current API contracts. I did not find a correctness regression or missing coverage that blocks the feature's stated scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `regression-gate-worker` skill says step 2 is to reproduce the failing gate first with the exact command named in the feature or manifest, but this worker transcript shows the first reproduction used only targeted suites (`tests/app.test.ts` and `tests/invalid-params.test.ts`) after an initial full-suite readout rather than preserving a concise record of the exact final promoted gate rerun as the initial red signal. The skill may be clear enough, but review evidence suggests workers can interpret it loosely once partial hunks already exist.",
+      "evidence": "Transcript skeleton for session `e22e3b4c-f66d-4f2e-b83b-4c6af266647c` begins with `TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2`, then focuses on targeted reruns before the final full-suite verification; `handoff.skillFeedback.followedProcedure` is true despite that looser ordering."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, transcript skeleton, feature metadata, mission guidance, and commit `49164e0`. The implementation is contract-faithful for the feature scope and no blocking review issues were found."
+}

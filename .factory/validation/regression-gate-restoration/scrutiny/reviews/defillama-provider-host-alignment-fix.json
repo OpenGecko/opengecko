@@ -1,0 +1,15 @@
+{
+  "featureId": "defillama-provider-host-alignment-fix",
+  "reviewedAt": "2026-04-03T00:00:00Z",
+  "commitId": "1db4f953b3fe743ef8f56a2f9a79fb210113d2d5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit 1db4f95 and the current DefiLlama provider contract. The change correctly aligns the regression test with the intentional split-host behavior already encoded in src/providers/defillama.ts and adds module/cache reset cleanup so environment-backed defaults do not bleed across cases.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The feature is test-only, matches the provider/env contract (`api.llama.fi` for protocol/token requests and `yields.llama.fi` for pool discovery), and closes the previously flaky cached-config test drift without introducing contract regressions."
+}

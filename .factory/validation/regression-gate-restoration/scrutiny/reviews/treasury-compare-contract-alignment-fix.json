@@ -1,0 +1,40 @@
+{
+  "featureId": "treasury-compare-contract-alignment-fix",
+  "reviewedAt": "2026-04-02T21:45:41Z",
+  "commitId": "88f0c3a",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The original feature commit 88f0c3a correctly aligned treasury routes with the existing repository contract by keeping top-level payload shapes plus fixture metadata, but current branch HEAD 4bbd419 regresses that behavior by re-wrapping the treasury compare responses under data envelopes and changing the compare test baseline instead of preserving the established contract.",
+    "issues": [
+      {
+        "file": "src/modules/treasury.ts",
+        "line": 196,
+        "severity": "blocking",
+        "description": "GET /entities/list now returns an object with { data, meta } instead of the top-level array shipped by the reviewed feature. The assigned feature was specifically meant to repair compare-coingecko mismatches against the repository baseline, and the original handoff plus app fixture checks expected the entity rows at the top level with metadata attached. This reintroduces contract drift for callers that depend on the original list shape rather than just the updated test baseline."
+      },
+      {
+        "file": "src/modules/treasury.ts",
+        "line": 250,
+        "severity": "blocking",
+        "description": "GET /:entity/public_treasury/:coin_id and GET /public_treasury/:entity_id now wrap treasury payload fields inside body.data, whereas the reviewed feature commit 88f0c3a intentionally exposed those fields at the top level to match the repository comparison baseline while still carrying fixture metadata. This changes the API contract of the treasury comparison surface rather than keeping it aligned."
+      },
+      {
+        "file": "tests/compare-coingecko.test.ts",
+        "line": 795,
+        "severity": "blocking",
+        "description": "The compare test was rewritten to assert the new data-envelope shape instead of guarding the original baseline behavior. Because the feature scope was to make implementation match the existing comparison baseline, updating the test here masks the regression instead of verifying contract-faithful treasury/entity response shapes."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The regression-gate worker followed the documented reproduce-fix-verify flow for commit 88f0c3a, but the current branch no longer reflects that feature outcome because a later commit changed both the route shape and the compare baseline. The skill guidance does not mention that scrutiny for follow-up gate features should review current HEAD for subsequent regressions against already-completed feature contracts.",
+      "evidence": "Handoff /home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a/handoffs/2026-04-02T20-41-43-424Z__treasury-compare-contract-alignment-fix__3e66aff1-3d43-41e0-b68d-f5720a32855f.json records commit 88f0c3a exposing top-level treasury fields, while current HEAD commit 4bbd419 changes src/modules/treasury.ts and tests/compare-coingecko.test.ts to require data envelopes."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the reviewed feature itself was correct at commit 88f0c3a, but current branch state regresses it. Treasury compare routes at HEAD now wrap entity and treasury payloads in data envelopes and the compare suite was updated to accept that new shape, so the implementation no longer preserves the repository baseline the feature was assigned to restore."
+}

@@ -1,0 +1,15 @@
+{
+  "featureId": "frontend-contract-harness-repair",
+  "reviewedAt": "2026-04-02T21:45:45Z",
+  "commitId": "88468b53c01a19b6bba02d6533c96a7df7d4327f",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature correctly fixes the harness portability issue by resolving the repo root from the current checkout and invoking scripts through `/usr/bin/env bash`, which addresses the mission-scoped `spawn bash ENOENT` failure without changing production code or broadening scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The reviewed commit is narrowly scoped to the frontend contract harness, matches the feature intent, and the current branch shows the coins-module expectation aligned with the script's existing fixture-envelope contract while preserving explicit shell invocation portability."
+}
