@@ -6292,7 +6292,7 @@ describe('OpenGecko app scaffold', () => {
       });
 
       try {
-        const [simplePriceResponse, tokenPriceResponse, diagnosticsResponse] = await Promise.all([
+        const [simplePriceResponse, tokenPriceResponse, marketsResponse, coinDetailResponse, diagnosticsResponse] = await Promise.all([
           zeroLiveValidationApp.inject({
             method: 'GET',
             url: '/simple/price?ids=bitcoin&vs_currencies=usd',
@@ -6300,6 +6300,14 @@ describe('OpenGecko app scaffold', () => {
           zeroLiveValidationApp.inject({
             method: 'GET',
             url: '/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=usd',
+          }),
+          zeroLiveValidationApp.inject({
+            method: 'GET',
+            url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+          }),
+          zeroLiveValidationApp.inject({
+            method: 'GET',
+            url: '/coins/bitcoin?tickers=false&community_data=false&developer_data=false&localization=false',
           }),
           zeroLiveValidationApp.inject({
             method: 'GET',
@@ -6316,6 +6324,28 @@ describe('OpenGecko app scaffold', () => {
         expect(tokenPriceResponse.json()).toEqual({
           error: 'service_unavailable',
           message: 'No usable live market snapshots are available for simple/token_price.',
+        });
+        expect(marketsResponse.statusCode).toBe(200);
+        expect(marketsResponse.json()).toEqual([
+          expect.objectContaining({
+            id: 'bitcoin',
+            symbol: 'btc',
+            current_price: null,
+            market_cap: null,
+            total_volume: null,
+            price_change_24h: null,
+            price_change_percentage_24h: null,
+            last_updated: null,
+          }),
+        ]);
+        expect(coinDetailResponse.statusCode).toBe(200);
+        expect(coinDetailResponse.json()).toMatchObject({
+          id: 'bitcoin',
+          symbol: 'btc',
+          market_data: null,
+          tickers: [],
+          community_data: null,
+          developer_data: null,
         });
 
         expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompleted).toBe(true);
