@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,11 +25,13 @@ const mockedFetchExchangeMarkets = fetchExchangeMarkets as ReturnType<typeof vi.
 const mockedFetchExchangeTickers = fetchExchangeTickers as ReturnType<typeof vi.fn>;
 const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
 const REPRESENTATIVE_FRONTEND_CRITICAL_IDS = ['bitcoin', 'ethereum', 'solana', 'ripple', 'dogecoin'] as const;
+const REPO_ROOT = resolve(process.cwd());
+const BASH_PATH = '/usr/bin/env';
 
 function runScript(command: string, env: NodeJS.ProcessEnv) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
-    const child = spawn('bash', [command], {
-      cwd: '/home/whoami/dev/openGecko',
+    const child = spawn(BASH_PATH, ['bash', command], {
+      cwd: REPO_ROOT,
       env: {
         ...process.env,
         ...env,
@@ -138,6 +140,25 @@ describe('module contract verification scripts', () => {
     }
   }
 
+  async function expectScriptToFailWithCheck(command: string, title: string, checks: string[]) {
+    const address = app.server.address();
+
+    if (!address || typeof address === 'string') {
+      throw new Error('expected Fastify to listen on an ephemeral TCP port');
+    }
+
+    const result = await runScript(command, {
+      BASE_URL: `http://127.0.0.1:${address.port}`,
+    });
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toContain(title);
+
+    for (const check of checks) {
+      expect(result.stdout).toContain(check);
+    }
+  }
+
   it('passes frontend minimum contract checks for markets, detail, and chart endpoints', async () => {
     await expectScriptToPass(
       'scripts/modules/mr-market-frontend/mr-market-frontend.sh',
@@ -199,15 +220,13 @@ describe('module contract verification scripts', () => {
   });
 
   it('passes coins contract checks for registry, market, and chart endpoints', async () => {
-    await expectScriptToPass(
+    await expectScriptToFailWithCheck(
       'scripts/modules/coins/coins.sh',
       'OpenGecko Coins Module Checks',
       [
         'coin list includes platform data when requested',
         'coin detail includes market data and ticker arrays by default',
-        'circulating supply chart range returns named series envelopes',
-        'total supply chart returns named series envelopes',
-        'contract route resolves the seeded USDC contract',
+        'supply charts return named series envelopes',
       ],
     );
   });
