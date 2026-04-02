@@ -165,7 +165,13 @@ export function getMarketRows(
       and(eq(marketSnapshots.coinId, coins.id), eq(marketSnapshots.vsCurrency, vsCurrency)),
     );
 
-  const shouldPreferRequestedCoinOrder = Array.isArray(filters.ids) && filters.ids.length > 0;
+  const explicitSelectorOrder = filters.ids?.length
+    ? filters.ids
+    : filters.names?.length
+      ? filters.names.map((name) => name.trim().toLowerCase()).filter(Boolean)
+      : filters.symbols?.length
+        ? filters.symbols.map((symbol) => symbol.trim().toLowerCase()).filter(Boolean)
+        : [];
   const joinedRows = (whereClause ? query.where(whereClause) : query)
     .orderBy(...orderBy)
     .all();
@@ -181,14 +187,30 @@ export function getMarketRows(
     filters.categoryId,
   );
 
-  if (!shouldPreferRequestedCoinOrder) {
+  if (explicitSelectorOrder.length === 0) {
     return rows;
   }
 
-  const requestedIdOrder = new Map(filters.ids!.map((id, index) => [id, index] as const));
+  const selectorValueForRow = (row: typeof rows[number]) => {
+    if (filters.ids?.length) {
+      return row.coin.id;
+    }
+
+    if (filters.names?.length) {
+      return row.coin.name.trim().toLowerCase();
+    }
+
+    if (filters.symbols?.length) {
+      return row.coin.symbol.trim().toLowerCase();
+    }
+
+    return row.coin.id;
+  };
+
+  const requestedSelectorOrder = new Map(explicitSelectorOrder.map((value, index) => [value, index] as const));
   return [...rows].sort((left, right) => {
-    const leftIndex = requestedIdOrder.get(left.coin.id) ?? Number.MAX_SAFE_INTEGER;
-    const rightIndex = requestedIdOrder.get(right.coin.id) ?? Number.MAX_SAFE_INTEGER;
+    const leftIndex = requestedSelectorOrder.get(selectorValueForRow(left)) ?? Number.MAX_SAFE_INTEGER;
+    const rightIndex = requestedSelectorOrder.get(selectorValueForRow(right)) ?? Number.MAX_SAFE_INTEGER;
     return leftIndex - rightIndex;
   });
 }

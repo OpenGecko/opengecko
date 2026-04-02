@@ -195,10 +195,14 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const priceChangePercentages = parseCsvQuery(query.price_change_percentage).map((value) => value.toLowerCase());
     const { snapshotAccessPolicy, rows } = parseMarketRowsRequest(database, runtimeState, marketFreshnessThresholdSeconds, query);
-    const shouldBypassPageSliceForExplicitIds = parseCsvQuery(query.ids).length > 0;
+    const shouldBypassPageSliceForExplicitSelector = [
+      query.ids,
+      query.names,
+      query.symbols,
+    ].some((value) => parseCsvQuery(value).length > 0);
     const start = (page - 1) * perPage;
 
-    const pagedRows = shouldBypassPageSliceForExplicitIds
+    const pagedRows = shouldBypassPageSliceForExplicitSelector
       ? rows
       : rows.slice(start, start + perPage);
 

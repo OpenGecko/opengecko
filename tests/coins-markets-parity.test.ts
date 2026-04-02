@@ -371,6 +371,31 @@ describe('coins markets parity', () => {
     expect(response.json()[0].current_price.toString().split('.')[1]?.length ?? 0).toBeLessThanOrEqual(2);
   });
 
+  it('treats explicit names and symbols selectors like explicit ids for ordering, unknown omission, and page-slice bypass', async () => {
+    const [namesResponse, symbolsResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&names=solana,unknown-coin,bitcoin&page=9&per_page=1',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&symbols=sol,unknown-symbol,btc&page=7&per_page=1',
+      }),
+    ]);
+
+    expect(namesResponse.statusCode).toBe(200);
+    expect(symbolsResponse.statusCode).toBe(200);
+
+    const namesBody = namesResponse.json();
+    const symbolsBody = symbolsResponse.json();
+
+    expect(namesBody).toHaveLength(2);
+    expect(namesBody.map((row: { id: string }) => row.id)).toEqual(['solana', 'bitcoin']);
+
+    expect(symbolsBody).toHaveLength(2);
+    expect(symbolsBody.map((row: { id: string }) => row.id)).toEqual(['solana', 'bitcoin']);
+  });
+
   it('rejects unsupported order values and invalid precision values with the standard invalid-parameter envelope', async () => {
     const [invalidOrderResponse, invalidPrecisionResponse] = await Promise.all([
       app.inject({
