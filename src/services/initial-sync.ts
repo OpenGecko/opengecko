@@ -145,7 +145,7 @@ export async function syncExchangesFromCCXT(
       continue;
     }
 
-    const markets = result.value;
+    const markets = Array.isArray(result.value) ? result.value : [];
     exchangeLogger.debug({ marketCount: markets.length }, 'fetched exchange markets');
 
     if (markets.length === 0) {

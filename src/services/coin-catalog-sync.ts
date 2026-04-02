@@ -133,7 +133,7 @@ export async function syncCoinCatalogFromExchanges(
     }
 
     succeeded += 1;
-    const markets = result.value;
+    const markets = Array.isArray(result.value) ? result.value : [];
     exchangeLogger?.debug({ marketCount: markets.length }, 'fetched markets for coin discovery');
 
     for (const market of markets) {

@@ -587,7 +587,7 @@ export async function runMarketRefreshOnce(
       continue;
     }
 
-    const tickers = result.value;
+    const tickers = Array.isArray(result.value) ? result.value : [];
     let matchedCount = 0;
 
     for (const ticker of tickers) {

@@ -50,7 +50,7 @@ export async function syncChainCatalogFromExchanges(
     }
 
     succeeded += 1;
-    const networks = result.value;
+    const networks = Array.isArray(result.value) ? result.value : [];
     exchangeLogger?.debug({ networkCount: networks.length }, 'fetched networks for chain discovery');
 
     for (const network of networks) {
