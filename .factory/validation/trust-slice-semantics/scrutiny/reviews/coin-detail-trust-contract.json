@@ -1,0 +1,22 @@
+{
+  "featureId": "coin-detail-trust-contract",
+  "reviewedAt": "2026-04-02T15:45:34.620537+00:00",
+  "commitId": "2fb17198e0205955db675bfa010695b3c27d5ac5",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature commit adds only characterization coverage in tests/coin-detail-parity.test.ts. I found one high-confidence blocking issue in that new coverage: the degraded seeded-bootstrap assertion contradicts the shared runtime policy and the diagnostics contract already codified elsewhere in the mission. The route implementation itself was not changed by this feature commit.",
+    "issues": [
+      {
+        "file": "tests/coin-detail-parity.test.ts",
+        "line": 191,
+        "severity": "blocking",
+        "description": "The new test expects diagnostics to report `degraded.stale_live_enabled: true` for `degraded_seeded_bootstrap`, but the shared access policy intentionally treats that mode as bootstrap-only access with `allowStaleLiveService: false` (`src/modules/market-freshness.ts:105-110`) and the dedicated diagnostics suite already locks the public contract to `stale_live_enabled === false` for that mode (`tests/runtime-diagnostics.test.ts:345`). This feature therefore bakes in the previously identified wrong truth and would either fail against the correct implementation or pressure later changes to regress diagnostics semantics."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Fail. The feature only adds tests, but one new assertion encodes the wrong degraded-seeded-bootstrap diagnostics semantics (`stale_live_enabled` should be false, not true), so the review cannot pass as written."
+}

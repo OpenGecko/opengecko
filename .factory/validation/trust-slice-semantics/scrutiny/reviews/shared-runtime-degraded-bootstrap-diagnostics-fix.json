@@ -1,0 +1,15 @@
+{
+  "featureId": "shared-runtime-degraded-bootstrap-diagnostics-fix",
+  "reviewedAt": "2026-04-02T15:44:56.591934+00:00",
+  "commitId": "d00a613",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix correctly aligns validation-mode degraded_seeded_bootstrap diagnostics with the shared snapshot access policy by reporting stale_live_enabled as false, and the targeted diagnostics and coin-detail tests now lock that single truth while preserving the existing non-override degraded bootstrap expectation.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the worker transcript skeleton, handoff, mission guidance, and commit d00a613. The implementation is scoped correctly, matches the shared access-policy behavior in src/modules/market-freshness.ts, and adds regression coverage for the validation override truth gap without introducing conflicting expectations elsewhere."
+}

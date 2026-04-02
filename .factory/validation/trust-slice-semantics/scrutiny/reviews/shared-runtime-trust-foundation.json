@@ -1,0 +1,28 @@
+{
+  "featureId": "shared-runtime-trust-foundation",
+  "reviewedAt": "2026-04-02T15:45:22Z",
+  "commitId": "c947a85",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature correctly centralized the access-policy helper for degraded seeded bootstrap, but other route-level truth sources still encode the old stale-live-enabled semantics, so the shared runtime foundation is not actually unified.",
+    "issues": [
+      {
+        "file": "tests/stale-data.test.ts",
+        "line": 288,
+        "severity": "blocking",
+        "description": "The degraded seeded-bootstrap end-to-end assertion still expects `degraded.stale_live_enabled` to be `true`. After this commit, `getSnapshotAccessPolicy()` and `buildRuntimeDiagnostics()` both treat `degraded_seeded_bootstrap` as bootstrap-only (`stale_live_enabled: false`), so this test now codifies the old truth and would fail once run alongside the feature. That means the feature did not fully centralize the shared runtime semantics across the scoped trust-slice contract."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The trust-slice worker procedure says to trace and update existing route/runtime tests before finishing, but this feature changed the shared degraded-bootstrap truth without updating a still-relevant end-to-end contract assertion in `tests/stale-data.test.ts`.",
+      "evidence": "Transcript shows edits only to `tests/market-freshness.test.ts` and `tests/runtime-diagnostics.test.ts`, while `tests/stale-data.test.ts:288-293` still expected `stale_live_enabled: true` for `degraded_seeded_bootstrap`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the handoff, transcript skeleton, skill guidance, architecture, and commit `c947a85`. The core helper change is correct, but the feature left a blocking stale-data contract assertion on the old degraded seeded-bootstrap semantics, so the shared runtime truth is not fully reconciled."
+}

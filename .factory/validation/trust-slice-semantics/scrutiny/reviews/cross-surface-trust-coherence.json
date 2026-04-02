@@ -1,0 +1,22 @@
+{
+  "featureId": "cross-surface-trust-coherence",
+  "reviewedAt": "2026-04-02T15:45:13.779641+00:00",
+  "commitId": "dfb3dcb",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature only adds one app-level test covering fresh-live, stale-allowed, and stale-disallowed transitions. It does not cover the seeded-bootstrap or zero-live completed-boot cross-surface assertions required by the feature contract, so regressions in those states would pass unnoticed.",
+    "issues": [
+      {
+        "file": "tests/app.test.ts",
+        "line": 6724,
+        "severity": "blocking",
+        "description": "The new cross-surface coherence test exercises fresh-live, stale-allowed, and stale-disallowed only. The feature description and validation contract also require cross-surface coherence for seeded bootstrap (VAL-CROSS-004/007) and zero-live completed-boot behavior (VAL-CROSS-008), but this commit adds no end-to-end coverage for those states, leaving the stated feature requirements unverified."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed handoff, commit dfb3dcb, transcript skeleton, mission docs, and trust-slice skill. Found a blocking gap: the implementation is test-only and does not actually cover all required cross-surface states, specifically seeded-bootstrap and zero-live completed-boot coherence."
+}

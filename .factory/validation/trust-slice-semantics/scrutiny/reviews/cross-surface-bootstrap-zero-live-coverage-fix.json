@@ -1,0 +1,22 @@
+{
+  "featureId": "cross-surface-bootstrap-zero-live-coverage-fix",
+  "reviewedAt": "2026-04-02T15:44:53.886761+00:00",
+  "commitId": "2433e02",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature adds stronger seeded-bootstrap assertions, but it does not deliver the promised end-to-end zero-live completed-boot coverage across `/coins/markets` and `/coins/{id}`. The only zero-live test in `tests/app.test.ts` still exercises `/simple/price`, `/simple/token_price`, and `/diagnostics/runtime`, so the scrutiny gap for the other scoped trust-slice surfaces remains open.",
+    "issues": [
+      {
+        "file": "tests/app.test.ts",
+        "line": 6271,
+        "severity": "blocking",
+        "description": "The zero-live completed-boot scenario never calls `/coins/markets` or `/coins/{id}` even though the feature description and VAL-CROSS-008 require explicit paired evidence across `/simple/price`, `/coins/markets`, `/coins/{id}`, and `/diagnostics/runtime`. As implemented, the test only covers `/simple/price`, `/simple/token_price`, and diagnostics, so it cannot catch cross-surface drift for markets/detail under zero-live completed boot."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature handoff, transcript skeleton, skill guidance, validation contract, and commit `2433e02`. Seeded-bootstrap coverage is tightened successfully, but the feature still fails its stated goal because zero-live completed-boot is not exercised end-to-end across `/coins/markets` and `/coins/{id}`."
+}

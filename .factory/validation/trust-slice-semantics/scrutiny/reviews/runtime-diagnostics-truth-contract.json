@@ -1,0 +1,34 @@
+{
+  "featureId": "runtime-diagnostics-truth-contract",
+  "reviewedAt": "2026-04-02T23:59:00Z",
+  "commitId": "7b48109",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature aligns runtime diagnostics tests with the degraded seeded bootstrap path, but it introduces a correctness regression: diagnostics now claims stale-live service is disabled for validation-mode degraded seeded bootstrap even though other trust-slice coverage still requires that state to report stale-live enabled.",
+    "issues": [
+      {
+        "file": "src/services/runtime-diagnostics.ts",
+        "line": 89,
+        "severity": "blocking",
+        "description": "`effectiveAllowStaleLiveService` returns `false` for `validationOverride.mode === 'degraded_seeded_bootstrap'`. That makes `/diagnostics/runtime` report `degraded.stale_live_enabled: false`, but existing trust-slice coverage still expects `true` for this state (for example `tests/stale-data.test.ts:292` and `tests/app.test.ts:644`). The feature requirement says diagnostics must match the shared runtime truth across the trust slice, so this leaves diagnostics out of sync with the broader contract."
+      },
+      {
+        "file": "tests/runtime-diagnostics.test.ts",
+        "line": 345,
+        "severity": "blocking",
+        "description": "The updated test now asserts `degraded.stale_live_enabled === false` for `degraded_seeded_bootstrap`, directly conflicting with existing cross-surface expectations elsewhere in the suite. Instead of guarding the intended contract, this change blesses the drift introduced by the implementation."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "Mission shared state documents the known app-test doc blocker with a different filename than the worker's handoff reported. Recording the exact failing path would avoid repeated rediscovery.",
+      "evidence": "AGENTS.md lists `/home/whoami/dev/openGecko/docs/analysis/exchange-divergences.md`, while the feature handoff's discovered issue cites `/home/whoami/dev/openGecko/docs/analysis/exchange-data-differences.md`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the handoff, transcript skeleton, commit `7b48109`, and relevant shared-runtime code/tests. This feature should fail scrutiny because it changes diagnostics and its focused test to report `degraded_seeded_bootstrap` with `stale_live_enabled: false`, while the wider trust-slice contract still expects `true` for that same state."
+}

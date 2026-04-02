@@ -1,0 +1,15 @@
+{
+  "featureId": "coins-markets-explicit-selector-fix",
+  "reviewedAt": "2026-04-02T15:45:04Z",
+  "commitId": "617ff09",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the feature handoff, transcript skeleton, and commit 617ff09. The implementation updates shared market-row ordering and route pagination so explicit names/symbols selectors now match explicit-id behavior, and the added parity test plus manual proof cover the intended ordering, omission, and page-bypass semantics. I did not find any high-confidence correctness bugs in scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The feature correctly makes `/coins/markets` treat explicit `names` and `symbols` selectors like explicit `ids`, with matching automated coverage and no actionable correctness defects found."
+}

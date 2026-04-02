@@ -1,0 +1,34 @@
+{
+  "featureId": "coins-markets-trust-contract",
+  "reviewedAt": "2026-04-02T00:00:00Z",
+  "commitId": "f4fe0d6",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The reviewed commit only adds parity tests and an asset-image mapping tweak; it does not fully implement the feature contract because explicit `names`/`symbols` selector semantics from the feature's expected behavior remain absent in commit `f4fe0d6`.",
+    "issues": [
+      {
+        "file": "tests/coins-markets-parity.test.ts",
+        "line": 374,
+        "severity": "blocking",
+        "description": "The feature description requires explicit-selector semantics for `/coins/markets`, but commit `f4fe0d6` does not add coverage for explicit `names` and `symbols` selectors. The transcript/handoff claims the feature hardened explicit selector behavior, yet the committed tests only exercise `ids`, so the required behavior was not actually verified in this feature."
+      },
+      {
+        "file": "src/modules/coins.ts",
+        "line": 199,
+        "severity": "blocking",
+        "description": "In commit `f4fe0d6`, `/coins/markets` bypasses page slicing when `names` or `symbols` are present, but ordering still depends on `parseMarketRowsRequest`, which at that point only characterized `ids` behavior for the feature. The later follow-up commit `617ff09` was needed to make `names` and `symbols` preserve matched caller order and silently drop unknown selectors, showing this feature commit did not fully satisfy the explicit-selector contract it claimed to complete."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The trust-slice worker handoff claimed `/coins/markets` parity coverage now asserted the route's explicit-selector behavior directly, but the committed diff for `f4fe0d6` only added `ids` coverage. The skill's requirement to map tests back to fulfilled assertions was followed formally, but the handoff overstated which assertions were actually covered.",
+      "evidence": "Handoff `2026-04-02T14-32-03-803Z__coins-markets-trust-contract__4e55c4aa-34ed-4dad-a908-2cd77807b9f9.json` says coverage includes explicit selector semantics, while `git show f4fe0d6 -- tests/coins-markets-parity.test.ts` adds only the `ids` test; `VAL-MARKETS-011` was added later in commit `617ff09`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed: commit `f4fe0d6` did not fully satisfy the `/coins/markets` feature contract because explicit `names`/`symbols` selector semantics were still missing and were only fixed later in `617ff09`."
+}
