@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
@@ -23,7 +23,13 @@ function getSelectorWhereClause(filters: CoinFilters) {
   }
 
   if (filters.names?.length) {
-    return inArray(coins.name, filters.names);
+    const normalizedNames = filters.names
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (normalizedNames.length > 0) {
+      return or(...normalizedNames.map((name) => sql`lower(${coins.name}) = ${name}`));
+    }
   }
 
   if (filters.symbols?.length) {

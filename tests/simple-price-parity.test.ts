@@ -212,4 +212,133 @@ describe('simple price parity helpers', () => {
     const livePayloadFailure = getSimplePriceAvailabilityFailure(database, runtimeState, 2, 'simple/price');
     expect(livePayloadFailure).toBeNull();
   });
+
+  it('resolves ids, names, and symbols to the same canonical coin ids while dropping unknown selector misses', () => {
+    const runtimeState = createRuntimeState({
+      validationOverride: {
+        mode: 'stale_allowed',
+        reason: 'seeded default/local runtime exposes persisted snapshots',
+        snapshotTimestampOverride: null,
+        snapshotSourceCountOverride: null,
+      },
+    });
+
+    const idsPayload = warmSimplePriceCache(
+      new Map(),
+      {
+        ids: 'bitcoin,unknown-coin',
+        vs_currencies: 'usd',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+    const namesPayload = warmSimplePriceCache(
+      new Map(),
+      {
+        names: 'ethereum,unknown-name',
+        vs_currencies: 'usd',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+    const symbolsPayload = warmSimplePriceCache(
+      new Map(),
+      {
+        symbols: 'btc,missing-symbol',
+        vs_currencies: 'usd',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+
+    expect(idsPayload).toEqual({
+      bitcoin: {
+        usd: 66_194,
+      },
+    });
+    expect(namesPayload).toEqual({
+      ethereum: {
+        usd: 1_987.94,
+      },
+    });
+    expect(symbolsPayload).toEqual({
+      bitcoin: {
+        usd: 66_194,
+      },
+    });
+    expect(Object.keys(idsPayload)).toEqual(['bitcoin']);
+    expect(Object.keys(namesPayload)).toEqual(['ethereum']);
+    expect(Object.keys(symbolsPayload)).toEqual(['bitcoin']);
+  });
+
+  it('omits optional fields unless explicitly requested and keeps equivalent selector queries stable', () => {
+    const runtimeState = createRuntimeState({
+      validationOverride: {
+        mode: 'stale_allowed',
+        reason: 'seeded default/local runtime exposes persisted snapshots',
+        snapshotTimestampOverride: null,
+        snapshotSourceCountOverride: null,
+      },
+    });
+
+    const baselinePayload = warmSimplePriceCache(
+      new Map(),
+      {
+        ids: 'ethereum,bitcoin',
+        vs_currencies: 'usd',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+    const reorderedPayload = warmSimplePriceCache(
+      new Map(),
+      {
+        ids: 'bitcoin,ethereum',
+        vs_currencies: 'usd',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+    const optionalPayload = warmSimplePriceCache(
+      new Map(),
+      {
+        ids: 'bitcoin,ethereum',
+        vs_currencies: 'usd',
+        include_market_cap: 'true',
+        include_24hr_vol: 'true',
+        include_24hr_change: 'true',
+        include_last_updated_at: 'true',
+      },
+      database,
+      300,
+      runtimeState,
+    );
+
+    expect(baselinePayload).toEqual(reorderedPayload);
+    expect(baselinePayload.bitcoin).toEqual({ usd: 66_194 });
+    expect(baselinePayload.ethereum).toEqual({ usd: 1_987.94 });
+    expect('usd_market_cap' in baselinePayload.bitcoin).toBe(false);
+    expect('usd_24h_vol' in baselinePayload.bitcoin).toBe(false);
+    expect('usd_24h_change' in baselinePayload.bitcoin).toBe(false);
+    expect('last_updated_at' in baselinePayload.bitcoin).toBe(false);
+    expect(optionalPayload.bitcoin).toMatchObject({
+      usd: 66_194,
+      usd_market_cap: 1_323_878_876_195.027,
+      usd_24h_vol: 47_657_767_940.0297,
+      usd_24h_change: -3.6821618128964673,
+      last_updated_at: 1_774_693_282,
+    });
+    expect(optionalPayload.ethereum).toMatchObject({
+      usd: 1_987.94,
+      usd_market_cap: 239_883_065_644.24435,
+      usd_24h_vol: 18_589_171_218.177616,
+      usd_24h_change: -3.509680921533086,
+      last_updated_at: 1_774_693_273,
+    });
+  });
 });
