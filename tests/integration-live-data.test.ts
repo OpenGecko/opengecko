@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { eq, isNotNull } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
@@ -303,25 +303,65 @@ describe('live data integration', () => {
     expect(packageJson.version.startsWith('0.5.')).toBe(true);
   });
 
-  it('keeps CeFi and DeFi USD prices within the contract coherence threshold for overlapping tokens', async () => {
+  it('keeps CeFi and DeFi USD prices within the contract coherence threshold on the onchain simple token price path', async () => {
     const overlappingToken = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
     const overlappingCoinId = 'usd-coin';
 
-    const onchainTokenResponse = await app.inject({
-      method: 'GET',
-      url: `/onchain/networks/eth/tokens/${overlappingToken}`,
-    });
-    const contractDetailResponse = await app.inject({
-      method: 'GET',
-      url: `/coins/ethereum/contract/${overlappingToken}`,
-    });
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 1,
+        marketCap: 50_000_000_000,
+        totalVolume: 1_500_000_000,
+        priceChangePercentage24h: 0.5,
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-21T00:00:00.000Z'),
+      })
+      .where(and(eq(marketSnapshots.coinId, overlappingCoinId), eq(marketSnapshots.vsCurrency, 'usd')))
+      .run();
 
-    expect(onchainTokenResponse.statusCode).toBe(200);
+    const [onchainSimplePriceResponse, contractDetailResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: `/onchain/simple/networks/eth/token_price/${overlappingToken}?include_market_cap=true&include_24hr_vol=true&include_24hr_price_change=true&include_total_reserve_in_usd=true`,
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/coins/ethereum/contract/${overlappingToken}`,
+      }),
+    ]);
+
+    expect(onchainSimplePriceResponse.statusCode).toBe(200);
     expect(contractDetailResponse.statusCode).toBe(200);
     expect(contractDetailResponse.json()).toMatchObject({ id: overlappingCoinId });
 
-    const onchainBody = onchainTokenResponse.json();
-    const defiUsdRaw = onchainBody.data?.attributes?.price_usd;
+    const onchainBody = onchainSimplePriceResponse.json();
+    expect(onchainBody).toMatchObject({
+      data: {
+        id: 'eth',
+        type: 'simple_token_price',
+        attributes: {
+          token_prices: {
+            [overlappingToken]: expect.any(String),
+          },
+          market_cap_usd: {
+            [overlappingToken]: expect.any(String),
+          },
+          h24_volume_usd: {
+            [overlappingToken]: expect.any(String),
+          },
+          h24_price_change_percentage: {
+            [overlappingToken]: expect.any(String),
+          },
+          total_reserve_in_usd: {
+            [overlappingToken]: expect.any(String),
+          },
+        },
+      },
+    });
+
+    const defiUsdRaw = onchainBody.data?.attributes?.token_prices?.[overlappingToken];
     const defiUsd = typeof defiUsdRaw === 'string' ? Number(defiUsdRaw) : defiUsdRaw;
     const cefiUsd = 1;
 
