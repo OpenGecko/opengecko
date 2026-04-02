@@ -792,14 +792,14 @@ describe('CoinGecko API compatibility', () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(Array.isArray(body)).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
 
-      if (body.length > 0) {
-        expect(body[0]).toHaveProperty('id');
-        expect(body[0]).toHaveProperty('name');
-        expect(body[0]).toHaveProperty('symbol');
-        expect(body[0]).toHaveProperty('country');
-        expect(body[0]).toHaveProperty('entity_type');
+      if (body.data.length > 0) {
+        expect(body.data[0]).toHaveProperty('id');
+        expect(body.data[0]).toHaveProperty('name');
+        expect(body.data[0]).toHaveProperty('symbol');
+        expect(body.data[0]).toHaveProperty('country');
+        expect(body.data[0]).toHaveProperty('entity_type');
       }
     });
 
@@ -809,7 +809,7 @@ describe('CoinGecko API compatibility', () => {
         url: '/entities/list?entity_type=companies',
       });
       expect(companies.statusCode).toBe(200);
-      for (const entity of companies.json()) {
+      for (const entity of companies.json().data) {
         expect(entity.entity_type).toBe('company');
       }
 
@@ -818,7 +818,7 @@ describe('CoinGecko API compatibility', () => {
         url: '/entities/list?entity_type=governments',
       });
       expect(govts.statusCode).toBe(200);
-      for (const entity of govts.json()) {
+      for (const entity of govts.json().data) {
         expect(entity.entity_type).toBe('government');
       }
     });
@@ -835,13 +835,13 @@ describe('CoinGecko API compatibility', () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body).toHaveProperty('coin_id');
-      expect(body).toHaveProperty('current_price_usd');
-      expect(body).toHaveProperty('total_holdings');
-      expect(body).toHaveProperty('total_value_usd');
-      expect(body).toHaveProperty('market_cap_percentage');
-      expect(body).toHaveProperty('companies');
-      expect(Array.isArray(body.companies)).toBe(true);
+      expect(body).toHaveProperty('data.coin_id');
+      expect(body).toHaveProperty('data.current_price_usd');
+      expect(body).toHaveProperty('data.total_holdings');
+      expect(body).toHaveProperty('data.total_value_usd');
+      expect(body).toHaveProperty('data.market_cap_percentage');
+      expect(body).toHaveProperty('data.companies');
+      expect(Array.isArray(body.data.companies)).toBe(true);
     });
   });
 
@@ -856,18 +856,18 @@ describe('CoinGecko API compatibility', () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body).toHaveProperty('id');
-      expect(body).toHaveProperty('name');
-      expect(body).toHaveProperty('symbol');
-      expect(body).toHaveProperty('entity_type');
-      expect(body).toHaveProperty('country');
-      expect(body).toHaveProperty('description');
-      expect(body).toHaveProperty('website_url');
-      expect(body).toHaveProperty('total_entry_value_usd');
-      expect(body).toHaveProperty('total_current_value_usd');
-      expect(body).toHaveProperty('total_unrealized_pnl_usd');
-      expect(body).toHaveProperty('holdings');
-      expect(Array.isArray(body.holdings)).toBe(true);
+      expect(body).toHaveProperty('data.id');
+      expect(body).toHaveProperty('data.name');
+      expect(body).toHaveProperty('data.symbol');
+      expect(body).toHaveProperty('data.entity_type');
+      expect(body).toHaveProperty('data.country');
+      expect(body).toHaveProperty('data.description');
+      expect(body).toHaveProperty('data.website_url');
+      expect(body).toHaveProperty('data.total_entry_value_usd');
+      expect(body).toHaveProperty('data.total_current_value_usd');
+      expect(body).toHaveProperty('data.total_unrealized_pnl_usd');
+      expect(body).toHaveProperty('data.holdings');
+      expect(Array.isArray(body.data.holdings)).toBe(true);
     });
   });
 
