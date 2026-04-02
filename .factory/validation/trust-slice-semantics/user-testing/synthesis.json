@@ -1,127 +1,62 @@
 {
   "milestone": "trust-slice-semantics",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "assertionsSummary": {
-    "total": 45,
-    "passed": 27,
-    "failed": 11,
-    "blocked": 7
+    "total": 18,
+    "passed": 11,
+    "failed": 6,
+    "blocked": 1
   },
   "passedAssertions": [
-    "VAL-CROSS-003",
-    "VAL-DETAIL-001",
-    "VAL-DETAIL-002",
-    "VAL-DETAIL-004",
-    "VAL-DETAIL-005",
-    "VAL-DETAIL-006",
-    "VAL-DETAIL-007",
-    "VAL-DETAIL-008",
-    "VAL-DIAG-003",
-    "VAL-DIAG-004",
-    "VAL-DIAG-005",
-    "VAL-DIAG-007",
-    "VAL-DIAG-008",
-    "VAL-MARKETS-001",
-    "VAL-MARKETS-002",
-    "VAL-MARKETS-003",
-    "VAL-MARKETS-004",
-    "VAL-MARKETS-005",
-    "VAL-MARKETS-006",
-    "VAL-MARKETS-007",
-    "VAL-MARKETS-009",
-    "VAL-MARKETS-011",
-    "VAL-SIMPLE-002",
-    "VAL-SIMPLE-003",
-    "VAL-SIMPLE-004",
-    "VAL-SIMPLE-007",
-    "VAL-SIMPLE-008"
+    "VAL-CROSS-004",
+    "VAL-CROSS-007",
+    "VAL-CROSS-008",
+    "VAL-DETAIL-003",
+    "VAL-DETAIL-009",
+    "VAL-DIAG-002",
+    "VAL-DIAG-006",
+    "VAL-DIAG-009",
+    "VAL-SIMPLE-001",
+    "VAL-SIMPLE-005",
+    "VAL-SIMPLE-006"
   ],
   "failedAssertions": [
     {
-      "id": "VAL-SIMPLE-001",
-      "reason": "Route rejected missing vs_currencies before checking the contract-required selector validation message."
-    },
-    {
-      "id": "VAL-SIMPLE-005",
-      "reason": "Expected empty object under stale_disallowed override, but live price was still served."
-    },
-    {
-      "id": "VAL-DETAIL-003",
-      "reason": "Expected market_data null under stale_disallowed override, but full market_data remained present."
-    },
-    {
-      "id": "VAL-DETAIL-009",
-      "reason": "Diagnostics reported degraded_seeded_bootstrap, but mission detail still returned a full live-looking market_data document."
-    },
-    {
-      "id": "VAL-DIAG-001",
-      "reason": "Baseline runtime not fresh_live ready: {'readiness': {'state': 'degraded', 'listener_bound': True, 'listener_bind_deferred': False, 'initial_sync_completed': False, 'degraded': True, 'zero_live_completed_boot': False, 'validation_override_active': False}, 'degraded': {'active': True, 'stale_live_enabled': True, 'reason': 'database disk image is malformed', 'provider_failure_cooldown_until': None, 'injected_provider_failure': {'active': False, 'reason': None}, 'validation_override': {'active': False, 'mode': 'off', 'reason': None}}, 'hot_paths': {'shared_market_snapshot': {'available': True, 'source_class': 'fresh_live', 'last_successful_live_refresh_at': '2026-04-02T16:23:46.173Z', 'freshness': {'threshold_seconds': 300, 'age_seconds': 59, 'is_stale': False}, 'providers': ['binance', 'coinbase', 'okx'], 'provider_count': 3}, 'cache_revision': 1}, 'transport': {'request_timeout_ms': 15000, 'compression': {'threshold_bytes': 1024}}, 'startup_prewarm': {'enabled': False, 'budgetMs': 0, 'readyWithinBudget': True, 'firstRequestWarmBenefitsObserved': False, 'firstRequestWarmBenefitPending': False, 'targets': [], 'completedAt': None, 'totalDurationMs': None, 'targetResults': []}}"
-    },
-    {
-      "id": "VAL-MARKETS-008",
-      "reason": "Stale disallowed market row still has market-bearing values: {'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': 66856.65333333334, 'market_cap': 1337419279999.587, 'market_cap_rank': 1, 'fully_diluted_valuation': 1403989720000.0002, 'total_volume': 408604975.59846145, 'high_24h': 124670.47, 'low_24h': 62929.05, 'price_change_24h': -1965.4335074414594, 'price_change_percentage_24h': -2.8558179469167233, 'market_cap_change_24h': -39317084169.674545, 'market_cap_change_percentage_24h': -2.8558179469167233, 'circulating_supply': 20004281, 'total_supply': 20006906, 'max_supply': 21000000, 'ath': 126080, 'ath_change_percentage': -46.9728320642978, 'ath_date': '2025-10-06T18:57:42.558Z', 'atl': 67.81, 'atl_change_percentage': 98494.09133362828, 'atl_date': '2013-07-06T00:00:00.000Z', 'roi': None, 'last_updated': '2026-04-02T16:23:45.212Z', 'price_change_percentage_1h_in_currency': None, 'price_change_percentage_24h_in_currency': -2.8558179469167233, 'price_change_percentage_7d_in_currency': None}"
-    },
-    {
-      "id": "VAL-MARKETS-010",
-      "reason": "Degraded seeded bootstrap row shape mismatch: {'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': 66856.65333333334, 'market_cap': 1337419279999.587, 'market_cap_rank': 1, 'fully_diluted_valuation': 1403989720000.0002, 'total_volume': 408604975.59846145, 'high_24h': 124670.47, 'low_24h': 62929.05, 'price_change_24h': -1965.4335074414594, 'price_change_percentage_24h': -2.8558179469167233, 'market_cap_change_24h': -39317084169.674545, 'market_cap_change_percentage_24h': -2.8558179469167233, 'circulating_supply': 20004281, 'total_supply': 20006906, 'max_supply': 21000000, 'ath': 126080, 'ath_change_percentage': -46.9728320642978, 'ath_date': '2025-10-06T18:57:42.558Z', 'atl': 67.81, 'atl_change_percentage': 98494.09133362828, 'atl_date': '2013-07-06T00:00:00.000Z', 'roi': None, 'last_updated': '2026-04-02T16:23:45.212Z', 'price_change_percentage_1h_in_currency': None, 'price_change_percentage_24h_in_currency': -2.8558179469167233, 'price_change_percentage_7d_in_currency': None}"
-    },
-    {
       "id": "VAL-CROSS-001",
-      "reason": "Fresh-live prices diverged: simple=66856.65333333334, markets=66856.65, detail=66856.65333333334"
+      "reason": "The assigned mission API never entered the required fresh_live state, and all three scoped market surfaces returned 500 instead of coherent live-backed values."
     },
     {
       "id": "VAL-CROSS-002",
-      "reason": "Stale disallowed mismatch: diag={'readiness': {'state': 'degraded', 'listener_bound': True, 'listener_bind_deferred': False, 'initial_sync_completed': True, 'degraded': True, 'zero_live_completed_boot': False, 'validation_override_active': True}, 'degraded': {'active': True, 'stale_live_enabled': False, 'reason': 'validation degraded state override', 'provider_failure_cooldown_until': None, 'injected_provider_failure': {'active': False, 'reason': None}, 'validation_override': {'active': True, 'mode': 'stale_disallowed', 'reason': 'validation degraded state override'}}, 'hot_paths': {'shared_market_snapshot': {'available': True, 'source_class': 'stale_live', 'last_successful_live_refresh_at': '1970-01-01T00:00:00.000Z', 'freshness': {'threshold_seconds': 300, 'age_seconds': 1775147086, 'is_stale': True}, 'providers': ['coinbase'], 'provider_count': 1}, 'cache_revision': 7}, 'transport': {'request_timeout_ms': 15000, 'compression': {'threshold_bytes': 1024}}, 'startup_prewarm': {'enabled': True, 'budgetMs': 250, 'readyWithinBudget': True, 'firstRequestWarmBenefitsObserved': False, 'firstRequestWarmBenefitPending': True, 'targets': [{'id': 'simple_price_bitcoin_usd', 'label': 'Simple price BTC/USD', 'endpoint': '/simple/price?ids=bitcoin&vs_currencies=usd', 'cacheSurface': 'simple_price'}], 'completedAt': 1775146464686, 'totalDurationMs': 5, 'targetResults': [{'id': 'simple_price_bitcoin_usd', 'label': 'Simple price BTC/USD', 'endpoint': '/simple/price?ids=bitcoin&vs_currencies=usd', 'cacheSurface': 'simple_price', 'status': 'completed', 'durationMs': 5, 'warmCacheRevision': 1, 'firstObservedRequest': None}]}}, simple={'bitcoin': {'usd': 66856.65333333334, 'last_updated_at': 1775147025}}, markets={'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': 66856.65333333334, 'market_cap': 1337419279999.587, 'market_cap_rank': 1, 'fully_diluted_valuation': 1403989720000.0002, 'total_volume': 408604975.59846145, 'high_24h': 124670.47, 'low_24h': 62929.05, 'price_change_24h': -1965.4335074414594, 'price_change_percentage_24h': -2.8558179469167233, 'market_cap_change_24h': -39317084169.674545, 'market_cap_change_percentage_24h': -2.8558179469167233, 'circulating_supply': 20004281, 'total_supply': 20006906, 'max_supply': 21000000, 'ath': 126080, 'ath_change_percentage': -46.9728320642978, 'ath_date': '2025-10-06T18:57:42.558Z', 'atl': 67.81, 'atl_change_percentage': 98494.09133362828, 'atl_date': '2013-07-06T00:00:00.000Z', 'roi': None, 'last_updated': '2026-04-02T16:23:45.212Z', 'price_change_percentage_1h_in_currency': None, 'price_change_percentage_24h_in_currency': -2.8558179469167233, 'price_change_percentage_7d_in_currency': None}, detail={'current_price': {'usd': 66856.65333333334, 'eur': 57894.19968081987, 'btc': 1, 'eth': 32.52687152799457}, 'market_cap': {'usd': 1337419279999.587, 'eur': 1158131838685.2312, 'btc': 20004281.000000004, 'eth': 650676678.096903}, 'total_volume': {'usd': 408604975.59846145, 'eur': 353829527.3311196, 'btc': 6111.657632057086, 'eth': 198793.10262100835}, 'high_24h': {'usd': 124670.47, 'eur': 107957.79813410237, 'btc': 1.864742905667429, 'eth': 60.654252925383766}, 'low_24h': {'usd': 62929.05, 'eur': 54493.11033054448, 'btc': 0.9412533661571254, 'eth': 30.616027316285255}, 'fully_diluted_valuation': {'usd': 1403989720000.0002, 'eur': 1215778193297.2173, 'btc': 21000000.000000004, 'eth': 683064302.0878861}, 'circulating_supply': 20004281, 'total_supply': 20006906, 'max_supply': 21000000, 'ath': {'usd': 126080, 'eur': 109178.37390640804, 'btc': 1.885825773710081, 'eth': 61.34001266564877}, 'ath_change_percentage': {'usd': -46.9728320642978, 'eur': -46.9728320642978, 'btc': -46.9728320642978, 'eth': -46.9728320642978}, 'ath_date': {'usd': '2025-10-06T18:57:42.558Z', 'eur': '2025-10-06T18:57:42.558Z', 'btc': '2025-10-06T18:57:42.558Z', 'eth': '2025-10-06T18:57:42.558Z'}, 'atl': {'usd': 67.81, 'eur': 58.71974567412381, 'btc': 0.0010142595630970859, 'eth': 0.03299069050489882}, 'atl_change_percentage': {'usd': 98494.09133362828, 'eur': 98494.09133362828, 'btc': 98494.09133362828, 'eth': 98494.09133362828}, 'atl_date': {'usd': '2013-07-06T00:00:00.000Z', 'eur': '2013-07-06T00:00:00.000Z', 'btc': '2013-07-06T00:00:00.000Z', 'eth': '2013-07-06T00:00:00.000Z'}, 'price_change_24h': -1965.4335074414594, 'price_change_percentage_24h': -2.8558179469167233, 'price_change_percentage_7d': -23.016950091929072, 'price_change_percentage_7d_in_currency': {'usd': -23.016950091929072, 'eur': -23.016950091929072, 'btc': -23.016950091929072, 'eth': -23.016950091929072}, 'market_cap_change_24h': -39317084169.674545, 'market_cap_change_percentage_24h': -2.8558179469167233, 'market_cap_rank': 1, 'last_updated': '2026-04-02T16:23:45.212Z', 'sparkline_7d': {'price': [86845.94, 84223.39, 84088.79, 83840.59, 86082.5, 87498.16, 87392.88, 86909.18, 87232, 84424.37, 82648.54, 82369.37, 82550, 85152.49, 82516.29, 83197.16, 83889.88, 83532.65, 78424.51, 79158.77, 76322.41, 82615.21, 79609.69, 83423.84, 85276.91, 83759.99, 84591.59, 83643.99, 84030.38, 84947.91, 84474.69, 85077, 85179.25, 87516.22, 93443, 93691.07, 93980.46, 94633.02, 94627.99, 93749.3, 95011.18, 94256.83, 94172, 96490.34, 96887.13, 95873.22, 94277.62, 94733.68, 96797.62, 97030.49, 103283.25, 102971.99, 104809.52, 104118.01, 102791.31, 104103.73, 103507.82, 103763.7, 103463.9, 103126.64, 106488.12, 105579.98, 106850, 109644, 111696.21, 107318.3, 107761.91, 109004.19, 109434.79, 108938.16, 107781.78, 105589.75, 103985.48, 104591.89, 105642.93, 105837.3, 105366.07, 104696.86, 101508.68, 104288.44, 105552.15, 105734.06, 110263.02, 110274.39, 108657.53, 105730.3, 106069.24, 105414.64, 105594.01, 106780.02, 104551.17, 104886.79, 104658.59, 103291.83, 102120, 100963.86, 105347.19, 106082.99, 107340.59, 106947.06, 107041.36, 107296.79, 108356.93, 107168.47, 105681.13, 108849.59, 109596.71, 107994.87, 108217.11, 109224.99, 108267.36, 108938.23, 111273.38, 116016.81, 117575.24, 117451.33, 119098.86, 119808.01, 117765.42, 118637.16, 119197.13, 117934.9, 117858.09, 117277.04, 117385.5, 119965.48, 118704.45, 118342, 117627.8, 117928.9, 119409.63, 118061.93, 117927.57, 117841.88, 115760.22, 113280.65, 112545.26, 114242.52, 115087.24, 114161.49, 114959.81, 117490.03, 116670.02, 116468.86, 119310.05, 118685.53, 120129.74, 123306.23, 118327.59, 117258.42, 117361.36, 117399.12, 116241.34, 112912.67, 114224.33, 112520.24, 116891.46, 115429.43, 113492.21, 110063.98, 111779.51, 111269.98, 112553.4, 108364.26, 108826.12, 108229.36, 109238.25, 111231.26, 111742.52, 110723.57, 110587.46, 110182.12, 111366, 112100.43, 111535.91, 113947.57, 115576.19, 116040.06, 115906.89, 115224.67, 115338.76, 116806.25, 116441.96, 117154.28, 115629.36, 115695.38, 115230.05, 112612.21, 111948.04, 113310.17, 108986.54, 109639.42, 109641.62, 112174.73, 114306.7, 114077.55, 118587.64, 120554.1, 122255.82, 122388.17, 123480.62, 124670.47, 121379.87, 123338.13, 121660.38, 112784.13, 110671.88, 115012.87, 115161.02, 113027.6, 110746.5, 108171.79, 106424.78, 107175, 108606.67, 110526.49, 108332.7, 107581.77, 110100.89, 111049.49, 111596.93, 114556.82, 114047.55, 112847.77, 110017.92, 108319.44, 109594.14, 110113.34, 110512.1, 106523.97, 101476.23, 103903.35, 101312.94, 103358.36, 102334.68, 104719.06, 106007.23, 103061.86, 101655.16, 99699.33, 94571.3, 95633.01, 94265.52, 92186.62, 92961.86, 91551.5, 86637.16, 85160.22, 84719.36, 86766.74, 88293.5, 87385.7, 90473.65, 91312.86, 90898.98, 90882.11, 90371.71, 86353.28, 91281.43, 93455.1, 92102.83, 89256.54, 89228.27, 90338.74, 90624.27, 92654.19, 91972.15, 92514.9, 90309.47, 90232.89, 88163.52, 86406.69, 87774.84, 86234.09, 85528.69, 88151.3, 88380.55, 88661.14, 88566.89, 87498.91, 87594.06, 87243.38, 87390.63, 87874.17, 87945.59, 87239.08, 88488.12, 87634.98, 88875.07, 89979.32, 90717.59, 91549.57, 93859.21, 93744.04, 91368.96, 91087.56, 90612.86, 90479.21, 90989.45, 91290.09, 95438.61, 96946.2, 95596.8, 95562.3, 95130.16, 93619.48, 92650.11, 88359.93, 89491.12, 89558.22, 89612.81, 89233.97, 86663.63, 88374.75, 89256.62, 89356.43, 84647.87, 84246.85, 78729.37, 76993.45, 78803.61, 75766.32, 73157.1, 62929.05, 70586.67, 69297.95, 70360.55, 70177.5, 68817.51, 67085.7, 66268.38, 68864.07, 69830.9, 68818.28, 68851.39, 67529.82, 66479.27, 67004.5, 68036.63, 67975.93, 67643.4, 64657.3, 64056.7, 67983.3, 67478, 65874, 66975.8, 65770.9, 68829, 68331.8, 72679.87, 70876.45, 68121.12, 67258.5, 65985.27, 68424.61, 69897.43, 70181.06, 70501.48, 70950.73, 71176.16, 72791.73, 74829.14, 73913.05, 71249.17, 69914.64, 70524.92, 68890.23, 67892.58, 70961.86, 70550.03, 71379.28, 68775.29, 66407.46, 66378.62, 66040.51, 66790.82, 68233.74, 68095.86, 66856.65333333334]}}"
+      "reason": "stale-disallowed surfaces were not coherent"
     },
     {
       "id": "VAL-CROSS-005",
-      "reason": "cache_revision did not change across overrides: before=None, stale_disallowed=None, stale_allowed=None"
+      "reason": "cache_revision did not change across runtime override transition"
     },
     {
-      "id": "VAL-CROSS-006",
-      "reason": "Timestamps not mutually consistent within 5s: [1775147025, 1775147025, 1775147025, None]"
+      "id": "VAL-DIAG-001",
+      "reason": "Mission API was not in the expected ready fresh-live state during validation."
+    },
+    {
+      "id": "VAL-MARKETS-008",
+      "reason": "coins/markets stale-disallowed response did not null expected fields"
+    },
+    {
+      "id": "VAL-MARKETS-010",
+      "reason": "seeded bootstrap markets shape implied live completeness"
     }
   ],
   "blockedAssertions": [
     {
-      "id": "VAL-SIMPLE-006",
-      "blockedBy": "Validation API rejected the zero_live_completed_boot mode, so the required runtime state could not be established."
-    },
-    {
-      "id": "VAL-DIAG-002",
-      "blockedBy": "Could not apply seeded bootstrap override."
-    },
-    {
-      "id": "VAL-DIAG-006",
-      "blockedBy": "Could not apply zero-live completed boot override."
-    },
-    {
-      "id": "VAL-DIAG-009",
-      "blockedBy": "Missing successful override responses."
-    },
-    {
-      "id": "VAL-CROSS-004",
-      "blockedBy": "Could not apply seeded bootstrap override."
-    },
-    {
-      "id": "VAL-CROSS-007",
-      "blockedBy": "Could not apply seeded bootstrap override."
-    },
-    {
-      "id": "VAL-CROSS-008",
-      "blockedBy": "Could not apply zero-live completed boot override."
+      "id": "VAL-CROSS-006",
+      "blockedBy": "Blocked by 500 responses from all three trust-slice routes, preventing timestamp comparison despite diagnostics exposing a stale_live snapshot timestamp."
     }
   ],
-  "appliedUpdates": [
-    {
-      "target": "user-testing.md",
-      "description": "Added Flow Validator Guidance: api-curl section describing shared mission/validation API boundaries and subagent lifecycle ownership.",
-      "source": "setup"
-    }
-  ],
+  "appliedUpdates": [],
   "toolsUsed": [
-    "curl"
+    "curl",
+    "python3"
   ],
-  "previousRound": null
+  "previousRound": "/home/whoami/dev/opengecko/openGecko/.factory/validation/trust-slice-semantics/user-testing/synthesis.json"
 }

@@ -65,8 +65,10 @@ Reasoning: use at most 70% of observed headroom and avoid SQLite/process content
 ### validation-api
 - Use `3102` only for validation-only override routes or isolated runtime-state checks.
 - Keep validator prompts aligned to the current POST routes: `POST /diagnostics/runtime/degraded_state` and `POST /diagnostics/runtime/provider_failure`.
+- Clear degraded-state overrides with `mode=off`, never `mode=none`.
 - Confirm the same routes are absent or gated on `3001` when the contract requires validation-only access.
 - Restart the `3102` service from a clean state when changing override assumptions or zero-live bootstrap setup.
+- For cache transition assertions, record both `POST /diagnostics/runtime/degraded_state -> data.cache_revision` and `GET /diagnostics/runtime -> hot_paths.cache_revision`; do not look for a top-level `cache_revision` field.
 
 ### repo-validations
 - Start with the narrowest relevant targeted suite.
@@ -78,4 +80,6 @@ Reasoning: use at most 70% of observed headroom and avoid SQLite/process content
 - Use the shared mission API at `http://localhost:3001` for normal route checks and the shared validation API at `http://localhost:3102` only for override setup or validation-only route checks.
 - Do not start or stop services from subagents; the parent validator owns service lifecycle.
 - Avoid mutating global override state unless your assigned assertions explicitly require it, and restore neutral state when your flow finishes.
+- Restore neutral degraded-state override with `mode=off`.
+- For cache/timestamp assertions, preserve before/after diagnostics payloads and cite `hot_paths.cache_revision` plus `hot_paths.shared_market_snapshot.last_successful_live_refresh_at`.
 - Save exact curl commands, HTTP statuses, and key JSON evidence in your flow report.

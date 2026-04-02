@@ -1,0 +1,154 @@
+{
+  "groupId": "mission-api-core",
+  "testedAt": "2026-04-02T18:50:05.166913+00:00",
+  "isolation": {
+    "surface": "mission-api",
+    "baseUrl": "http://localhost:3001",
+    "missionDir": "/home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a",
+    "repoRoot": "/home/whoami/dev/opengecko/openGecko",
+    "port": 3001,
+    "overrideRoutesCalled": false
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SIMPLE-001",
+      "title": "/simple/price rejects requests with no selectors",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /simple/price?vs_currencies=usd",
+          "expected": "400 invalid_parameter with the required missing-selector message",
+          "observed": "Returned 400 with error=invalid_parameter and message=One of ids, names, or symbols must be provided."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a",
+        "network": "curl -sS -D - -o /tmp/mission_simple_missing_body.json 'http://localhost:3001/simple/price?vs_currencies=usd' -> 400",
+        "jsonEvidence": [
+          "trust-slice-semantics/mission-api-core/VAL-SIMPLE-001.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DIAG-001",
+      "title": "/diagnostics/runtime reports ready fresh-live state truthfully",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "200 with readiness.state=ready, degraded.active=false, shared_market_snapshot.available=true, source_class=fresh_live",
+          "observed": "Returned 200 but reported readiness.state=degraded, degraded.active=true, shared_market_snapshot.available=true, source_class=stale_live, reason=database disk image is malformed."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a",
+        "network": "curl -sS -D - -o /tmp/mission_diag_body.json 'http://localhost:3001/diagnostics/runtime' -> 200",
+        "jsonEvidence": [
+          "trust-slice-semantics/mission-api-core/VAL-DIAG-001.json"
+        ]
+      },
+      "issues": "Mission API was not in the expected ready fresh-live state during validation."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "title": "fresh-live trust slice stays coherent across all scoped surfaces",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "Diagnostics report source_class=fresh_live before comparing route outputs",
+          "observed": "Diagnostics reported source_class=stale_live and readiness.state=degraded."
+        },
+        {
+          "action": "GET /simple/price?ids=bitcoin&vs_currencies=usd&include_last_updated_at=true",
+          "expected": "200 with live-backed bitcoin price payload",
+          "observed": "Returned 500 internal_server_error."
+        },
+        {
+          "action": "GET /coins/markets?vs_currency=usd&ids=bitcoin",
+          "expected": "200 with populated market row for bitcoin",
+          "observed": "Returned 500 internal_server_error."
+        },
+        {
+          "action": "GET /coins/bitcoin",
+          "expected": "200 with populated live-backed market_data for bitcoin",
+          "observed": "Returned 500 internal_server_error."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a",
+        "network": [
+          "curl -sS -D - -o /tmp/mission_diag_body.json 'http://localhost:3001/diagnostics/runtime' -> 200",
+          "curl -sS -D - -o /tmp/mission_simple_btc_body.json 'http://localhost:3001/simple/price?ids=bitcoin&vs_currencies=usd&include_last_updated_at=true' -> 500",
+          "curl -sS -D - -o /tmp/mission_markets_btc_body.json 'http://localhost:3001/coins/markets?vs_currency=usd&ids=bitcoin' -> 500",
+          "curl -sS -D - -o /tmp/mission_detail_btc_body.json 'http://localhost:3001/coins/bitcoin' -> 500"
+        ],
+        "jsonEvidence": [
+          "trust-slice-semantics/mission-api-core/VAL-CROSS-001.json"
+        ]
+      },
+      "issues": "The assigned mission API never entered the required fresh_live state, and all three scoped market surfaces returned 500 instead of coherent live-backed values."
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "title": "shared timestamps stay mutually consistent across the trust slice",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "200 with shared_market_snapshot.last_successful_live_refresh_at available for comparison",
+          "observed": "Returned 200 with last_successful_live_refresh_at=2026-04-02T18:40:35.734Z and stale_live degraded state."
+        },
+        {
+          "action": "GET /simple/price?ids=bitcoin&vs_currencies=usd&include_last_updated_at=true plus paired /coins/markets and /coins/bitcoin requests",
+          "expected": "200 responses exposing comparable timestamps across all three trust-slice routes",
+          "observed": "Each route returned 500 internal_server_error, so timestamp fields were unavailable for comparison."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a",
+        "network": [
+          "curl -sS -D - -o /tmp/mission_diag_body.json 'http://localhost:3001/diagnostics/runtime' -> 200",
+          "curl -sS -D - -o /tmp/mission_simple_btc_body.json 'http://localhost:3001/simple/price?ids=bitcoin&vs_currencies=usd&include_last_updated_at=true' -> 500",
+          "curl -sS -D - -o /tmp/mission_markets_btc_body.json 'http://localhost:3001/coins/markets?vs_currency=usd&ids=bitcoin' -> 500",
+          "curl -sS -D - -o /tmp/mission_detail_btc_body.json 'http://localhost:3001/coins/bitcoin' -> 500"
+        ],
+        "jsonEvidence": [
+          "trust-slice-semantics/mission-api-core/VAL-CROSS-006.json"
+        ]
+      },
+      "issues": "Blocked by 500 responses from all three trust-slice routes, preventing timestamp comparison despite diagnostics exposing a stale_live snapshot timestamp."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The shared mission API on port 3001 was already in a degraded stale_live state rather than the expected fresh_live state, so fresh-live assertions could not be exercised as specified.",
+      "resolved": false,
+      "resolution": "None; subagent was instructed not to restart or mutate services.",
+      "affectedAssertions": [
+        "VAL-DIAG-001",
+        "VAL-CROSS-001",
+        "VAL-CROSS-006"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "All scoped market-bearing mission API routes on port 3001 returned 500 internal_server_error for bitcoin requests while /diagnostics/runtime reported degraded stale_live with reason \"database disk image is malformed\".",
+      "affectedAssertions": [
+        "VAL-CROSS-001",
+        "VAL-CROSS-006"
+      ],
+      "quickFixAttempted": "Retried equivalent /simple/price requests with and without optional fields and confirmed the error persisted; no service restarts or override mutations were permitted."
+    }
+  ],
+  "summary": "Tested 4 assigned assertions: 1 passed, 2 failed, and 1 was blocked. /simple/price missing-selector validation passed, but the mission API was degraded/stale_live instead of ready/fresh_live and bitcoin trust-slice routes returned 500 responses."
+}

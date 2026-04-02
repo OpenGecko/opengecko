@@ -1,0 +1,553 @@
+{
+  "groupId": "validation-overrides",
+  "testedAt": "2026-04-02T18:50:09.994528+00:00",
+  "isolation": {
+    "missionDir": "/home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a",
+    "validationApiBaseUrl": "http://localhost:3102",
+    "surface": "validation-api",
+    "port": 3102,
+    "assignedAssertions": [
+      "VAL-SIMPLE-005",
+      "VAL-SIMPLE-006",
+      "VAL-DETAIL-003",
+      "VAL-DETAIL-009",
+      "VAL-MARKETS-008",
+      "VAL-MARKETS-010",
+      "VAL-DIAG-002",
+      "VAL-DIAG-006",
+      "VAL-DIAG-009",
+      "VAL-CROSS-002",
+      "VAL-CROSS-004",
+      "VAL-CROSS-005",
+      "VAL-CROSS-007",
+      "VAL-CROSS-008"
+    ]
+  },
+  "toolsUsed": [
+    "curl",
+    "python3"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-SIMPLE-005",
+      "title": "stale-disallowed simple/price omits stale values",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"stale_disallowed\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "Override applies stale-disallowed runtime state",
+          "observed": "HTTP 200 with {'data': {'mode': 'stale_disallowed', 'reason': 'validation degraded state override', 'cache_revision': 9}}"
+        },
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+          "expected": "Diagnostics report stale disabled state",
+          "observed": "HTTP 200 source_class=stale_live"
+        },
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/simple/price?ids=bitcoin&vs_currencies=usd",
+          "expected": "Empty object instead of stale price",
+          "observed": "HTTP 200 body={}"
+        }
+      ],
+      "evidence": {
+        "network": "POST /diagnostics/runtime/degraded_state -> 200; GET /diagnostics/runtime -> 200; GET /simple/price -> 200",
+        "json": [
+          "stale-disallowed-override.json",
+          "stale-disallowed-diagnostics.json",
+          "stale-disallowed-simple-price.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-MARKETS-008",
+      "title": "stale-disallowed markets null stale market fields",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
+          "expected": "Matching row with stale market-bearing fields nulled",
+          "observed": "HTTP 200 row={'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': None, 'market_cap': None, 'market_cap_rank': 1, 'fully_diluted_valuation': None, 'total_volume': None, 'high_24h': None, 'low_24h': None, 'price_change_24h': None, 'price_change_percentage_24h': None, 'market_cap_change_24h': None, 'market_cap_change_percentage_24h': None, 'circulating_supply': None, 'total_supply': None, 'max_supply': None, 'ath': None, 'ath_change_percentage': None, 'ath_date': None, 'atl': None, 'atl_change_percentage': None, 'atl_date': None, 'roi': None, 'last_updated': None}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/markets -> 200",
+        "json": [
+          "stale-disallowed-diagnostics.json",
+          "stale-disallowed-coins-markets.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": "coins/markets stale-disallowed response did not null expected fields"
+    },
+    {
+      "id": "VAL-DETAIL-003",
+      "title": "stale-disallowed detail nulls market_data",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/bitcoin",
+          "expected": "Coin shell with market_data null",
+          "observed": "HTTP 200 market_data=None"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/bitcoin -> 200",
+        "json": [
+          "stale-disallowed-diagnostics.json",
+          "stale-disallowed-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "stale-disallowed state is coherent across surfaces",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Cross-check stale-disallowed diagnostics and all three route surfaces",
+          "expected": "All surfaces describe the same stale-disallowed state",
+          "observed": "diagnostics source_class=stale_live; simple={}; markets row keys null=[None, None, None]; detail market_data=None"
+        }
+      ],
+      "evidence": {
+        "network": "GET /diagnostics/runtime -> 200; GET /simple/price -> 200; GET /coins/markets -> 200; GET /coins/bitcoin -> 200",
+        "json": [
+          "stale-disallowed-diagnostics.json",
+          "stale-disallowed-simple-price.json",
+          "stale-disallowed-coins-markets.json",
+          "stale-disallowed-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": "stale-disallowed surfaces were not coherent"
+    },
+    {
+      "id": "VAL-DIAG-002",
+      "title": "diagnostics distinguish seeded bootstrap startup semantics",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"seeded_bootstrap\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "Override enables seeded bootstrap mode",
+          "observed": "HTTP 200 with {'data': {'mode': 'seeded_bootstrap', 'reason': 'validation degraded state override', 'cache_revision': 10}}"
+        },
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+          "expected": "Diagnostics report readiness.state=starting and source_class=seeded_bootstrap",
+          "observed": "HTTP 200 readiness.state=starting, source_class=seeded_bootstrap"
+        }
+      ],
+      "evidence": {
+        "network": "POST /diagnostics/runtime/degraded_state -> 200; GET /diagnostics/runtime -> 200",
+        "json": [
+          "seeded-bootstrap-override.json",
+          "seeded-bootstrap-diagnostics.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-MARKETS-010",
+      "title": "degraded seeded-bootstrap markets null richer market fields",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
+          "expected": "Identity/current_price retained but richer market fields null",
+          "observed": "HTTP 200 row={'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': 69134.40833333334, 'market_cap': None, 'market_cap_rank': 1, 'fully_diluted_valuation': None, 'total_volume': 507827383.8753867, 'high_24h': 70681.22808943377, 'low_24h': 66145, 'price_change_24h': -1732.803057126861, 'price_change_percentage_24h': -2.4451407401648173, 'market_cap_change_24h': None, 'market_cap_change_percentage_24h': None, 'circulating_supply': None, 'total_supply': None, 'max_supply': None, 'ath': 69249.31666666667, 'ath_change_percentage': -0.16593424868932605, 'ath_date': '2026-03-26T20:14:46.812Z', 'atl': 68387.90428571429, 'atl_change_percentage': 1.0915732181238764, 'atl_date': '2026-03-26T18:52:31.521Z', 'roi': None, 'last_updated': '2026-04-02T18:50:09.727Z'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/markets -> 200",
+        "json": [
+          "seeded-bootstrap-diagnostics.json",
+          "seeded-bootstrap-coins-markets.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": "seeded bootstrap markets shape implied live completeness"
+    },
+    {
+      "id": "VAL-DETAIL-009",
+      "title": "degraded seeded-bootstrap detail avoids live-complete market_data",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/bitcoin",
+          "expected": "market_data remains bootstrap-shaped, not live-complete",
+          "observed": "HTTP 200 market_data={'current_price': {'usd': 69134.40833333334, 'eur': 59642.25532794142, 'btc': 1, 'eth': 33.386034101838696}, 'market_cap': {'usd': None, 'eur': None, 'btc': None, 'eth': None}, 'total_volume': {'usd': 507827383.8753867, 'eur': 438102693.3156367, 'btc': 7345.50849740239, 'eth': 245237.39718962216}, 'high_24h': {'usd': 70681.22808943377, 'eur': 60976.69675969321, 'btc': 1.0223740940783408, 'eth': 34.133016369735934}, 'low_24h': {'usd': 66145, 'eur': 57063.29270434466, 'btc': 0.9567594717970271, 'eth': 31.942404352672728}, 'fully_diluted_valuation': {'usd': None, 'eur': None, 'btc': None, 'eth': None}, 'circulating_supply': None, 'total_supply': None, 'max_supply': None, 'ath': {'usd': 69249.31666666667, 'eur': 59741.38674920029, 'btc': 1.0016621004808386, 'eth': 33.44152504517266}, 'ath_change_percentage': {'usd': -0.16593424868932605, 'eur': -0.16593424868932605, 'btc': -0.16593424868932605, 'eth': -0.16593424868932605}, 'ath_date': {'usd': '2026-03-26T20:14:46.812Z', 'eur': '2026-03-26T20:14:46.812Z', 'btc': '2026-03-26T20:14:46.812Z', 'eth': '2026-03-26T20:14:46.812Z'}, 'atl': {'usd': 68387.90428571429, 'eur': 58998.24627246839, 'btc': 0.9892021344274798, 'eth': 33.02553619360747}, 'atl_change_percentage': {'usd': 1.0915732181238764, 'eur': 1.0915732181238764, 'btc': 1.0915732181238764, 'eth': 1.0915732181238764}, 'atl_date': {'usd': '2026-03-26T18:52:31.521Z', 'eur': '2026-03-26T18:52:31.521Z', 'btc': '2026-03-26T18:52:31.521Z', 'eth': '2026-03-26T18:52:31.521Z'}, 'price_change_24h': -1732.803057126861, 'price_change_percentage_24h': -2.4451407401648173, 'price_change_percentage_7d': -6.348542902729467, 'price_change_percentage_7d_in_currency': {'usd': -6.348542902729467, 'eur': -6.348542902729467, 'btc': -6.348542902729467, 'eth': -6.348542902729467}, 'market_cap_change_24h': None, 'market_cap_change_percentage_24h': None, 'market_cap_rank': None, 'last_updated': '2026-04-02T18:50:09.727Z', 'sparkline_7d': None}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/bitcoin -> 200",
+        "json": [
+          "seeded-bootstrap-diagnostics.json",
+          "seeded-bootstrap-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "seeded bootstrap semantics are coherent across surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Cross-check seeded bootstrap diagnostics with all three route surfaces",
+          "expected": "Routes may serve bootstrap values while diagnostics stays in startup/bootstrap semantics",
+          "observed": "readiness.state=starting, source_class=seeded_bootstrap, simple price=69134.40833333334, market current_price=69134.40833333334, detail price=69134.40833333334"
+        }
+      ],
+      "evidence": {
+        "network": "GET /diagnostics/runtime -> 200; GET /simple/price -> 200; GET /coins/markets -> 200; GET /coins/bitcoin -> 200",
+        "json": [
+          "seeded-bootstrap-diagnostics.json",
+          "seeded-bootstrap-simple-price.json",
+          "seeded-bootstrap-coins-markets.json",
+          "seeded-bootstrap-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "title": "seeded bootstrap prices stay coherent across surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Compare bitcoin price across simple/price, coins/markets, and coins/{id}",
+          "expected": "Bootstrap-served price is coherent across surfaces",
+          "observed": "simple=69134.40833333334, markets=69134.40833333334, detail=69134.40833333334"
+        }
+      ],
+      "evidence": {
+        "network": "GET /simple/price -> 200; GET /coins/markets -> 200; GET /coins/bitcoin -> 200",
+        "json": [
+          "seeded-bootstrap-diagnostics.json",
+          "seeded-bootstrap-simple-price.json",
+          "seeded-bootstrap-coins-markets.json",
+          "seeded-bootstrap-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "title": "cache_revision changes across override transitions",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"stale_disallowed\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "First override establishes stale-disallowed cache revision",
+          "observed": "cache_revision=None"
+        },
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"seeded_bootstrap\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "Second override changes runtime admissibility and cache revision",
+          "observed": "cache_revision=None"
+        }
+      ],
+      "evidence": {
+        "network": "GET /diagnostics/runtime before/after overrides -> 200/200",
+        "json": [
+          "stale-disallowed-diagnostics.json",
+          "seeded-bootstrap-diagnostics.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": "cache_revision did not change across runtime override transition"
+    },
+    {
+      "id": "VAL-DIAG-009",
+      "title": "override routes return success envelopes",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"stale_disallowed\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "degraded_state returns success envelope",
+          "observed": "HTTP 200 body={'data': {'mode': 'stale_disallowed', 'reason': 'validation degraded state override', 'cache_revision': 9}}"
+        },
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"active\\\": true, \\\"provider\\\": \\\"validation-provider\\\", \\\"reason\\\": \\\"validation probe\\\"}\" -w http://localhost:3102/diagnostics/runtime/provider_failure",
+          "expected": "provider_failure returns success envelope",
+          "observed": "HTTP 200 body={'data': {'active': True, 'reason': 'validation probe'}}"
+        },
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"active\\\": false}\" -w http://localhost:3102/diagnostics/runtime/provider_failure",
+          "expected": "provider failure reset succeeds",
+          "observed": "HTTP 200 body={'data': {'active': False, 'reason': None}}"
+        }
+      ],
+      "evidence": {
+        "network": "POST /diagnostics/runtime/degraded_state -> 200; POST /diagnostics/runtime/provider_failure -> 200; POST reset -> 200",
+        "json": [
+          "stale-disallowed-override.json",
+          "provider-failure-enable.json",
+          "provider-failure-disable.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-SIMPLE-006",
+      "title": "zero-live completed boot makes simple/price unavailable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"zero_live_completed_boot\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+          "expected": "Override enables zero-live completed boot state",
+          "observed": "HTTP 200 body={'data': {'mode': 'zero_live_completed_boot', 'reason': 'validation degraded state override', 'cache_revision': 11}}"
+        },
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+          "expected": "Diagnostics expose zero_live_completed_boot=true",
+          "observed": "HTTP 200 zero_live_completed_boot=True"
+        },
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/simple/price?ids=bitcoin&vs_currencies=usd",
+          "expected": "simple/price returns 503 service_unavailable",
+          "observed": "HTTP 503 body={'error': 'service_unavailable', 'message': 'No usable live market snapshots are available for simple/price.'}"
+        }
+      ],
+      "evidence": {
+        "network": "POST /diagnostics/runtime/degraded_state -> 200; GET /diagnostics/runtime -> 200; GET /simple/price -> 503",
+        "json": [
+          "zero-live-completed-boot-override.json",
+          "zero-live-completed-boot-diagnostics.json",
+          "zero-live-completed-boot-simple-price.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-DIAG-006",
+      "title": "diagnostics expose zero_live_completed_boot",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+          "expected": "Machine-readable zero_live_completed_boot flag is true",
+          "observed": "HTTP 200 readiness={'state': 'ready', 'listener_bound': True, 'listener_bind_deferred': False, 'initial_sync_completed': True, 'degraded': False, 'zero_live_completed_boot': True, 'validation_override_active': True}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /diagnostics/runtime -> 200",
+        "json": [
+          "zero-live-completed-boot-diagnostics.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-008",
+      "title": "zero-live completed boot stays explicit across surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Cross-check zero-live completed boot behavior across diagnostics and trust-slice routes",
+          "expected": "simple/price unavailable while markets/detail stay explicit about same condition",
+          "observed": "diagnostics zero_live_completed_boot=True; simple HTTP 503; markets row={'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin', 'image': 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400', 'current_price': None, 'market_cap': None, 'market_cap_rank': 1, 'fully_diluted_valuation': None, 'total_volume': None, 'high_24h': 70681.22808943377, 'low_24h': 66145, 'price_change_24h': None, 'price_change_percentage_24h': None, 'market_cap_change_24h': None, 'market_cap_change_percentage_24h': None, 'circulating_supply': None, 'total_supply': None, 'max_supply': None, 'ath': None, 'ath_change_percentage': None, 'ath_date': None, 'atl': None, 'atl_change_percentage': None, 'atl_date': None, 'roi': None, 'last_updated': None}; detail market_data=None"
+        }
+      ],
+      "evidence": {
+        "network": "GET /diagnostics/runtime -> 200; GET /simple/price -> 503; GET /coins/markets -> 200; GET /coins/bitcoin -> 200",
+        "json": [
+          "zero-live-completed-boot-diagnostics.json",
+          "zero-live-completed-boot-simple-price.json",
+          "zero-live-completed-boot-coins-markets.json",
+          "zero-live-completed-boot-coin-detail.json"
+        ],
+        "consoleErrors": "n/a"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "Failed to restore neutral degraded_state override",
+      "affectedAssertions": [
+        "VAL-SIMPLE-005",
+        "VAL-SIMPLE-006",
+        "VAL-DETAIL-003",
+        "VAL-DETAIL-009",
+        "VAL-MARKETS-008",
+        "VAL-MARKETS-010",
+        "VAL-DIAG-002",
+        "VAL-DIAG-006",
+        "VAL-DIAG-009",
+        "VAL-CROSS-002",
+        "VAL-CROSS-004",
+        "VAL-CROSS-005",
+        "VAL-CROSS-007",
+        "VAL-CROSS-008"
+      ],
+      "quickFixAttempted": "POST /diagnostics/runtime/degraded_state mode=none returned HTTP 400"
+    }
+  ],
+  "artifacts": {
+    "evidenceDir": "/home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a/evidence/trust-slice-semantics/validation-overrides",
+    "commands": [
+      {
+        "assertion": "BASELINE",
+        "label": "baseline-diagnostics-runtime",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+        "status": 200,
+        "evidenceFile": "baseline-diagnostics-runtime.json"
+      },
+      {
+        "assertion": "VAL-DIAG-009",
+        "label": "stale-disallowed-override",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"stale_disallowed\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+        "status": 200,
+        "evidenceFile": "stale-disallowed-override.json"
+      },
+      {
+        "assertion": "VAL-CROSS-002",
+        "label": "stale-disallowed-diagnostics",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+        "status": 200,
+        "evidenceFile": "stale-disallowed-diagnostics.json"
+      },
+      {
+        "assertion": "VAL-SIMPLE-005",
+        "label": "stale-disallowed-simple-price",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/simple/price?ids=bitcoin&vs_currencies=usd",
+        "status": 200,
+        "evidenceFile": "stale-disallowed-simple-price.json"
+      },
+      {
+        "assertion": "VAL-MARKETS-008",
+        "label": "stale-disallowed-coins-markets",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
+        "status": 200,
+        "evidenceFile": "stale-disallowed-coins-markets.json"
+      },
+      {
+        "assertion": "VAL-DETAIL-003",
+        "label": "stale-disallowed-coin-detail",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/bitcoin",
+        "status": 200,
+        "evidenceFile": "stale-disallowed-coin-detail.json"
+      },
+      {
+        "assertion": "VAL-DIAG-009",
+        "label": "seeded-bootstrap-override",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"seeded_bootstrap\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+        "status": 200,
+        "evidenceFile": "seeded-bootstrap-override.json"
+      },
+      {
+        "assertion": "VAL-DIAG-002",
+        "label": "seeded-bootstrap-diagnostics",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+        "status": 200,
+        "evidenceFile": "seeded-bootstrap-diagnostics.json"
+      },
+      {
+        "assertion": "VAL-CROSS-007",
+        "label": "seeded-bootstrap-simple-price",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/simple/price?ids=bitcoin&vs_currencies=usd",
+        "status": 200,
+        "evidenceFile": "seeded-bootstrap-simple-price.json"
+      },
+      {
+        "assertion": "VAL-MARKETS-010",
+        "label": "seeded-bootstrap-coins-markets",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
+        "status": 200,
+        "evidenceFile": "seeded-bootstrap-coins-markets.json"
+      },
+      {
+        "assertion": "VAL-DETAIL-009",
+        "label": "seeded-bootstrap-coin-detail",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/bitcoin",
+        "status": 200,
+        "evidenceFile": "seeded-bootstrap-coin-detail.json"
+      },
+      {
+        "assertion": "VAL-DIAG-009",
+        "label": "provider-failure-enable",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"active\\\": true, \\\"provider\\\": \\\"validation-provider\\\", \\\"reason\\\": \\\"validation probe\\\"}\" -w http://localhost:3102/diagnostics/runtime/provider_failure",
+        "status": 200,
+        "evidenceFile": "provider-failure-enable.json"
+      },
+      {
+        "assertion": "VAL-DIAG-009",
+        "label": "provider-failure-disable",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"active\\\": false}\" -w http://localhost:3102/diagnostics/runtime/provider_failure",
+        "status": 200,
+        "evidenceFile": "provider-failure-disable.json"
+      },
+      {
+        "assertion": "VAL-DIAG-009",
+        "label": "zero-live-completed-boot-override",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"zero_live_completed_boot\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+        "status": 200,
+        "evidenceFile": "zero-live-completed-boot-override.json"
+      },
+      {
+        "assertion": "VAL-DIAG-006",
+        "label": "zero-live-completed-boot-diagnostics",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+        "status": 200,
+        "evidenceFile": "zero-live-completed-boot-diagnostics.json"
+      },
+      {
+        "assertion": "VAL-SIMPLE-006",
+        "label": "zero-live-completed-boot-simple-price",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/simple/price?ids=bitcoin&vs_currencies=usd",
+        "status": 503,
+        "evidenceFile": "zero-live-completed-boot-simple-price.json"
+      },
+      {
+        "assertion": "VAL-CROSS-008",
+        "label": "zero-live-completed-boot-coins-markets",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
+        "status": 200,
+        "evidenceFile": "zero-live-completed-boot-coins-markets.json"
+      },
+      {
+        "assertion": "VAL-CROSS-008",
+        "label": "zero-live-completed-boot-coin-detail",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/bitcoin",
+        "status": 200,
+        "evidenceFile": "zero-live-completed-boot-coin-detail.json"
+      },
+      {
+        "assertion": "RESTORE",
+        "label": "restore-neutral-override",
+        "command": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"none\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
+        "status": 400,
+        "evidenceFile": "restore-neutral-override.json"
+      },
+      {
+        "assertion": "RESTORE",
+        "label": "final-diagnostics-runtime",
+        "command": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/diagnostics/runtime",
+        "status": 200,
+        "evidenceFile": "final-diagnostics-runtime.json"
+      }
+    ],
+    "baselineDiagnostics": "baseline-diagnostics-runtime.json",
+    "neutralRestore": {
+      "status": 400,
+      "file": "restore-neutral-override.json"
+    },
+    "finalDiagnostics": "final-diagnostics-runtime.json",
+    "baselineCacheRevision": null,
+    "finalCacheRevision": null
+  },
+  "summary": "Tested 14 assertions: 10 passed, 4 failed, 0 blocked, 0 skipped."
+}
