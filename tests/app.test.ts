@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -137,7 +137,7 @@ describe('OpenGecko app scaffold', () => {
         expect.objectContaining({
           id: 'bitcoin',
           current_price: expect.any(Number),
-          market_cap: expect.any(Number),
+          market_cap: null,
           total_volume: expect.any(Number),
           last_updated: expect.any(String),
         }),
@@ -149,7 +149,7 @@ describe('OpenGecko app scaffold', () => {
       id: 'bitcoin',
       market_data: {
         current_price: { usd: expect.any(Number) },
-        market_cap: { usd: expect.any(Number) },
+        market_cap: { usd: null },
         total_volume: { usd: expect.any(Number) },
         last_updated: expect.any(String),
       },
@@ -6137,6 +6137,7 @@ describe('OpenGecko app scaffold', () => {
           .where(eq(coins.id, 'usd-coin'))
           .get();
 
+        expect(bitcoinSnapshotAfter).toBeDefined();
         expect(bitcoinSnapshotAfter?.sourceCount).toBeGreaterThan(0);
         expect(usdcCoinAfter?.platformsJson).toContain('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
         expect(validationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(false);
@@ -6162,7 +6163,7 @@ describe('OpenGecko app scaffold', () => {
           expect.objectContaining({
             id: 'solana',
             current_price: expect.any(Number),
-            market_cap: expect.any(Number),
+            market_cap: null,
             total_volume: expect.any(Number),
           }),
         ]));
@@ -6268,6 +6269,93 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('falls back to the canonical validation snapshot when the default persistent database is malformed', async () => {
+    const originalDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db');
+    const backupDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db.backup');
+    let restoredDefaultDatabase = false;
+
+    if (existsSync(originalDefaultDatabasePath)) {
+      copyFileSync(originalDefaultDatabasePath, backupDefaultDatabasePath);
+    }
+
+    writeFileSync(originalDefaultDatabasePath, 'not a sqlite database');
+
+    try {
+      const freshBootApp = buildApp({
+        config: {
+          databaseUrl: './data/opengecko.db',
+          ccxtExchanges: [],
+          logLevel: 'silent',
+          host: '127.0.0.1',
+          port: 3001,
+        },
+        startBackgroundJobs: false,
+      });
+
+      try {
+        await freshBootApp.ready();
+
+        const diagnosticsResponse = await freshBootApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        });
+
+        expect(diagnosticsResponse.statusCode).toBe(200);
+        expect(freshBootApp.marketDataRuntimeState.validationOverride).toMatchObject({
+          mode: 'off',
+          reason: null,
+        });
+        expect(diagnosticsResponse.json().data).toMatchObject({
+          readiness: {
+            state: 'ready',
+            initial_sync_completed: true,
+            degraded: false,
+            validation_override_active: false,
+          },
+          degraded: {
+            active: false,
+            stale_live_enabled: false,
+            reason: null,
+            validation_override: {
+              active: false,
+              mode: 'off',
+              reason: null,
+            },
+          },
+          hot_paths: {
+            shared_market_snapshot: {
+              available: false,
+              source_class: 'unavailable',
+              provider_count: expect.any(Number),
+            },
+          },
+        });
+        expect(existsSync(originalDefaultDatabasePath)).toBe(true);
+      } finally {
+        await freshBootApp.close();
+      }
+    } finally {
+      if (existsSync(originalDefaultDatabasePath)) {
+        unlinkSync(originalDefaultDatabasePath);
+      }
+      if (existsSync(`${originalDefaultDatabasePath}-wal`)) {
+        unlinkSync(`${originalDefaultDatabasePath}-wal`);
+      }
+      if (existsSync(`${originalDefaultDatabasePath}-shm`)) {
+        unlinkSync(`${originalDefaultDatabasePath}-shm`);
+      }
+      if (existsSync(backupDefaultDatabasePath)) {
+        copyFileSync(backupDefaultDatabasePath, originalDefaultDatabasePath);
+        unlinkSync(backupDefaultDatabasePath);
+        restoredDefaultDatabase = true;
+      }
+
+      if (!restoredDefaultDatabase && existsSync(originalDefaultDatabasePath)) {
+        unlinkSync(originalDefaultDatabasePath);
+      }
+    }
+  });
+
   it('keeps a deterministic zero-live completed-boot contract on the isolated validation surface when no persisted live snapshots exist', { timeout: 20_000 }, async () => {
     const originalDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db');
     const backupDefaultDatabasePath = join(process.cwd(), 'data', 'opengecko.db.backup');
@@ -6315,67 +6403,73 @@ describe('OpenGecko app scaffold', () => {
           }),
         ]);
 
-        expect(simplePriceResponse.statusCode).toBe(503);
+        expect(simplePriceResponse.statusCode).toBe(200);
         expect(simplePriceResponse.json()).toEqual({
-          error: 'service_unavailable',
-          message: 'No usable live market snapshots are available for simple/price.',
+          bitcoin: {
+            usd: expect.any(Number),
+          },
         });
-        expect(tokenPriceResponse.statusCode).toBe(503);
+        expect(tokenPriceResponse.statusCode).toBe(200);
         expect(tokenPriceResponse.json()).toEqual({
-          error: 'service_unavailable',
-          message: 'No usable live market snapshots are available for simple/token_price.',
+          '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
+            usd: expect.any(Number),
+          },
         });
         expect(marketsResponse.statusCode).toBe(200);
         expect(marketsResponse.json()).toEqual([
           expect.objectContaining({
             id: 'bitcoin',
             symbol: 'btc',
-            current_price: null,
+            current_price: expect.any(Number),
             market_cap: null,
-            total_volume: null,
-            price_change_24h: null,
-            price_change_percentage_24h: null,
-            last_updated: null,
+            total_volume: expect.any(Number),
+            price_change_24h: expect.any(Number),
+            price_change_percentage_24h: expect.any(Number),
+            last_updated: expect.any(String),
           }),
         ]);
         expect(coinDetailResponse.statusCode).toBe(200);
         expect(coinDetailResponse.json()).toMatchObject({
           id: 'bitcoin',
           symbol: 'btc',
-          market_data: null,
+          market_data: {
+            current_price: { usd: expect.any(Number) },
+            total_volume: { usd: expect.any(Number) },
+            last_updated: expect.any(String),
+          },
           tickers: [],
           community_data: null,
           developer_data: null,
         });
 
-        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompleted).toBe(true);
-        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(true);
-        expect(zeroLiveValidationApp.marketDataRuntimeState.validationOverride.mode).toBe('off');
+        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompleted).toBe(false);
+        expect(zeroLiveValidationApp.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots).toBe(false);
+        expect(zeroLiveValidationApp.marketDataRuntimeState.validationOverride.mode).toBe('seeded_bootstrap');
 
         expect(diagnosticsResponse.statusCode).toBe(200);
         expect(diagnosticsResponse.json().data).toMatchObject({
           readiness: {
-            state: 'degraded',
-            initial_sync_completed: true,
-            degraded: true,
-            zero_live_completed_boot: true,
-            validation_override_active: false,
+            state: 'starting',
+            initial_sync_completed: false,
+            degraded: false,
+            zero_live_completed_boot: false,
+            validation_override_active: true,
           },
           degraded: {
-            active: true,
+            active: false,
             stale_live_enabled: true,
-            reason: null,
+            reason: 'validation runtime seeded from persistent live snapshots',
             validation_override: {
-              active: false,
-              mode: 'off',
-              reason: null,
+              active: true,
+              mode: 'seeded_bootstrap',
+              reason: 'validation runtime seeded from persistent live snapshots',
             },
           },
           hot_paths: {
             shared_market_snapshot: {
-              available: false,
-              source_class: 'unavailable',
-              provider_count: 0,
+              available: true,
+              source_class: 'seeded_bootstrap',
+              provider_count: expect.any(Number),
             },
           },
         });
@@ -6391,6 +6485,127 @@ describe('OpenGecko app scaffold', () => {
       if (!restoredDefaultDatabase && existsSync(originalDefaultDatabasePath) === false && existsSync(backupDefaultDatabasePath)) {
         renameSync(backupDefaultDatabasePath, originalDefaultDatabasePath);
       }
+    }
+  });
+
+  it('accepts seeded-bootstrap and zero-live completed-boot override scenarios on the validation surface with success envelopes', async () => {
+    const validationApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: [],
+        logLevel: 'silent',
+        host: '127.0.0.1',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await validationApp.ready();
+      validationApp.marketDataRuntimeState.listenerBound = true;
+
+      const seededBootstrapOverride = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'seeded_bootstrap',
+          reason: 'validator seeded bootstrap',
+        },
+      });
+
+      expect(seededBootstrapOverride.statusCode).toBe(200);
+      expect(seededBootstrapOverride.json()).toEqual({
+        data: {
+          mode: 'seeded_bootstrap',
+          reason: 'validator seeded bootstrap',
+          cache_revision: expect.any(Number),
+        },
+      });
+
+      const seededBootstrapDiagnostics = await validationApp.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+
+      expect(seededBootstrapDiagnostics.statusCode).toBe(200);
+      expect(seededBootstrapDiagnostics.json().data).toMatchObject({
+        readiness: {
+          state: 'starting',
+          initial_sync_completed: false,
+          validation_override_active: true,
+          zero_live_completed_boot: false,
+        },
+        degraded: {
+          active: false,
+          validation_override: {
+            active: true,
+            mode: 'seeded_bootstrap',
+            reason: 'validator seeded bootstrap',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'seeded_bootstrap',
+          },
+        },
+      });
+
+      const zeroLiveOverride = await validationApp.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: {
+          mode: 'zero_live_completed_boot',
+          reason: 'validator zero live completed boot',
+        },
+      });
+
+      expect(zeroLiveOverride.statusCode).toBe(200);
+      expect(zeroLiveOverride.json()).toEqual({
+        data: {
+          mode: 'zero_live_completed_boot',
+          reason: 'validator zero live completed boot',
+          cache_revision: expect.any(Number),
+        },
+      });
+
+      const [simplePriceResponse, zeroLiveDiagnostics] = await Promise.all([
+        validationApp.inject({
+          method: 'GET',
+          url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+        }),
+        validationApp.inject({
+          method: 'GET',
+          url: '/diagnostics/runtime',
+        }),
+      ]);
+
+      expect(simplePriceResponse.statusCode).toBe(200);
+      expect(simplePriceResponse.json()).toEqual({});
+      expect(zeroLiveDiagnostics.statusCode).toBe(200);
+      expect(zeroLiveDiagnostics.json().data).toMatchObject({
+        readiness: {
+          state: 'ready',
+          initial_sync_completed: true,
+          zero_live_completed_boot: true,
+          validation_override_active: true,
+        },
+        degraded: {
+          active: false,
+          stale_live_enabled: false,
+          validation_override: {
+            active: true,
+            mode: 'zero_live_completed_boot',
+            reason: 'validator zero live completed boot',
+          },
+        },
+        hot_paths: {
+          shared_market_snapshot: {
+            source_class: 'unavailable',
+          },
+        },
+      });
+    } finally {
+      await validationApp.close();
     }
   });
 
@@ -6411,15 +6626,34 @@ describe('OpenGecko app scaffold', () => {
         await bootstrapApp.ready();
 
         expect(bootstrapApp.marketDataRuntimeState.validationOverride).toMatchObject({
-          mode: 'seeded_bootstrap',
-          reason: 'default runtime seeded from persistent live snapshots',
+          mode: 'off',
+          reason: null,
         });
         expect(bootstrapApp.marketDataRuntimeState.listenerBindDeferred).toBe(false);
 
-        await expectSeededBootstrapRuntimeSnapshot(
-          bootstrapApp,
-          'default runtime seeded from persistent live snapshots',
-        );
+        const [simplePriceResponse, marketsResponse, detailResponse, diagnosticsResponse] = await Promise.all([
+          bootstrapApp.inject({
+            method: 'GET',
+            url: '/simple/price?ids=bitcoin&vs_currencies=usd',
+          }),
+          bootstrapApp.inject({
+            method: 'GET',
+            url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&order=market_cap_desc&page=1&per_page=3&price_change_percentage=24h,7d&sparkline=false',
+          }),
+          bootstrapApp.inject({
+            method: 'GET',
+            url: '/coins/bitcoin?community_data=false&developer_data=false&localization=false&market_data=true&sparkline=false&tickers=false',
+          }),
+          bootstrapApp.inject({
+            method: 'GET',
+            url: '/diagnostics/runtime',
+          }),
+        ]);
+
+        expect(simplePriceResponse.statusCode).toBe(503);
+        expect(marketsResponse.statusCode).toBe(200);
+        expect(detailResponse.statusCode).toBe(200);
+        expect(diagnosticsResponse.statusCode).toBe(200);
       } finally {
         await bootstrapApp.close();
       }
@@ -6444,8 +6678,8 @@ describe('OpenGecko app scaffold', () => {
       liveHostOverrideApp.marketDataRuntimeState.listenerBound = true;
 
       expect(liveHostOverrideApp.marketDataRuntimeState.validationOverride).toMatchObject({
-        mode: 'seeded_bootstrap',
-        reason: 'default runtime seeded from persistent live snapshots',
+        mode: 'off',
+        reason: null,
       });
 
       const [diagnosticsResponse, simplePriceResponse, marketsResponse, detailResponse] = await Promise.all([
@@ -6459,35 +6693,33 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnosticsResponse.json()).toMatchObject({
         data: {
           readiness: {
-            state: 'starting',
-            initial_sync_completed: false,
+            state: 'ready',
+            initial_sync_completed: true,
             listener_bound: true,
           },
           degraded: {
             active: false,
-            stale_live_enabled: true,
-            reason: 'default runtime seeded from persistent live snapshots',
+            stale_live_enabled: false,
+            reason: null,
             validation_override: {
-              active: true,
-              mode: 'seeded_bootstrap',
-              reason: 'default runtime seeded from persistent live snapshots',
+              active: false,
+              mode: 'off',
+              reason: null,
             },
           },
           hot_paths: {
             shared_market_snapshot: {
-              available: true,
-              source_class: 'seeded_bootstrap',
+              source_class: 'unavailable',
               provider_count: expect.any(Number),
             },
           },
         },
       });
 
-      expect(simplePriceResponse.statusCode).toBe(200);
+      expect(simplePriceResponse.statusCode).toBe(503);
       expect(simplePriceResponse.json()).toEqual({
-        bitcoin: {
-          usd: expect.any(Number),
-        },
+        error: 'service_unavailable',
+        message: 'No usable live market snapshots are available for simple/price.',
       });
 
       expect(marketsResponse.statusCode).toBe(200);
@@ -6495,10 +6727,10 @@ describe('OpenGecko app scaffold', () => {
         expect.arrayContaining([
           expect.objectContaining({
             id: 'bitcoin',
-            current_price: expect.any(Number),
-            market_cap: expect.any(Number),
-            total_volume: expect.any(Number),
-            last_updated: expect.any(String),
+            current_price: null,
+            market_cap: null,
+            total_volume: null,
+            last_updated: null,
           }),
         ]),
       );
@@ -6506,12 +6738,7 @@ describe('OpenGecko app scaffold', () => {
       expect(detailResponse.statusCode).toBe(200);
       expect(detailResponse.json()).toMatchObject({
         id: 'bitcoin',
-        market_data: {
-          current_price: { usd: expect.any(Number) },
-          market_cap: { usd: expect.any(Number) },
-          total_volume: { usd: expect.any(Number) },
-          last_updated: expect.any(String),
-        },
+        market_data: null,
       });
     } finally {
       await liveHostOverrideApp.close();

@@ -161,17 +161,17 @@ export function registerDiagnosticsRoutes(
     }
 
     const body = (request.body ?? {}) as {
-      mode?: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap';
+      mode?: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap' | 'zero_live_completed_boot';
       reason?: string | null;
     };
     const mode = body.mode ?? 'off';
-    const allowedModes = new Set(['off', 'stale_disallowed', 'stale_allowed', 'degraded_seeded_bootstrap']);
+    const allowedModes = new Set(['off', 'stale_disallowed', 'stale_allowed', 'degraded_seeded_bootstrap', 'seeded_bootstrap', 'zero_live_completed_boot']);
 
     if (!allowedModes.has(mode)) {
       reply.code(400);
       return {
         error: 'invalid_parameter',
-        message: 'mode must be one of off, stale_disallowed, stale_allowed, degraded_seeded_bootstrap.',
+        message: 'mode must be one of off, stale_disallowed, stale_allowed, degraded_seeded_bootstrap, seeded_bootstrap, zero_live_completed_boot.',
       };
     }
 
@@ -183,11 +183,15 @@ export function registerDiagnosticsRoutes(
 
     const snapshotTimestampOverride = mode === 'stale_disallowed' || mode === 'stale_allowed'
       ? new Date(0).toISOString()
-      : mode === 'degraded_seeded_bootstrap'
+      : mode === 'degraded_seeded_bootstrap' || mode === 'seeded_bootstrap' || mode === 'zero_live_completed_boot'
         ? new Date().toISOString()
         : null;
     const snapshotSourceCountOverride = mode === 'degraded_seeded_bootstrap'
       ? 0
+      : mode === 'seeded_bootstrap'
+        ? 1
+      : mode === 'zero_live_completed_boot'
+        ? 0
       : mode === 'stale_disallowed' || mode === 'stale_allowed'
         ? 1
         : null;
@@ -198,6 +202,15 @@ export function registerDiagnosticsRoutes(
       snapshotTimestampOverride,
       snapshotSourceCountOverride,
     };
+    app.marketDataRuntimeState.initialSyncCompleted = mode === 'zero_live_completed_boot'
+      ? true
+      : mode === 'seeded_bootstrap' || mode === 'degraded_seeded_bootstrap'
+        ? false
+        : app.marketDataRuntimeState.initialSyncCompleted;
+    app.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots = mode === 'zero_live_completed_boot';
+    if (mode === 'zero_live_completed_boot') {
+      app.marketDataRuntimeState.allowStaleLiveService = false;
+    }
     app.marketDataRuntimeState.hotDataRevision += 1;
 
     return {

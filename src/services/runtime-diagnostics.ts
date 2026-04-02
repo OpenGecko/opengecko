@@ -24,7 +24,7 @@ export type RuntimeDiagnostics = {
     };
     validation_override: {
       active: boolean;
-      mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap';
+      mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap' | 'zero_live_completed_boot';
       reason: string | null;
     };
   };
@@ -76,6 +76,8 @@ export function buildRuntimeDiagnostics(
   const validationOverrideActive = validationOverride.mode !== 'off';
   const effectiveInitialSyncCompleted = validationOverride.mode === 'degraded_seeded_bootstrap' || validationOverride.mode === 'seeded_bootstrap'
     ? false
+    : validationOverride.mode === 'zero_live_completed_boot'
+      ? true
     : validationOverrideActive
       ? true
       : runtimeState.initialSyncCompleted;
@@ -87,6 +89,8 @@ export function buildRuntimeDiagnostics(
         ? latestSnapshotOwnership === 'live'
         : validationOverride.mode === 'degraded_seeded_bootstrap'
           ? false
+          : validationOverride.mode === 'zero_live_completed_boot'
+            ? false
           : runtimeState.allowStaleLiveService;
   const effectiveFailureReason = validationOverride.reason ?? runtimeState.syncFailureReason;
   const effectiveSeededBootstrapFallbackActive = validationOverride.mode === 'degraded_seeded_bootstrap'
@@ -110,6 +114,10 @@ export function buildRuntimeDiagnostics(
 
       if (validationOverride.mode === 'seeded_bootstrap') {
         return 'seeded_bootstrap' as const;
+      }
+
+      if (validationOverride.mode === 'zero_live_completed_boot') {
+        return 'unavailable' as const;
       }
 
       if (validationOverride.mode === 'stale_allowed' && latestSnapshotOwnership === 'live' && latestSnapshotFreshness?.isStale) {
@@ -171,7 +179,9 @@ export function buildRuntimeDiagnostics(
       listener_bind_deferred: runtimeState.listenerBindDeferred,
       initial_sync_completed: effectiveInitialSyncCompleted,
       degraded: effectiveDegradedActive,
-      zero_live_completed_boot: runtimeState.initialSyncCompletedWithoutUsableLiveSnapshots,
+      zero_live_completed_boot: validationOverride.mode === 'zero_live_completed_boot'
+        ? true
+        : runtimeState.initialSyncCompletedWithoutUsableLiveSnapshots,
       validation_override_active: validationOverrideActive,
     },
     degraded: {

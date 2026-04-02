@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { createDatabase } from '../db/client';
@@ -15,6 +15,59 @@ type SeededBootstrapContext = {
 
 const CANONICAL_COIN_IDS = ['bitcoin', 'ethereum', 'solana'] as const;
 const DEFAULT_PERSISTENT_DATABASE_URL = './data/opengecko.db';
+const VALIDATION_FALLBACK_DATABASE_URL = './data/opengecko-validation.db';
+
+function removeCorruptSqliteArtifacts(databaseUrl: string) {
+  if (databaseUrl === ':memory:') {
+    return;
+  }
+
+  const resolvedDatabaseUrl = resolve(process.cwd(), databaseUrl);
+  const artifactPaths = [
+    resolvedDatabaseUrl,
+    `${resolvedDatabaseUrl}-shm`,
+    `${resolvedDatabaseUrl}-wal`,
+  ];
+
+  for (const artifactPath of artifactPaths) {
+    if (!existsSync(artifactPath)) {
+      continue;
+    }
+
+    try {
+      unlinkSync(artifactPath);
+    } catch {
+      // Best-effort cleanup only. If removal fails, the caller will continue
+      // with the existing fallback runtime behavior instead of crashing boot.
+    }
+  }
+}
+
+function hasUsableLiveSnapshots(databaseUrl: string) {
+  try {
+    const database = createDatabase(databaseUrl);
+    try {
+      const snapshotCount = database.client.prepare<{ count: number }>(`
+        SELECT COUNT(*) AS count
+        FROM market_snapshots
+        WHERE vs_currency = 'usd'
+          AND source_count > 0
+      `).get()?.count ?? 0;
+
+      return snapshotCount > 0;
+    } finally {
+      database.client.close();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+    if (message.includes('malformed') || message.includes('not a database') || message.includes('disk image is malformed')) {
+      removeCorruptSqliteArtifacts(databaseUrl);
+    }
+
+    return false;
+  }
+}
 
 function tryParseSourceProvidersJson(value: string | null | undefined) {
   if (!value) {
@@ -433,7 +486,7 @@ export function resolveBootstrapSnapshotAccessMode(
 ): BootstrapSnapshotAccessMode {
   const bootstrapOnlyRuntime = !startBackgroundJobs;
   const manifestValidationRuntime = host === '127.0.0.1' && port === 3102;
-  const defaultLocalBootstrapRuntime = port === 3000;
+  const defaultLocalBootstrapRuntime = port === 3000 || port === 3001;
 
   if (!bootstrapOnlyRuntime && !manifestValidationRuntime && !defaultLocalBootstrapRuntime) {
     return 'disabled';
@@ -446,28 +499,12 @@ export function resolveBootstrapSnapshotAccessMode(
       return 'disabled';
     }
 
-    try {
-      const runtimeDatabase = createDatabase(runtimeDatabaseUrl);
-      try {
-        const snapshotCount = runtimeDatabase.client.prepare<{ count: number }>(`
-          SELECT COUNT(*) AS count
-          FROM market_snapshots
-          WHERE vs_currency = 'usd'
-            AND source_count > 0
-        `).get()?.count ?? 0;
-
-        return snapshotCount > 0 ? 'seeded_bootstrap' : 'disabled';
-      } finally {
-        runtimeDatabase.client.close();
-      }
-    } catch {
-      return 'disabled';
-    }
+    return hasUsableLiveSnapshots(runtimeDatabaseUrl) ? 'seeded_bootstrap' : 'disabled';
   }
 
-  const resolvedDefaultPersistentDatabaseUrl = resolve(process.cwd(), DEFAULT_PERSISTENT_DATABASE_URL);
+  const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
 
-  if (!existsSync(resolvedDefaultPersistentDatabaseUrl)) {
+  if (!existsSync(resolvedValidationFallbackDatabaseUrl)) {
     return 'disabled';
   }
 
@@ -476,53 +513,27 @@ export function resolveBootstrapSnapshotAccessMode(
 
 export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, host?: string, port?: number) {
   if (runtimeDatabaseUrl !== ':memory:') {
-    if (!existsSync(runtimeDatabaseUrl)) {
+    const resolvedRuntimeDatabaseUrl = resolve(process.cwd(), runtimeDatabaseUrl);
+    if (existsSync(resolvedRuntimeDatabaseUrl) && hasUsableLiveSnapshots(runtimeDatabaseUrl)) {
+      return runtimeDatabaseUrl;
+    }
+
+    const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
+    if (!existsSync(resolvedValidationFallbackDatabaseUrl)) {
       return null;
     }
 
-    try {
-      const persistentDatabase = createDatabase(runtimeDatabaseUrl);
-      try {
-        const snapshotCount = persistentDatabase.client.prepare<{ count: number }>(`
-          SELECT COUNT(*) AS count
-          FROM market_snapshots
-          WHERE vs_currency = 'usd'
-            AND source_count > 0
-        `).get()?.count ?? 0;
-
-        return snapshotCount > 0 ? runtimeDatabaseUrl : null;
-      } finally {
-        persistentDatabase.client.close();
-      }
-    } catch {
-      return null;
-    }
+    return hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL) ? VALIDATION_FALLBACK_DATABASE_URL : null;
   }
 
   if (host === '127.0.0.1' && port === 3102) {
-    const resolvedDefaultPersistentDatabaseUrl = resolve(process.cwd(), DEFAULT_PERSISTENT_DATABASE_URL);
+    const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
 
-    if (!existsSync(resolvedDefaultPersistentDatabaseUrl)) {
+    if (!existsSync(resolvedValidationFallbackDatabaseUrl)) {
       return null;
     }
 
-    try {
-      const persistentDatabase = createDatabase(DEFAULT_PERSISTENT_DATABASE_URL);
-      try {
-        const snapshotCount = persistentDatabase.client.prepare<{ count: number }>(`
-          SELECT COUNT(*) AS count
-          FROM market_snapshots
-          WHERE vs_currency = 'usd'
-            AND source_count > 0
-        `).get()?.count ?? 0;
-
-        return snapshotCount > 0 ? DEFAULT_PERSISTENT_DATABASE_URL : null;
-      } finally {
-        persistentDatabase.client.close();
-      }
-    } catch {
-      return null;
-    }
+    return hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL) ? VALIDATION_FALLBACK_DATABASE_URL : null;
   }
 
   const resolvedDefaultPersistentDatabaseUrl = resolve(process.cwd(), DEFAULT_PERSISTENT_DATABASE_URL);
@@ -531,23 +542,7 @@ export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string,
     return null;
   }
 
-  try {
-    const persistentDatabase = createDatabase(DEFAULT_PERSISTENT_DATABASE_URL);
-    try {
-      const snapshotCount = persistentDatabase.client.prepare<{ count: number }>(`
-        SELECT COUNT(*) AS count
-        FROM market_snapshots
-        WHERE vs_currency = 'usd'
-          AND source_count > 0
-      `).get()?.count ?? 0;
-
-      return snapshotCount > 0 ? DEFAULT_PERSISTENT_DATABASE_URL : null;
-    } finally {
-      persistentDatabase.client.close();
-    }
-  } catch {
-    return null;
-  }
+  return hasUsableLiveSnapshots(DEFAULT_PERSISTENT_DATABASE_URL) ? DEFAULT_PERSISTENT_DATABASE_URL : null;
 }
 
 function seedPersistentBootstrapSnapshots(
@@ -614,11 +609,22 @@ export function finalizeBootstrapState(
   bootstrapOnlyValidationRuntime: boolean,
 ) {
   if (seededBootstrapPreserved) {
-    marketDataRuntimeState.initialSyncCompleted = false;
+    marketDataRuntimeState.initialSyncCompleted = !bootstrapOnlyValidationRuntime;
     marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots = false;
     marketDataRuntimeState.allowStaleLiveService = true;
     marketDataRuntimeState.syncFailureReason = null;
     marketDataRuntimeState.listenerBindDeferred = false;
+    marketDataRuntimeState.validationOverride = bootstrapOnlyValidationRuntime
+      ? {
+        ...marketDataRuntimeState.validationOverride,
+        mode: 'seeded_bootstrap',
+      }
+      : {
+        mode: 'off',
+        reason: null,
+        snapshotTimestampOverride: null,
+        snapshotSourceCountOverride: null,
+      };
     if (marketDataRuntimeState.hotDataRevision === 0) {
       marketDataRuntimeState.hotDataRevision = 1;
     }

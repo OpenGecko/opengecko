@@ -7,7 +7,7 @@ export type MarketDataRuntimeState = {
   listenerBound: boolean;
   hotDataRevision: number;
   validationOverride: {
-    mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap';
+    mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap' | 'zero_live_completed_boot';
     reason: string | null;
     snapshotTimestampOverride: string | null;
     snapshotSourceCountOverride: number | null;
