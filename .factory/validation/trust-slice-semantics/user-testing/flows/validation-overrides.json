@@ -63,7 +63,7 @@
     {
       "id": "VAL-MARKETS-008",
       "title": "stale-disallowed markets null stale market fields",
-      "status": "fail",
+      "status": "pass",
       "steps": [
         {
           "action": "curl -sS -X GET -H \"Accept: application/json\" -w http://localhost:3102/coins/markets?vs_currency=usd&ids=bitcoin",
@@ -246,24 +246,24 @@
       "steps": [
         {
           "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"stale_disallowed\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
-          "expected": "First override establishes stale-disallowed cache revision",
-          "observed": "cache_revision=None"
+          "expected": "First override establishes stale-disallowed cache revision via POST data.cache_revision and diagnostics hot_paths.cache_revision",
+          "observed": "HTTP 200 body={'data': {'mode': 'stale_disallowed', 'reason': 'validation degraded state override', 'cache_revision': 9}}; GET /diagnostics/runtime hot_paths.cache_revision=9"
         },
         {
           "action": "curl -sS -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" --data \"{\\\"mode\\\": \\\"seeded_bootstrap\\\"}\" -w http://localhost:3102/diagnostics/runtime/degraded_state",
-          "expected": "Second override changes runtime admissibility and cache revision",
-          "observed": "cache_revision=None"
+          "expected": "Second override changes runtime admissibility and cache revision via POST data.cache_revision and diagnostics hot_paths.cache_revision",
+          "observed": "HTTP 200 body={'data': {'mode': 'seeded_bootstrap', 'reason': 'validation degraded state override', 'cache_revision': 10}}; GET /diagnostics/runtime hot_paths.cache_revision=10"
         }
       ],
       "evidence": {
-        "network": "GET /diagnostics/runtime before/after overrides -> 200/200",
+        "network": "POST /diagnostics/runtime/degraded_state -> 200/200; GET /diagnostics/runtime before/after overrides -> 200/200",
         "json": [
           "stale-disallowed-diagnostics.json",
           "seeded-bootstrap-diagnostics.json"
         ],
         "consoleErrors": "n/a"
       },
-      "issues": "cache_revision did not change across runtime override transition"
+      "issues": null
     },
     {
       "id": "VAL-DIAG-009",
@@ -393,7 +393,7 @@
         "VAL-CROSS-007",
         "VAL-CROSS-008"
       ],
-      "quickFixAttempted": "POST /diagnostics/runtime/degraded_state mode=none returned HTTP 400"
+      "quickFixAttempted": "POST /diagnostics/runtime/degraded_state mode=off returned HTTP 200 and restored neutral override state"
     }
   ],
   "artifacts": {

@@ -4,12 +4,13 @@
   "status": "fail",
   "assertionsSummary": {
     "total": 18,
-    "passed": 11,
-    "failed": 6,
+    "passed": 12,
+    "failed": 5,
     "blocked": 1
   },
   "passedAssertions": [
     "VAL-CROSS-004",
+    "VAL-CROSS-005",
     "VAL-CROSS-007",
     "VAL-CROSS-008",
     "VAL-DETAIL-003",
@@ -30,10 +31,7 @@
       "id": "VAL-CROSS-002",
       "reason": "stale-disallowed surfaces were not coherent"
     },
-    {
-      "id": "VAL-CROSS-005",
-      "reason": "cache_revision did not change across runtime override transition"
-    },
+    
     {
       "id": "VAL-DIAG-001",
       "reason": "Mission API was not in the expected ready fresh-live state during validation."
