@@ -204,9 +204,7 @@ export function buildMarketRow(
   const importedLiveBootstrapSnapshot = validationOverrideMode === 'seeded_bootstrap'
     && snapshot !== null
     && getSnapshotOwnership(snapshot) === 'live';
-  const degradedMarketSnapshot = validationOverrideMode === 'degraded_seeded_bootstrap'
-    ? seededBootstrapSnapshot
-    : false;
+  const degradedMarketSnapshot = validationOverrideMode === 'degraded_seeded_bootstrap';
   const seededSnapshot = snapshot !== null && getSnapshotOwnership(snapshot) === 'seeded';
   const shouldUseChartDerivedSeries = seededSnapshot
     || seededBootstrapSnapshot
@@ -238,7 +236,9 @@ export function buildMarketRow(
   const useCanonicalBootstrapSnapshotValues = importedLiveBootstrapSnapshot;
   const useDegradedNullShape = degradedMarketSnapshot || validationStaleDisallowed;
   const useChartDerivedSeriesForChangeWindows = shouldUseChartDerivedSeries && !useCanonicalBootstrapSnapshotValues;
-  const resolvedMarketCapRank = snapshot?.marketCapRank ?? row.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+  const resolvedMarketCapRank = useDegradedNullShape
+    ? null
+    : snapshot?.marketCapRank ?? row.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
 
   return {
     id: row.coin.id,
@@ -263,14 +263,14 @@ export function buildMarketRow(
     circulating_supply: toNumberOrNull(snapshot?.circulatingSupply, options.precision),
     total_supply: toNumberOrNull(snapshot?.totalSupply, options.precision),
     max_supply: toNumberOrNull(snapshot?.maxSupply, options.precision),
-    ath: toNumberOrNull(snapshot?.ath ? snapshot.ath * rate : null, options.precision),
-    ath_change_percentage: toNumberOrNull(snapshot?.athChangePercentage, options.precision),
-    ath_date: snapshot?.athDate?.toISOString() ?? null,
-    atl: toNumberOrNull(snapshot?.atl ? snapshot.atl * rate : null, options.precision),
-    atl_change_percentage: toNumberOrNull(snapshot?.atlChangePercentage, options.precision),
-    atl_date: snapshot?.atlDate?.toISOString() ?? null,
+    ath: useDegradedNullShape ? null : toNumberOrNull(snapshot?.ath ? snapshot.ath * rate : null, options.precision),
+    ath_change_percentage: useDegradedNullShape ? null : toNumberOrNull(snapshot?.athChangePercentage, options.precision),
+    ath_date: useDegradedNullShape ? null : snapshot?.athDate?.toISOString() ?? null,
+    atl: useDegradedNullShape ? null : toNumberOrNull(snapshot?.atl ? snapshot.atl * rate : null, options.precision),
+    atl_change_percentage: useDegradedNullShape ? null : toNumberOrNull(snapshot?.atlChangePercentage, options.precision),
+    atl_date: useDegradedNullShape ? null : snapshot?.atlDate?.toISOString() ?? null,
     roi,
-    last_updated: snapshot?.lastUpdated?.toISOString() ?? null,
+    last_updated: useDegradedNullShape ? null : snapshot?.lastUpdated?.toISOString() ?? null,
     ...(
       useDegradedNullShape
         ? buildNullMarketPriceChangeFields(options.priceChangePercentages)
