@@ -303,25 +303,25 @@ describe('live data integration', () => {
     expect(packageJson.version.startsWith('0.5.')).toBe(true);
   });
 
-  it('keeps CeFi and DeFi USD prices within the contract coherence threshold for overlapping tokens', { timeout: 15_000 }, async () => {
+  it('keeps CeFi and DeFi USD prices within the contract coherence threshold for overlapping tokens', async () => {
     const overlappingToken = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
     const overlappingCoinId = 'usd-coin';
 
+    const onchainTokenResponse = await app.inject({
+      method: 'GET',
+      url: `/onchain/networks/eth/tokens/${overlappingToken}`,
+    });
     const contractDetailResponse = await app.inject({
       method: 'GET',
       url: `/coins/ethereum/contract/${overlappingToken}`,
     });
-    const onchainSimplePriceResponse = await app.inject({
-      method: 'GET',
-      url: `/onchain/simple/networks/eth/token_price/${overlappingToken}?vs_currencies=usd`,
-    });
 
+    expect(onchainTokenResponse.statusCode).toBe(200);
     expect(contractDetailResponse.statusCode).toBe(200);
     expect(contractDetailResponse.json()).toMatchObject({ id: overlappingCoinId });
-    expect(onchainSimplePriceResponse.statusCode).toBe(200);
 
-    const onchainBody = onchainSimplePriceResponse.json();
-    const defiUsdRaw = onchainBody.data?.attributes?.token_prices?.[overlappingToken];
+    const onchainBody = onchainTokenResponse.json();
+    const defiUsdRaw = onchainBody.data?.attributes?.price_usd;
     const defiUsd = typeof defiUsdRaw === 'string' ? Number(defiUsdRaw) : defiUsdRaw;
     const cefiUsd = 1;
 
