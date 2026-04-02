@@ -9,7 +9,7 @@ describe('coin detail parity', () => {
   beforeEach(() => {
     app = buildApp({
       config: {
-        databaseUrl: './data/opengecko.db',
+        databaseUrl: ':memory:',
         ccxtExchanges: [],
         logLevel: 'silent',
       },

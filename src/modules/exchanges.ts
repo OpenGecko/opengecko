@@ -7,6 +7,7 @@ import { coinTickers, coins, derivativeTickers, derivativesExchanges, exchangeVo
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 import { getConversionRates } from '../lib/conversion';
+import { sortNumber, parseJsonArray, parseJsonObject, parseDexPairFormat } from '../lib/shared';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCoinById } from './catalog';
 import { getSnapshotAccessPolicy } from './market-freshness';
@@ -52,27 +53,7 @@ const derivativesExchangeDetailQuerySchema = z.object({
   include_tickers: z.enum(['true', 'false']).optional(),
 });
 
-function parseJsonArray<T>(value: string) {
-  return JSON.parse(value) as T[];
-}
 
-function parseJsonObject<T extends Record<string, string>>(value: string) {
-  return JSON.parse(value) as T;
-}
-
-function parseDexPairFormat(value: string | undefined) {
-  if (!value) {
-    return 'symbol';
-  }
-
-  const normalized = value.toLowerCase();
-
-  if (normalized === 'symbol' || normalized === 'contract_address') {
-    return normalized;
-  }
-
-  throw new HttpError(400, 'invalid_parameter', `Unsupported dex_pair_format value: ${value}`);
-}
 
 function buildExchangeSummary(row: ExchangeRow) {
   return {
@@ -148,9 +129,7 @@ function getDerivativesExchangeOrThrow(database: AppDatabase, exchangeId: string
   return exchange;
 }
 
-function sortNumber(value: number | null | undefined, fallback: number) {
-  return value ?? fallback;
-}
+
 
 function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string | null, dexPairFormat: string) {
   if (dexPairFormat !== 'contract_address' || !coinId) {

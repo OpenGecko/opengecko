@@ -129,6 +129,7 @@ export function createMarketRuntime(
   let currencyTimer: NodeJS.Timeout | null = null;
   let marketTimer: NodeJS.Timeout | null = null;
   let searchTimer: NodeJS.Timeout | null = null;
+  let cacheEvictionTimer: NodeJS.Timeout | null = null;
   let listenerBoundDeferredMarketRefreshPending = false;
   let startupTask: Promise<void> | null = null;
   let readinessTask: Promise<void> | null = null;
@@ -267,6 +268,18 @@ export function createMarketRuntime(
         searchTimer = setInterval(() => {
           void runSearchJob.run();
         }, config.searchRebuildIntervalSeconds * 1000);
+
+        if ('simplePriceCache' in app && app.simplePriceCache) {
+          cacheEvictionTimer = setInterval(() => {
+            const cache = (app as Record<string, unknown>).simplePriceCache as Map<string, { expiresAt: number }>;
+            const now = Date.now();
+            for (const [key, entry] of cache) {
+              if (entry.expiresAt < now) {
+                cache.delete(key);
+              }
+            }
+          }, 60_000);
+        }
       })();
 
       void startupTask.finally(() => {
@@ -312,6 +325,11 @@ export function createMarketRuntime(
       if (searchTimer) {
         clearInterval(searchTimer);
         searchTimer = null;
+      }
+
+      if (cacheEvictionTimer) {
+        clearInterval(cacheEvictionTimer);
+        cacheEvictionTimer = null;
       }
 
       if (startupTask && startupSettled) {

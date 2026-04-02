@@ -99,6 +99,13 @@
       "when": 1775000000000,
       "tag": "0012_coin_activation_timestamps",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1775100000000,
+      "tag": "0013_missing_indexes",
+      "breakpoints": true
     }
   ]
 }

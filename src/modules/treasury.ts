@@ -7,6 +7,7 @@ import type { AppDatabase } from '../db/client';
 import { chartPoints, coins, marketSnapshots, treasuryEntities, treasuryHoldings, treasuryTransactions, type TreasuryEntityRow, type TreasuryTransactionRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
+import { sortNumber } from '../lib/shared';
 
 type TreasuryHoldingWithCoinSnapshotRow = {
   treasury_holdings: typeof treasuryHoldings.$inferSelect;
@@ -49,9 +50,7 @@ function mapEntitySegmentToType(entity: 'companies' | 'governments' | 'countries
   return entity === 'companies' ? 'company' : 'government';
 }
 
-function sortNumber(value: number | null | undefined, fallback: number) {
-  return value ?? fallback;
-}
+
 
 function parseTreasuryChartDays(value: string | undefined) {
   const normalizedValue = value ?? '365';
@@ -246,24 +245,31 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
     const totalValueUsd = sumBigNumber(rows.map((row) => row.currentValueUsd)).toNumber();
 
     return {
-      coin_id: coin.id,
-      current_price_usd: snapshot?.price ?? null,
-      total_holdings: totalHoldings,
-      total_value_usd: totalValueUsd,
-      market_cap_percentage: snapshot?.marketCap
-        ? Number(new BigNumber(totalValueUsd).dividedBy(snapshot.marketCap).multipliedBy(100).toFixed(4))
-        : null,
-      [params.entity]: pagedRows.map((row) => ({
-        entity_id: row.entityId,
-        name: row.name,
-        symbol: row.symbol,
-        country: row.country,
-        total_holdings: row.amount,
-        current_value_usd: row.currentValueUsd,
-        entry_value_usd: row.entryValueUsd,
-        reported_at: row.reportedAt.toISOString(),
-        source_url: row.sourceUrl,
-      })),
+      data: {
+        coin_id: coin.id,
+        current_price_usd: snapshot?.price ?? null,
+        total_holdings: totalHoldings,
+        total_value_usd: totalValueUsd,
+        market_cap_percentage: snapshot?.marketCap
+          ? Number(new BigNumber(totalValueUsd).dividedBy(snapshot.marketCap).multipliedBy(100).toFixed(4))
+          : null,
+        [params.entity]: pagedRows.map((row) => ({
+          entity_id: row.entityId,
+          name: row.name,
+          symbol: row.symbol,
+          country: row.country,
+          total_holdings: row.amount,
+          current_value_usd: row.currentValueUsd,
+          entry_value_usd: row.entryValueUsd,
+          reported_at: row.reportedAt.toISOString(),
+          source_url: row.sourceUrl,
+        })),
+      },
+      meta: {
+        fixture: true,
+        entity_count: 2,
+        note: 'Treasury data is seeded fixture, not live',
+      },
     };
   });
 

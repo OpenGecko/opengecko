@@ -50,23 +50,32 @@ export function rebuildSearchIndex(database: AppDatabase) {
     'INSERT INTO search_documents (doc_type, ref_id, name, symbol, api_symbol, categories) VALUES (?, ?, ?, ?, ?, ?)',
   );
 
-  for (const coin of database.db.select().from(coins).all()) {
-    insertStatement.run(
-      'coin',
-      coin.id,
-      coin.name,
-      coin.symbol,
-      coin.apiSymbol,
-      JSON.parse(coin.categoriesJson).join(' '),
-    );
-  }
+  try {
+    database.client.exec('BEGIN TRANSACTION');
 
-  for (const category of database.db.select().from(categories).all()) {
-    insertStatement.run('category', category.id, category.name, '', '', category.name);
-  }
+    for (const coin of database.db.select().from(coins).all()) {
+      insertStatement.run(
+        'coin',
+        coin.id,
+        coin.name,
+        coin.symbol,
+        coin.apiSymbol,
+        JSON.parse(coin.categoriesJson).join(' '),
+      );
+    }
 
-  for (const exchange of database.db.select().from(exchanges).all()) {
-    insertStatement.run('exchange', exchange.id, exchange.name, exchange.country ?? '', exchange.id, exchange.url);
+    for (const category of database.db.select().from(categories).all()) {
+      insertStatement.run('category', category.id, category.name, '', '', category.name);
+    }
+
+    for (const exchange of database.db.select().from(exchanges).all()) {
+      insertStatement.run('exchange', exchange.id, exchange.name, exchange.country ?? '', exchange.id, exchange.url);
+    }
+
+    database.client.exec('COMMIT');
+  } catch (error) {
+    database.client.exec('ROLLBACK');
+    throw error;
   }
 }
 

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "lint": "echo \"no lint configured\"",
+    "lint": "eslint src/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:endpoint": "bash scripts/test-endpoints.sh",
@@ -38,12 +38,16 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.13.10",
     "drizzle-kit": "^0.31.4",
+    "eslint": "^10.1.0",
+    "lefthook": "^2.1.4",
     "pino-pretty": "^13.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
+    "typescript-eslint": "^8.58.0",
     "vitest": "^3.0.8"
   }
 }

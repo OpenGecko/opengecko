@@ -4,15 +4,10 @@ import type { SQL } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms, categories, coins, marketSnapshots, onchainNetworks } from '../db/schema';
 import { getPlatformLookupIds, normalizePlatformId, resolveCanonicalPlatformId } from '../lib/platform-id';
+import { parseJsonObject, parseJsonArray, normalizeCategoryId } from '../lib/shared';
 import { getCanonicalCloseSeries } from '../services/candle-store';
 
-export function parseJsonObject<T extends Record<string, unknown>>(value: string): T {
-  return JSON.parse(value) as T;
-}
-
-export function parseJsonArray<T>(value: string): T[] {
-  return JSON.parse(value) as T[];
-}
+export { parseJsonObject, parseJsonArray } from '../lib/shared';
 
 type CoinFilters = {
   ids?: string[];
@@ -21,14 +16,6 @@ type CoinFilters = {
   status?: 'active' | 'inactive' | 'all';
   categoryId?: string;
 };
-
-function normalizeCategoryId(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
 
 function getSelectorWhereClause(filters: CoinFilters) {
   if (filters.ids?.length) {

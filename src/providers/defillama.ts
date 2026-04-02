@@ -2,6 +2,19 @@ import { loadConfig } from '../config/env';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+let cachedConfig: { defillamaBaseUrl: string; defillamaYieldsBaseUrl: string } | null = null;
+
+function getConfig() {
+  if (!cachedConfig) {
+    const config = loadConfig();
+    cachedConfig = {
+      defillamaBaseUrl: config.defillamaBaseUrl,
+      defillamaYieldsBaseUrl: config.defillamaYieldsBaseUrl,
+    };
+  }
+  return cachedConfig;
+}
+
 type DefillamaRequestOptions = {
   baseUrl?: string;
   yieldsBaseUrl?: string;
@@ -68,11 +81,11 @@ export type DefillamaDexVolumes = {
 };
 
 function resolveBaseUrl(baseUrl?: string) {
-  return (baseUrl ?? loadConfig().defillamaBaseUrl).replace(/\/+$/, '');
+  return (baseUrl ?? getConfig().defillamaBaseUrl).replace(/\/+$/, '');
 }
 
 function resolveYieldsBaseUrl(yieldsBaseUrl?: string, baseUrl?: string) {
-  const config = loadConfig();
+  const config = getConfig();
   return (yieldsBaseUrl ?? config.defillamaYieldsBaseUrl ?? baseUrl ?? config.defillamaBaseUrl).replace(/\/+$/, '');
 }
 

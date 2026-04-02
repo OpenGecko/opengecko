@@ -2,9 +2,10 @@ import type { AppDatabase } from '../../db/client';
 import BigNumber from 'bignumber.js';
 import type { CoinRow, MarketSnapshotRow } from '../../db/schema';
 import { HttpError } from '../../http/errors';
-import { parseJsonObject } from '../catalog';
+import { parseJsonObject } from '../../lib/shared';
 import { getChartGranularityMs } from '../chart-semantics';
 import { getSnapshotOwnership } from '../../services/market-snapshots';
+import { sortNumber, normalizeCategoryId, parseDexPairFormat } from '../../lib/shared';
 
 export function toNumberOrNull(value: number | null | undefined, precision: number | 'full') {
   if (value === null || value === undefined) {
@@ -82,31 +83,7 @@ export function buildDeveloperData(includeDeveloperData: boolean) {
   };
 }
 
-export function normalizeCategoryId(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-export function sortNumber(value: number | null | undefined, fallback: number) {
-  return value ?? fallback;
-}
-
-export function parseDexPairFormat(value: string | undefined) {
-  if (!value) {
-    return 'symbol';
-  }
-
-  const normalized = value.toLowerCase();
-
-  if (normalized === 'symbol' || normalized === 'contract_address') {
-    return normalized;
-  }
-
-  throw new HttpError(400, 'invalid_parameter', `Unsupported dex_pair_format value: ${value}`);
-}
+export { normalizeCategoryId, sortNumber, parseDexPairFormat } from '../../lib/shared';
 
 export function parseChartInterval(value: string | undefined) {
   if (!value) {

@@ -436,3 +436,22 @@ export function enforceOhlcvRetention(
 
   return result?.changes ?? 0;
 }
+
+const DEFAULT_QUOTE_SNAPSHOT_RETENTION_DAYS = 7;
+
+export function enforceQuoteSnapshotRetention(
+  database: AppDatabase,
+  retentionDays: number = DEFAULT_QUOTE_SNAPSHOT_RETENTION_DAYS,
+  now?: Date,
+) {
+  const referenceTime = now?.getTime() ?? Date.now();
+  const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+  const cutoff = new Date(referenceTime - retentionMs);
+
+  const result = database.db
+    .delete(quoteSnapshots)
+    .where(lte(quoteSnapshots.fetchedAt, cutoff))
+    .run();
+
+  return result?.changes ?? 0;
+}

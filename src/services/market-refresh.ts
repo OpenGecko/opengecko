@@ -9,7 +9,7 @@ import type { Logger } from 'pino';
 import { fetchExchangeTickers, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { mapWithConcurrency } from '../lib/async';
-import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle } from './candle-store';
+import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle, enforceQuoteSnapshotRetention } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
 import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
 import type { MarketDataRuntimeState } from './market-runtime-state';
@@ -642,6 +642,7 @@ export async function runMarketRefreshOnce(
   writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
   upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext);
   writeSnapshotsPhase.stop();
+  enforceQuoteSnapshotRetention(database);
 
   const durationMs = Date.now() - startTime;
   if (!progress) {
