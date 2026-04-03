@@ -1,43 +1,25 @@
 {
   "milestone": "regression-gate-restoration",
-  "round": 5,
+  "round": 1,
   "status": "fail",
   "assertionsSummary": {
     "total": 0,
     "passed": 0,
-    "failed": 0,
+    "failed": 2,
     "blocked": 0
   },
   "passedAssertions": [],
-  "failedAssertions": [],
-  "blockedAssertions": [],
-  "appliedUpdates": [],
-  "previousRound": "/home/whoami/dev/opengecko/openGecko/.factory/validation/regression-gate-restoration/user-testing/synthesis.json",
-  "milestoneChecks": [
+  "failedAssertions": [
     {
-      "id": "repo-gate-green",
-      "title": "Promoted repository gate is green at current HEAD",
-      "status": "fail",
-      "reason": "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2 failed with 1 failing test: tests/app.test.ts still expects stale_live for a listener-bound port-3000 bootstrap transition but current diagnostics report fresh_live."
+      "id": "REGRESSION-GATE-FULL-TEST",
+      "reason": "commands.full_test failed on current HEAD because tests/app.test.ts still expects source_class=\"stale_live\" for the live local host override on port 3000, but the app returned source_class=\"fresh_live\"."
     },
     {
-      "id": "endpoint-smoke-harness",
-      "title": "Endpoint smoke harness is runnable against mission API",
-      "status": "fail",
-      "reason": "Freshly restarted port 3001 listener (PID 718634, log /tmp/droid-bg-1775194980712.out) served /ping but broad smoke scripts returned many 500s; server log shows SQLITE_CORRUPT \"database disk image is malformed\" errors from data/opengecko.db while handling diagnostics, simple, coins, global, search, treasury, onchain, and asset routes."
-    },
-    {
-      "id": "build-typecheck-lint",
-      "title": "Build, typecheck, and lint complete successfully",
-      "status": "pass",
-      "reason": "bun run build, bun run typecheck, and bun run lint all exited 0; lint reported the known warning-only findings documented in AGENTS.md."
-    },
-    {
-      "id": "environment-usable",
-      "title": "Environment is usable for current-head regression-gate rerun",
-      "status": "pass",
-      "reason": "Stopped old listeners on 3001/3102, restarted manifest-owned services from repo root, confirmed 3001 ownership via lsof and collected fresh logs before evaluating failures."
+      "id": "REGRESSION-GATE-LIVE-SMOKE",
+      "reason": "Freshly restarted verified 3001 listener reproduced widespread smoke failures; /tmp/opengecko-3001.log shows repeated SQLITE_CORRUPT / \"database disk image is malformed\" errors causing many endpoints to return 500."
     }
   ],
-  "validatedAt": "2026-04-03T05:47:21.543435Z"
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
 }
