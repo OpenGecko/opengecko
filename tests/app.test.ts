@@ -6731,7 +6731,7 @@ describe('OpenGecko app scaffold', () => {
           },
           hot_paths: {
             shared_market_snapshot: {
-              source_class: 'fresh_live',
+              source_class: 'stale_live',
               provider_count: expect.any(Number),
             },
           },
