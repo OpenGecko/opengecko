@@ -1,6 +1,6 @@
 {
   "groupId": "repo-gate",
-  "testedAt": "2026-04-02T22:46:53.616143+00:00",
+  "testedAt": "2026-04-03T05:17:43.233951+00:00",
   "status": "fail",
   "isolation": {
     "repoRoot": "/home/whoami/dev/opengecko/openGecko",
@@ -24,7 +24,7 @@
         {
           "command": "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2",
           "exitCode": 1,
-          "observed": "Full test gate failed: 509 passed, 1 failed. Failing test: tests/app.test.ts > preserves seeded bootstrap runtime semantics after listener-bound transition for a live local host override on port 3000; expected diagnostics hot_paths.shared_market_snapshot.source_class stale_live but received fresh_live."
+          "observed": "Full test gate failed: 509 passed, 1 failed. Failing test remains tests/app.test.ts > preserves seeded bootstrap runtime semantics after listener-bound transition for a live local host override on port 3000; expected diagnostics source_class stale_live but current HEAD reports fresh_live."
         },
         {
           "command": "bun run typecheck",
@@ -39,14 +39,13 @@
         {
           "command": "bun run lint",
           "exitCode": 0,
-          "observed": "Passed with 34 pre-existing warnings only; no lint errors."
+          "observed": "Passed with pre-existing warnings only; no lint errors."
         }
       ],
       "observations": [
-        "Current HEAD does not satisfy the promoted regression gate because the required full_test command is red.",
-        "Mission API readiness endpoint on :3001 is healthy and reports readiness.state=ready, degraded.active=false, shared_market_snapshot.available=true, source_class=fresh_live.",
-        "Validation API on :3102 is healthy and reports seeded_bootstrap validation state as expected.",
-        "Validation-only override routes remain hidden on :3001 (POST /diagnostics/runtime/degraded_state -> 404, POST /diagnostics/runtime/provider_failure -> 404)."
+        "Current HEAD still does not satisfy the promoted regression gate because the required full_test command is red.",
+        "Validation API on :3102 was initially down and had to be restarted before fresh validation could proceed.",
+        "After restart, :3102 health and diagnostics were healthy for validation-mode seeded bootstrap."
       ],
       "evidencePaths": []
     },
@@ -58,37 +57,22 @@
         {
           "command": "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/test-endpoints.sh",
           "exitCode": 1,
-          "observed": "Harness ran and produced results, but failed 91 checks / passed 17 / skipped 1. Many user-facing endpoints returned HTTP 500 internal_server_error while /ping and some invalid-parameter checks passed."
+          "observed": "Harness ran and produced results, but failed 91 checks / passed 17 / skipped 1. Broad route families returned HTTP 500 internal_server_error while /ping and several invalid-parameter checks passed."
         },
         {
           "command": "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/modules/simple/simple.sh",
           "exitCode": 1,
-          "observed": "Module smoke script ran but failed on GET /simple/price top-10 asset basket with HTTP 500."
+          "observed": "Not rerun after broad harness failure because broad smoke already demonstrated /simple/price failures with HTTP 500."
         },
         {
           "command": "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/modules/coins/coins.sh",
           "exitCode": 1,
-          "observed": "Module smoke script ran but failed immediately on GET /coins/list with HTTP 500."
-        },
-        {
-          "command": "curl -sS -D - \"http://localhost:3001/simple/price?ids=bitcoin&vs_currencies=usd\"",
-          "exitCode": 0,
-          "observed": "HTTP/1.1 500 Internal Server Error with {\"error\":\"internal_server_error\",\"message\":\"An unexpected error occurred.\"}."
-        },
-        {
-          "command": "curl -sS -D - \"http://localhost:3001/coins/markets?vs_currency=usd&ids=bitcoin\"",
-          "exitCode": 0,
-          "observed": "HTTP/1.1 500 Internal Server Error with the same generic error envelope."
-        },
-        {
-          "command": "curl -sS -D - \"http://localhost:3001/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false\"",
-          "exitCode": 0,
-          "observed": "HTTP/1.1 500 Internal Server Error with the same generic error envelope."
+          "observed": "Not rerun after broad harness failure because broad smoke already demonstrated /coins routes failures with HTTP 500."
         }
       ],
       "observations": [
         "Smoke harness is executable in the mission environment, so the repo validation surface is runnable.",
-        "Expected milestone behavior is not satisfied because the runnable smoke harness fails broadly against the current :3001 service rather than confirming healthy endpoint behavior."
+        "Mission API on :3001 still returns generic 500 envelopes for many live routes including /simple/price, /search, /global, /coins/list, /coins/bitcoin, onchain families, treasury families, asset platforms, and diagnostics helper routes."
       ],
       "evidencePaths": []
     },
@@ -98,6 +82,11 @@
       "status": "pass",
       "commands": [
         {
+          "command": "git -C /home/whoami/dev/opengecko/openGecko status --short",
+          "exitCode": 0,
+          "observed": "Only pre-existing untracked files are present (.codex and docs/plans/*.md)."
+        },
+        {
           "command": "curl -sS -D - http://localhost:3001/ping",
           "exitCode": 0,
           "observed": "HTTP 200 with canonical ping payload."
@@ -105,81 +94,74 @@
         {
           "command": "curl -sS -D - http://localhost:3102/ping",
           "exitCode": 0,
-          "observed": "HTTP 200 with canonical ping payload."
+          "observed": "After restart, HTTP 200 with canonical ping payload."
         },
         {
           "command": "curl -sS http://localhost:3001/diagnostics/runtime",
           "exitCode": 0,
-          "observed": "Readiness reports ready/fresh_live on mission API."
+          "observed": "Mission API readiness reports ready while functional endpoints still fail with 500s."
         },
         {
           "command": "curl -sS http://localhost:3102/diagnostics/runtime",
           "exitCode": 0,
-          "observed": "Validation API responds with starting/seeded_bootstrap runtime diagnostics."
-        },
-        {
-          "command": "git -C \"/home/whoami/dev/opengecko/openGecko\" status --short",
-          "exitCode": 0,
-          "observed": "Only pre-existing untracked files are present (.codex and docs/plans/*.md)."
+          "observed": "Validation API reports starting/seeded_bootstrap runtime diagnostics after restart."
         }
       ],
       "observations": [
-        "Both assigned APIs are reachable without restarting services, satisfying the non-disruptive validation boundary.",
-        "The environment is usable for validation work, but usable infrastructure did not translate into a green promoted gate."
+        "Both assigned APIs were reachable for this rerun after restarting only the missing validation service.",
+        "The environment is usable for validation work, but current HEAD still fails the promoted gate and live smoke surface."
       ],
       "evidencePaths": []
     }
   ],
   "commands": [
-    "git -C \"/home/whoami/dev/opengecko/openGecko\" status --short",
+    "git -C /home/whoami/dev/opengecko/openGecko status --short",
     "curl -sS -D - http://localhost:3001/ping",
     "curl -sS -D - http://localhost:3102/ping",
     "curl -sS http://localhost:3001/diagnostics/runtime",
-    "curl -sS -o /tmp/opengecko-override-3001.json -w '%{http_code}' -X POST http://localhost:3001/diagnostics/runtime/degraded_state -H 'content-type: application/json' -d '{\"mode\":\"off\"}'",
-    "curl -sS -o /tmp/opengecko-provider-3001.json -w '%{http_code}' -X POST http://localhost:3001/diagnostics/runtime/provider_failure -H 'content-type: application/json' -d '{\"enabled\":true}'",
     "curl -sS http://localhost:3102/diagnostics/runtime",
     "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2",
     "bun run typecheck",
     "bun run build",
     "bun run lint",
-    "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/test-endpoints.sh",
-    "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/modules/simple/simple.sh",
-    "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/modules/coins/coins.sh",
-    "curl -sS -D - \"http://localhost:3001/simple/price?ids=bitcoin&vs_currencies=usd\"",
-    "curl -sS -D - \"http://localhost:3001/coins/markets?vs_currency=usd&ids=bitcoin\"",
-    "curl -sS -D - \"http://localhost:3001/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false\""
+    "BASE_URL=http://localhost:3001 /usr/bin/env bash /home/whoami/dev/opengecko/openGecko/scripts/test-endpoints.sh"
   ],
   "observations": [
-    "No parent-generated evidence was reused; all observations were collected live against current services and current HEAD.",
-    "Promoted regression gate is not restored at current HEAD because full_test is failing and endpoint smoke verification is red.",
-    "API readiness is partially healthy: /ping and /diagnostics/runtime succeed, but many functional endpoints on :3001 return generic 500 responses."
+    "Per milestone instructions, no prior synthesis verdict was reused; validation was rerun live from current HEAD.",
+    "This rerun reconfirmed that regression-gate-restoration is not actually restored on the live user surface despite build/typecheck/lint succeeding.",
+    "The two current blockers are the single remaining full-suite app-test failure and widespread live 3001 HTTP 500 smoke failures."
   ],
   "frictions": [
     {
-      "description": "scripts/test-endpoints.sh output is very large and truncated in the terminal capture, so key failing observations had to be summarized from visible sections plus targeted curl follow-ups.",
+      "description": "The validation API on :3102 was not running at validator start.",
       "resolved": true,
-      "resolution": "Ran focused curl requests for /simple/price, /coins/markets, and /coins/{id} to confirm representative 500 behavior."
+      "resolution": "Restarted the validation service from the manifest start command, then verified /ping and /diagnostics/runtime before proceeding."
+    },
+    {
+      "description": "scripts/test-endpoints.sh output is large and terminal-truncated.",
+      "resolved": true,
+      "resolution": "Used the visible script output plus explicit high-level failure summaries from the run to record representative evidence."
     }
   ],
   "blockers": [
     {
-      "description": "Current HEAD full test gate is red due to one failing Vitest assertion in tests/app.test.ts involving seeded bootstrap runtime semantics on port 3000.",
+      "description": "Current HEAD full test gate is still red due to one failing Vitest assertion in tests/app.test.ts involving listener-bound seeded bootstrap runtime semantics on port 3000.",
       "affectedChecks": [
         "repo-gate-green"
       ],
-      "quickFixAttempted": "No code changes allowed in this validation-only assignment. Recorded failure as observed."
+      "quickFixAttempted": "Validation-only assignment; no code changes made."
     },
     {
-      "description": "Mission API on port 3001 returns widespread HTTP 500 responses for smoke-tested functional endpoints, preventing milestone confirmation that regression gate restoration behavior is healthy through the real surface.",
+      "description": "Mission API on port 3001 still returns widespread HTTP 500 responses across broad smoke-tested route families, so the live endpoint smoke surface is not healthy.",
       "affectedChecks": [
         "endpoint-smoke-harness"
       ],
-      "quickFixAttempted": "Confirmed service liveness and runtime diagnostics, then reran targeted smoke scripts and direct curl requests without mutating service state."
+      "quickFixAttempted": "Confirmed /ping and /diagnostics/runtime, then reran the broad smoke harness against current HEAD without mutating application state."
     }
   ],
   "evidencePaths": [
     "/home/whoami/dev/opengecko/openGecko/.factory/validation/regression-gate-restoration/user-testing/flows/repo-gate.json",
-    "/home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a/evidence/regression-gate-restoration/repo-gate/"
+    "/home/whoami/.factory/missions/281d0e47-1a05-430f-ade5-e1117ca7ba0a/evidence/regression-gate-restoration/repo-gate"
   ],
-  "summary": "Environment was reachable and the smoke harness was runnable, but the promoted regression gate is not green at current HEAD: full_test failed with 1 failing test, while build/typecheck/lint passed, and smoke scripts against http://localhost:3001 failed broadly with HTTP 500 responses."
+  "summary": "Fresh validation from current HEAD still fails for the regression-gate-restoration milestone: full_test remains red with one app-test failure, while the live mission API on :3001 produces broad HTTP 500 failures across the smoke harness even though build, typecheck, and lint pass."
 }

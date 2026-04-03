@@ -1,7 +1,7 @@
 {
   "milestone": "regression-gate-restoration",
-  "round": 3,
-  "status": "pass",
+  "round": 4,
+  "status": "fail",
   "assertionsSummary": {
     "total": 0,
     "passed": 0,
@@ -17,12 +17,12 @@
     {
       "id": "repo-gate-green",
       "title": "Promoted repository gate is green at current HEAD",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "id": "endpoint-smoke-harness",
       "title": "Endpoint smoke harness is runnable against mission API",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "id": "environment-usable",
