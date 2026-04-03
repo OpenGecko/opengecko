@@ -62,6 +62,7 @@ Reasoning: use at most 70% of observed headroom and avoid SQLite/process content
 - Prefer exact `curl` requests that map directly to `validation-contract.md` assertions.
 - Use this surface for normal trust-slice behavior, not override-only routes.
 - If `3001` is down at validator start, restart the manifest mission API before treating baseline assertions as failed; stale flow artifacts are context, not proof for the current HEAD.
+- After a fresh repo-root restart with PID/log verification, treat broad 3001 smoke failures as real blockers if the verified listener log shows `SQLITE_CORRUPT` or route-level internal errors; do not dismiss those as stale-process noise once reproduced on the fresh listener.
 
 ### validation-api
 - Use `3102` only for validation-only override routes or isolated runtime-state checks.
@@ -77,6 +78,7 @@ Reasoning: use at most 70% of observed headroom and avoid SQLite/process content
 - During the trust-slice-semantics milestone, treat `commands.test` as the required scrutiny gate.
 - During the regression-gate-restoration milestone, use `commands.full_test` as the required repository gate before declaring the mission complete.
 - For milestones whose implementation features have no `fulfills` assertions, still rerun the repo gate and live smoke surface from current HEAD; existing synthesis/flow artifacts are context only and never a substitute for a fresh validator pass.
+- If a fresh current-HEAD rerun still reproduces a repo-gate mismatch or live-smoke failure on verified listeners, treat it as implementation work to fix rather than another validator-rerun artifact.
 - If endpoint smoke scripts are used, ensure the `3001` API service is already healthy and record the exact `BASE_URL`.
 
 ## Flow Validator Guidance: api-curl
