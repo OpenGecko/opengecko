@@ -1,92 +1,68 @@
 # User Testing
 
-Testing surface, validation tooling, and concurrency guidance for the approved trust-slice hardening mission.
+Testing surface, validation tooling, and concurrency guidance for the architecture + quality-gate hardening mission.
 
 ---
 
 ## Validation Surface
 
 ### Surface: mission-api
-- **Primary boundary**: REST API on `http://localhost:3001`
+- **Primary boundary**: REST API on `http://127.0.0.1:3103`
 - **Primary tool**: `curl`
 - **Primary service**: `.factory/services.yaml -> services.api`
-- **Use for**: normal contract checks for `/simple/price`, `/coins/markets`, `/coins/{id}`, and `GET /diagnostics/runtime`
+- **Use for**: black-box assertions for `/ping`, `/health`, `/diagnostics/runtime`, `/simple/*`, `/coins/*`, `/exchanges*`, `/public_treasury*`, `/onchain*`
 
 ### Surface: validation-api
-- **Boundary**: REST API on `http://localhost:3102`
+- **Boundary**: REST API on `http://127.0.0.1:3102`
 - **Primary tool**: `curl`
 - **Primary service**: `.factory/services.yaml -> services.validation-api`
-- **Use for**: validation-only diagnostics override routes, isolated bootstrap/degraded-state checks, and negative-path checks that must not mutate the shared SQLite database
+- **Use for**: validation-mode-only diagnostics override assertions (`POST /diagnostics/runtime/degraded_state`, `POST /diagnostics/runtime/provider_failure`) and cross-flow state mutation checks
 
-### Surface: repo-validations
-- **Primary tools**: `.factory/services.yaml -> commands.test`, `commands.full_test`, `commands.typecheck`, `commands.build`, `commands.lint`, and endpoint smoke commands
-- **Use for**: milestone scrutiny evidence, trust-slice regression protection, harness repair, and end-of-mission repository confidence
+### Surface: repo-quality-gates
+- **Primary tool**: shell commands from `.factory/services.yaml -> commands.*`
+- **Use for**: quality-gate assertions (`VAL-QA-*`) over workflow/config and command behavior (`lint`, `typecheck`, `test`, `build`, coverage mode)
 
 ## Validation Concurrency
 
-- **Machine profile**: 8 CPU cores, ~31 GB RAM total, dry-run recommendation capped at 2 validation lanes
-- **Observed startup behavior**: the mission API on `3001` is the heaviest surface because it can touch persisted SQLite state and provider-backed startup paths; the validation API on `3102` is lighter because it runs in-memory with validation-mode controls
+- **Machine profile**: 8 CPU cores, ~31 GB RAM total, ~15 GB available during planning
+- **Dry-run observation**: one API run on `3103` increased memory by ~200 MB and process count by ~4
+- **Headroom rule**: use <= 70% of available headroom for validator parallelism
 
 ### Max concurrent validators by surface
-- **mission-api**: `1`
-- **validation-api**: `2`
-- **repo-validations**: `1` full-suite job at a time; targeted test jobs may run in parallel with `curl` checks only if they do not require a second mission API process
+- **mission-api**: `4`
+- **validation-api**: `3`
+- **repo-quality-gates**: `1` full gate run at a time
 
-Reasoning: use at most 70% of observed headroom and avoid SQLite/process contention on the shared trust slice.
-
-## Milestone Validation Focus
-
-### trust-slice-semantics
-- `commands.test` is the milestone scrutiny gate
-- validate `/simple/price`, `/coins/markets`, `/coins/{id}`, and `GET /diagnostics/runtime`
-- use `POST /diagnostics/runtime/degraded_state` and `POST /diagnostics/runtime/provider_failure` on `3102` only when an assertion explicitly requires an override-controlled state
-
-### regression-gate-restoration
-- promote back to `commands.full_test` plus `commands.build`, `commands.typecheck`, and `commands.lint`
-- run `commands.endpoint_smoke` plus the trust-slice smoke commands on `3001`
-- confirm `tests/frontend-contract-script.test.ts` and any harness fixes work in the mission environment, not only under `app.inject()`
-
-## Known Mission Constraints
-
-- Port `3000` is off-limits and belongs to another project.
-- Port `5173` is off-limits and belongs to another project.
-- Use only one mission-owned API against the shared SQLite file at a time to avoid `database is locked` errors.
-- Wait up to `70s` for `/ping` on `3001` before declaring mission API startup failure.
-- Port `3102` is the only runtime that should expose validation-mode diagnostics overrides.
-- The `spawn bash ENOENT` failure in `tests/frontend-contract-script.test.ts` is an in-scope regression-gate blocker; do not paper over it by silently skipping that test.
+Rationale: mission-api and validation-api share network/provider and runtime pressure; keep repo-quality-gate runs serialized to avoid noisy failures and resource contention.
 
 ## Flow Validator Guidance
 
-### mission-api
-- Start exactly one mission-owned API on port `3001`.
-- Prefer exact `curl` requests that map directly to `validation-contract.md` assertions.
-- Use this surface for normal trust-slice behavior, not override-only routes.
-- If `3001` is down at validator start, restart the manifest mission API before treating baseline assertions as failed; stale flow artifacts are context, not proof for the current HEAD.
-- After a fresh repo-root restart with PID/log verification, treat broad 3001 smoke failures as real blockers if the verified listener log shows `SQLITE_CORRUPT` or route-level internal errors; do not dismiss those as stale-process noise once reproduced on the fresh listener.
-- One successful fresh 3001 runtime instance is not sufficient proof the issue is fixed; rerun the broad smoke harness on the verified listener before closing a 3001 recovery bug.
+### mission-api checks
+- Start `services.api` and wait for `/ping` before running assertions.
+- Run exact curl flows mapped to `validation-contract.md` IDs.
+- Capture for each assertion: command, HTTP status, key JSON fields, and any relevant headers.
 
-### validation-api
-- Use `3102` only for validation-only override routes or isolated runtime-state checks.
-- Keep validator prompts aligned to the current POST routes: `POST /diagnostics/runtime/degraded_state` and `POST /diagnostics/runtime/provider_failure`.
-- Clear degraded-state overrides with `mode=off`, never `mode=none`.
-- Confirm the same routes are absent or gated on `3001` when the contract requires validation-only access.
-- Restart the `3102` service from a clean state when changing override assumptions or zero-live bootstrap setup.
-- If `3102` is down at validator start, restart it before reusing old evidence; reruns must exercise the current HEAD rather than only auditing prior flow files.
-- For cache transition assertions, record both `POST /diagnostics/runtime/degraded_state -> data.cache_revision` and `GET /diagnostics/runtime -> hot_paths.cache_revision`; do not look for a top-level `cache_revision` field.
+### validation-api checks
+- Use `services.validation-api` only when assertion explicitly requires validation-mode mutators.
+- Always restore neutral override state (`mode=off`, `active=false`) before ending flow.
+- Treat mutator endpoints returning `404` on mission-api (`3103`) as expected contract behavior.
 
-### repo-validations
-- Start with the narrowest relevant targeted suite.
-- During the trust-slice-semantics milestone, treat `commands.test` as the required scrutiny gate.
-- During the regression-gate-restoration milestone, use `commands.full_test` as the required repository gate before declaring the mission complete.
-- For milestones whose implementation features have no `fulfills` assertions, still rerun the repo gate and live smoke surface from current HEAD; existing synthesis/flow artifacts are context only and never a substitute for a fresh validator pass.
-- If a fresh current-HEAD rerun still reproduces a repo-gate mismatch or live-smoke failure on verified listeners, treat it as implementation work to fix rather than another validator-rerun artifact.
-- For listener-bound bootstrap semantics, require the explicit app/listener-bound test path, not only app-inject or representative runtime curls.
-- If endpoint smoke scripts are used, ensure the `3001` API service is already healthy and record the exact `BASE_URL`.
+### repo-quality-gates checks
+- Validate workflow/config assertions with file evidence plus command execution evidence.
+- Required command evidence set: `lint`, `typecheck`, `test` (or coverage mode per contract), and `build`.
+- Endpoint shell scripts are non-mandatory for core quality-gate assertions unless a feature explicitly adds them to mandatory workflow.
 
-## Flow Validator Guidance: api-curl
-- Use the shared mission API at `http://localhost:3001` for normal route checks and the shared validation API at `http://localhost:3102` only for override setup or validation-only route checks.
-- Do not start or stop services from subagents; the parent validator owns service lifecycle.
-- Avoid mutating global override state unless your assigned assertions explicitly require it, and restore neutral state when your flow finishes.
-- Restore neutral degraded-state override with `mode=off`.
-- For cache/timestamp assertions, preserve before/after diagnostics payloads and cite `hot_paths.cache_revision` plus `hot_paths.shared_market_snapshot.last_successful_live_refresh_at`.
-- Save exact curl commands, HTTP statuses, and key JSON evidence in your flow report.
+## Flow Validator Guidance: mission-api
+- Isolation boundary: use only the shared mission API at `http://127.0.0.1:3103`; do not restart or reconfigure it from subagents.
+- Allowed actions: `curl` GET requests against the assigned endpoints and negative-path query variations needed by the assertion.
+- Shared-state caution: do not call validation-only mutator routes here; mission-api assertions must remain read-only.
+
+## Flow Validator Guidance: validation-api
+- Isolation boundary: use only the validation API at `http://127.0.0.1:3102`.
+- Allowed actions: `curl` GET/POST requests required by assigned diagnostics override assertions.
+- Shared-state caution: each assertion batch must restore neutral state before exit using `POST /diagnostics/runtime/degraded_state {"mode":"off"}` and `POST /diagnostics/runtime/provider_failure {"active":false}`.
+
+## Flow Validator Guidance: repo-quality-gates
+- Isolation boundary: inspect repo files and run repo validation commands only; do not modify workflow/config files.
+- Serialize expensive validators inside the subagent and record exact command outputs relevant to lint, typecheck, tests, coverage, and build.
+- Shared-state caution: do not start API services from this surface; quality-gate evidence is file/command based only.

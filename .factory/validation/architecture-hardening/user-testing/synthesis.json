@@ -1,0 +1,174 @@
+{
+  "milestone": "architecture-hardening",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 65,
+    "passed": 37,
+    "failed": 25,
+    "blocked": 3
+  },
+  "passedAssertions": [
+    "VAL-CATALOG-001",
+    "VAL-CATALOG-002",
+    "VAL-CATALOG-005",
+    "VAL-CATALOG-007",
+    "VAL-COINS-001",
+    "VAL-COINS-011",
+    "VAL-COINS-013",
+    "VAL-CROSS-003",
+    "VAL-CROSS-004",
+    "VAL-CROSS-005",
+    "VAL-CROSS-006",
+    "VAL-CROSS-007",
+    "VAL-CROSS-008",
+    "VAL-EXT-001",
+    "VAL-EXT-002",
+    "VAL-EXT-004",
+    "VAL-EXT-005",
+    "VAL-EXT-006",
+    "VAL-EXT-007",
+    "VAL-EXT-008",
+    "VAL-EXT-009",
+    "VAL-EXT-011",
+    "VAL-OPS-001",
+    "VAL-OPS-002",
+    "VAL-OPS-005",
+    "VAL-OPS-006",
+    "VAL-OPS-007",
+    "VAL-OPS-008",
+    "VAL-OPS-009",
+    "VAL-OPS-010",
+    "VAL-OPS-011",
+    "VAL-OPS-012",
+    "VAL-QA-001",
+    "VAL-QA-003",
+    "VAL-QA-004",
+    "VAL-QA-006",
+    "VAL-QA-007"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-CATALOG-003",
+      "reason": "Happy path simple price payload shape mismatch"
+    },
+    {
+      "id": "VAL-CATALOG-009",
+      "reason": "Coins list default/include_platform semantics mismatch"
+    },
+    {
+      "id": "VAL-CATALOG-011",
+      "reason": "Global payload missing required aggregate fields"
+    },
+    {
+      "id": "VAL-CATALOG-012",
+      "reason": "Category order validation contract mismatch"
+    },
+    {
+      "id": "VAL-COINS-002",
+      "reason": "Coins markets pagination/per_page cap mismatch"
+    },
+    {
+      "id": "VAL-COINS-005",
+      "reason": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-006",
+      "reason": "Missing date path passed, but malformed date returned 500 instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-007",
+      "reason": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-008",
+      "reason": "Ticker endpoint returned 500 for both pagination checks, so page default/size could not be confirmed."
+    },
+    {
+      "id": "VAL-COINS-009",
+      "reason": "Both filter and invalid-order checks returned 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-010",
+      "reason": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-012",
+      "reason": "Invalid days values returned 500 internal_server_error instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-014",
+      "reason": "Endpoint returned 500 internal_server_error, so tuple shape/order could not be validated."
+    },
+    {
+      "id": "VAL-COINS-015",
+      "reason": "Both invalid OHLC range requests returned 500 internal_server_error instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-016",
+      "reason": "Both chart endpoints returned 500 internal_server_error, so series alignment could not be validated."
+    },
+    {
+      "id": "VAL-COINS-017",
+      "reason": "All unknown-coin chart/OHLC paths returned 500 internal_server_error instead of 404 not_found."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "reason": "Readiness and hot endpoint usability diverged"
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "reason": "Diagnostics snapshot and hot endpoint outcomes were incoherent"
+    },
+    {
+      "id": "VAL-EXT-003",
+      "reason": "Expected 400 invalid_parameter, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-EXT-010",
+      "reason": "Expected typed empty arrays, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-OPS-003",
+      "reason": "Missing required runtime diagnostics sections"
+    },
+    {
+      "id": "VAL-OPS-004",
+      "reason": "Listener readiness fields missing or never bound"
+    },
+    {
+      "id": "VAL-QA-002",
+      "reason": "Mandatory CI workflow lacks the required lint step and therefore does not enforce lint before later gates."
+    },
+    {
+      "id": "VAL-QA-005",
+      "reason": "Coverage thresholds are zero and the workflow does not execute a coverage-enforced test command."
+    },
+    {
+      "id": "VAL-QA-008",
+      "reason": "Workflow includes the container build gate, but the actual Docker build currently fails, so container build integrity is not satisfied."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-EXT-012",
+      "blockedBy": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    },
+    {
+      "id": "VAL-EXT-013",
+      "blockedBy": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    },
+    {
+      "id": "VAL-EXT-014",
+      "blockedBy": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added explicit Flow Validator Guidance sections for mission-api, validation-api, and repo-quality-gates isolation rules.",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null
+}

@@ -1,0 +1,633 @@
+{
+  "groupId": "mission-api-ops-catalog",
+  "testedAt": "2026-04-06T08:50:06Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3103",
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
+    "boundary": "read-only mission-api on port 3103"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-OPS-001",
+      "title": "Ping liveness contract stays stable",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /ping",
+          "expected": "HTTP 200 with JSON gecko_says=(V3) To the Moon!",
+          "observed": "status=200 body={'gecko_says': '(V3) To the Moon!'}"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/ping",
+        "status": 200,
+        "keyPayloadFields": {
+          "gecko_says": "(V3) To the Moon!"
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-001-ping.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-002",
+      "title": "Health alias matches ping semantics",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /ping and GET /health",
+          "expected": "Both endpoints return the same 200 liveness payload",
+          "observed": "/ping=200 {'gecko_says': '(V3) To the Moon!'} /health=200 {'gecko_says': '(V3) To the Moon!'}"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/ping",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/health"
+        ],
+        "status": {
+          "ping": 200,
+          "health": 200
+        },
+        "keyPayloadFields": {
+          "ping": {
+            "gecko_says": "(V3) To the Moon!"
+          },
+          "health": {
+            "gecko_says": "(V3) To the Moon!"
+          }
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-002-health-alias.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-003",
+      "title": "Runtime diagnostics envelope and readiness shape",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "HTTP 200 with data.readiness, degraded, hot_paths, transport, startup_prewarm",
+          "observed": "status=500 keys=None"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/diagnostics/runtime",
+        "status": 500,
+        "keyPayloadFields": {
+          "readiness": false,
+          "degraded": false,
+          "hot_paths": false,
+          "transport": false,
+          "startup_prewarm": false
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-003-004-005-runtime.json"
+        ]
+      },
+      "issues": "Missing required runtime diagnostics sections"
+    },
+    {
+      "id": "VAL-OPS-004",
+      "title": "Listener readiness signaling is explicit",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Poll /diagnostics/runtime every 250ms",
+          "expected": "listener_bound and listener_bind_deferred are booleans; listener_bound true observed",
+          "observed": "samples=[{'t': 0.007, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 0.265, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 0.522, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 0.778, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 1.035, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 1.291, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 1.547, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 1.803, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 2.061, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 2.319, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 2.576, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}, {'t': 2.832, 'status': 500, 'state': None, 'listener_bound': None, 'listener_bind_deferred': None}]"
+        }
+      ],
+      "evidence": {
+        "command": "poll GET /diagnostics/runtime every 250ms for 3s",
+        "status": 500,
+        "keyPayloadFields": {
+          "first_listener_bound": null,
+          "final_listener_bound": null,
+          "listener_bind_deferred": null,
+          "transition_observed": false
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-003-004-005-runtime.json"
+        ]
+      },
+      "issues": "Listener readiness fields missing or never bound"
+    },
+    {
+      "id": "VAL-OPS-005",
+      "title": "Freshness and source classification are coherent",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Inspect data.hot_paths.shared_market_snapshot",
+          "expected": "When available=true, source_class/freshness/providers/provider_count are coherent",
+          "observed": "available=None source_class=None provider_count=None providers=None"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/diagnostics/runtime",
+        "status": 500,
+        "keyPayloadFields": {},
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-003-004-005-runtime.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-007",
+      "title": "Metrics endpoint is Prometheus text format",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /metrics",
+          "expected": "HTTP 200 text/plain; version=0.0.4; charset=utf-8 with Prometheus metric lines",
+          "observed": "status=200 content-type=text/plain; version=0.0.4; charset=utf-8 body_sample=['# TYPE opengecko_cache_events_total counter', 'opengecko_cache_events_total{outcome=\"miss\",surface=\"coins_markets\"} 1', '# TYPE opengecko_http_request_duration_ms histogram', '# TYPE opengecko_http_request_duration_ms histogram', '# TYPE opengecko_http_request_duration_ms histogram']"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/metrics",
+        "status": 200,
+        "keyPayloadFields": {
+          "content-type": "text/plain; version=0.0.4; charset=utf-8",
+          "has_type_lines": true
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-007-metrics.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-008",
+      "title": "Validation-only provider failure override is gated outside validation mode",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /diagnostics/runtime/provider_failure on mission-api",
+          "expected": "HTTP 404 {error:not_found}",
+          "observed": "status=404 body={'error': 'not_found', 'message': 'Route not found'}"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X POST http://127.0.0.1:3103/diagnostics/runtime/provider_failure -H content-type: application/json --data {\"active\":true,\"reason\":\"contract-validation\"}",
+        "status": 404,
+        "keyPayloadFields": {
+          "error": "not_found",
+          "message": "Route not found"
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-OPS-008-provider-failure-post.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CATALOG-001",
+      "title": "/simple/price requires at least one selector",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /simple/price?vs_currencies=usd",
+          "expected": "400 invalid_parameter because ids/names/symbols missing",
+          "observed": "status=400 body={'error': 'invalid_parameter', 'message': 'One of ids, names, or symbols must be provided.'}"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/simple/price?vs_currencies=usd",
+        "status": 400,
+        "keyPayloadFields": {
+          "error": "invalid_parameter",
+          "message": "One of ids, names, or symbols must be provided."
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-001-simple-price-missing-selector.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CATALOG-002",
+      "title": "/simple/price requires non-empty vs_currencies",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /simple/price?ids=bitcoin&vs_currencies=",
+          "expected": "400 invalid_parameter for empty vs_currencies",
+          "observed": "status=400 body={'error': 'invalid_parameter', 'message': 'At least one vs_currency must be provided.'}"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/simple/price?ids=bitcoin&vs_currencies=",
+        "status": 400,
+        "keyPayloadFields": {
+          "error": "invalid_parameter",
+          "message": "At least one vs_currency must be provided."
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-002-simple-price-empty-vs.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CATALOG-003",
+      "title": "/simple/price happy path returns keyed coin map with requested quote fields",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur",
+          "expected": "200 object keyed by coin ids with usd and eur fields",
+          "observed": "status=500 keys=['error', 'message']"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur",
+        "status": 500,
+        "keyPayloadFields": {
+          "error": "internal_server_error",
+          "message": "An unexpected error occurred."
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-003-simple-price-happy.json"
+        ]
+      },
+      "issues": "Happy path simple price payload shape mismatch"
+    },
+    {
+      "id": "VAL-CATALOG-005",
+      "title": "/simple/token_price/:id requires contract_addresses and vs_currencies",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET without contract_addresses and with empty vs_currencies",
+          "expected": "Both requests return 400 invalid_parameter",
+          "observed": "missing_contract_addresses=400 {'error': 'invalid_parameter', 'message': 'contract_addresses Required'}; empty_vs_currencies=400 {'error': 'invalid_parameter', 'message': 'At least one vs_currency must be provided.'}"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/simple/token_price/ethereum?vs_currencies=usd",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/simple/token_price/ethereum?contract_addresses=0x0000000000000000000000000000000000000000&vs_currencies="
+        ],
+        "status": {
+          "missing_contract_addresses": 400,
+          "empty_vs_currencies": 400
+        },
+        "keyPayloadFields": {
+          "missing_contract_addresses": {
+            "error": "invalid_parameter",
+            "message": "contract_addresses Required"
+          },
+          "empty_vs_currencies": {
+            "error": "invalid_parameter",
+            "message": "At least one vs_currency must be provided."
+          }
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-005-token-price-required-fields.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CATALOG-007",
+      "title": "/search requires non-empty query parameter",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /search and GET /search?query=",
+          "expected": "Both requests fail with 400 validation errors",
+          "observed": "missing=400 blank=400"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/search",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/search?query="
+        ],
+        "status": {
+          "missing": 400,
+          "blank": 400
+        },
+        "keyPayloadFields": {
+          "missing": {
+            "error": "invalid_parameter",
+            "message": "query Required"
+          },
+          "blank": {
+            "error": "invalid_parameter",
+            "message": "query String must contain at least 1 character(s)"
+          }
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-007-search-query-required.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CATALOG-009",
+      "title": "/coins/list default semantics and include_platform toggle",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /coins/list",
+          "expected": "Array rows only include id,symbol,name",
+          "observed": "status=500 sample_keys=None"
+        },
+        {
+          "action": "GET /coins/list?include_platform=true",
+          "expected": "Rows include platforms object",
+          "observed": "status=500 sample_keys=None"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/list",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/list?include_platform=true"
+        ],
+        "status": {
+          "default": 500,
+          "include_platform": 500
+        },
+        "keyPayloadFields": {
+          "default_sample": [],
+          "include_platform_sample": []
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-009-coins-list.json"
+        ]
+      },
+      "issues": "Coins list default/include_platform semantics mismatch"
+    },
+    {
+      "id": "VAL-CATALOG-011",
+      "title": "/global happy path envelope and computed aggregate fields",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /global",
+          "expected": "{data:{...}} with scalar counters, maps, and percentage fields",
+          "observed": "status=500 data_keys=None"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/global",
+        "status": 500,
+        "keyPayloadFields": null,
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-011-global.json"
+        ]
+      },
+      "issues": "Global payload missing required aggregate fields"
+    },
+    {
+      "id": "VAL-CATALOG-012",
+      "title": "/coins/categories supports strict order validation",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /coins/categories?order=market_cap_desc",
+          "expected": "200 sorted data array with category fields",
+          "observed": "status=200 sample=[]"
+        },
+        {
+          "action": "GET /coins/categories?order=bad_order",
+          "expected": "400 invalid_parameter",
+          "observed": "status=400 body={'error': 'invalid_parameter', 'message': 'Unsupported order value: bad_order'}"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/categories?order=market_cap_desc",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/categories?order=bad_order"
+        ],
+        "status": {
+          "valid": 200,
+          "invalid": 400
+        },
+        "keyPayloadFields": {
+          "valid_sample": [],
+          "invalid": {
+            "error": "invalid_parameter",
+            "message": "Unsupported order value: bad_order"
+          }
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CATALOG-012-categories-order.json"
+        ]
+      },
+      "issues": "Category order validation contract mismatch"
+    },
+    {
+      "id": "VAL-COINS-001",
+      "title": "Coins markets requires vs_currency",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /coins/markets without vs_currency",
+          "expected": "400 validation error",
+          "observed": "status=400 body={'error': 'invalid_parameter', 'message': 'vs_currency Required'}"
+        }
+      ],
+      "evidence": {
+        "command": "curl -sS -D - -X GET http://127.0.0.1:3103/coins/markets",
+        "status": 400,
+        "keyPayloadFields": {
+          "error": "invalid_parameter",
+          "message": "vs_currency Required"
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-COINS-001-markets-vs-currency-required.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-002",
+      "title": "Coins markets paginates with per_page cap",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&per_page=1&page=2",
+          "expected": "At most one row from second page",
+          "observed": "status=500 length=0 ids=[]"
+        },
+        {
+          "action": "GET /coins/markets?vs_currency=usd&per_page=500&page=1",
+          "expected": "per_page clamped to max 250",
+          "observed": "status=500 length=0"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/markets?vs_currency=usd&ids=bitcoin,ethereum,solana&per_page=1&page=2",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/markets?vs_currency=usd&per_page=500&page=1"
+        ],
+        "status": {
+          "page2_per1": 500,
+          "per_page_500": 500
+        },
+        "keyPayloadFields": {
+          "page2_per1": [],
+          "per_page_500_length": 0
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-COINS-002-markets-pagination.json"
+        ]
+      },
+      "issues": "Coins markets pagination/per_page cap mismatch"
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Startup readiness gates hot endpoint usability",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Poll /diagnostics/runtime",
+          "expected": "Readiness progresses to ready or is already ready",
+          "observed": "samples=[{'t': 0.007, 'status': 500, 'state': None}, {'t': 0.265, 'status': 500, 'state': None}, {'t': 0.522, 'status': 500, 'state': None}, {'t': 0.779, 'status': 500, 'state': None}, {'t': 1.036, 'status': 500, 'state': None}, {'t': 1.293, 'status': 500, 'state': None}, {'t': 1.551, 'status': 500, 'state': None}, {'t': 1.809, 'status': 500, 'state': None}, {'t': 2.065, 'status': 500, 'state': None}, {'t': 2.323, 'status': 500, 'state': None}, {'t': 2.579, 'status': 500, 'state': None}, {'t': 2.835, 'status': 500, 'state': None}]"
+        },
+        {
+          "action": "GET /simple/price?ids=bitcoin&vs_currencies=usd",
+          "expected": "Non-empty payload once runtime is ready",
+          "observed": "status=500 body={'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "poll GET /diagnostics/runtime every 250ms for 3s",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/simple/price?ids=bitcoin&vs_currencies=usd"
+        ],
+        "status": {
+          "diagnostics": 500,
+          "simple": 500
+        },
+        "keyPayloadFields": {
+          "readiness_samples": [
+            {
+              "t": 0.007,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 0.265,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 0.522,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 0.779,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 1.036,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 1.293,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 1.551,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 1.809,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 2.065,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 2.323,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 2.579,
+              "status": 500,
+              "state": null
+            },
+            {
+              "t": 2.835,
+              "status": 500,
+              "state": null
+            }
+          ],
+          "simple": {
+            "error": "internal_server_error",
+            "message": "An unexpected error occurred."
+          }
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CROSS-001-readiness-to-simple.json"
+        ]
+      },
+      "issues": "Readiness and hot endpoint usability diverged"
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "Runtime snapshot state maps to simple/coins market endpoint outcomes",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "Observe shared market snapshot availability/state",
+          "observed": "available=None source_class=None freshness=None"
+        },
+        {
+          "action": "GET /simple/price and /coins/markets for overlapping ids",
+          "expected": "Endpoint outcomes coherent with diagnostics state",
+          "observed": "simple_status=500 simple_keys=['error', 'message'] coins_status=500 coins_len=0"
+        }
+      ],
+      "evidence": {
+        "command": [
+          "curl -sS -D - -X GET http://127.0.0.1:3103/diagnostics/runtime",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/simple/price?ids=bitcoin,ethereum&vs_currencies=usd",
+          "curl -sS -D - -X GET http://127.0.0.1:3103/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&per_page=2&page=1"
+        ],
+        "status": {
+          "diagnostics": 500,
+          "simple": 500,
+          "coins_markets": 500
+        },
+        "keyPayloadFields": {
+          "diagnostics": null,
+          "simple": {
+            "error": "internal_server_error",
+            "message": "An unexpected error occurred."
+          },
+          "coins_markets": []
+        },
+        "files": [
+          "architecture-hardening/mission-api-ops-catalog/VAL-CROSS-002-runtime-to-hot-endpoints.json"
+        ]
+      },
+      "issues": "Diagnostics snapshot and hot endpoint outcomes were incoherent"
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 19 assertions: 10 passed, 9 failed, 0 blocked, 0 skipped."
+}

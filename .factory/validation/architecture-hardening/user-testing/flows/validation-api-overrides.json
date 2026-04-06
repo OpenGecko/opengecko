@@ -1,0 +1,305 @@
+{
+  "groupId": "validation-api-overrides",
+  "testedAt": "2026-04-06T08:49:50.927444+00:00",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3102",
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
+    "surface": "validation-api"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-OPS-006",
+      "title": "Degraded runtime state is externally visible under explicit stimulus",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /diagnostics/runtime/degraded_state mode=stale_allowed",
+          "expected": "200 and degraded diagnostics state",
+          "observed": "HTTP 200"
+        },
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "readiness.state='degraded' and degraded.active=true",
+          "observed": "{\"state\": \"degraded\", \"active\": true}"
+        },
+        {
+          "action": "POST /diagnostics/runtime/degraded_state mode=degraded_seeded_bootstrap",
+          "expected": "200 and degraded diagnostics state",
+          "observed": "HTTP 200"
+        },
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "readiness.state='degraded' and degraded.active=true",
+          "observed": "{\"state\": \"degraded\", \"active\": true}"
+        },
+        {
+          "action": "POST /diagnostics/runtime/degraded_state mode=off",
+          "expected": "override disabled",
+          "observed": "HTTP 200"
+        },
+        {
+          "action": "GET /diagnostics/runtime after off",
+          "expected": "validation override inactive flags false",
+          "observed": "{\"override_active\": false, \"readiness_validation_override_active\": false}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-OPS-006.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-009",
+      "title": "Provider failure override mutates and clears injected failure state in validation mode",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST /diagnostics/runtime/provider_failure active=true",
+          "expected": "200 with data.active=true",
+          "observed": "{\"active\": true, \"reason\": \"x\"}"
+        },
+        {
+          "action": "GET /diagnostics/runtime",
+          "expected": "injected provider failure active=true",
+          "observed": "{\"active\": true, \"reason\": \"x\"}"
+        },
+        {
+          "action": "POST /diagnostics/runtime/provider_failure active=false",
+          "expected": "200 with cleared state",
+          "observed": "{\"active\": false, \"reason\": null}"
+        },
+        {
+          "action": "GET /diagnostics/runtime after clear",
+          "expected": "injected provider failure active=false",
+          "observed": "{\"active\": false, \"reason\": null}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-OPS-009.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-010",
+      "title": "Degraded-state override rejects invalid mode values",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST invalid degraded mode",
+          "expected": "HTTP 400 invalid_parameter",
+          "observed": "{\"status\": 400, \"error\": \"invalid_parameter\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-OPS-010.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-011",
+      "title": "Degraded-state override controls stale policy and zero-live boot signaling",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST mode=stale_disallowed then GET /diagnostics/runtime",
+          "expected": "{\"stale_live_enabled\": false, \"zero_live_completed_boot\": false}",
+          "observed": "{\"stale_live_enabled\": false, \"zero_live_completed_boot\": false}"
+        },
+        {
+          "action": "POST mode=stale_allowed then GET /diagnostics/runtime",
+          "expected": "{\"stale_live_enabled\": true, \"zero_live_completed_boot\": false}",
+          "observed": "{\"stale_live_enabled\": true, \"zero_live_completed_boot\": false}"
+        },
+        {
+          "action": "POST mode=zero_live_completed_boot then GET /diagnostics/runtime",
+          "expected": "{\"stale_live_enabled\": false, \"zero_live_completed_boot\": true}",
+          "observed": "{\"stale_live_enabled\": false, \"zero_live_completed_boot\": true}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-OPS-011.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-OPS-012",
+      "title": "Runtime cache revision increments on degraded-state mutation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "POST mode=stale_allowed",
+          "expected": "cache_revision increments",
+          "observed": "{\"previous\": 9, \"post\": 10, \"diagnostics\": 10}"
+        },
+        {
+          "action": "POST mode=off",
+          "expected": "cache_revision increments",
+          "observed": "{\"previous\": 10, \"post\": 11, \"diagnostics\": 11}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-OPS-012.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Degraded stale-live signaling remains coherent across diagnostics and data APIs",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enable stale_allowed and read diagnostics",
+          "expected": "degraded active with stale-live enabled or stale source class",
+          "observed": "{\"degraded_active\": true, \"stale_live_enabled\": true, \"source_class\": \"stale_live\"}"
+        },
+        {
+          "action": "GET /simple/price and /coins/markets",
+          "expected": "fallback data still served",
+          "observed": "{\"simple_status\": 200, \"simple_keys\": [\"bitcoin\"], \"markets_status\": 200, \"markets_len\": 1}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-003.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "Seeded-bootstrap degraded mode is consistently reflected and still serves compatible reads",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enable degraded_seeded_bootstrap and read diagnostics",
+          "expected": "seeded/degraded state reflected",
+          "observed": "{\"state\": \"degraded\", \"source_class\": \"degraded_seeded_bootstrap\", \"degraded_active\": true}"
+        },
+        {
+          "action": "GET /simple/price and /coins/markets",
+          "expected": "contract-compatible payloads still served",
+          "observed": "{\"simple_status\": 200, \"simple_keys\": [\"bitcoin\"], \"markets_status\": 200, \"markets_len\": 1}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-004.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "title": "Zero-live completed boot must produce explicit unavailability contract on simple surfaces",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enable zero_live_completed_boot and read diagnostics",
+          "expected": "zero_live_completed_boot=true with unavailable semantics",
+          "observed": "{\"zero_live_completed_boot\": true, \"available\": true, \"source_class\": \"unavailable\"}"
+        },
+        {
+          "action": "GET /simple/price and /simple/token_price",
+          "expected": "explicit 503 service_unavailable semantics",
+          "observed": "{\"simple_status\": 503, \"simple_body\": {\"error\": \"service_unavailable\", \"message\": \"No usable live market snapshots are available for simple/price.\"}, \"token_status\": 503, \"token_body\": {\"error\": \"service_unavailable\", \"message\": \"No usable live market snapshots are available for simple/token_price.\"}}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-005.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "title": "Cache revision mutation is observable across diagnostics and hot endpoints after runtime override",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Capture baseline revision, mutate degraded override, read diagnostics",
+          "expected": "cache revision increments and diagnostics match new revision",
+          "observed": "{\"baseline\": 17, \"post\": 18, \"diagnostics\": 18}"
+        },
+        {
+          "action": "GET hot endpoints after mutation",
+          "expected": "responses align with post-mutation stale-allowed state",
+          "observed": "{\"simple_status\": 200, \"markets_status\": 200, \"degraded_active\": true}"
+        },
+        {
+          "action": "Reset override",
+          "expected": "next cache revision increment observed",
+          "observed": "{\"reset_revision\": 19}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-006.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "title": "Provider failure injection visibility and degraded reason propagation consistency",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Enable provider failure and read diagnostics",
+          "expected": "injected provider failure visible with propagated reason",
+          "observed": "{\"injected\": {\"active\": true, \"reason\": \"contract-validation\"}, \"reason\": null, \"state\": \"ready\"}"
+        },
+        {
+          "action": "GET /simple/price and /coins/markets",
+          "expected": "data serving behavior coherent with injected failure state",
+          "observed": "{\"simple_status\": 200, \"simple_keys\": [], \"markets_status\": 200, \"markets_len\": 1}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-007.json"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-008",
+      "title": "Health/liveness remains independent from market-data degraded states while runtime explains degradation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "GET /health before and during degraded override",
+          "expected": "liveness remains 200 with stable payload",
+          "observed": "{\"before\": {\"status\": 200, \"body\": {\"gecko_says\": \"(V3) To the Moon!\"}}, \"during\": {\"status\": 200, \"body\": {\"gecko_says\": \"(V3) To the Moon!\"}}}"
+        },
+        {
+          "action": "GET diagnostics and hot endpoints during degraded override",
+          "expected": "runtime explains degradation while data follows policy",
+          "observed": "{\"degraded_active\": true, \"reason\": \"contract-validation\", \"simple_status\": 200, \"markets_status\": 200}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "not applicable (curl only)",
+        "network": "architecture-hardening/validation-api-overrides/VAL-CROSS-008.json"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 11 assertions: 11 pass"
+}

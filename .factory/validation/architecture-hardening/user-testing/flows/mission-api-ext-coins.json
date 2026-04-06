@@ -1,0 +1,631 @@
+{
+  "groupId": "mission-api-ext-coins",
+  "testedAt": "2026-04-06T08:50:32.923994+00:00",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3103",
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
+    "boundary": "read-only curl requests only"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-COINS-005",
+      "title": "Coins detail not-found handling",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id",
+          "expected": "404 not_found for unknown coin id",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/not-a-real-coin-id -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-006",
+      "title": "Coins history requires date and validates format",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/history",
+          "expected": "400 invalid_parameter when date missing",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'date Required'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/history?date=2026-04-06",
+          "expected": "400 invalid_parameter for malformed dd-mm-yyyy date",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "missing date -> 400; malformed date -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Missing date path passed, but malformed date returned 500 instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-007",
+      "title": "Coins history unknown coin returns 404",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/history?date=06-04-2026",
+          "expected": "404 not_found for unknown coin history",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/not-a-real-coin-id/history?date=06-04-2026 -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-008",
+      "title": "Coin tickers pagination default and size",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/tickers",
+          "expected": "200 response with default page=1 and ticker list",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/tickers?page=2",
+          "expected": "200 response for page=2 with same fixed page size 100 semantics",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "page1 -> 500; page2 -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Ticker endpoint returned 500 for both pagination checks, so page default/size could not be confirmed."
+    },
+    {
+      "id": "VAL-COINS-009",
+      "title": "Coin tickers filter and order validation",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/tickers?exchange_ids=binance",
+          "expected": "200 response filtered to exchange_ids=binance",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/tickers?order=price_desc",
+          "expected": "400 invalid_parameter for unsupported order",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "exchange_ids filter -> 500; bad order -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Both filter and invalid-order checks returned 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-010",
+      "title": "Coin tickers unknown coin returns 404",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/tickers",
+          "expected": "404 not_found for unknown coin tickers",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/not-a-real-coin-id/tickers -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Expected 404 not_found, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-COINS-011",
+      "title": "Market chart requires vs_currency and days",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?days=1",
+          "expected": "400 invalid_parameter when vs_currency missing",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'vs_currency Required'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?vs_currency=usd",
+          "expected": "400 invalid_parameter when days missing",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'days Required'}"
+        }
+      ],
+      "evidence": {
+        "network": "missing vs_currency -> 400; missing days -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-012",
+      "title": "Market chart days validation",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?vs_currency=usd&days=0",
+          "expected": "400 invalid_parameter for days=0",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?vs_currency=usd&days=-1",
+          "expected": "400 invalid_parameter for days=-1",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?vs_currency=usd&days=abc",
+          "expected": "400 invalid_parameter for days=abc",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "days=0 -> 500; days=-1 -> 500; days=abc -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Invalid days values returned 500 internal_server_error instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-013",
+      "title": "Market chart range validates ordering and timestamps",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart/range?vs_currency=usd&from=abc&to=100",
+          "expected": "400 invalid_parameter for malformed from value",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'Invalid from value: abc'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart/range?vs_currency=usd&from=200&to=100",
+          "expected": "400 invalid_parameter for from>to",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'Invalid time range: from must be less than or equal to to.'}"
+        }
+      ],
+      "evidence": {
+        "network": "bad from -> 400; inverted range -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-014",
+      "title": "OHLC tuple shape and chronological ordering",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/ohlc?vs_currency=usd&days=1",
+          "expected": "200 response with ascending [timestamp,open,high,low,close] tuples",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /coins/bitcoin/ohlc?vs_currency=usd&days=1 -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Endpoint returned 500 internal_server_error, so tuple shape/order could not be validated."
+    },
+    {
+      "id": "VAL-COINS-015",
+      "title": "OHLC range validates malformed params",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/ohlc/range?vs_currency=usd&from=abc&to=100",
+          "expected": "400 invalid_parameter for malformed from",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/ohlc/range?vs_currency=usd&from=200&to=100",
+          "expected": "400 invalid_parameter for from>to",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "bad from -> 500; inverted range -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Both invalid OHLC range requests returned 500 internal_server_error instead of 400 invalid_parameter."
+    },
+    {
+      "id": "VAL-COINS-016",
+      "title": "Chart payload series alignment by timestamp",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart?vs_currency=usd&days=1",
+          "expected": "200 payload with aligned prices/market_caps/total_volumes timestamps",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/bitcoin/market_chart/range?vs_currency=usd&from=1743811200&to=1743897600",
+          "expected": "200 range payload with aligned ordered timestamps across all series",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "market_chart -> 500; market_chart/range -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Both chart endpoints returned 500 internal_server_error, so series alignment could not be validated."
+    },
+    {
+      "id": "VAL-COINS-017",
+      "title": "Unknown coin IDs in chart endpoints return 404",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/market_chart?vs_currency=usd&days=1",
+          "expected": "404 not_found for unknown coin market_chart",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/market_chart/range?vs_currency=usd&from=1&to=2",
+          "expected": "404 not_found for unknown coin market_chart/range",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/ohlc?vs_currency=usd&days=1",
+          "expected": "404 not_found for unknown coin ohlc",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        },
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/coins/not-a-real-coin-id/ohlc/range?vs_currency=usd&from=1&to=2",
+          "expected": "404 not_found for unknown coin ohlc/range",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "chart -> 500; range -> 500; ohlc -> 500; ohlc/range -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "All unknown-coin chart/OHLC paths returned 500 internal_server_error instead of 404 not_found."
+    },
+    {
+      "id": "VAL-EXT-001",
+      "title": "Exchanges list rejects unsupported status values",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/exchanges/list?status=paused",
+          "expected": "400 invalid_parameter for unsupported status",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': \"status Invalid enum value. Expected 'active' | 'inactive' | 'all', received 'paused'\"}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /exchanges/list?status=paused -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-002",
+      "title": "Exchanges list returns empty set for inactive status",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/exchanges/list?status=inactive",
+          "expected": "200 with empty array [] for inactive status",
+          "observed": "HTTP 200 body=[]"
+        }
+      ],
+      "evidence": {
+        "network": "GET /exchanges/list?status=inactive -> 200 body length 0",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-003",
+      "title": "Exchange tickers reject unsupported order",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/exchanges/binance/tickers?order=price_desc",
+          "expected": "400 invalid_parameter for unsupported order",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /exchanges/binance/tickers?order=price_desc -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Expected 400 invalid_parameter, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-EXT-004",
+      "title": "Exchange volume chart validates positive numeric days",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/exchanges/binance/volume_chart?days=0",
+          "expected": "400 invalid_parameter for days=0",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'Invalid days value: 0'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /exchanges/binance/volume_chart?days=0 -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-005",
+      "title": "Exchange volume range enforces from<=to",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/exchanges/binance/volume_chart/range?from=200&to=100",
+          "expected": "400 invalid_parameter for inverted range",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'Invalid time range: from must be less than or equal to to.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /exchanges/binance/volume_chart/range?from=200&to=100 -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-006",
+      "title": "Derivatives exchanges response preserves fixture metadata schema",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/derivatives/exchanges",
+          "expected": "200 object with data array and meta.fixture/meta.frozen_at/meta.note",
+          "observed": "HTTP 200 meta={'page': 1, 'fixture': True, 'frozen_at': '2026-03-20', 'note': 'Derivatives data is seeded fixture, not live'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /derivatives/exchanges -> 200 meta fields present",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-007",
+      "title": "Entities list enforces entity_type enum validation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/entities/list?entity_type=funds",
+          "expected": "400 invalid_parameter for unsupported entity_type",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': \"entity_type Invalid enum value. Expected 'companies' | 'governments' | 'countries', received 'funds'\"}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /entities/list?entity_type=funds -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-008",
+      "title": "Public treasury by entity returns 404 for unknown entity_id",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/public_treasury/unknown-entity",
+          "expected": "404 not_found for unknown treasury entity",
+          "observed": "HTTP 404 {'error': 'not_found', 'message': 'Treasury entity not found: unknown-entity'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /public_treasury/unknown-entity -> 404",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-009",
+      "title": "Holding chart rejects unsupported days values",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/public_treasury/microstrategy/bitcoin/holding_chart?days=15",
+          "expected": "400 invalid_parameter for unsupported holding chart days",
+          "observed": "HTTP 400 {'error': 'invalid_parameter', 'message': 'Invalid days value: 15'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /public_treasury/microstrategy/bitcoin/holding_chart?days=15 -> 400",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-010",
+      "title": "Holding chart empty-state returns typed empty arrays",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/public_treasury/el-salvador/ethereum/holding_chart?days=30",
+          "expected": "200 payload with data.holdings=[] and data.holding_value_in_usd=[] for empty-state pair",
+          "observed": "HTTP 500 {'error': 'internal_server_error', 'message': 'An unexpected error occurred.'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /public_treasury/el-salvador/ethereum/holding_chart?days=30 -> 500",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Expected typed empty arrays, observed 500 internal_server_error."
+    },
+    {
+      "id": "VAL-EXT-011",
+      "title": "Onchain network-scoped routes return 404 for unknown network",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -i http://127.0.0.1:3103/onchain/networks/notreal/pools",
+          "expected": "404 not_found for unknown onchain network",
+          "observed": "HTTP 404 {'error': 'not_found', 'message': 'Onchain network not found: notreal'}"
+        }
+      ],
+      "evidence": {
+        "network": "GET /onchain/networks/notreal/pools -> 404",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-012",
+      "title": "Onchain pool trades validate token address format",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Discovery via curl -sS -i http://127.0.0.1:3103/onchain/networks and curl -sS -i http://127.0.0.1:3103/onchain/networks/arbitrum/pools",
+          "expected": "Locate an existing network+pool pair to exercise assigned pool routes",
+          "observed": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+        }
+      ],
+      "evidence": {
+        "network": "onchain/networks -> 200; /onchain/networks/arbitrum/pools -> 404",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    },
+    {
+      "id": "VAL-EXT-013",
+      "title": "Onchain pool trades reject non-constituent token filters",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Discovery via curl -sS -i http://127.0.0.1:3103/onchain/networks and curl -sS -i http://127.0.0.1:3103/onchain/networks/arbitrum/pools",
+          "expected": "Locate an existing network+pool pair to exercise assigned pool routes",
+          "observed": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+        }
+      ],
+      "evidence": {
+        "network": "onchain/networks -> 200; /onchain/networks/arbitrum/pools -> 404",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    },
+    {
+      "id": "VAL-EXT-014",
+      "title": "Onchain pool OHLCV enforces supported currency enum",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Discovery via curl -sS -i http://127.0.0.1:3103/onchain/networks and curl -sS -i http://127.0.0.1:3103/onchain/networks/arbitrum/pools",
+          "expected": "Locate an existing network+pool pair to exercise assigned pool routes",
+          "observed": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+        }
+      ],
+      "evidence": {
+        "network": "onchain/networks -> 200; /onchain/networks/arbitrum/pools -> 404",
+        "artifacts": [
+          "architecture-hardening/mission-api-ext-coins/curl-evidence.json"
+        ]
+      },
+      "issues": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    }
+  ],
+  "frictions": [
+    {
+      "description": "Several coins/exchanges/treasury endpoints returned generic 500 internal_server_error responses, preventing confirmation of expected 4xx/404 or happy-path contracts.",
+      "resolved": false,
+      "resolution": "Recorded the observed failures directly from mission-api without mutating shared runtime state.",
+      "affectedAssertions": [
+        "VAL-COINS-005",
+        "VAL-COINS-006",
+        "VAL-COINS-007",
+        "VAL-COINS-008",
+        "VAL-COINS-009",
+        "VAL-COINS-010",
+        "VAL-COINS-012",
+        "VAL-COINS-014",
+        "VAL-COINS-015",
+        "VAL-COINS-016",
+        "VAL-COINS-017",
+        "VAL-EXT-003",
+        "VAL-EXT-010"
+      ]
+    },
+    {
+      "description": "Onchain discovery was inconsistent: /onchain/networks listed arbitrum, but /onchain/networks/arbitrum/pools returned not_found, so no existing pool was available for the pool-level assertions.",
+      "resolved": false,
+      "resolution": "Marked VAL-EXT-012/013/014 blocked after discovery attempts only.",
+      "affectedAssertions": [
+        "VAL-EXT-012",
+        "VAL-EXT-013",
+        "VAL-EXT-014"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "description": "No usable onchain pool could be discovered from mission-api for pool-level assertions.",
+      "affectedAssertions": [
+        "VAL-EXT-012",
+        "VAL-EXT-013",
+        "VAL-EXT-014"
+      ],
+      "quickFixAttempted": "Could not discover an existing pool on mission-api: /onchain/networks returned network='arbitrum', but /onchain/networks/arbitrum/pools returned 404 {'error': 'not_found', 'message': 'Onchain network not found: arbitrum'}"
+    }
+  ],
+  "summary": "Tested 27 assertions: 11 passed, 13 failed, 3 blocked."
+}
