@@ -110,23 +110,50 @@ describe('OpenGecko invalid parameter handling', () => {
   });
 
   it('rejects invalid history dates', async () => {
-    const response = await app!.inject({
-      method: 'GET',
-      url: '/coins/bitcoin/history?date=invalid-date',
-    });
+    const [response, missingDateResponse, unknownCoinResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/history?date=invalid-date',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/history',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/not-a-coin/history?date=20-03-2026',
+      }),
+    ]);
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject(errorFixtures.coinHistoryBadDate);
+    expect(missingDateResponse.statusCode).toBe(400);
+    expect(missingDateResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
+    expect(unknownCoinResponse.statusCode).toBe(404);
+    expect(unknownCoinResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Coin not found: not-a-coin',
+    });
   });
 
   it('rejects invalid paging values', async () => {
-    const response = await app!.inject({
-      method: 'GET',
-      url: '/coins/markets?vs_currency=usd&per_page=0',
-    });
+    const [response, clampedResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&per_page=0',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&per_page=300&page=1',
+      }),
+    ]);
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject(errorFixtures.coinMarketsBadPerPage);
+    expect(clampedResponse.statusCode).toBe(200);
+    expect(clampedResponse.json()).toHaveLength(8);
   });
 
   it('rejects unsupported market ordering values', async () => {
@@ -150,13 +177,51 @@ describe('OpenGecko invalid parameter handling', () => {
   });
 
   it('rejects invalid chart day values', async () => {
-    const response = await app!.inject({
-      method: 'GET',
-      url: '/coins/bitcoin/market_chart?vs_currency=usd&days=bad',
+    const [badValueResponse, zeroResponse, negativeResponse, missingDaysResponse, missingVsCurrencyResponse] = await Promise.all([
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?vs_currency=usd&days=bad',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?vs_currency=usd&days=0',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?vs_currency=usd&days=-1',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?vs_currency=usd',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart?days=7',
+      }),
+    ]);
+
+    expect(badValueResponse.statusCode).toBe(400);
+    expect(badValueResponse.json()).toMatchObject(errorFixtures.coinChartBadDays);
+    expect(zeroResponse.statusCode).toBe(400);
+    expect(zeroResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid days value: 0',
+    });
+    expect(negativeResponse.statusCode).toBe(400);
+    expect(negativeResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid days value: -1',
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toMatchObject(errorFixtures.coinChartBadDays);
+    expect(missingDaysResponse.statusCode).toBe(400);
+    expect(missingDaysResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
+
+    expect(missingVsCurrencyResponse.statusCode).toBe(400);
+    expect(missingVsCurrencyResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
   });
 
   it('rejects unsupported chart interval values', async () => {

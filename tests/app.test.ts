@@ -1567,6 +1567,19 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('rejects empty vs_currencies for simple price requests with the contract 400 envelope', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin&vs_currencies=',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'At least one vs_currency must be provided.',
+    });
+  });
+
   it('keeps equivalent simple price selector requests stable across parameter ordering', async () => {
     const [baselineResponse, reorderedResponse] = await Promise.all([
       getApp().inject({
@@ -1663,6 +1676,31 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(contractFixtures.tokenPrice);
+  });
+
+  it('rejects empty token-price selector lists with explicit invalid_parameter errors', async () => {
+    const [missingContractsResponse, missingVsCurrenciesResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/token_price/ethereum?contract_addresses=&vs_currencies=usd',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/simple/token_price/ethereum?contract_addresses=0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48&vs_currencies=',
+      }),
+    ]);
+
+    expect(missingContractsResponse.statusCode).toBe(400);
+    expect(missingContractsResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'At least one contract address must be provided.',
+    });
+
+    expect(missingVsCurrenciesResponse.statusCode).toBe(400);
+    expect(missingVsCurrenciesResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'At least one vs_currency must be provided.',
+    });
   });
 
   it('returns explicit fresh-boot price errors when no usable live snapshots exist', async () => {
@@ -5112,6 +5150,19 @@ describe('OpenGecko app scaffold', () => {
     ]));
   });
 
+  it('keeps /coins/list default payloads limited to id, symbol, and name', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(8);
+    response.json().forEach((row: Record<string, unknown>) => {
+      expect(Object.keys(row).sort()).toEqual(['id', 'name', 'symbol']);
+    });
+  });
+
   it('negotiates gzip compression for responses above the threshold without changing body semantics', async () => {
     await app?.close();
     app = buildApp({
@@ -5280,6 +5331,29 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject(contractFixtures.searchStable);
+  });
+
+  it('rejects blank search queries with the invalid_parameter contract envelope', async () => {
+    const [missingQueryResponse, blankQueryResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/search',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/search?query=',
+      }),
+    ]);
+
+    expect(missingQueryResponse.statusCode).toBe(400);
+    expect(missingQueryResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
+
+    expect(blankQueryResponse.statusCode).toBe(400);
+    expect(blankQueryResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
   });
 
   it('keeps newly listed canonical coin ids propagated across search, list, and detail surfaces', async () => {
@@ -5492,6 +5566,51 @@ describe('OpenGecko app scaffold', () => {
       },
     });
     expect(response.json().data.markets).toBeGreaterThan(0);
+  });
+
+  it('keeps /global aggregate payloads wrapped in data with the required compatibility fields', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/global',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: expect.objectContaining({
+        active_cryptocurrencies: expect.any(Number),
+        markets: expect.any(Number),
+        updated_at: expect.any(Number),
+        total_market_cap: expect.any(Object),
+        total_volume: expect.any(Object),
+        market_cap_percentage: expect.any(Object),
+        market_cap_change_percentage_24h_usd: expect.any(Number),
+        volume_change_percentage_24h_usd: expect.any(Number),
+      }),
+    });
+  });
+
+  it('keeps coins category ordering strict and deterministic for supported and unsupported order values', async () => {
+    const [sortedResponse, invalidOrderResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/categories?order=market_cap_desc',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/categories?order=bad_order',
+      }),
+    ]);
+
+    expect(sortedResponse.statusCode).toBe(200);
+    expect(sortedResponse.json().data).toEqual(
+      [...sortedResponse.json().data].sort((left, right) => (right.market_cap ?? -1) - (left.market_cap ?? -1)),
+    );
+
+    expect(invalidOrderResponse.statusCode).toBe(400);
+    expect(invalidOrderResponse.json()).toEqual({
+      error: 'invalid_parameter',
+      message: 'Unsupported order value: bad_order',
+    });
   });
 
   it('returns global defi aggregates in a data envelope with stable finite-or-null fields', async () => {
@@ -7874,17 +7993,29 @@ describe('OpenGecko app scaffold', () => {
   });
 
   it('returns not found for unknown chart-style coin routes', async () => {
-    const chartResponse = await getApp().inject({
-      method: 'GET',
-      url: '/coins/not-a-coin/market_chart?vs_currency=usd&days=7',
-    });
-    const ohlcResponse = await getApp().inject({
-      method: 'GET',
-      url: '/coins/not-a-coin/ohlc?vs_currency=usd&days=7',
-    });
+    const [chartResponse, rangedChartResponse, ohlcResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/not-a-coin/market_chart?vs_currency=usd&days=7',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/not-a-coin/market_chart/range?vs_currency=usd&from=1773792000&to=1774310400',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/not-a-coin/ohlc?vs_currency=usd&days=7',
+      }),
+    ]);
 
     expect(chartResponse.statusCode).toBe(404);
     expect(chartResponse.json()).toMatchObject({
+      error: 'not_found',
+      message: 'Coin not found: not-a-coin',
+    });
+
+    expect(rangedChartResponse.statusCode).toBe(404);
+    expect(rangedChartResponse.json()).toMatchObject({
       error: 'not_found',
       message: 'Coin not found: not-a-coin',
     });
