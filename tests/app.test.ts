@@ -5613,6 +5613,79 @@ describe('OpenGecko app scaffold', () => {
     });
   });
 
+  it('keeps search, global, and categories contract-compatible when live snapshots have null market caps', async () => {
+    getApp().db.db
+      .update(marketSnapshots)
+      .set({
+        marketCap: null,
+      })
+      .run();
+
+    const [searchResponse, globalResponse, categoriesResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/search?query=bitcoin',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/global',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/coins/categories?order=market_cap_desc',
+      }),
+    ]);
+
+    expect(searchResponse.statusCode).toBe(200);
+    expect(searchResponse.json()).toEqual(expect.objectContaining({
+      coins: expect.any(Array),
+      exchanges: expect.any(Array),
+      categories: expect.any(Array),
+      nfts: expect.any(Array),
+    }));
+
+    expect(globalResponse.statusCode).toBe(200);
+    expect(globalResponse.json()).toEqual({
+      data: expect.objectContaining({
+        active_cryptocurrencies: expect.any(Number),
+        markets: expect.any(Number),
+        total_market_cap: expect.any(Object),
+        total_volume: expect.any(Object),
+        market_cap_percentage: expect.any(Object),
+        updated_at: expect.any(Number),
+      }),
+    });
+
+    expect(categoriesResponse.statusCode).toBe(200);
+    expect(categoriesResponse.json()).toEqual(expect.objectContaining({
+      data: expect.any(Array),
+      meta: expect.any(Object),
+    }));
+  });
+
+  it('keeps /global market_cap_percentage finite when persisted live snapshots have no usable market caps', async () => {
+    getApp().db.db
+      .update(marketSnapshots)
+      .set({
+        marketCap: null,
+      })
+      .run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/global',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.market_cap_percentage).toEqual(expect.objectContaining({
+      btc: 0,
+      eth: 0,
+      usdc: 0,
+      xrp: 0,
+      sol: 0,
+    }));
+  });
+
   it('returns global defi aggregates in a data envelope with stable finite-or-null fields', async () => {
     const response = await getApp().inject({
       method: 'GET',

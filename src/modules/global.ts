@@ -36,6 +36,18 @@ function computeMarketCapChangePercentage24hUsd(
   return currentMarketCapUsd.minus(previousMarketCapUsd).dividedBy(previousMarketCapUsd).multipliedBy(100).toNumber();
 }
 
+function compareNullableNumbersDescending(left: number | null | undefined, right: number | null | undefined) {
+  return (right ?? -Infinity) - (left ?? -Infinity);
+}
+
+function safePercentage(numerator: number, denominator: number) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+    return 0;
+  }
+
+  return (numerator / denominator) * 100;
+}
+
 const globalMarketCapChartQuerySchema = z.object({
   vs_currency: z.string(),
   days: z.string(),
@@ -196,7 +208,7 @@ export function registerGlobalRoutes(
     const ethMarketCap = activeMarketRows.find((row) => row.coin.id === 'ethereum')?.snapshot.marketCap ?? 0;
     const totalMarketCapUsd = activeMarketRows.reduce((sum, row) => sum.plus(row.snapshot.marketCap ?? 0), new BigNumber(0)).toNumber();
     const topCoin = [...defiMarketRows]
-      .sort((left, right) => (right.snapshot.marketCap ?? 0) - (left.snapshot.marketCap ?? 0))[0];
+      .sort((left, right) => compareNullableNumbersDescending(left.snapshot.marketCap, right.snapshot.marketCap))[0];
     const topCoinMarketCap = topCoin?.snapshot.marketCap ?? 0;
 
     return {
@@ -242,7 +254,7 @@ export function registerGlobalRoutes(
           const rightIndex = preferredDominanceCoinIds.indexOf(right.coin.id);
           return leftIndex - rightIndex;
         })
-        .map((row) => [row.coin.symbol.toLowerCase(), totalMarketCapUsd === 0 ? 0 : ((row.snapshot.marketCap ?? 0) / totalMarketCapUsd) * 100]),
+        .map((row) => [row.coin.symbol.toLowerCase(), safePercentage(row.snapshot.marketCap ?? 0, totalMarketCapUsd)]),
     );
     const volumeChangePercentage24hUsd = totalVolumeUsd === 0
       ? new BigNumber(0)
@@ -268,9 +280,9 @@ export function registerGlobalRoutes(
         total_market_cap: totalMarketCap,
         total_volume: totalVolume,
         market_cap_percentage: {
-          btc: totalMarketCapUsd === 0 ? 0 : (btcMarketCap / totalMarketCapUsd) * 100,
-          eth: totalMarketCapUsd === 0 ? 0 : (ethMarketCap / totalMarketCapUsd) * 100,
-          usdc: totalMarketCapUsd === 0 ? 0 : (usdcMarketCap / totalMarketCapUsd) * 100,
+          btc: safePercentage(btcMarketCap, totalMarketCapUsd),
+          eth: safePercentage(ethMarketCap, totalMarketCapUsd),
+          usdc: safePercentage(usdcMarketCap, totalMarketCapUsd),
           ...marketCapPercentage,
         },
         market_cap_change_percentage_24h_usd: computeMarketCapChangePercentage24hUsd(marketRows),
