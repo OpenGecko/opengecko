@@ -1,25 +1,26 @@
 commands:
   install: "bun install --frozen-lockfile"
-  typecheck: "bun run typecheck"
-  build: "bun run build"
   lint: "bun run lint"
-  test: "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2"
-  full_test: "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=2"
-  endpoint_smoke: "BASE_URL=http://localhost:3001 /usr/bin/env bash scripts/test-endpoints.sh"
-  endpoint_simple: "BASE_URL=http://localhost:3001 /usr/bin/env bash scripts/modules/simple/simple.sh"
-  endpoint_coins: "BASE_URL=http://localhost:3001 /usr/bin/env bash scripts/modules/coins/coins.sh"
+  typecheck: "bun run typecheck"
+  test: "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=4"
+  test_coverage: "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --coverage --maxWorkers=4"
+  build: "bun run build"
+  check: "bun run lint && bun run typecheck && TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=4 && bun run build"
+  endpoint_smoke: "BASE_URL=http://127.0.0.1:3103 /usr/bin/env bash scripts/test-endpoints.sh"
+  endpoint_simple: "BASE_URL=http://127.0.0.1:3103 /usr/bin/env bash scripts/modules/simple/simple.sh"
+  endpoint_coins: "BASE_URL=http://127.0.0.1:3103 /usr/bin/env bash scripts/modules/coins/coins.sh"
 
 services:
   api:
-    start: "PORT=3001 HOST=127.0.0.1 DATABASE_URL=./data/opengecko.db CCXT_EXCHANGES=binance,coinbase,okx LOG_LEVEL=error bun run src/server.ts"
-    stop: "lsof -ti :3001 | xargs kill 2>/dev/null || true"
-    healthcheck: "curl -sf http://localhost:3001/ping"
-    port: 3001
+    start: "HOST=127.0.0.1 PORT=3103 DATABASE_URL=./data/opengecko.db CCXT_EXCHANGES=coinbase,kraken LOG_LEVEL=error bun run src/server.ts"
+    stop: "lsof -ti :3103 | xargs kill 2>/dev/null || true"
+    healthcheck: "curl -sf http://127.0.0.1:3103/ping"
+    port: 3103
     depends_on: []
 
   validation-api:
-    start: "OPEN_GECKO_DISABLE_REPO_DOTENV=1 PORT=3102 HOST=127.0.0.1 DATABASE_URL=:memory: CCXT_EXCHANGES='' LOG_LEVEL=error bun run src/server.ts"
+    start: "OPEN_GECKO_DISABLE_REPO_DOTENV=1 HOST=127.0.0.1 PORT=3102 DATABASE_URL=:memory: CCXT_EXCHANGES=coinbase LOG_LEVEL=error bun run src/server.ts"
     stop: "lsof -ti :3102 | xargs kill 2>/dev/null || true"
-    healthcheck: "curl -sf http://localhost:3102/ping"
+    healthcheck: "curl -sf http://127.0.0.1:3102/ping"
     port: 3102
     depends_on: []

@@ -8,3 +8,5 @@ mkdir -p data
 mkdir -p data/coingecko-snapshots
 mkdir -p .factory/research
 mkdir -p .factory/validation
+mkdir -p .factory/library
+mkdir -p .factory/skills

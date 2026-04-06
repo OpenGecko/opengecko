@@ -14,7 +14,7 @@ Primary runtime configuration lives in `src/config/env.ts`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP bind host |
-| `PORT` | `3000` | HTTP bind port |
+| `PORT` | `3000` | HTTP bind port (mission services override this in `.factory/services.yaml`) |
 | `LOG_LEVEL` | `info` | Runtime log level |
 | `DATABASE_URL` | `./data/opengecko.db` | SQLite path |
 | `CCXT_EXCHANGES` | `binance,bybit,coinbase,kraken,okx,gate,mexc,bitget` | Active exchange allowlist |
@@ -43,12 +43,10 @@ Primary runtime configuration lives in `src/config/env.ts`.
 
 ## Mission-Specific Notes
 
-- The repo default `PORT` remains `3000`, but this mission must start its normal local API on port `3001` and reserve port `3102` for the validation-only API profile.
-- The repo default `CCXT_EXCHANGES` comes from `src/config/runtime-policy.ts`; `.factory/services.yaml` intentionally narrows the mission API override to `binance,coinbase,okx` for predictable local validation.
+- Approved mission port range is `3100-3199`.
+- Mission API service runs on `3103`; validation API service runs on `3102`.
+- The repo default `CCXT_EXCHANGES` comes from `src/config/runtime-policy.ts`; `.factory/services.yaml` intentionally narrows mission startup exchanges for stable local validation.
 - The validation API on `3102` must run with `OPEN_GECKO_DISABLE_REPO_DOTENV=1` and `DATABASE_URL=:memory:` so override-driven checks do not reuse shared repo runtime state.
-- `data/opengecko.db` remains the default local runtime DB, but this mission now treats `data/opengecko-validation.db` as the canonical known-good persisted snapshot fallback when the default DB is malformed or unreadable during bootstrap validation.
-- Ports `3000` and `5173` are off-limits for mission-owned services because they belong to other local projects.
+- `data/opengecko.db` remains the default local runtime DB for mission API flows.
 - Do not add new providers, credentials, hosted services, or background infrastructure without explicit mission scope expansion.
-- Fixture-backed families must stay honest in both runtime behavior and canonical planning/status docs.
-- Use `bignumber.js` for calculation-heavy logic and only convert to primitives at storage or HTTP boundaries.
-- Expect provider-backed startup on the mission API to be much slower than isolated validation startup; plan manual verification accordingly.
+- Expect provider-backed startup on the mission API to be slower than isolated validation startup.
