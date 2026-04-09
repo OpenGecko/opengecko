@@ -5,7 +5,7 @@ import { HttpError } from '../../http/errors';
 import { parseJsonObject } from '../../lib/shared';
 import { getChartGranularityMs } from '../chart-semantics';
 import { getSnapshotOwnership } from '../../services/market-snapshots';
-import { sortNumber, normalizeCategoryId, parseDexPairFormat } from '../../lib/shared';
+import { normalizeCategoryId } from '../../lib/shared';
 
 export function toNumberOrNull(value: number | null | undefined, precision: number | 'full') {
   if (value === null || value === undefined) {
@@ -195,9 +195,18 @@ export function buildNewListingRow(coin: CoinRow) {
 }
 
 export function parseHistoryDate(date: string) {
-  const [day, month, year] = date.split('-').map(Number);
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(date);
 
-  if (![day, month, year].every(Number.isInteger)) {
+  if (!match) {
+    throw new HttpError(400, 'invalid_parameter', `Invalid history date: ${date}`);
+  }
+
+  const [, dayRaw, monthRaw, yearRaw] = match;
+  const day = Number(dayRaw);
+  const month = Number(monthRaw);
+  const year = Number(yearRaw);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
     throw new HttpError(400, 'invalid_parameter', `Invalid history date: ${date}`);
   }
 

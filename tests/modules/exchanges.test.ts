@@ -101,6 +101,24 @@ describe('derivatives fixture metadata', () => {
     expect(body.meta).toHaveProperty('page');
   });
 
+  it('GET /derivatives/exchanges preserves fixture metadata contract fields', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives/exchanges?per_page=1&page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: [expect.any(Object)],
+      meta: {
+        page: 1,
+        fixture: true,
+        frozen_at: '2026-03-20',
+        note: 'Derivatives data is seeded fixture, not live',
+      },
+    });
+  });
+
   it('GET /derivatives/exchanges/:id returns fixture metadata in response meta', async () => {
     const response = await getApp().inject({
       method: 'GET',

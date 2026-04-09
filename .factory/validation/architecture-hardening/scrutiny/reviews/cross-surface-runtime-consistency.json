@@ -1,0 +1,21 @@
+{
+  "featureId": "cross-surface-runtime-consistency",
+  "reviewedAt": "2026-04-06T07:36:59Z",
+  "commitId": "2a0b1f1",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed commit 2a0b1f1 and the worker transcript for cross-surface runtime consistency. The change is test-only and it covers the round-1 gaps called out by the orchestrator: degraded seeded-bootstrap coherence and explicit 503 simple-surface behavior for zero-live completed boot. The assertions line up with the existing runtime diagnostics and simple-surface implementation, and I did not find a high-confidence correctness or compatibility issue in this feature diff.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "services",
+      "observation": "The worker had to discover that the validation API on port 3102 was already occupied and reuse that existing process during manual checks, but .factory/services.yaml only describes start/stop commands and not the expectation that these mission services may already be running and should be reused rather than relaunched.",
+      "evidence": "worker-transcripts.jsonl entry for session 17e7aa43-4b15-4429-89a9-8a057ed78f4b shows ad-hoc starts on 3102/3103 followed by a note that 3103 likely was not up and that existing 3102 service should be used; handoff.discoveredIssues also recommends using manifest-managed shared services for manual validation."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass. The reviewed feature commit adds the missing cross-surface regression coverage for VAL-CROSS-004 and VAL-CROSS-005 and remains consistent with the existing runtime diagnostics, validation mutator, and simple-surface availability contracts."
+}

@@ -1,0 +1,33 @@
+{
+  "featureId": "app-composition-seam-extraction",
+  "reviewedAt": "2026-04-06T07:37:09Z",
+  "commitId": null,
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The seam extraction itself looks structurally sound, but the current uncommitted feature diff also changes application-behavior coverage outside the scoped refactor by adding a new null-market-cap contract regression to `tests/app.test.ts` while the feature has no attributable commit. That means the reviewed feature is not isolated or auditable as implemented, so I cannot verify that the app-composition-only refactor preserved behavior without bundling unrelated contract work.",
+    "issues": [
+      {
+        "file": "tests/app.test.ts",
+        "line": 5616,
+        "severity": "blocking",
+        "description": "The current diff for this feature includes a new `search/global/categories` null-market-cap contract regression test unrelated to app composition seam extraction. Because the feature has no dedicated commit or isolated handoff commit ID, this additional behavior-guard change is bundled into the same dirty-tree review surface, making the feature non-auditable against its scoped refactor-only requirement."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-refactor-worker skill says workers should keep the diff narrowly scoped and return to orchestrator if an isolated commit is not possible, but this feature still landed in a dirty tree with unrelated test work in the same review surface and no `commitId` in the handoff. The skill may need stronger guidance on explicitly excluding unrelated assertions from the scoped diff when no commit can be produced.",
+      "evidence": "Feature handoff `2026-04-06T05-05-17-853Z__app-composition-seam-extraction__742b8310-e8a5-49ca-bc6e-502e1d3254e8.json` reports `successState: partial` and no commit because the tree was dirty; current `git diff -- src/app.ts src/app/fastify.ts src/app/routes.ts src/app/startup.ts src/app/types.ts tests/app.test.ts` shows the seam extraction plus a new unrelated test at `tests/app.test.ts:5616`; `.factory/skills/runtime-refactor-worker/SKILL.md` step 5 says to keep the diff narrowly scoped when isolated commit is not possible."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Manual verification for this feature had to switch from the default `./data/opengecko.db` to an isolated SQLite file because bootstrap against the default DB could fail on malformed SQLite artifacts, but the shared environment guidance still presents `data/opengecko.db` as the default mission runtime DB without warning about this recovery path.",
+      "evidence": "Handoff `2026-04-06T05-05-17-853Z__app-composition-seam-extraction__742b8310-e8a5-49ca-bc6e-502e1d3254e8.json` records manual verification failing against `./data/opengecko.db` and succeeding with `/home/whoami/dev/opengecko/openGecko/data/manual-3103.db`; `.factory/services.yaml` still declares `services.api.start` with `DATABASE_URL=./data/opengecko.db`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature transcript skeleton, handoff, current seam-extraction diff, and mission/shared-state docs. Result: fail because the feature is not auditable in isolation\u2014its review surface includes unrelated contract-test changes and no dedicated commit ID ties the refactor to a standalone diff."
+}

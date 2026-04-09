@@ -1,0 +1,33 @@
+{
+  "featureId": "mission-api-catalog-runtime-reliability",
+  "reviewedAt": "2026-04-06T07:36:58Z",
+  "commitId": null,
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix does not fully cover the feature's scoped runtime failures: it hardens `/global/decentralized_finance_defi` and removes an unused `/search` market-row read, but it leaves the actual `/global` path untouched even though the worker reproduced `/global` returning 500 against the shared 3103 runtime.",
+    "issues": [
+      {
+        "file": "src/modules/global.ts",
+        "line": 217,
+        "severity": "blocking",
+        "description": "The feature specifically targets `/global`, `/search`, and `/coins/categories` returning 500 on the shared 3103 runtime, but the production diff only changes `/global/decentralized_finance_defi` sorting. The `/global` handler itself is unchanged, so the claimed `/global` fix is unsupported by the patch and the reproduced 500 root cause remains unaddressed in code."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-refactor-worker skill's step 5 requires returning to orchestrator when an isolated commit is not possible, but this worker still edited production code and ran full verification before returning partial because the repo was dirty.",
+      "evidence": "Handoff skillFeedback for worker session 8b6569f8-5ee8-4cd2-a733-01f16da3a61f marks followedProcedure=false and says the worker completed the narrow code/test fix anyway despite step 5."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Manual mission validation on 3103 can require a much longer startup wait than the default manifest healthcheck because listener bind is deferred behind exchange bootstrap; this operational constraint is not captured in AGENTS.md or services.yaml healthcheck guidance.",
+      "evidence": "Feature handoff reports the 3103 bootstrap path took about 63s before listener bind and that the initial manifest restart/healthcheck window misclassified the service as failed while `.factory/services.yaml` still uses a single immediate `curl -sf http://127.0.0.1:3103/ping` healthcheck."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the reviewed diff does not actually fix the scoped `/global` 500 path. Report written after reviewing the feature metadata, worker transcript skeleton, handoff, shared-state docs, and the live diff for `src/modules/global.ts`, `src/modules/search.ts`, and `tests/app.test.ts`."
+}

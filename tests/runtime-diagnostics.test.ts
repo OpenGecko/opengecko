@@ -46,6 +46,65 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
 }
 
 describe('runtime diagnostics', () => {
+  it('normalizes seconds-encoded persisted snapshot timestamps without throwing', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+      }),
+      {
+        lastUpdated: new Date(1_775_466_023),
+        sourceProvidersJson: '["coinbase"]',
+        sourceCount: 1,
+      },
+      300,
+      Date.parse('2026-04-06T09:05:00.000Z'),
+    );
+
+    expect(diagnostics.readiness.state).toBe('ready');
+    expect(diagnostics.hot_paths.shared_market_snapshot).toEqual({
+      available: true,
+      source_class: 'fresh_live',
+      last_successful_live_refresh_at: '2026-04-06T09:00:23.000Z',
+      freshness: {
+        threshold_seconds: 300,
+        age_seconds: 277,
+        is_stale: false,
+      },
+      providers: ['coinbase'],
+      provider_count: 1,
+    });
+  });
+
+  it('treats invalid persisted snapshot timestamps as unavailable instead of throwing', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+      }),
+      {
+        lastUpdated: new Date(Number.NaN),
+        sourceProvidersJson: '["coinbase"]',
+        sourceCount: 1,
+      },
+      300,
+      Date.parse('2026-04-06T09:05:00.000Z'),
+    );
+
+    expect(diagnostics.hot_paths.shared_market_snapshot).toEqual({
+      available: false,
+      source_class: 'unavailable',
+      last_successful_live_refresh_at: null,
+      freshness: {
+        threshold_seconds: 300,
+        age_seconds: null,
+        is_stale: null,
+      },
+      providers: [],
+      provider_count: 0,
+    });
+  });
+
   it('reports startup state with seeded bootstrap source class before readiness', () => {
     const diagnostics = buildRuntimeDiagnostics(
       createState(),

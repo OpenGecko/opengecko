@@ -23,6 +23,11 @@ type SymbolIndexEntry = {
   vsCurrency: 'usd' | 'eur';
 };
 
+type TickerDiscoveryRequest = {
+  symbol: string;
+  marketTarget: SymbolIndexEntry;
+};
+
 type PendingCoinTicker = {
   coinId: string;
   exchangeId: string;
@@ -41,6 +46,11 @@ type PendingCoinTicker = {
   tradeUrl: string | null;
   tokenInfoUrl: string | null;
   coinGeckoUrl: string;
+  vsCurrency: 'usd' | 'eur';
+};
+
+type QuoteCandidate = {
+  symbol: string;
   vsCurrency: 'usd' | 'eur';
 };
 
@@ -138,6 +148,54 @@ function buildRequestedSymbolIndex(database: AppDatabase) {
   }
 
   return new Map<string, SymbolIndexEntry>(symbolEntries);
+}
+
+function buildTickerDiscoveryRequests(
+  symbolIndex: Map<string, SymbolIndexEntry>,
+  quoteCandidatesByCoinId: Map<string, QuoteCandidate[]>,
+) {
+  const requests = new Map<string, TickerDiscoveryRequest>();
+
+  for (const [symbol, marketTarget] of symbolIndex) {
+    requests.set(symbol, { symbol, marketTarget });
+  }
+
+  for (const [coinId, candidates] of quoteCandidatesByCoinId) {
+    for (const candidate of candidates) {
+      if (!requests.has(candidate.symbol)) {
+        requests.set(candidate.symbol, {
+          symbol: candidate.symbol,
+          marketTarget: {
+            coinId,
+            vsCurrency: candidate.vsCurrency,
+          },
+        });
+      }
+    }
+  }
+
+  return requests;
+}
+
+function buildQuoteCandidates(database: AppDatabase) {
+  const quoteCandidatesByCoinId = new Map<string, QuoteCandidate[]>();
+  const databaseCoinsForRefresh = database.db
+    .select()
+    .from(coins)
+    .where(or(eq(coins.status, 'active'), lte(coins.marketCapRank, 100)))
+    .all();
+
+  for (const coin of databaseCoinsForRefresh) {
+    const symbol = coin.symbol.toUpperCase();
+
+    quoteCandidatesByCoinId.set(coin.id, [
+      { symbol: `${symbol}/USD`, vsCurrency: 'usd' },
+      { symbol: `${symbol}/USDT`, vsCurrency: 'usd' },
+      { symbol: `${symbol}/EUR`, vsCurrency: 'eur' },
+    ]);
+  }
+
+  return quoteCandidatesByCoinId;
 }
 
 function buildBidAskSpreadPercentage(bid: number | null, ask: number | null) {
@@ -319,6 +377,28 @@ function recordMatchedTicker(
   });
 
   recordAccumulatorSample(processingState.accumulators, marketTarget, exchangeId, ticker);
+}
+
+function determineTickerVsCurrency(
+  quoteCandidatesByCoinId: Map<string, QuoteCandidate[]>,
+  coinId: string,
+  symbol: string,
+  quote: string,
+) {
+  const normalizedQuote = quote.toUpperCase();
+
+  if (normalizedQuote === 'EUR') {
+    return 'eur' as const;
+  }
+
+  if (normalizedQuote === 'USD' || normalizedQuote === 'USDT') {
+    return 'usd' as const;
+  }
+
+  const candidates = quoteCandidatesByCoinId.get(coinId) ?? [];
+  const matchedCandidate = candidates.find((candidate) => candidate.symbol === symbol);
+
+  return matchedCandidate?.vsCurrency ?? null;
 }
 
 function updateExchangeVolumes(database: AppDatabase, exchangeQuoteVolumes: Map<string, number>, now: Date) {
@@ -515,8 +595,10 @@ export async function runMarketRefreshOnce(
   const symbolIndexPhase = createLongPhaseReporter(progress);
   symbolIndexPhase.start('Still working: building symbol index for market snapshot refresh');
   const symbolIndex = buildRequestedSymbolIndex(database);
+  const quoteCandidatesByCoinId = buildQuoteCandidates(database);
+  const tickerDiscoveryRequests = buildTickerDiscoveryRequests(symbolIndex, quoteCandidatesByCoinId);
   symbolIndexPhase.stop();
-  const requestedSymbols = [...symbolIndex.keys()];
+  const requestedSymbols = [...tickerDiscoveryRequests.keys()];
   const processingState = createRefreshTickerProcessingState();
   const exchangeTrustScoreById = new Map(
     database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
@@ -591,7 +673,8 @@ export async function runMarketRefreshOnce(
     let matchedCount = 0;
 
     for (const ticker of tickers) {
-      const marketTarget = symbolIndex.get(ticker.symbol);
+      const request = tickerDiscoveryRequests.get(ticker.symbol);
+      const marketTarget = request?.marketTarget;
 
       if (!marketTarget || ticker.last === null) {
         continue;
@@ -599,6 +682,29 @@ export async function runMarketRefreshOnce(
 
       matchedCount += 1;
       recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker);
+
+      const tickerVsCurrency = determineTickerVsCurrency(
+        quoteCandidatesByCoinId,
+        marketTarget.coinId,
+        ticker.symbol,
+        ticker.quote,
+      );
+
+      if (tickerVsCurrency === null || tickerVsCurrency === marketTarget.vsCurrency) {
+        continue;
+      }
+
+      recordMatchedTicker(
+        database,
+        exchangeTrustScoreById,
+        processingState,
+        exchangeId,
+        {
+          coinId: marketTarget.coinId,
+          vsCurrency: tickerVsCurrency,
+        },
+        ticker,
+      );
     }
     processingPhase.stop();
 

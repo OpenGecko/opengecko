@@ -1,0 +1,118 @@
+{
+  "groupId": "mission-api-rerun-round4",
+  "testedAt": "2026-04-07T04:58:10.639665+00:00",
+  "isolation": {
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
+    "baseUrl": "http://127.0.0.1:3103",
+    "surface": "mission-api",
+    "port": 3103
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-COINS-006",
+      "title": "Coins history requires date and validates format",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/history",
+          "expected": "HTTP 400 for missing date",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"date Required\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/history --data-urlencode date=2024-01-01",
+          "expected": "HTTP 400 invalid_parameter for malformed date",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid history date: 2024-01-01\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "missing date -> 400; malformed date -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-008",
+      "title": "Coin tickers pagination default and size",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers",
+          "expected": "HTTP 200 with default page=1 and exactly 100 tickers",
+          "observed": "HTTP 200, tickers=11"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers --data-urlencode page=2",
+          "expected": "HTTP 200 with a different page slice",
+          "observed": "HTTP 200, tickers=0, differs_from_default=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "default tickers -> 200; page=2 -> 200"
+      },
+      "issues": "Ticker pagination/default size did not match contract."
+    },
+    {
+      "id": "VAL-EXT-010",
+      "title": "Holding chart empty-state returns typed empty arrays",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/public_treasury/microstrategy/bitcoin/holding_chart --data-urlencode days=max",
+          "expected": "HTTP 200 with data.holdings=[] and data.holding_value_in_usd=[] plus fixture meta",
+          "observed": "HTTP 200, holdings=[], holding_value_in_usd=[], fixture=True, note=Treasury data is seeded fixture, not live"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "holding_chart days=max -> 200"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-012",
+      "title": "Onchain pool trades validate token address format",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/onchain/networks/eth/pools/0x4e68ccd3e89f51c3074ca5072bbac773960dfa36/trades --data-urlencode token=bad",
+          "expected": "HTTP 400 invalid_parameter for malformed token address",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid onchain address: bad\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "/onchain/networks/eth/pools/0x4e68ccd3e89f51c3074ca5072bbac773960dfa36/trades?token=bad -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-013",
+      "title": "Onchain pool trades reject non-constituent token filters",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/onchain/networks/eth/pools/0x4e68ccd3e89f51c3074ca5072bbac773960dfa36/trades --data-urlencode token=0x0000000000000000000000000000000000000001",
+          "expected": "HTTP 400 invalid_parameter because token is syntactically valid but not a constituent of the selected pool",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Token is not a constituent of pool: 0x0000000000000000000000000000000000000001\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "/onchain/networks/eth/pools/0x4e68ccd3e89f51c3074ca5072bbac773960dfa36/trades?token=0x0000000000000000000000000000000000000001 -> 400"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 5 assertions: 4 passed, 1 failed, 0 blocked."
+}

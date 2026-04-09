@@ -1,8 +1,11 @@
 import { loadConfig } from '../config/env';
+import { createLogger, serializeErrorForLog } from '../lib/logger';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const EXPECTED_TEST_FAILURE_LOG_LEVEL = process.env.VITEST === 'true' ? 'warn' : 'error';
 
 let cachedConfig: { defillamaBaseUrl: string; defillamaYieldsBaseUrl: string } | null = null;
+const logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info' });
 
 function getConfig() {
   if (!cachedConfig) {
@@ -13,6 +16,10 @@ function getConfig() {
     };
   }
   return cachedConfig;
+}
+
+function logDefillamaFailure(message: string, error: unknown) {
+  logger[EXPECTED_TEST_FAILURE_LOG_LEVEL]({ error: serializeErrorForLog(error) }, message);
 }
 
 type DefillamaRequestOptions = {
@@ -200,7 +207,7 @@ export async function fetchDefillamaPoolData(options: DefillamaRequestOptions = 
         .filter((value): value is DefillamaYieldPool => value !== null),
     };
   } catch (error) {
-    console.error('Failed to fetch DeFiLlama pool data', error);
+    logDefillamaFailure('Failed to fetch DeFiLlama pool data', error);
     return null;
   }
 }
@@ -216,7 +223,7 @@ export async function fetchDefillamaTokenPrices(coins: string[], options: Defill
 
     return response.coins ?? {};
   } catch (error) {
-    console.error('Failed to fetch DeFiLlama token prices', error);
+    logDefillamaFailure('Failed to fetch DeFiLlama token prices', error);
     return null;
   }
 }
@@ -242,7 +249,7 @@ export async function fetchDefillamaDiscoveredPools(
         && pool.tvlUsd > 100_000,
       );
   } catch (error) {
-    console.error('Failed to fetch DeFiLlama discovered pools', error);
+    logDefillamaFailure('Failed to fetch DeFiLlama discovered pools', error);
     return null;
   }
 }
@@ -301,7 +308,7 @@ export async function fetchDefillamaTokens(
     defillamaTokensCache.set(cacheKey, { data: tokens, timestamp: Date.now() });
     return tokens;
   } catch (error) {
-    console.error('Failed to fetch DeFiLlama tokens', error);
+    logDefillamaFailure('Failed to fetch DeFiLlama tokens', error);
     defillamaTokensCache.set(cacheKey, { data: null, timestamp: Date.now() });
     return null;
   }
@@ -331,7 +338,7 @@ export async function fetchDefillamaDexVolumes(chain?: string, options: Defillam
       totalAllTime: sumTotals(protocols, 'totalAllTime'),
     };
   } catch (error) {
-    console.error('Failed to fetch DeFiLlama dex volumes', error);
+    logDefillamaFailure('Failed to fetch DeFiLlama dex volumes', error);
     return null;
   }
 }

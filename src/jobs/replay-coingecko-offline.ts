@@ -1,6 +1,6 @@
 import { runOfflineReplay } from '../coingecko/offline-replay';
 
-export async function runOfflineReplayCli(argv: string[] = process.argv.slice(2)) {
+export async function runOfflineReplayCli() {
   const report = await runOfflineReplay({
     validationApiBaseUrl: process.env.OPENGECKO_VALIDATION_API_URL ?? 'http://127.0.0.1:3102',
   });

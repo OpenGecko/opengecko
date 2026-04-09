@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { marketSnapshots, onchainDexes, onchainNetworks, onchainPools } from '../db/schema';
+import { marketSnapshots, onchainNetworks, onchainPools } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parsePositiveInt } from '../http/params';
 import { fetchDefillamaTokens } from '../providers/defillama';
@@ -55,7 +55,6 @@ import {
   parseTrendingSearchCandidates,
   patchPoolRow,
   resolvePoolOrder,
-  scorePoolSearchMatch,
   searchPoolRows,
   sortMegafilterRows,
   sortOnchainCategoryPools,
@@ -80,7 +79,6 @@ import {
   buildTopTraderFixtures,
   buildTopTraderResource,
   buildTradeResource,
-  deriveLivePoolTrades,
   derivePoolOhlcvFromTrades,
   fetchLivePoolTrades,
 } from './onchain/trades';
@@ -259,13 +257,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
-    const seededNetwork = getSeededOnchainNetwork(database, params.network);
+    const liveCatalog = await buildLiveOnchainCatalog(database);
+    const seededNetwork = getSeededOnchainNetwork(database, params.network)
+      ?? liveCatalog.networks.find((row) => row.id === params.network);
 
     if (!seededNetwork) {
       throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
     }
-
-    const liveCatalog = await buildLiveOnchainCatalog(database);
 
     const orderBy = resolvePoolOrder(query.sort);
 
@@ -710,7 +708,9 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includeVolumeBreakdown = parseBooleanQuery(query.include_volume_breakdown, false);
     const includeComposition = parseBooleanQuery(query.include_composition, false);
     const normalizedAddress = normalizeAddress(params.address);
-    const seededNetwork = getSeededOnchainNetwork(database, params.network);
+    const liveCatalog = await buildLiveOnchainCatalog(database);
+    const seededNetwork = getSeededOnchainNetwork(database, params.network)
+      ?? liveCatalog.networks.find((row) => row.id === params.network);
 
     if (!seededNetwork) {
       throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
@@ -721,8 +721,6 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     if (!row) {
       throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
-
-    const liveCatalog = await buildLiveOnchainCatalog(database);
 
     const patchedRow = patchPoolRow(row, liveCatalog.poolsByAddress.get(row.address));
     const included = buildIncludedResources(includes, [patchedRow], database);
@@ -1182,16 +1180,40 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const beforeTimestamp = parseOptionalTimestamp(query.before_timestamp, 'before_timestamp');
     const normalizedAddress = normalizeAddress(params.address);
 
-    const pool = database.db
-      .select()
-      .from(onchainPools)
-      .where(and(eq(onchainPools.networkId, params.network), eq(onchainPools.address, normalizedAddress)))
-      .limit(1)
-      .get();
+    const liveCatalog = await buildLiveOnchainCatalog(database);
+    const seededNetwork = getSeededOnchainNetwork(database, params.network)
+      ?? liveCatalog.networks.find((row) => row.id === params.network);
 
-    if (!pool) {
+    if (!seededNetwork) {
+      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
+    }
+
+    const pool = getSeededOnchainPool(database, params.network, normalizedAddress);
+    const discoveredPoolPatch = liveCatalog.poolsByAddress.get(normalizedAddress);
+
+    if (!pool && !discoveredPoolPatch) {
       throw new HttpError(404, 'not_found', `Onchain pool not found: ${normalizedAddress}`);
     }
+
+    const resolvedPool = pool
+      ? patchPoolRow(pool, liveCatalog.poolsByAddress.get(pool.address))
+      : {
+          networkId: params.network,
+          address: normalizedAddress,
+          dexId: discoveredPoolPatch?.dexId ?? 'unknown',
+          name: discoveredPoolPatch?.name ?? normalizedAddress,
+          baseTokenAddress: discoveredPoolPatch?.baseTokenAddress ?? normalizedAddress,
+          baseTokenSymbol: discoveredPoolPatch?.baseTokenSymbol ?? normalizedAddress.slice(0, 8),
+          quoteTokenAddress: discoveredPoolPatch?.quoteTokenAddress ?? normalizedAddress,
+          quoteTokenSymbol: discoveredPoolPatch?.quoteTokenSymbol ?? normalizedAddress.slice(0, 8),
+          priceUsd: discoveredPoolPatch?.priceUsd ?? null,
+          reserveUsd: discoveredPoolPatch?.reserveUsd ?? null,
+          volume24hUsd: discoveredPoolPatch?.volume24hUsd ?? null,
+          transactions24hBuys: 0,
+          transactions24hSells: 0,
+          createdAtTimestamp: new Date(0),
+          updatedAt: new Date(0),
+        };
 
     let filteredToken: string | null = null;
     if (query.token !== undefined) {
@@ -1200,7 +1222,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
 
       filteredToken = normalizeAddress(query.token);
-      const poolTokens = [normalizeAddress(pool.baseTokenAddress), normalizeAddress(pool.quoteTokenAddress)];
+      const poolTokens = [normalizeAddress(resolvedPool.baseTokenAddress), normalizeAddress(resolvedPool.quoteTokenAddress)];
       if (!poolTokens.includes(filteredToken)) {
         throw new HttpError(400, 'invalid_parameter', `Token is not a constituent of pool: ${filteredToken}`);
       }
@@ -1208,7 +1230,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     let liveTrades = null;
     try {
-      liveTrades = await fetchLivePoolTrades(pool);
+      liveTrades = await fetchLivePoolTrades(resolvedPool);
       request.log.info({
         network: params.network,
         pool_address: normalizedAddress,
@@ -1221,11 +1243,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         network: params.network,
         pool_address: normalizedAddress,
       }, 'failed to fetch live onchain pool trades');
-      liveTrades = null;
     }
 
     const trades = (liveTrades ?? buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
-      .filter((trade) => trade.networkId === params.network && trade.poolAddress === params.address)
+      .filter((trade) => trade.networkId === params.network && normalizeAddress(trade.poolAddress) === normalizedAddress)
       .filter((trade) => threshold === null || trade.volumeUsd > threshold)
       .filter((trade) => filteredToken === null || trade.tokenAddress === filteredToken)
       .filter((trade) => beforeTimestamp === null || trade.blockTimestamp <= beforeTimestamp)
@@ -1345,7 +1366,6 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         pool_address: normalizedAddress,
         timeframe,
       }, 'failed to fetch live onchain pool trades for ohlcv');
-      liveTrades = null;
     }
     const baseSeries = liveTrades && liveTrades.length > 0
       ? derivePoolOhlcvFromTrades(

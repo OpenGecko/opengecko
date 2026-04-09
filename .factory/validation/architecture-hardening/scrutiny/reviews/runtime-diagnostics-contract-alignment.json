@@ -1,0 +1,28 @@
+{
+  "featureId": "runtime-diagnostics-contract-alignment",
+  "reviewedAt": "2026-04-06T07:36:55.570987+00:00",
+  "commitId": "b02aa240f5501ddfa351f643262c14e75f3a6c85",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The evidence gathered for this feature does not match the assigned runtime diagnostics scope. The reviewed worker session and handoff point to an unrelated database bootstrap refactor commit, so there is no feature-scoped diff proving implementation or verification of the runtime diagnostics contract changes.",
+    "issues": [
+      {
+        "file": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/handoffs",
+        "line": 1,
+        "severity": "blocking",
+        "description": "The handoff for worker session `fd2e3604-acea-4805-9bf1-26febe7c4792` claims work on `runtime-diagnostics-contract-alignment`, but its `commitId` is `b02aa240f5501ddfa351f643262c14e75f3a6c85`, whose diff is the unrelated `refactor: separate db runtime bootstrap concerns` change touching only `src/db/*` and `tests/db-initialize.test.ts`. There is no commit-backed evidence for any diagnostics/runtime route, readiness, degraded-state, metrics, or validation-only mutator changes required by this feature."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker handoff references a commit unrelated to the assigned feature scope, which suggests the runtime-refactor worker procedure does not clearly require verifying that the cited commit actually corresponds to the assigned feature before handoff.",
+      "evidence": "Feature `runtime-diagnostics-contract-alignment` in mission `features.json` is tied to session `fd2e3604-acea-4805-9bf1-26febe7c4792`, but that session's handoff cites commit `b02aa240f5501ddfa351f643262c14e75f3a6c85`; `git show --stat` for that commit contains only db-runtime refactor files (`src/db/client.ts`, `src/db/migrations.ts`, `src/db/runtime.ts`, `src/db/seeds.ts`, `tests/db-initialize.test.ts`)."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed because the available handoff/diff evidence is mismatched: the assigned runtime diagnostics feature points to a database refactor commit, so I could not verify implementation correctness for the requested diagnostics contract changes."
+}

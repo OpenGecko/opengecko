@@ -1,7 +1,7 @@
 import type { MarketSnapshotRow } from '../db/schema';
 import type { MarketDataRuntimeState } from './market-runtime-state';
 import { getSnapshotOwnership } from './market-snapshots';
-import { getEffectiveSnapshot, getSnapshotFreshness } from '../modules/market-freshness';
+import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
 
 export type RuntimeDiagnostics = {
   readiness: {
@@ -55,24 +55,16 @@ export function buildRuntimeDiagnostics(
     && runtimeState.validationOverride.mode === 'off'
     && runtimeState.allowStaleLiveService
     && runtimeState.syncFailureReason === null;
-  const effectiveLatestUsdSnapshot = getEffectiveSnapshot(latestUsdSnapshot, runtimeState);
+  const effectiveLatestUsdSnapshot = normalizeRuntimeSnapshotTimestamp(getEffectiveSnapshot(latestUsdSnapshot, runtimeState));
   const latestSnapshotOwnership = effectiveLatestUsdSnapshot ? getSnapshotOwnership(effectiveLatestUsdSnapshot) : null;
   const latestSnapshotFreshness = effectiveLatestUsdSnapshot && latestSnapshotOwnership === 'live'
     ? getSnapshotFreshness(effectiveLatestUsdSnapshot, marketFreshnessThresholdSeconds, now)
     : null;
-  const latestStoredUsdSnapshot = latestUsdSnapshot;
+  const latestStoredUsdSnapshot = normalizeRuntimeSnapshotTimestamp(latestUsdSnapshot);
   const storedSnapshotOwnership = latestStoredUsdSnapshot ? getSnapshotOwnership(latestStoredUsdSnapshot) : null;
   const storedLatestSnapshotFreshness = latestStoredUsdSnapshot && storedSnapshotOwnership === 'live'
     ? getSnapshotFreshness(latestStoredUsdSnapshot, marketFreshnessThresholdSeconds, now)
     : null;
-  const seededBootstrapFallbackActive = (
-    runtimeState.initialSyncCompleted === false
-    && latestSnapshotOwnership === 'seeded'
-    && runtimeState.syncFailureReason !== null
-  );
-  const staleLiveFallbackActive = runtimeState.allowStaleLiveService
-    || (runtimeState.syncFailureReason !== null && storedLatestSnapshotFreshness?.isStale === true);
-  const degradedActive = staleLiveFallbackActive || seededBootstrapFallbackActive;
   const cooldownUntil = runtimeState.providerFailureCooldownUntil;
   const injectedProviderFailure = runtimeState.forcedProviderFailure ?? {
     active: false,

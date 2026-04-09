@@ -1,0 +1,15 @@
+{
+  "featureId": "mission-api-catalog-runtime-reliability",
+  "reviewedAt": "2026-04-06T00:00:00Z",
+  "commitId": "02499813df68034a2763adad874af1987d6bb538",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The rerun fix directly addresses the prior blocking issue on `/global`. Commit `02499813df68034a2763adad874af1987d6bb538` changes `src/modules/global.ts` itself so null persisted market caps on the shared runtime no longer produce invalid percentage math, and it adds focused regression coverage proving `/global` stays 200 under the reproduced null-market-cap data state while `/search` and `/coins/categories` remain contract-compatible.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/opengecko/openGecko/.factory/validation/architecture-hardening/scrutiny/reviews/mission-api-catalog-runtime-reliability.json",
+  "summary": "Pass: later commit `02499813df68034a2763adad874af1987d6bb538` directly fixes the scoped `/global` shared-runtime failure by guarding dominance percentage calculations in `src/modules/global.ts:43-49` and `src/modules/global.ts:227-287`, with regression tests at `tests/app.test.ts:5616-5687` covering the reproduced null-market-cap runtime state."
+}

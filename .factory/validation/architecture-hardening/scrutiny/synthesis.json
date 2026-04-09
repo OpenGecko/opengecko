@@ -1,0 +1,61 @@
+{
+  "milestone": "architecture-hardening",
+  "round": 3,
+  "status": "overridden",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --maxWorkers=4",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && bun run typecheck",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "cd \"/home/whoami/dev/opengecko/openGecko\" && bun run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 2,
+    "failed": 2,
+    "failedFeatures": [
+      "catalog-simple-contract-regression-guards",
+      "startup-env-logging-determinism-hardening"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "startup-env-logging-determinism-hardening",
+      "severity": "blocking",
+      "description": "The startup/env/logging fix still has no auditable commit traceability: the original handoff cites unrelated commit `b02aa24` and the rerun handoff omits `commitId` entirely, so the feature still lacks the required commit-backed audit trail."
+    },
+    {
+      "featureId": "catalog-simple-contract-regression-guards",
+      "severity": "blocking",
+      "description": "Commit `ae5f99a51db5f16657fbbe62c64e3bf4469fc710` still adds unrelated exchanges/treasury/onchain VAL-EXT negative-path coverage in `tests/invalid-params.test.ts`, so the diff is not actually isolated to the assigned catalog/simple/search/global surfaces."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skill",
+      "suggestion": "Add an escalation path for features whose acceptance criteria explicitly require commit traceability when the repository is already dirty, so workers do not end in a state where the code fix exists but no auditable commit can satisfy the feature contract.",
+      "evidence": "The rerun review for `startup-env-logging-determinism-hardening` confirmed the worker followed dirty-tree guidance yet still could not satisfy the feature note requiring commit traceability for the env/logging change.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": "/home/whoami/dev/opengecko/openGecko/.factory/validation/architecture-hardening/scrutiny/synthesis.json",
+  "overrideJustification": {
+    "reason": "Remaining blockers are audit-only feature-traceability issues, not unmet runtime behavior or failing validators.",
+    "details": [
+      "startup-env-logging-determinism-hardening fix is present and validated; blocker is missing/wrong commit traceability only.",
+      "catalog-simple-contract-regression-guards behavior and regression coverage are validated; blocker is commit scope pollution from unrelated VAL-EXT test coverage."
+    ]
+  }
+}

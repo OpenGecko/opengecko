@@ -106,6 +106,23 @@ describe('startup progress tracker', () => {
     expect(last).toContain('catalog fetch failed');
   });
 
+  it('falls back to the listener step when failing before a step begins', () => {
+    const writes: string[] = [];
+    const tracker = createStartupProgressTracker({
+      isInteractive: false,
+      write: (value: string) => {
+        writes.push(value);
+      },
+    });
+
+    tracker.start({ runtime: 'node', driver: 'better-sqlite3', databaseUrl: '/tmp/opengecko.db' });
+    tracker.failCurrent('boot failed before listener bind');
+
+    const output = writes.join('');
+    expect(output).toContain('Start HTTP listener');
+    expect(output).toContain('boot failed before listener bind');
+  });
+
   it('reports warnings and ohlcv progress updates', () => {
     const writes: string[] = [];
     const tracker = createStartupProgressTracker({

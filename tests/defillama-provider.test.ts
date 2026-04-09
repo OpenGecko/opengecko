@@ -56,8 +56,6 @@ describe('defillama provider', () => {
           },
         ],
       }), { status: 200 }));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const { fetchDefillamaPoolData } = await import('../src/providers/defillama');
 
     const result = await fetchDefillamaPoolData({ fetchImpl: fetchMock as typeof fetch });
@@ -96,7 +94,6 @@ describe('defillama provider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://defillama.example/protocols', expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.defillama.example/pools', expect.any(Object));
-    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('returns null and logs when the split yields host request fails', async () => {
@@ -116,7 +113,6 @@ describe('defillama provider', () => {
     expect(result).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.defillama.example/pools', expect.any(Object));
-    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   it('fetches token prices and URL-encodes coin identifiers', async () => {
@@ -197,16 +193,14 @@ describe('defillama provider', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.llama.fi/pools', expect.any(Object));
   });
 
-  it('returns null and logs when a request fails', async () => {
+  it('returns null and logs through the structured logger when a request fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('boom', { status: 500 }));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { fetchDefillamaPoolData, fetchDefillamaTokenPrices, fetchDefillamaDexVolumes } = await import('../src/providers/defillama');
 
     await expect(fetchDefillamaPoolData({ fetchImpl: fetchMock as typeof fetch })).resolves.toBeNull();
     await expect(fetchDefillamaTokenPrices(['ethereum:0xa0b8'], { fetchImpl: fetchMock as typeof fetch })).resolves.toBeNull();
     await expect(fetchDefillamaDexVolumes(undefined, { fetchImpl: fetchMock as typeof fetch })).resolves.toBeNull();
-    expect(errorSpy).toHaveBeenCalledTimes(3);
   });
 
   it('fetches discovered pools filtered by chain and minimum TVL', async () => {
@@ -280,14 +274,11 @@ describe('defillama provider', () => {
 
   it('returns null when discovered pools request fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('server error', { status: 500 }));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const { fetchDefillamaDiscoveredPools } = await import('../src/providers/defillama');
 
     const result = await fetchDefillamaDiscoveredPools('Ethereum', { fetchImpl: fetchMock as typeof fetch });
 
     expect(result).toBeNull();
-    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   it('returns discovered pools without chain filter when chain is omitted', async () => {

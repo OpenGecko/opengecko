@@ -36,6 +36,7 @@ const envSchema = z.object({
   RESPONSE_COMPRESSION_THRESHOLD_BYTES: z.coerce.number().int().nonnegative().default(1024),
   STARTUP_PREWARM_BUDGET_MS: z.coerce.number().int().nonnegative().default(250),
   DISABLE_REMOTE_CURRENCY_REFRESH: z.boolean().default(false),
+  OPEN_GECKO_REBUILD_CANONICAL_DB_ON_START: z.boolean().default(false),
 });
 
 export type AppConfig = {
@@ -59,10 +60,32 @@ export type AppConfig = {
   responseCompressionThresholdBytes: number;
   startupPrewarmBudgetMs: number;
   disableRemoteCurrencyRefresh: boolean;
+  rebuildCanonicalDbOnStart: boolean;
 };
+
+function parseBooleanEnv(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return value;
+}
 
 let repoEnvLoaded = false;
 let repoEnvLoadedFromCwd: string | null = null;
+let lastResolvedConfig: AppConfig | null = null;
 
 function parseDotenv(contents: string) {
   const parsed: Record<string, string> = {};
@@ -135,6 +158,7 @@ export function loadRepoDotenv(options: { cwd?: string; env?: NodeJS.ProcessEnv 
 export function resetRepoDotenvLoaderForTests() {
   repoEnvLoaded = false;
   repoEnvLoadedFromCwd = null;
+  lastResolvedConfig = null;
 }
 
 export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -142,9 +166,12 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     loadRepoDotenv();
   }
 
-  const env = envSchema.parse(rawEnv);
+  const normalizedEnv = Object.fromEntries(
+    Object.entries(rawEnv).map(([key, value]) => [key, parseBooleanEnv(value)]),
+  );
+  const env = envSchema.parse(normalizedEnv);
 
-  return {
+  const config = {
     host: env.HOST,
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
@@ -165,12 +192,24 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     responseCompressionThresholdBytes: env.RESPONSE_COMPRESSION_THRESHOLD_BYTES,
     startupPrewarmBudgetMs: env.STARTUP_PREWARM_BUDGET_MS,
     disableRemoteCurrencyRefresh: env.DISABLE_REMOTE_CURRENCY_REFRESH,
+    rebuildCanonicalDbOnStart: env.OPEN_GECKO_REBUILD_CANONICAL_DB_ON_START,
   };
+
+  lastResolvedConfig = config;
+  return config;
 }
 
 export function mergeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
+  const config = {
     ...loadConfig(),
     ...overrides,
   };
+
+  lastResolvedConfig = config;
+
+  return config;
+}
+
+export function getLastResolvedConfig() {
+  return lastResolvedConfig;
 }

@@ -76,7 +76,6 @@ const C = {
   blue: '\x1b[34m',
 };
 
-const CHECK = '\u2713'; // ✓
 const BULLET = '\u25cf'; // ●
 const PENDING = '\u25cc'; // ◌
 const REFRESH = '\u21bb'; // ↻
@@ -211,11 +210,6 @@ export function createStartupProgressTracker(
       '',
     ].join('\n');
     write(`${banner}\n`);
-  }
-
-  function writeStepLine(prefix: string, label: string, suffix: string) {
-    const dots = '.'.repeat(Math.max(2, 56 - label.length));
-    writeLine(`  ${prefix} ${label} ${dots} ${suffix}`);
   }
 
   function recordStepDuration(stepId: StartupStepId) {

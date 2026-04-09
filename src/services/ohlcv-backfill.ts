@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
-import { fetchExchangeMarkets, fetchExchangeOHLCV, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
+import { fetchExchangeOHLCV, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { enforceOhlcvRetention, repairOhlcvGaps, upsertCanonicalOhlcvCandle } from './candle-store';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { buildOhlcvSyncTargets } from './ohlcv-targets';

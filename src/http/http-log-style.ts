@@ -12,10 +12,6 @@ type HttpCompactPLogInput = {
   slowThresholdMs: number;
 };
 
-function pad(value: number, width: number) {
-  return String(value).padStart(width, '0');
-}
-
 function formatTimestamp(date: Date) {
   return date.toISOString().replace('.000Z', 'Z');
 }

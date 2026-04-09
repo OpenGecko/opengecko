@@ -15,7 +15,6 @@ import {
   isSeededBootstrapSnapshot,
   normalizeCategoryId,
   normalizeSelector,
-  sortNumber,
   toNumberOrNull,
 } from './helpers';
 

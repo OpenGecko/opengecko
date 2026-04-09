@@ -1,0 +1,34 @@
+{
+  "featureId": "startup-env-logging-determinism-hardening",
+  "reviewedAt": "2026-04-06T08:21:44Z",
+  "commitId": null,
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The code changes for deterministic startup failure logging are present in the current working tree, but the feature still lacks auditable commit traceability. The original handoff cites commit `b02aa24`, which is the DB runtime refactor and does not contain the env/logging changes, and the rerun handoff explicitly returned without any commit, so there is still no verifiable feature commit for this fix.",
+    "issues": [
+      {
+        "file": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/handoffs/2026-04-06T05-31-04-349Z__startup-env-logging-determinism-hardening__c88c41cb-327d-4bae-8cd2-9f4bba7b1eee.json",
+        "line": 6,
+        "severity": "blocking",
+        "description": "The initial handoff records `commitId: \"b02aa24\"`, but `git show b02aa24 --stat` proves that commit only changes `src/db/*` and `tests/db-initialize.test.ts`. None of the startup/env/logging files cited by the handoff (`src/server.ts`, `src/config/env.ts`, `src/lib/logger.ts`, provider logging files, or related tests) are in that commit, so the recorded commit is not an auditable trace for this feature."
+      },
+      {
+        "file": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/handoffs/2026-04-06T06-53-27-599Z__startup-env-logging-determinism-hardening__ac4158e4-4712-4423-adc6-393ca4930dc3.json",
+        "line": 1,
+        "severity": "blocking",
+        "description": "The rerun handoff explicitly states that no isolated commit was created because the tree was dirty, and the JSON omits `commitId` entirely. That means the follow-up fixed the prior wrong-commit citation but still did not satisfy the orchestrator requirement to provide handoff/commit traceability for the actual env/logging change."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The skill now correctly tells workers not to cite an unrelated commit and to explicitly report when an isolated commit cannot be produced on a dirty tree, but it still leaves a gap for features whose acceptance criteria explicitly require commit traceability. In this rerun the worker followed that guidance and still could not satisfy the feature because the procedure lacks an escalation path for producing or arranging an auditable commit when traceability is itself a blocking requirement.",
+      "evidence": "`features.json` for `startup-env-logging-determinism-hardening` says to 'ensure handoff/commit traceability reflects the actual env/logging change commit'; `.factory/skills/runtime-refactor-worker/SKILL.md` step 5 only says to return to orchestrator when the repo is dirty, and the rerun transcript shows exactly that outcome."
+    }
+  ],
+  "addressesFailureFrom": "/home/whoami/dev/opengecko/openGecko/.factory/validation/architecture-hardening/scrutiny/reviews/startup-env-logging-determinism-hardening.json",
+  "summary": "Rerun review still fails. I checked the prior review, feature metadata, both startup-env handoffs, the rerun transcript skeleton, git history, and the current diff. The env/logging fix exists in the working tree, but there is still no auditable commit trace for it: the first handoff cites the wrong commit and the rerun handoff has no commit at all."
+}

@@ -1,0 +1,28 @@
+{
+  "featureId": "exchanges-treasury-onchain-contract-regression-guards",
+  "reviewedAt": "2026-04-06T06:24:04Z",
+  "commitId": null,
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The worker added useful regression coverage for many VAL-EXT negative paths and derivatives fixture metadata, but the feature does not fully satisfy its scoped expected behavior because no automated test was kept for VAL-EXT-010's documented typed empty-state holding-chart contract.",
+    "issues": [
+      {
+        "file": "tests/modules/treasury-ext-contract.test.ts",
+        "line": 61,
+        "severity": "blocking",
+        "description": "This new treasury test only asserts the normal fixture-metadata shape for `/public_treasury/strategy/bitcoin/holding_chart?days=7`; it never verifies the required empty-state branch from VAL-EXT-010 (`{ data: { holdings: [], holding_value_in_usd: [] }, meta: ... }`) even though the feature description explicitly includes documented empty-state behaviors. The transcript shows an attempted empty-state test was abandoned and removed, leaving that contract unguarded."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-refactor-worker skill already says regression-guard features may be test-only when production code satisfies the contract, but the worker still reported this as a procedure deviation and suggested the skill be updated. The skill text may need to be clearer because the worker misread it during this feature.",
+      "evidence": ".factory/skills/runtime-refactor-worker/SKILL.md step 4 says 'For regression-guard features, test-only changes are acceptable'; handoff.skillFeedback.suggestedChanges repeats that same guidance as if missing."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed: coverage added for many exchange/treasury/onchain guards, but the scoped feature still lacks a retained automated regression for the treasury holding-chart typed empty-state contract (VAL-EXT-010), which the worker explicitly tried and then dropped."
+}

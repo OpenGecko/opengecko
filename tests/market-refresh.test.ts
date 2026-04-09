@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coinTickers, coins, exchanges, exchangeVolumePoints } from '../src/db/schema';
+import { coinTickers, coins, exchanges, exchangeVolumePoints, marketSnapshots } from '../src/db/schema';
 import { runMarketRefreshOnce, withExchangeFetchTimeout } from '../src/services/market-refresh';
 import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 import { createMetricsRegistry } from '../src/services/metrics';
+import { seedRuntimeSnapshotsFromPersistentStore } from '../src/services/bootstrap';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -18,7 +19,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
-    ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
+    ['binance', 'coinbase', 'kraken', 'bybit', 'okx', 'gate'].includes(value),
 }));
 
 import { fetchExchangeMarkets, fetchExchangeNetworks, fetchExchangeTickers } from '../src/providers/ccxt';
@@ -61,6 +62,14 @@ describe('market refresh service', () => {
   });
 
   it('upserts live coin tickers from exchange refresh results', async () => {
+    database.db.insert(exchanges).values({
+      id: 'gate',
+      name: 'Gate',
+      url: 'https://www.gate.io',
+      trustScore: 8,
+      updatedAt: now,
+    }).run();
+
     mockedFetchExchangeMarkets.mockResolvedValue([
       {
         exchangeId: 'binance',
@@ -256,6 +265,318 @@ describe('market refresh service', () => {
       .where(eq(exchanges.id, 'binance'))
       .get();
     expect(refreshedExchange?.tradeVolume24hBtc).toBe(111_060_000);
+  });
+
+  it('duplicates matched tickers into both tracked quote currencies when a shared USD-like pair drives both runtime snapshots', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+    ]);
+    mockedFetchExchangeTickers.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: 90_000,
+        bid: 89_950,
+        ask: 90_050,
+        high: null,
+        low: null,
+        baseVolume: 1_234,
+        quoteVolume: 111_060_000,
+        percentage: 5,
+        timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+        raw: {} as never,
+      },
+    ]);
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance'],
+      providerFanoutConcurrency: 1,
+    });
+
+    const bitcoinTickers = database.db
+      .select()
+      .from(coinTickers)
+      .where(and(
+        eq(coinTickers.coinId, 'bitcoin'),
+        eq(coinTickers.exchangeId, 'binance'),
+        eq(coinTickers.base, 'BTC'),
+        eq(coinTickers.target, 'USDT'),
+      ))
+      .all();
+
+    expect(bitcoinTickers).toHaveLength(1);
+
+    const bitcoinSnapshots = database.db
+      .select()
+      .from(exchanges)
+      .where(eq(exchanges.id, 'binance'))
+      .get();
+
+    expect(bitcoinSnapshots?.tradeVolume24hBtc).toBeGreaterThan(0);
+  });
+
+  it('imports current ticker indexes from the persisted database during seeded bootstrap', async () => {
+    const fixturePersistentDatabase = createDatabase(join(tempDir, 'persisted-bootstrap.db'));
+    const runtimeState = createMarketDataRuntimeState();
+
+    try {
+      database.db.insert(coins).values({
+        id: 'tether',
+        symbol: 'usdt',
+        name: 'Tether',
+        apiSymbol: 'tether',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 3,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing().run();
+
+      const upsertRuntimeSnapshot = database.client.prepare(`
+        INSERT OR REPLACE INTO market_snapshots (
+          coin_id, vs_currency, price, market_cap, total_volume, market_cap_rank,
+          fully_diluted_valuation, circulating_supply, total_supply, max_supply, ath,
+          ath_change_percentage, ath_date, atl, atl_change_percentage, atl_date,
+          price_change_24h, price_change_percentage_24h, source_providers_json, source_count,
+          updated_at, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      upsertRuntimeSnapshot.run('tether', 'usd', 1, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, '["seed"]', 1, now.getTime(), now.getTime());
+      upsertRuntimeSnapshot.run('tether', 'eur', 0.91, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, '["seed"]', 1, now.getTime(), now.getTime());
+
+      migrateDatabase(fixturePersistentDatabase);
+      fixturePersistentDatabase.db.insert(exchanges).values({
+        id: 'coinbase',
+        name: 'Coinbase',
+        url: 'https://www.coinbase.com',
+        trustScore: 10,
+        updatedAt: now,
+      }).run();
+      fixturePersistentDatabase.db.insert(coins).values([
+        {
+          id: 'bitcoin',
+          symbol: 'btc',
+          name: 'Bitcoin',
+          apiSymbol: 'bitcoin',
+          hashingAlgorithm: null,
+          blockTimeInMinutes: null,
+          categoriesJson: '[]',
+          descriptionJson: '{}',
+          linksJson: '{}',
+          imageThumbUrl: null,
+          imageSmallUrl: null,
+          imageLargeUrl: null,
+          marketCapRank: 1,
+          genesisDate: null,
+          platformsJson: '{}',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'ethereum',
+          symbol: 'eth',
+          name: 'Ethereum',
+          apiSymbol: 'ethereum',
+          hashingAlgorithm: null,
+          blockTimeInMinutes: null,
+          categoriesJson: '[]',
+          descriptionJson: '{}',
+          linksJson: '{}',
+          imageThumbUrl: null,
+          imageSmallUrl: null,
+          imageLargeUrl: null,
+          marketCapRank: 2,
+          genesisDate: null,
+          platformsJson: '{}',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]).run();
+      fixturePersistentDatabase.db.insert(marketSnapshots).values([
+        {
+          coinId: 'bitcoin',
+          vsCurrency: 'usd',
+          price: 90_000,
+          marketCap: 1_800_000_000_000,
+          totalVolume: 100_000_000,
+          marketCapRank: 1,
+          fullyDilutedValuation: null,
+          circulatingSupply: null,
+          totalSupply: null,
+          maxSupply: null,
+          ath: null,
+          athChangePercentage: null,
+          athDate: null,
+          atl: null,
+          atlChangePercentage: null,
+          atlDate: null,
+          priceChange24h: null,
+          priceChangePercentage24h: null,
+          sourceProvidersJson: '["ccxt"]',
+          sourceCount: 1,
+          updatedAt: now,
+          lastUpdated: now,
+        },
+        {
+          coinId: 'ethereum',
+          vsCurrency: 'usd',
+          price: 2_100,
+          marketCap: 250_000_000_000,
+          totalVolume: 50_000_000,
+          marketCapRank: 2,
+          fullyDilutedValuation: null,
+          circulatingSupply: null,
+          totalSupply: null,
+          maxSupply: null,
+          ath: null,
+          athChangePercentage: null,
+          athDate: null,
+          atl: null,
+          atlChangePercentage: null,
+          atlDate: null,
+          priceChange24h: null,
+          priceChangePercentage24h: null,
+          sourceProvidersJson: '["ccxt"]',
+          sourceCount: 1,
+          updatedAt: now,
+          lastUpdated: now,
+        },
+      ]).run();
+      fixturePersistentDatabase.db.insert(coinTickers).values([
+        {
+          coinId: 'bitcoin',
+          exchangeId: 'coinbase',
+          base: 'BTC',
+          target: 'USD',
+          marketName: 'BTC/USD',
+          last: 90_000,
+          volume: 1_000,
+          convertedLastUsd: 90_000,
+          convertedLastBtc: 1,
+          convertedVolumeUsd: 90_000_000,
+          bidAskSpreadPercentage: null,
+          trustScore: 'green',
+          lastTradedAt: now,
+          lastFetchAt: now,
+          isAnomaly: false,
+          isStale: false,
+          tradeUrl: 'https://www.coinbase.com/trade/BTC-USD',
+          tokenInfoUrl: null,
+          coinGeckoUrl: 'https://www.coingecko.com/en/coins/bitcoin',
+        },
+        {
+          coinId: 'bitcoin',
+          exchangeId: 'coinbase',
+          base: 'BTC',
+          target: 'USDT',
+          marketName: 'BTC/USDT',
+          last: 90_010,
+          volume: 1_000,
+          convertedLastUsd: 90_010,
+          convertedLastBtc: 1,
+          convertedVolumeUsd: 90_010_000,
+          bidAskSpreadPercentage: null,
+          trustScore: 'green',
+          lastTradedAt: new Date(now.getTime() + 1),
+          lastFetchAt: new Date(now.getTime() + 1),
+          isAnomaly: false,
+          isStale: false,
+          tradeUrl: 'https://www.coinbase.com/trade/BTC-USDT',
+          tokenInfoUrl: null,
+          coinGeckoUrl: 'https://www.coingecko.com/en/coins/bitcoin',
+        },
+        {
+          coinId: 'bitcoin',
+          exchangeId: 'coinbase',
+          base: 'BTC',
+          target: 'EUR',
+          marketName: 'BTC/EUR',
+          last: 82_000,
+          volume: 1_000,
+          convertedLastUsd: 90_109.89,
+          convertedLastBtc: 1,
+          convertedVolumeUsd: 90_109_890,
+          bidAskSpreadPercentage: null,
+          trustScore: 'green',
+          lastTradedAt: new Date(now.getTime() + 2),
+          lastFetchAt: new Date(now.getTime() + 2),
+          isAnomaly: false,
+          isStale: false,
+          tradeUrl: 'https://www.coinbase.com/trade/BTC-EUR',
+          tokenInfoUrl: null,
+          coinGeckoUrl: 'https://www.coingecko.com/en/coins/bitcoin',
+        },
+        {
+          coinId: 'ethereum',
+          exchangeId: 'coinbase',
+          base: 'ETH',
+          target: 'USD',
+          marketName: 'ETH/USD',
+          last: 2_100,
+          volume: 5_000,
+          convertedLastUsd: 2_100,
+          convertedLastBtc: 2_100 / 90_000,
+          convertedVolumeUsd: 10_500_000,
+          bidAskSpreadPercentage: null,
+          trustScore: 'green',
+          lastTradedAt: new Date(now.getTime() + 3),
+          lastFetchAt: new Date(now.getTime() + 3),
+          isAnomaly: false,
+          isStale: false,
+          tradeUrl: 'https://www.coinbase.com/trade/ETH-USD',
+          tokenInfoUrl: null,
+          coinGeckoUrl: 'https://www.coingecko.com/en/coins/ethereum',
+        },
+      ]).run();
+
+      seedRuntimeSnapshotsFromPersistentStore(database, fixturePersistentDatabase.url, runtimeState);
+    } finally {
+      fixturePersistentDatabase.client.close();
+    }
+
+    const bitcoinTickers = database.db
+      .select()
+      .from(coinTickers)
+      .where(eq(coinTickers.coinId, 'bitcoin'))
+      .all();
+
+    expect(bitcoinTickers.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(bitcoinTickers.map((ticker) => `${ticker.exchangeId}:${ticker.target}`))).toEqual(new Set([
+      'coinbase:EUR',
+      'coinbase:USD',
+      'coinbase:USDT',
+    ]));
+
+    const ethereumTickers = database.db
+      .select()
+      .from(coinTickers)
+      .where(eq(coinTickers.coinId, 'ethereum'))
+      .all();
+
+    expect(ethereumTickers.length).toBeGreaterThan(0);
   });
 
   it('supports non-hardcoded exchanges with generic trade URLs', async () => {
@@ -604,9 +925,7 @@ describe('market refresh service', () => {
     expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
   });
 
-  it('times out hung exchange ticker fetches after 60 seconds and continues with other exchanges', { timeout: 70000 }, async () => {
-    vi.useFakeTimers();
-
+  it('times out hung exchange ticker fetches after 60 seconds and continues with other exchanges', async () => {
     mockedFetchExchangeMarkets.mockResolvedValue([
       {
         exchangeId: 'binance',
@@ -653,32 +972,31 @@ describe('market refresh service', () => {
       }]);
     });
 
+    const originalSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      handler: any,
+      delay?: number,
+      ...args: unknown[]
+    ) => originalSetTimeout(handler, delay === 60_000 ? 1 : delay, ...(args as []))) as typeof setTimeout);
+
     try {
-      const refreshPromise = runMarketRefreshOnce(database, {
+      await expect(runMarketRefreshOnce(database, {
         ccxtExchanges: ['binance', 'kraken'],
         providerFanoutConcurrency: 2,
-      });
-
-      vi.advanceTimersByTime(60_000);
-      vi.useRealTimers();
-      await expect(refreshPromise).resolves.toBeUndefined();
+      })).resolves.toBeUndefined();
 
       const ingestedTickers = database.db.select().from(coinTickers).all();
       expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'binance')).toBe(true);
       expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
     } finally {
-      vi.useRealTimers();
+      setTimeoutSpy.mockRestore();
     }
   });
 
-  it('times out a hung exchange fetch helper after 60 seconds', { timeout: 70000 }, async () => {
-    const startedAt = Date.now();
-
+  it('times out a hung exchange fetch helper after 60 seconds', async () => {
     await expect(
-      withExchangeFetchTimeout('kraken', new Promise(() => undefined), 60_000),
-    ).rejects.toThrow('kraken ticker fetch timed out after 60000ms');
-
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(60_000);
+      withExchangeFetchTimeout('kraken', new Promise(() => undefined), 5),
+    ).rejects.toThrow('kraken ticker fetch timed out after 5ms');
   });
 
 

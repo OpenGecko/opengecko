@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { loadConfig, loadRepoDotenv, resetRepoDotenvLoaderForTests } from '../src/config/env';
+import { getLastResolvedConfig, loadConfig, loadRepoDotenv, mergeConfig, resetRepoDotenvLoaderForTests } from '../src/config/env';
 
 describe('repo dotenv loading', () => {
   beforeEach(() => {
@@ -79,5 +79,45 @@ describe('repo dotenv loading', () => {
       rmSync(firstDir, { recursive: true, force: true });
       rmSync(secondDir, { recursive: true, force: true });
     }
+  });
+
+  it('accepts common string boolean env values without breaking backward compatibility', () => {
+    const env: NodeJS.ProcessEnv = {
+      LOG_PRETTY: 'false',
+      DISABLE_REMOTE_CURRENCY_REFRESH: '1',
+    };
+
+    const config = loadConfig(env);
+
+    expect(config.logPretty).toBe(false);
+    expect(config.disableRemoteCurrencyRefresh).toBe(true);
+  });
+
+  it('retains the last successfully resolved config for deterministic startup failure logging', () => {
+    const env: NodeJS.ProcessEnv = {
+      HOST: '127.0.0.1',
+      PORT: '3103',
+      DATABASE_URL: ':memory:',
+    };
+
+    const config = loadConfig(env);
+
+    expect(getLastResolvedConfig()).toEqual(config);
+  });
+
+  it('updates the last resolved config when mergeConfig applies overrides', () => {
+    const merged = mergeConfig({
+      host: '127.0.0.1',
+      port: 3103,
+      databaseUrl: './data/opengecko.db',
+      logLevel: 'error',
+    });
+
+    expect(getLastResolvedConfig()).toEqual(merged);
+    expect(getLastResolvedConfig()).toMatchObject({
+      host: '127.0.0.1',
+      port: 3103,
+      logLevel: 'error',
+    });
   });
 });

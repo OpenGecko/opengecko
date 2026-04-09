@@ -1,0 +1,21 @@
+{
+  "featureId": "coins-markets-charts-contract-regression-guards",
+  "reviewedAt": "2026-04-06T15:45:00Z",
+  "commitId": "5bdbe20",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Reviewed the transcript skeletons, handoff, skill guidance, and commit `5bdbe20`. The committed feature adds the missing regression guards for coins history/date, markets pagination clamping, unknown ranged chart routes, and chart day validation, while the repository already contained explicit ticker and malformed/inverted `/coins/{id}/ohlc/range` regression coverage that the follow-up worker session confirmed and revalidated. I found no high-confidence correctness or compatibility issue in the feature’s covered scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-refactor-worker skill tells workers to return to orchestrator if the repo is dirty and an isolated commit is not possible, but this feature later needed a second worker session solely to confirm that already-landed ticker/OHLC guards were present in the dirty tree. The procedure could be clearer that review acceptance may rely on already-committed scoped coverage plus later transcript evidence, not only what appears newly added in one diff.",
+      "evidence": "Skill step 5 in `.factory/skills/runtime-refactor-worker/SKILL.md` says to return to orchestrator when isolated commits are not possible. Follow-up handoff `2026-04-06T07-25-26-981Z__coins-markets-charts-contract-regression-guards__d4eaa5fc-8493-405b-817c-7f22368cf8b3.json` shows a second session was needed to verify existing ticker and OHLC-range guards already present in `tests/app.test.ts` and `tests/invalid-params.test.ts`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature metadata, both worker transcript skeletons, handoff evidence, skill guidance, and commit `5bdbe20`. The feature’s committed diff plus the follow-up verification session together show the assigned coins ticker and OHLC-range contract guards are present and passing, so this review passes."
+}

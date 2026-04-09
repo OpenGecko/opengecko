@@ -1,10 +1,12 @@
 import { buildApp } from './app';
-import { loadConfig } from './config/env';
+import { getLastResolvedConfig, loadConfig } from './config/env';
 import { detectSqliteRuntime } from './db/client';
+import { serializeErrorForLog } from './lib/logger';
 import { createStartupProgressTracker } from './services/startup-progress';
 
 async function start() {
   const startupProgress = createStartupProgressTracker();
+  let app = null;
 
   try {
     const config = loadConfig();
@@ -17,7 +19,7 @@ async function start() {
     const validationBootstrapOnlyMode = config.host === '127.0.0.1'
       && config.port === 3102
       && config.databaseUrl === ':memory:';
-    const app = buildApp({
+    app = buildApp({
       config,
       startBackgroundJobs: !validationBootstrapOnlyMode,
       pluginTimeout: 0,
@@ -36,7 +38,6 @@ async function start() {
       host: config.host,
       port: config.port,
     });
-    app.marketRuntime?.markListenerBound();
     app.marketDataRuntimeState.listenerBound = true;
     startupProgress.complete('start_http_listener');
     startupProgress.finish(config.port);
@@ -44,7 +45,26 @@ async function start() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     startupProgress.failCurrent(message);
-    console.error(error);
+    const config = getLastResolvedConfig();
+
+    if (!app && config) {
+      app = buildApp({
+        config,
+        startBackgroundJobs: false,
+        pluginTimeout: 0,
+      });
+    }
+
+    if (app) {
+      app.log.error({ error: serializeErrorForLog(error) }, 'server startup failed');
+      await app.close().catch(() => undefined);
+    } else {
+      console.error(JSON.stringify({
+        level: 'error',
+        message: 'server startup failed',
+        error: serializeErrorForLog(error),
+      }));
+    }
     process.exit(1);
   }
 }

@@ -1,0 +1,15 @@
+{
+  "featureId": "exchanges-treasury-onchain-contract-regression-guards",
+  "reviewedAt": "2026-04-06T08:21:37Z",
+  "commitId": "b242fac",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Commit b242fac directly fixes the prior blocking gap by adding a dedicated treasury holding-chart regression file that covers both the existing fixture-metadata path and the required VAL-EXT-010 typed empty-state path for a valid entity/coin pair with no history. The new test asserts the exact empty envelope shape documented in the validation contract, and the production route already returns that shape when transaction or price rows are absent.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/opengecko/openGecko/.factory/validation/architecture-hardening/scrutiny/reviews/exchanges-treasury-onchain-contract-regression-guards.json",
+  "summary": "Review passed: the rerun commit adds the missing automated VAL-EXT-010 coverage for the treasury holding-chart typed empty-state contract and adequately resolves the prior blocking scrutiny finding."
+}

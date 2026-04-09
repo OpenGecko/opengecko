@@ -1,6 +1,4 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
-
 import type { AppDatabase } from '../../db/client';
 import { coins, onchainDexes, onchainNetworks, onchainPools } from '../../db/schema';
 import { HttpError } from '../../http/errors';

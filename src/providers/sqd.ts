@@ -1,3 +1,5 @@
+import { createLogger, serializeErrorForLog } from '../lib/logger';
+
 const DEFAULT_SQD_BASE_URL = 'https://v2.archive.subsquid.io/network/ethereum-mainnet';
 const DEFAULT_SWAP_TOPIC0 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const REQUEST_DELAY_MS = 250;
@@ -6,6 +8,7 @@ const DEFAULT_RECENT_WINDOW_BLOCKS = 40_000;
 const DEFAULT_MAX_BLOCK_SPAN = 4_000;
 const MIN_BLOCK_SPAN = 128;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const EXPECTED_TEST_FAILURE_LOG_LEVEL = process.env.VITEST === 'true' ? 'warn' : 'error';
 
 const KNOWN_LABELS: Record<string, string> = {
   '0x7a250d5630b4cf539739df2c5dacb4c659f2488d': 'Uniswap V2 Router',
@@ -15,6 +18,11 @@ const KNOWN_LABELS: Record<string, string> = {
   '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640': 'Uniswap V3: USDC-WETH',
   '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7': 'Curve: FRAX-USDC',
 };
+const logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info' });
+
+function logSqdFailure(message: string, error: unknown) {
+  logger[EXPECTED_TEST_FAILURE_LOG_LEVEL]({ error: serializeErrorForLog(error) }, message);
+}
 
 export function resolveAddressLabel(address: string): string | null {
   return KNOWN_LABELS[address.toLowerCase()] ?? null;
@@ -396,7 +404,7 @@ export async function fetchEthereumPoolSwapLogs(
 
     return results;
   } catch (error) {
-    console.error('Failed to fetch SQD Ethereum swap logs', error);
+    logSqdFailure('Failed to fetch SQD Ethereum swap logs', error);
     return null;
   } finally {
     if (timeout) {

@@ -13,14 +13,19 @@ import {
   coins,
   derivativeTickers,
   derivativesExchanges,
+  exchangeVolumePoints,
+  marketSnapshots,
+  ohlcvCandles,
   ohlcvSyncTargets,
   onchainDexes,
   onchainNetworks,
   onchainPools,
+  quoteSnapshots,
   treasuryEntities,
   treasuryHoldings,
   treasuryTransactions,
 } from './schema';
+
 
 const schema = {
   assetPlatforms,
@@ -29,10 +34,14 @@ const schema = {
   coins,
   derivativeTickers,
   derivativesExchanges,
+  exchangeVolumePoints,
+  marketSnapshots,
+  ohlcvCandles,
   ohlcvSyncTargets,
   onchainDexes,
   onchainNetworks,
   onchainPools,
+  quoteSnapshots,
   treasuryEntities,
   treasuryHoldings,
   treasuryTransactions,
@@ -56,11 +65,17 @@ export type SqliteClient = {
 
 type AppDrizzleDatabase = BetterSQLite3Database<AppSchema> | BunSQLiteDatabase<AppSchema>;
 
+type PersistedTimestampCompatibility = {
+  normalizedAtOpen: boolean;
+  source: 'none' | 'legacy_seconds';
+};
+
 export type AppDatabase = {
   client: SqliteClient;
   db: AppDrizzleDatabase;
   runtime: SqliteRuntime;
   url: string;
+  persistedTimestampCompatibility: PersistedTimestampCompatibility;
 };
 
 class BunSqliteClient implements SqliteClient {
@@ -105,6 +120,11 @@ function resolveDatabaseUrl(databaseUrl: string) {
   return resolve(process.cwd(), databaseUrl);
 }
 
+
+function normalizePersistedLegacySecondTimestamps(_client: SqliteClient): PersistedTimestampCompatibility {
+  return { normalizedAtOpen: false, source: 'none' };
+}
+
 function createNodeDatabase(resolvedUrl: string): AppDatabase {
   const Database = require('better-sqlite3') as new (path?: string) => BetterSqlite3DatabaseClient;
   const { drizzle } = require('drizzle-orm/better-sqlite3') as {
@@ -120,6 +140,7 @@ function createNodeDatabase(resolvedUrl: string): AppDatabase {
     db: drizzle(client, { schema }),
     runtime: 'node',
     url: resolvedUrl,
+    persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
   };
 }
 
@@ -139,6 +160,7 @@ function createBunDatabase(resolvedUrl: string): AppDatabase {
     db: drizzle(rawClient, { schema }),
     runtime: 'bun',
     url: resolvedUrl,
+    persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
   };
 }
 

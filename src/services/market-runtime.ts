@@ -144,14 +144,21 @@ export function createMarketRuntime(
     }
 
     const { marketSnapshots } = await import('../db/schema');
-    const snapshotCount = queryDb.select().from(marketSnapshots).all().length;
-
-    if (snapshotCount > 0) {
-      enableFallbackFromExistingSnapshots(state);
-      if (!startupProgress) {
-        logger.warn({ timestamp: formatRfc3339Timestamp() }, 'using residual stale data while bootstrap is still running');
+    try {
+      const snapshotCount = queryDb.select().from(marketSnapshots).all().length;
+      if (snapshotCount > 0) {
+        enableFallbackFromExistingSnapshots(state);
+        if (!startupProgress) {
+          logger.warn({ timestamp: formatRfc3339Timestamp() }, 'using residual stale data while bootstrap is still running');
+        }
+        startupProgress?.reportWarning('Using residual stale data while bootstrap is still running');
       }
-      startupProgress?.reportWarning('Using residual stale data while bootstrap is still running');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('database connection is not open')) {
+        return;
+      }
+      throw error;
     }
   }
 

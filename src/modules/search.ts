@@ -64,8 +64,6 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
   app.get('/search', async (request) => {
     const query = searchQuerySchema.parse(request.query).query.toLowerCase();
     const matches = searchDocuments(database, query, 20);
-    const marketRows = getMarketRows(database, 'usd', { status: 'all' });
-    const marketRowById = new Map(marketRows.map((row) => [row.coin.id, row]));
     const coinOrder = matches.filter((match) => match.docType === 'coin').map((match) => match.refId);
     const categoryOrder = matches.filter((match) => match.docType === 'category').map((match) => match.refId);
     const exchangeOrder = matches.filter((match) => match.docType === 'exchange').map((match) => match.refId);
@@ -77,8 +75,6 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
       .map((coinId) => coinById.get(coinId))
       .filter((coin): coin is NonNullable<typeof coin> => Boolean(coin))
       .map((coin) => {
-        const marketRow = marketRowById.get(coin.id);
-
         return {
           id: coin.id,
           name: coin.name,

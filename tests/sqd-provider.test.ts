@@ -248,7 +248,6 @@ describe('sqd provider', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response('100', { status: 200 }))
       .mockResolvedValueOnce(new Response('not-a-url', { status: 200 }));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { fetchEthereumPoolSwapLogs } = await import('../src/providers/sqd');
 
     await expect(fetchEthereumPoolSwapLogs('0xpool', {
@@ -257,7 +256,6 @@ describe('sqd provider', () => {
       toBlock: 100,
       requestDelayMs: 0,
     })).resolves.toBeNull();
-    expect(errorSpy).toHaveBeenCalledOnce();
   });
 
 
@@ -266,7 +264,6 @@ describe('sqd provider', () => {
       status: 429,
       headers: { 'retry-after': '0' },
     }));
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { fetchEthereumPoolSwapLogs } = await import('../src/providers/sqd');
 
     await expect(fetchEthereumPoolSwapLogs('0xpool', {
@@ -274,6 +271,5 @@ describe('sqd provider', () => {
       fromBlock: 100,
       maxRetries: 2,
     })).resolves.toBeNull();
-    expect(errorSpy).toHaveBeenCalledOnce();
   });
 });

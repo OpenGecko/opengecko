@@ -1,15 +1,13 @@
-import { asc, desc } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { coins, marketSnapshots } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray } from './catalog';
-import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
   buildChartPayload,
   getChartRowsForDays,
@@ -33,13 +31,10 @@ import {
   createCoinMarketsCacheKey,
   getSeriesChangePercentageForWindow,
   parseMarketRowsRequest,
-  parseMarketOrder,
   type CoinMarketsCacheEntry,
-  type CoinMarketsResponseRow,
 } from './coins/market-data';
 import {
   buildNewListingRow,
-  normalizeCategoryId,
   parseChartInterval,
   parseDexPairFormat,
   parseHistoryDate,

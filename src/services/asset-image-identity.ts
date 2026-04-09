@@ -24,7 +24,6 @@ type TrustedPlatformMapping = {
   normalizeContractAddress: (value: string) => string | null;
 };
 
-const TRUST_WALLET_ASSETS_BASE_URL = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains';
 const OPENGECKO_ASSETS_BASE_URL = process.env.ASSET_IMAGE_BASE_URL ?? 'http://localhost:3001/assets';
 
 const CURATED_NATIVE_ASSET_MAPPINGS: Record<string, NativeAssetMapping> = {
@@ -56,27 +55,6 @@ const TRUSTED_PLATFORM_MAPPINGS: Record<string, TrustedPlatformMapping> = {
     normalizeContractAddress: (value) => value.toLowerCase(),
   },
 };
-
-function buildTrustWalletNativeImageSet(trustWalletAssetId: string): ResolvedCoinImageSet {
-  const path = `${TRUST_WALLET_ASSETS_BASE_URL}/${trustWalletAssetId}/info/logo.png`;
-  return {
-    thumb: path,
-    small: path,
-    large: path,
-    source: 'trustwallet_native',
-  };
-}
-
-function buildTrustWalletTokenImageSet(platformId: string, contractAddress: string): ResolvedCoinImageSet {
-  const normalizedContractAddress = TRUSTED_PLATFORM_MAPPINGS[platformId]!.normalizeContractAddress(contractAddress)!;
-  const path = `${TRUST_WALLET_ASSETS_BASE_URL}/${TRUSTED_PLATFORM_MAPPINGS[platformId]!.trustWalletAssetId}/assets/${normalizedContractAddress}/logo.png`;
-  return {
-    thumb: path,
-    small: path,
-    large: path,
-    source: 'trustwallet_token',
-  };
-}
 
 function buildOpenGeckoAssetsNativeImageSet(platformId: string): ResolvedCoinImageSet {
   const path = `${OPENGECKO_ASSETS_BASE_URL}/chains/${platformId}/logo.png`;

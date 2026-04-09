@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import type { OfflineReplayReport, ReplayFinding } from './offline-replay';
@@ -96,34 +95,6 @@ function writeJson(filePath: string, value: unknown) {
 
 function readJson<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, 'utf8')) as T;
-}
-
-function listFiles(rootDir: string): string[] {
-  const entries: string[] = [];
-  for (const child of readdirSync(rootDir)) {
-    const childPath = join(rootDir, child);
-    const stats = statSync(childPath);
-    if (stats.isDirectory()) {
-      entries.push(...listFiles(childPath));
-    } else if (stats.isFile()) {
-      entries.push(childPath);
-    }
-  }
-  return entries;
-}
-
-function createDirectoryIdentity(rootDir: string) {
-  const files = listFiles(rootDir)
-    .sort()
-    .map((filePath) => {
-      const relativePath = filePath.slice(rootDir.length + 1);
-      return `${relativePath}:${createHash('sha256').update(readFileSync(filePath, 'utf8')).digest('hex')}`;
-    });
-  return createHash('sha256').update(files.join('\n')).digest('hex');
-}
-
-function createFileIdentity(filePath: string) {
-  return createHash('sha256').update(readFileSync(filePath, 'utf8')).digest('hex');
 }
 
 function normalizeValue(value: unknown, path: string, rules: NormalizationRuleset): unknown {

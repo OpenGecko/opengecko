@@ -14,6 +14,64 @@ export type SnapshotAccessPolicy = {
   allowStaleLiveService: boolean;
 };
 
+const SECOND_TIMESTAMP_MAX = 10_000_000_000;
+const MIN_REASONABLE_RUNTIME_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+
+export function normalizeRuntimeTimestamp(value: Date | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const rawTimestamp = value instanceof Date ? value.getTime() : value;
+
+  if (!Number.isFinite(rawTimestamp)) {
+    return null;
+  }
+
+  const normalizedTimestamp = Math.abs(rawTimestamp) < SECOND_TIMESTAMP_MAX
+    ? rawTimestamp * 1000
+    : rawTimestamp;
+
+  if (!Number.isFinite(normalizedTimestamp) || normalizedTimestamp < MIN_REASONABLE_RUNTIME_TIMESTAMP_MS) {
+    return null;
+  }
+
+  const normalizedDate = new Date(normalizedTimestamp);
+  return Number.isNaN(normalizedDate.getTime()) ? null : normalizedDate;
+}
+
+export function coerceRuntimeTimestampForValidation(value: Date | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const normalizedDate = normalizeRuntimeTimestamp(value);
+    return normalizedDate ?? value;
+  }
+
+  return normalizeRuntimeTimestamp(value);
+}
+
+export function normalizeRuntimeSnapshotTimestamp<T extends Pick<MarketSnapshotRow, 'lastUpdated'> | null>(
+  snapshot: T,
+): (T & { lastUpdated: Date }) | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const lastUpdated = coerceRuntimeTimestampForValidation(snapshot.lastUpdated);
+
+  if (!lastUpdated) {
+    return null;
+  }
+
+  return {
+    ...snapshot,
+    lastUpdated,
+  };
+}
+
 function applyValidationSnapshotOverride<T extends Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceCount'>>(
   snapshot: T,
   runtimeState: MarketDataRuntimeState,
@@ -68,13 +126,24 @@ export function getSnapshotFreshness(
   thresholdSeconds: number,
   now = Date.now(),
 ): SnapshotFreshness {
-  const ageSeconds = Math.max(0, Math.floor((now - snapshot.lastUpdated.getTime()) / 1000));
+  const normalizedSnapshot = normalizeRuntimeSnapshotTimestamp(snapshot);
+
+  if (!normalizedSnapshot) {
+    return {
+      ageSeconds: Number.POSITIVE_INFINITY,
+      isStale: true,
+      providers: [],
+      sourceCount: 0,
+    };
+  }
+
+  const ageSeconds = Math.max(0, Math.floor((now - normalizedSnapshot.lastUpdated.getTime()) / 1000));
 
   return {
     ageSeconds,
     isStale: ageSeconds > thresholdSeconds,
-    providers: JSON.parse(snapshot.sourceProvidersJson) as string[],
-    sourceCount: snapshot.sourceCount,
+    providers: JSON.parse(normalizedSnapshot.sourceProvidersJson) as string[],
+    sourceCount: normalizedSnapshot.sourceCount,
   };
 }
 
@@ -125,24 +194,30 @@ export function getUsableSnapshot<T extends Pick<MarketSnapshotRow, 'lastUpdated
     return null;
   }
 
+  const normalizedSnapshot = normalizeRuntimeSnapshotTimestamp(snapshot);
+
+  if (!normalizedSnapshot) {
+    return null;
+  }
+
   // Seeded snapshots (sourceCount === 0) — usable before initial sync completes
-  if (!isLiveSnapshot(snapshot)) {
+  if (!isLiveSnapshot(normalizedSnapshot)) {
     if (!accessPolicy.initialSyncCompleted) {
-      return snapshot;
+      return normalizedSnapshot;
     }
     return null;
   }
 
   // Live data — check freshness
-  const freshness = getSnapshotFreshness(snapshot, thresholdSeconds, now);
+  const freshness = getSnapshotFreshness(normalizedSnapshot, thresholdSeconds, now);
 
   if (!freshness.isStale) {
-    return snapshot;
+    return normalizedSnapshot;
   }
 
   // Stale live data — allowed if policy permits
   if (accessPolicy.allowStaleLiveService) {
-    return snapshot;
+    return normalizedSnapshot;
   }
 
   return null;

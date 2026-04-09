@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../../db/client';
 import { onchainPools } from '../../db/schema';
-import { fetchEthereumPoolSwapLogs, resolveAddressLabel } from '../../providers/sqd';
+import { createLogger } from '../../lib/logger';
+import { fetchEthereumPoolSwapLogs } from '../../providers/sqd';
 import {
   type HoldersChartPoint,
   type LiveTradeRecord,
@@ -13,6 +14,8 @@ import {
   normalizeAddress,
   resolveOnchainOhlcvWindowMs,
 } from './helpers';
+
+const onchainTradesLogger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info' });
 
 export function deriveLivePoolTrades(
   pool: typeof onchainPools.$inferSelect,
@@ -166,11 +169,11 @@ export async function fetchLivePoolTrades(pool: typeof onchainPools.$inferSelect
       return deriveLivePoolTrades(pool, normalized);
     }
 
-    console.warn('SQD-backed onchain pool trades unavailable; falling back to alternate providers/fixtures', {
+    onchainTradesLogger.warn({
       network: pool.networkId,
       poolAddress: pool.address,
       sqdResult: sqdSwaps === null ? 'null' : 'empty',
-    });
+    }, 'SQD-backed onchain pool trades unavailable; falling back to alternate providers/fixtures');
   }
 
   return null;

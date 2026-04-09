@@ -1,0 +1,22 @@
+{
+  "featureId": "catalog-simple-contract-regression-guards",
+  "reviewedAt": "2026-04-06T07:36:51Z",
+  "commitId": "ae5f99a51db5f16657fbbe62c64e3bf4469fc710",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The isolated commit adds several useful VAL-CATALOG regression assertions, but it also pulls unrelated VAL-EXT negative-path coverage into this feature diff, so the commit is not actually scoped to the assigned catalog/simple/search/global surfaces.",
+    "issues": [
+      {
+        "file": "tests/invalid-params.test.ts",
+        "line": 704,
+        "severity": "blocking",
+        "description": "This feature was explicitly scoped to catalog/simple/search/global guards, but the commit also adds a new omnibus test for exchanges, treasury, and onchain VAL-EXT negative-path assertions. That expands the auditable feature diff beyond the assigned surface area, undermining the orchestrator requirement for an isolated catalog-only commit tied to this feature."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the feature handoff, transcript skeleton, skill guidance, mission docs, and commit ae5f99a51db5f16657fbbe62c64e3bf4469fc710. The catalog/simple/search/global regression coverage itself looks sound, but the supposedly isolated feature commit is not actually isolated because it also introduces unrelated VAL-EXT regression coverage in tests/invalid-params.test.ts."
+}

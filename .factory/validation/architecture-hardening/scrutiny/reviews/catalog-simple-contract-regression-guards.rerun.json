@@ -1,0 +1,22 @@
+{
+  "featureId": "catalog-simple-contract-regression-guards",
+  "reviewedAt": "2026-04-06T08:21:34Z",
+  "commitId": "ae5f99a51db5f16657fbbe62c64e3bf4469fc710",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Commit ae5f99a still does not satisfy the requested isolated catalog/simple/search/global scope. While it adds the intended VAL-CATALOG regression guards, it also introduces unrelated VAL-EXT negative-path assertions in the same feature diff, so the original blocking scoping issue remains.",
+    "issues": [
+      {
+        "file": "tests/invalid-params.test.ts",
+        "line": 704,
+        "severity": "blocking",
+        "description": "The rerun commit still adds `preserves exchange, treasury, and onchain contract guards for VAL-EXT negative-path assertions`, which exercises `/exchanges/*`, `/public_treasury/*`, and `/onchain/*` routes unrelated to this feature's catalog/simple/search/global scope. That means the commit is still not an auditable isolated diff for `catalog-simple-contract-regression-guards`, so the prior scrutiny failure remains unresolved."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "/home/whoami/dev/opengecko/openGecko/.factory/validation/architecture-hardening/scrutiny/reviews/catalog-simple-contract-regression-guards.json",
+  "summary": "Reviewed the prior failing scrutiny report, the worker handoff/transcript, runtime-refactor-worker guidance, and commit ae5f99a. The fix improves VAL-CATALOG coverage, but it still bundles unrelated VAL-EXT assertions into `tests/invalid-params.test.ts`, so the feature commit remains out of scope and the original blocking issue is not fixed."
+}

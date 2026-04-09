@@ -1,0 +1,104 @@
+{
+  "groupId": "repo-quality-gates-round4",
+  "testedAt": "2026-04-07T04:58:02.327988+00:00",
+  "isolation": {
+    "repoRoot": "/home/whoami/dev/opengecko/openGecko",
+    "surface": "repo-quality-gates",
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
+    "constraints": [
+      "read-only validation only",
+      "shell/file inspection only"
+    ]
+  },
+  "toolsUsed": [
+    "shell",
+    "file-inspection"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-QA-002",
+      "title": "CI enforces lint before typecheck/test/build",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Inspect .github/workflows/test.yml",
+          "expected": "Workflow contains a dedicated lint step running 'bun run lint' before Typecheck, Run test suite, and Build.",
+          "observed": "Workflow contains Install dependencies, Typecheck, Build, Run test suite, and Verify Docker build; no lint step is present."
+        },
+        {
+          "action": "Run 'bun run lint' from repo root",
+          "expected": "Lint command exists and would provide command evidence for a CI gate.",
+          "observed": "Command exited 0 with 32 warnings and 0 errors, but CI does not invoke it."
+        }
+      ],
+      "evidence": {
+        "files": [
+          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
+          "/home/whoami/dev/opengecko/openGecko/package.json",
+          "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/evidence/architecture-hardening/repo-quality-gates-round4/command-evidence.txt"
+        ],
+        "commands": [
+          "bun run lint -> exit 0 (32 warnings, 0 errors)"
+        ],
+        "workflowOrder": [
+          "Install dependencies",
+          "Typecheck",
+          "Build",
+          "Run test suite",
+          "Verify Docker build"
+        ]
+      },
+      "issues": "Required CI lint gate is absent from .github/workflows/test.yml, so CI cannot enforce lint before later validation steps."
+    },
+    {
+      "id": "VAL-QA-005",
+      "title": "Coverage threshold is non-zero and CI-gated",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Inspect vitest.config.ts",
+          "expected": "At least one coverage threshold is set to a positive value (>0).",
+          "observed": "Coverage thresholds are statements=0, branches=0, functions=0, and lines=0."
+        },
+        {
+          "action": "Inspect .github/workflows/test.yml",
+          "expected": "Workflow runs a coverage-enforced test command such as 'bun run test -- --coverage'.",
+          "observed": "Workflow only runs 'bun run test' and does not contain a coverage-mode step."
+        },
+        {
+          "action": "Run 'TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --coverage --maxWorkers=4' from repo root",
+          "expected": "Coverage-mode tests execute so coverage enforcement could fail the job if thresholds are not met.",
+          "observed": "Command exited 1 immediately with 'MISSING DEPENDENCY Cannot find dependency @vitest/coverage-v8'."
+        },
+        {
+          "action": "Run supporting validators used by the workflow",
+          "expected": "Typecheck and build command outcomes are available as supporting command evidence.",
+          "observed": "bun run typecheck exited 0 and bun run build exited 0."
+        }
+      ],
+      "evidence": {
+        "files": [
+          "/home/whoami/dev/opengecko/openGecko/vitest.config.ts",
+          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
+          "/home/whoami/dev/opengecko/openGecko/package.json",
+          "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/evidence/architecture-hardening/repo-quality-gates-round4/command-evidence.txt"
+        ],
+        "commands": [
+          "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --coverage --maxWorkers=4 -> exit 1 (missing @vitest/coverage-v8)",
+          "bun run typecheck -> exit 0",
+          "bun run build -> exit 0"
+        ],
+        "thresholds": {
+          "statements": 0,
+          "branches": 0,
+          "functions": 0,
+          "lines": 0
+        }
+      },
+      "issues": "Coverage thresholds are all zero, CI does not execute a coverage-mode test command, and local coverage execution fails because @vitest/coverage-v8 is missing."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Re-ran 2 repo-quality-gates assertions. VAL-QA-002 still fails because the CI workflow has no lint step, and VAL-QA-005 still fails because coverage thresholds remain zero, CI lacks a coverage-mode test command, and local coverage execution fails due to missing @vitest/coverage-v8."
+}

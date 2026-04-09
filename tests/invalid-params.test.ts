@@ -110,10 +110,14 @@ describe('OpenGecko invalid parameter handling', () => {
   });
 
   it('rejects invalid history dates', async () => {
-    const [response, missingDateResponse, unknownCoinResponse] = await Promise.all([
+    const [response, malformedFormatResponse, missingDateResponse, unknownCoinResponse] = await Promise.all([
       app!.inject({
         method: 'GET',
         url: '/coins/bitcoin/history?date=invalid-date',
+      }),
+      app!.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/history?date=2026-01-01',
       }),
       app!.inject({
         method: 'GET',
@@ -127,6 +131,11 @@ describe('OpenGecko invalid parameter handling', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject(errorFixtures.coinHistoryBadDate);
+    expect(malformedFormatResponse.statusCode).toBe(400);
+    expect(malformedFormatResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Invalid history date: 2026-01-01',
+    });
     expect(missingDateResponse.statusCode).toBe(400);
     expect(missingDateResponse.json()).toMatchObject({
       error: 'invalid_parameter',

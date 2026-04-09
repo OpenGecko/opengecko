@@ -6,7 +6,6 @@ import { loadRepoDotenv } from '../config/env';
 import { createLogger } from '../lib/logger';
 import {
   coingeckoSnapshotManifest,
-  SNAPSHOT_ARTIFACT_FORMAT_VERSION,
   SNAPSHOT_CAPTURE_BOUND,
   type SnapshotManifest,
   type SnapshotManifestEntry,

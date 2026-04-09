@@ -403,6 +403,67 @@ describe('onchain pool discovery', () => {
     const dexIds = dexesBody.data.map((d: { id: string }) => d.id);
     expect(dexIds).toContain('raydium');
   });
+
+  it('keeps listed live-discovered networks resolvable on the pools surface', async () => {
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        {
+          chain: 'Arbitrum',
+          project: 'uniswap-v3',
+          symbol: 'ARB-WETH',
+          pool: 'arb-weth-live',
+          tvlUsd: 10000000,
+          volumeUsd1d: 1000000,
+          volumeUsd7d: 7000000,
+          underlyingTokens: [
+            '0x912ce59144191c1204e64559fe8253a0e49e6548',
+            '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
+          ],
+        },
+      ],
+    });
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue({
+      protocols: [{ name: 'uniswap-v3', total24h: 88000000, total7d: null, total30d: null, totalAllTime: null }],
+      total24h: 88000000,
+      total7d: null,
+      total30d: null,
+      totalAllTime: null,
+    });
+
+    const [networksResponse, poolsResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks?page=1',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/arbitrum/pools?page=1',
+      }),
+    ]);
+
+    expect(networksResponse.statusCode).toBe(200);
+    expect(networksResponse.json().data.map((entry: { id: string }) => entry.id)).toContain('arbitrum');
+    expect(poolsResponse.statusCode).toBe(200);
+    expect(poolsResponse.json()).toMatchObject({
+      meta: {
+        data_source: 'seeded',
+        page: 1,
+      },
+    });
+    expect(poolsResponse.json().data).toHaveLength(1);
+    expect(poolsResponse.json().data[0]).toMatchObject({
+      type: 'pool',
+      relationships: {
+        network: {
+          data: {
+            id: 'arbitrum',
+            type: 'network',
+          },
+        },
+      },
+    });
+  });
 });
 
 describe('token discovery', () => {
@@ -564,5 +625,78 @@ describe('trades address labels', () => {
 
     expect(resolveAddressLabel('0x0000000000000000000000000000000000000000')).toBeNull();
     expect(resolveAddressLabel('unknown')).toBeNull();
+  });
+
+  it('serves trades for a pool discovered from the network pool listing and validates token filters before 404ing', async () => {
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
+      protocols: [],
+      pools: [
+        {
+          chain: 'Arbitrum',
+          project: 'uniswap-v3',
+          symbol: 'ARB-WETH',
+          pool: 'pool-2',
+          tvlUsd: 10_000_000,
+          volumeUsd1d: 1_000_000,
+          volumeUsd7d: 7_000_000,
+          underlyingTokens: [
+            '0x912ce59144191c1204e64559fe8253a0e49e6548',
+            '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
+          ],
+        },
+      ],
+    });
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue(null);
+
+    const poolsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/arbitrum/pools?page=1',
+    });
+
+    expect(poolsResponse.statusCode).toBe(200);
+    const poolsBody = poolsResponse.json();
+    const discoveredPool = poolsBody.data[0];
+    expect(poolsBody).toMatchObject({
+      meta: expect.objectContaining({
+        data_source: 'seeded',
+      }),
+    });
+    expect(discoveredPool.id).toMatch(/^0x[a-f0-9]{40}$/);
+
+    const tradesResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/arbitrum/pools/${discoveredPool.id}/trades`,
+    });
+
+    expect(tradesResponse.statusCode).toBe(200);
+    expect(tradesResponse.json()).toMatchObject({
+      data: [],
+      meta: expect.objectContaining({
+        network: 'arbitrum',
+        pool_address: discoveredPool.id,
+      }),
+    });
+
+    const malformedTokenResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/arbitrum/pools/${discoveredPool.id}/trades?token=bad`,
+    });
+
+    expect(malformedTokenResponse.statusCode).toBe(400);
+    expect(malformedTokenResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+    });
+
+    const nonConstituentTokenResponse = await getApp().inject({
+      method: 'GET',
+      url: `/onchain/networks/arbitrum/pools/${discoveredPool.id}/trades?token=0x0000000000000000000000000000000000000001`,
+    });
+
+    expect(nonConstituentTokenResponse.statusCode).toBe(400);
+    expect(nonConstituentTokenResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Token is not a constituent of pool: 0x0000000000000000000000000000000000000001',
+    });
   });
 });

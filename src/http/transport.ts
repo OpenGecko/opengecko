@@ -8,7 +8,7 @@ type TransportOptions = {
 
 const MAX_SYNC_GZIP_BYTES = 2 * 1024 * 1024;
 
-function shouldCompress(request: FastifyRequest, reply: FastifyReply, thresholdBytes: number) {
+function shouldCompress(request: FastifyRequest, reply: FastifyReply) {
   const acceptEncoding = request.headers['accept-encoding'];
   const contentType = reply.getHeader('content-type');
 
@@ -25,7 +25,7 @@ export function registerTransportControls(app: FastifyInstance, options: Transpo
       return payload;
     }
 
-    if (!shouldCompress(request, reply, options.responseCompressionThresholdBytes)) {
+    if (!shouldCompress(request, reply)) {
       return payload;
     }
 

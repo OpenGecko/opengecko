@@ -1,0 +1,367 @@
+{
+  "groupId": "mission-api-coins-ext",
+  "testedAt": "2026-04-07T04:36:00Z",
+  "isolation": {
+    "baseUrl": "http://127.0.0.1:3103",
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba"
+  },
+  "toolsUsed": [
+    "curl"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-COINS-002",
+      "title": "Coins markets paginates with per_page cap",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/markets --data-urlencode vs_currency=usd --data-urlencode per_page=300 --data-urlencode page=1",
+          "expected": "HTTP 200 with at most 250 rows despite per_page=300",
+          "observed": "HTTP 200, rows=250"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/markets --data-urlencode vs_currency=usd --data-urlencode per_page=300 --data-urlencode page=2",
+          "expected": "Different page slice returned for page=2",
+          "observed": "HTTP 200, rows=250, differs_from_page1=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "GET /coins/markets?page=1&per_page=300 -> 200; GET /coins/markets?page=2&per_page=300 -> 200"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-005",
+      "title": "Coins detail not-found handling",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz",
+          "expected": "HTTP 404 with expected error class",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz -> 404"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-007",
+      "title": "Coins history unknown coin returns 404",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/history --data-urlencode date=01-01-2026",
+          "expected": "HTTP 404 with expected error class",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/history --data-urlencode date=01-01-2026 -> 404"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-010",
+      "title": "Coin tickers unknown coin returns 404",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/tickers",
+          "expected": "HTTP 404 with expected error class",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/tickers -> 404"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-003",
+      "title": "Exchange tickers reject unsupported order",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/exchanges/binance/tickers --data-urlencode order=price_desc",
+          "expected": "HTTP 400 with expected error class",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Unsupported order value: price_desc\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "curl -sS -D - -o - --get http://127.0.0.1:3103/exchanges/binance/tickers --data-urlencode order=price_desc -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-012",
+      "title": "Onchain pool trades validate token address format",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/onchain/networks/eth/pools/0x0000000000000000000000000000000000000000/trades --data-urlencode token=bad",
+          "expected": "HTTP 400 with expected error class",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Onchain pool not found: 0x0000000000000000000000000000000000000000\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "curl -sS -D - -o - --get http://127.0.0.1:3103/onchain/networks/eth/pools/0x0000000000000000000000000000000000000000/trades --data-urlencode token=bad -> 404"
+      },
+      "issues": "Expected HTTP 400 with matching error contract."
+    },
+    {
+      "id": "VAL-COINS-006",
+      "title": "Coins history requires date and validates format",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/history",
+          "expected": "HTTP 400 for missing date",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"date Required\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/history --data-urlencode date=2026-01-01",
+          "expected": "HTTP 400 invalid_parameter for malformed date",
+          "observed": "HTTP 200 body={\"id\":\"bitcoin\",\"symbol\":\"btc\",\"name\":\"Bitcoin\",\"web_slug\":\"bitcoin\",\"asset_platform_id\":null,\"localization\":{\"en\":\"Bitcoin\"},\"platforms\":{},\"detail_platforms\":{},\"block_time_in_minutes\":null,\"hashing"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "missing date -> 400; malformed date -> 200"
+      },
+      "issues": "History date validation did not match contract."
+    },
+    {
+      "id": "VAL-COINS-008",
+      "title": "Coin tickers pagination default and size",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers",
+          "expected": "HTTP 200 with default page=1 and exactly 100 tickers",
+          "observed": "HTTP 200, tickers=11"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers --data-urlencode page=2",
+          "expected": "HTTP 200 with a different page slice",
+          "observed": "HTTP 200, tickers=0, differs_from_default=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "default tickers -> 200; page=2 -> 200"
+      },
+      "issues": "Ticker pagination/default size did not match contract."
+    },
+    {
+      "id": "VAL-COINS-009",
+      "title": "Coin tickers filter and order validation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers --data-urlencode exchange_ids=binance",
+          "expected": "HTTP 200 with only binance ticker rows",
+          "observed": "HTTP 200, tickers=3, all_binance=True"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/tickers --data-urlencode order=bad_order",
+          "expected": "HTTP 400 invalid_parameter for unsupported order",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Unsupported order value: bad_order\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "exchange_ids filter -> 200; invalid order -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-012",
+      "title": "Market chart days validation",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/market_chart --data-urlencode vs_currency=usd --data-urlencode days=0",
+          "expected": "HTTP 400 invalid_parameter",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid days value: 0\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/market_chart --data-urlencode vs_currency=usd --data-urlencode days=-1",
+          "expected": "HTTP 400 invalid_parameter",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid days value: -1\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/market_chart --data-urlencode vs_currency=usd --data-urlencode days=abc",
+          "expected": "HTTP 400 invalid_parameter",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid days value: abc\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "days=0 -> 400; days=-1 -> 400; days=abc -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-014",
+      "title": "OHLC tuple shape and chronological ordering",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/ohlc --data-urlencode vs_currency=usd --data-urlencode days=1",
+          "expected": "HTTP 200 with [timestamp, open, high, low, close] tuples in ascending order",
+          "observed": "HTTP 200, tuples=2, shape_ok=True, ascending=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "/coins/bitcoin/ohlc -> 200"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-015",
+      "title": "OHLC range validates malformed params",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/ohlc/range --data-urlencode vs_currency=usd --data-urlencode from=abc --data-urlencode to=200",
+          "expected": "HTTP 400 invalid_parameter for malformed from",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid from value: abc\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/ohlc/range --data-urlencode vs_currency=usd --data-urlencode from=200 --data-urlencode to=100",
+          "expected": "HTTP 400 invalid_parameter for inverted range",
+          "observed": "HTTP 400 body={\"error\":\"invalid_parameter\",\"message\":\"Invalid time range: from must be less than or equal to to.\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "bad from -> 400; inverted range -> 400"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-016",
+      "title": "Chart payload series alignment by timestamp",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/market_chart --data-urlencode vs_currency=usd --data-urlencode days=1",
+          "expected": "prices, market_caps, total_volumes share identical ordered timestamps",
+          "observed": "HTTP 200, aligned=True, points=2"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/bitcoin/market_chart/range --data-urlencode vs_currency=usd --data-urlencode from=1711843200 --data-urlencode to=1711929600",
+          "expected": "Range chart series timestamps also align",
+          "observed": "HTTP 200, aligned=True, points=0"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "market_chart -> 200; market_chart/range -> 200"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-COINS-017",
+      "title": "Unknown coin IDs in chart endpoints return 404",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/market_chart --data-urlencode vs_currency=usd --data-urlencode days=1",
+          "expected": "HTTP 404 not_found for unknown coin id",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/market_chart/range --data-urlencode vs_currency=usd --data-urlencode from=1711843200 --data-urlencode to=1711929600",
+          "expected": "HTTP 404 not_found for unknown coin id",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/ohlc --data-urlencode vs_currency=usd --data-urlencode days=1",
+          "expected": "HTTP 404 not_found for unknown coin id",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        },
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/coins/not-a-real-coin-id-xyz/ohlc/range --data-urlencode vs_currency=usd --data-urlencode from=1711843200 --data-urlencode to=1711929600",
+          "expected": "HTTP 404 not_found for unknown coin id",
+          "observed": "HTTP 404 body={\"error\":\"not_found\",\"message\":\"Coin not found: not-a-real-coin-id-xyz\"}"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "Unknown-coin chart endpoint probes all returned recorded statuses."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-EXT-010",
+      "title": "Holding chart empty-state returns typed empty arrays",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "curl -sS -D - -o - --get http://127.0.0.1:3103/public_treasury/el-salvador/bitcoin/holding_chart --data-urlencode days=30",
+          "expected": "HTTP 200 with data.holdings=[] and data.holding_value_in_usd=[] plus fixture meta",
+          "observed": "HTTP 200, holdings=[[1773532800000, 3500], [1773792000000, 5100], [1773964800000, 6100]], holding_value_in_usd=[[1773532800000, 241087000], [1773792000000, 337339500], [1773964800000, 403783400]], fixture=True"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "holding_chart -> 200"
+      },
+      "issues": "Holding chart empty-state contract did not match."
+    },
+    {
+      "id": "VAL-EXT-013",
+      "title": "Onchain pool trades reject non-constituent token filters",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "curl -sS --get http://127.0.0.1:3103/onchain/networks/eth/pools --data-urlencode page=1",
+          "expected": "At least one existing eth pool id to use for follow-up trades request",
+          "observed": "No usable pool id was selected from the returned page during this validation run."
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "n/a (curl only)",
+        "network": "GET /onchain/networks/eth/pools?page=1 -> 200, but no validated candidate chosen for assertion execution."
+      },
+      "issues": "Could not identify any existing eth pool from GET /onchain/networks/eth/pools?page=1 to exercise a non-constituent token filter against the real surface."
+    }
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "VAL-EXT-013 needs an existing pool id on eth to verify rejection of a syntactically valid non-constituent token filter, but this run did not yield a usable candidate.",
+      "affectedAssertions": [
+        "VAL-EXT-013"
+      ],
+      "quickFixAttempted": "Queried GET /onchain/networks/eth/pools?page=1 and attempted to derive pool/base/quote token ids for a follow-up trades call."
+    }
+  ],
+  "summary": "Tested 16 assertions: 11 passed, 4 failed, 1 blocked."
+}

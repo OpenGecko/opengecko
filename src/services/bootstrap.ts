@@ -9,6 +9,7 @@ import type { MarketDataRuntimeState } from './market-runtime-state';
 type BootstrapSnapshotAccessMode = 'disabled' | 'seeded_bootstrap';
 type Database = ReturnType<typeof createDatabase>;
 type SeededBootstrapContext = {
+  database: Database;
   persistentSnapshotDatabaseUrl: string | null;
   seededBootstrapPreserved: boolean;
 };
@@ -43,6 +44,23 @@ function removeCorruptSqliteArtifacts(databaseUrl: string) {
   }
 }
 
+export function rebuildPersistentSqliteDatabase(databaseUrl: string) {
+  if (databaseUrl === ':memory:') {
+    return;
+  }
+
+  removeCorruptSqliteArtifacts(databaseUrl);
+}
+
+function isRecoverableSqliteCorruptionError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  return message.includes('malformed')
+    || message.includes('not a database')
+    || message.includes('disk image is malformed')
+    || message.includes('sqlite_corrupt');
+}
+
 function hasUsableLiveSnapshots(databaseUrl: string) {
   try {
     const database = createDatabase(databaseUrl);
@@ -59,9 +77,7 @@ function hasUsableLiveSnapshots(databaseUrl: string) {
       database.client.close();
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-
-    if (message.includes('malformed') || message.includes('not a database') || message.includes('disk image is malformed')) {
+    if (isRecoverableSqliteCorruptionError(error)) {
       removeCorruptSqliteArtifacts(databaseUrl);
     }
 
@@ -80,6 +96,219 @@ function tryParseSourceProvidersJson(value: string | null | undefined) {
   } catch {
     return [] as string[];
   }
+}
+
+function buildTradeUrl(exchangeId: string, base: string, target: string) {
+  return `https://www.${exchangeId}.com/trade/${base}-${target}`;
+}
+
+function deriveCoinTickerBackfillsFromQuoteSnapshots(runtimeDatabase: Database, coinIds?: Iterable<string>) {
+  const normalizedCoinIds = [...new Set(Array.from(coinIds ?? []).filter((value): value is string => typeof value === 'string' && value.length > 0))];
+  const eurPerUsd = runtimeDatabase.client.prepare<{ eur_per_usd: number | null }>(`
+    SELECT
+      CASE
+        WHEN usd.price IS NOT NULL AND usd.price > 0 AND eur.price IS NOT NULL
+        THEN eur.price / usd.price
+        ELSE NULL
+      END AS eur_per_usd
+    FROM market_snapshots usd
+    LEFT JOIN market_snapshots eur
+      ON eur.coin_id = usd.coin_id
+     AND eur.vs_currency = 'eur'
+    WHERE usd.coin_id = 'tether'
+      AND usd.vs_currency = 'usd'
+    LIMIT 1
+  `).get()?.eur_per_usd ?? null;
+  const btcUsdPrice = runtimeDatabase.client.prepare<{ price: number | null }>(`
+    SELECT price
+    FROM market_snapshots
+    WHERE coin_id = 'bitcoin'
+      AND vs_currency = 'usd'
+    LIMIT 1
+  `).get()?.price ?? null;
+
+  if (!eurPerUsd || eurPerUsd <= 0 || !btcUsdPrice || btcUsdPrice <= 0) {
+    return 0;
+  }
+
+  const coinFilterClause = normalizedCoinIds.length > 0
+    ? `AND qs.coin_id IN (${normalizedCoinIds.map(() => '?').join(', ')})`
+    : '';
+
+  const rows = runtimeDatabase.client.prepare<{
+    coin_id: string;
+    exchange_id: string;
+    base: string;
+    target: string;
+    market_name: string;
+    last: number;
+    volume: number | null;
+    converted_last_usd: number;
+    converted_last_btc: number;
+    converted_volume_usd: number | null;
+    bid_ask_spread_percentage: number | null;
+    trust_score: string | null;
+    last_traded_at: number;
+    last_fetch_at: number;
+    is_anomaly: number;
+    is_stale: number;
+    trade_url: string;
+    token_info_url: string | null;
+    coin_gecko_url: string;
+  }>(`
+    WITH latest_quote_snapshots AS (
+      SELECT
+        qs.coin_id,
+        qs.vs_currency,
+        qs.exchange_id,
+        qs.symbol,
+        qs.fetched_at,
+        qs.price,
+        qs.quote_volume,
+        ROW_NUMBER() OVER (
+          PARTITION BY qs.coin_id, qs.exchange_id, qs.symbol, qs.vs_currency
+          ORDER BY qs.fetched_at DESC
+        ) AS rn
+      FROM quote_snapshots qs
+      INNER JOIN exchanges e ON e.id = qs.exchange_id
+      WHERE qs.price IS NOT NULL
+        ${coinFilterClause}
+    ),
+    deduped AS (
+      SELECT
+        coin_id,
+        exchange_id,
+        symbol,
+        vs_currency,
+        fetched_at,
+        price,
+        quote_volume
+      FROM latest_quote_snapshots
+      WHERE rn = 1
+    ),
+    normalized AS (
+      SELECT
+        d.coin_id,
+        d.exchange_id,
+        CASE
+          WHEN instr(d.symbol, '/') > 0 THEN substr(d.symbol, 1, instr(d.symbol, '/') - 1)
+          ELSE 'BTC'
+        END AS base,
+        CASE
+          WHEN instr(d.symbol, '/') > 0 THEN substr(d.symbol, instr(d.symbol, '/') + 1)
+          ELSE CASE d.vs_currency
+            WHEN 'eur' THEN 'EUR'
+            ELSE 'USD'
+          END
+        END AS target,
+        d.symbol AS market_name,
+        d.price AS last,
+        CASE
+          WHEN d.quote_volume IS NOT NULL AND d.price > 0 THEN d.quote_volume / d.price
+          ELSE NULL
+        END AS volume,
+        CASE
+          WHEN d.vs_currency = 'eur' THEN d.price / ?
+          ELSE d.price
+        END AS converted_last_usd,
+        CASE
+          WHEN d.quote_volume IS NOT NULL AND d.vs_currency = 'eur' THEN d.quote_volume / ?
+          ELSE d.quote_volume
+        END AS converted_volume_usd,
+        d.fetched_at AS last_traded_at,
+        d.fetched_at AS last_fetch_at,
+        CASE
+          WHEN e.trust_score IS NOT NULL AND e.trust_score >= 7 THEN 'green'
+          ELSE NULL
+        END AS trust_score
+      FROM deduped d
+      INNER JOIN exchanges e ON e.id = d.exchange_id
+      WHERE d.symbol LIKE 'BTC/%'
+    )
+    SELECT
+      n.coin_id,
+      n.exchange_id,
+      n.base,
+      n.target,
+      n.market_name,
+      n.last,
+      n.volume,
+      n.converted_last_usd,
+      n.converted_last_usd / ? AS converted_last_btc,
+      n.converted_volume_usd,
+      NULL AS bid_ask_spread_percentage,
+      n.trust_score,
+      n.last_traded_at,
+      n.last_fetch_at,
+      0 AS is_anomaly,
+      0 AS is_stale,
+      '' AS trade_url,
+      NULL AS token_info_url,
+      'https://www.coingecko.com/en/coins/bitcoin' AS coin_gecko_url
+    FROM normalized n
+    LEFT JOIN coin_tickers ct
+      ON ct.coin_id = n.coin_id
+     AND ct.exchange_id = n.exchange_id
+     AND ct.base = n.base
+     AND ct.target = n.target
+    WHERE ct.coin_id IS NULL
+  `).all(
+    eurPerUsd,
+    eurPerUsd,
+    btcUsdPrice,
+    ...normalizedCoinIds,
+  );
+
+  const insertTicker = runtimeDatabase.client.prepare(`
+    INSERT INTO coin_tickers (
+      coin_id, exchange_id, base, target, market_name, last, volume,
+      converted_last_usd, converted_last_btc, converted_volume_usd,
+      bid_ask_spread_percentage, trust_score, last_traded_at, last_fetch_at,
+      is_anomaly, is_stale, trade_url, token_info_url, coin_gecko_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(coin_id, exchange_id, base, target) DO UPDATE SET
+      market_name = excluded.market_name,
+      last = excluded.last,
+      volume = excluded.volume,
+      converted_last_usd = excluded.converted_last_usd,
+      converted_last_btc = excluded.converted_last_btc,
+      converted_volume_usd = excluded.converted_volume_usd,
+      bid_ask_spread_percentage = excluded.bid_ask_spread_percentage,
+      trust_score = excluded.trust_score,
+      last_traded_at = excluded.last_traded_at,
+      last_fetch_at = excluded.last_fetch_at,
+      is_anomaly = excluded.is_anomaly,
+      is_stale = excluded.is_stale,
+      trade_url = excluded.trade_url,
+      token_info_url = excluded.token_info_url,
+      coin_gecko_url = excluded.coin_gecko_url
+  `);
+
+  for (const row of rows) {
+    insertTicker.run(
+      row.coin_id,
+      row.exchange_id,
+      row.base,
+      row.target,
+      row.market_name,
+      row.last,
+      row.volume,
+      row.converted_last_usd,
+      row.converted_last_btc,
+      row.converted_volume_usd,
+      row.bid_ask_spread_percentage,
+      row.trust_score,
+      row.last_traded_at,
+      row.last_fetch_at,
+      row.is_anomaly,
+      row.is_stale,
+      buildTradeUrl(row.exchange_id, row.base, row.target),
+      row.token_info_url,
+      row.coin_gecko_url,
+    );
+  }
+
+  return rows.length;
 }
 
 function canonicalCoinImportClause(coinColumn: string, canonicalCoinCount: number) {
@@ -255,7 +484,6 @@ export function seedRuntimeSnapshotsFromPersistentStore(
       WHERE ms.vs_currency = 'usd'
         AND ms.source_count > 0
         AND ${canonicalCoinPreservationClause}
-        AND (ct.exchange_id IS NULL OR e.id IS NOT NULL)
       ORDER BY ms.coin_id, ct.exchange_id, ct.base, ct.target
     `).all(...canonicalCoinImportValues);
 
@@ -358,6 +586,31 @@ export function seedRuntimeSnapshotsFromPersistentStore(
         AND ${canonicalCoinImportClause('chart_points.coin_id', runtimeCanonicalSnapshotCoinIds.size)}
       ORDER BY coin_id, timestamp
     `).all(...canonicalCoinImportValues);
+    const quoteSnapshotRows = persistentDatabase.client.prepare<{
+      coin_id: string;
+      vs_currency: string;
+      exchange_id: string;
+      symbol: string;
+      fetched_at: number;
+      price: number;
+      quote_volume: number | null;
+      price_change_percentage_24h: number | null;
+      source_payload_json: string;
+    }>(`
+      SELECT
+        coin_id,
+        vs_currency,
+        exchange_id,
+        symbol,
+        fetched_at,
+        price,
+        quote_volume,
+        price_change_percentage_24h,
+        source_payload_json
+      FROM quote_snapshots
+      WHERE ${canonicalCoinImportClause('quote_snapshots.coin_id', runtimeCanonicalSnapshotCoinIds.size)}
+      ORDER BY coin_id, exchange_id, symbol, fetched_at
+    `).all(...canonicalCoinImportValues);
     const insertChartPoint = runtimeDatabase.client.prepare(`
       INSERT INTO chart_points (
         coin_id, vs_currency, timestamp, price, market_cap, total_volume
@@ -366,6 +619,17 @@ export function seedRuntimeSnapshotsFromPersistentStore(
         price = excluded.price,
         market_cap = excluded.market_cap,
         total_volume = excluded.total_volume
+    `);
+    const insertQuoteSnapshot = runtimeDatabase.client.prepare(`
+      INSERT INTO quote_snapshots (
+        coin_id, vs_currency, exchange_id, symbol, fetched_at, price, quote_volume,
+        price_change_percentage_24h, source_payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(coin_id, vs_currency, exchange_id, symbol, fetched_at) DO UPDATE SET
+        price = excluded.price,
+        quote_volume = excluded.quote_volume,
+        price_change_percentage_24h = excluded.price_change_percentage_24h,
+        source_payload_json = excluded.source_payload_json
     `);
 
     let latestSnapshotTimestamp: string | null = null;
@@ -454,6 +718,24 @@ export function seedRuntimeSnapshotsFromPersistentStore(
           row.total_volume,
         );
       }
+      for (const row of quoteSnapshotRows) {
+        if (!existingExchangeIds.has(row.exchange_id)) {
+          continue;
+        }
+
+        insertQuoteSnapshot.run(
+          row.coin_id,
+          row.vs_currency,
+          row.exchange_id,
+          row.symbol,
+          row.fetched_at,
+          row.price,
+          row.quote_volume,
+          row.price_change_percentage_24h,
+          row.source_payload_json,
+        );
+      }
+      deriveCoinTickerBackfillsFromQuoteSnapshots(runtimeDatabase, runtimeCanonicalSnapshotCoinIds);
       runtimeDatabase.client.exec('COMMIT');
     } catch (error) {
       runtimeDatabase.client.exec('ROLLBACK');
@@ -578,6 +860,24 @@ function restoreRuntimeDatabaseFromPersistentSnapshot(
   return true;
 }
 
+function recoverRuntimeDatabaseFromPersistentSnapshot(
+  database: Database,
+  runtimeDatabaseUrl: string,
+  persistentSnapshotDatabaseUrl: string,
+) {
+  if (!restoreRuntimeDatabaseFromPersistentSnapshot(runtimeDatabaseUrl, persistentSnapshotDatabaseUrl)) {
+    return database;
+  }
+
+  try {
+    database.client.close();
+  } catch {
+    // Continue with recovery even if the stale client is already closed/broken.
+  }
+
+  return createDatabase(runtimeDatabaseUrl);
+}
+
 function seedPersistentBootstrapSnapshots(
   database: Database,
   marketDataRuntimeState: MarketDataRuntimeState,
@@ -616,14 +916,19 @@ export function resolveSeededBootstrapContext(
   bootstrapSnapshotAccessMode: BootstrapSnapshotAccessMode,
   bootstrapOnlyValidationRuntime: boolean,
 ): SeededBootstrapContext {
+  let runtimeDatabase = database;
   const persistentSnapshotDatabaseUrl = bootstrapSnapshotAccessMode === 'seeded_bootstrap'
     ? resolvePersistentSnapshotDatabaseUrl(config.databaseUrl, config.host, config.port)
     : null;
 
   if (persistentSnapshotDatabaseUrl) {
-    restoreRuntimeDatabaseFromPersistentSnapshot(config.databaseUrl, persistentSnapshotDatabaseUrl);
+    runtimeDatabase = recoverRuntimeDatabaseFromPersistentSnapshot(
+      runtimeDatabase,
+      config.databaseUrl,
+      persistentSnapshotDatabaseUrl,
+    );
     seedPersistentBootstrapSnapshots(
-      database,
+      runtimeDatabase,
       marketDataRuntimeState,
       persistentSnapshotDatabaseUrl,
       bootstrapOnlyValidationRuntime,
@@ -634,7 +939,7 @@ export function resolveSeededBootstrapContext(
     marketDataRuntimeState.validationOverride.reason === 'validation runtime seeded from persistent live snapshots'
     || marketDataRuntimeState.validationOverride.reason === 'default runtime seeded from persistent live snapshots';
 
-  return { persistentSnapshotDatabaseUrl, seededBootstrapPreserved };
+  return { persistentSnapshotDatabaseUrl, seededBootstrapPreserved, database: runtimeDatabase };
 }
 
 export function finalizeBootstrapState(

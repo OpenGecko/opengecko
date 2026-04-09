@@ -11,7 +11,7 @@ import {
   normalizeAddress,
   resolveOnchainOhlcvWindowMs,
 } from './helpers';
-import { buildLiveOnchainCatalog, collectTokenPools, patchPoolRow } from './pools';
+import { buildLiveOnchainCatalog, patchPoolRow } from './pools';
 import { fetchLivePoolTrades } from './trades';
 
 export function buildTokenResource(

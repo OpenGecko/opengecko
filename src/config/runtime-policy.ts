@@ -1,4 +1,21 @@
-export const DEFAULT_CCXT_EXCHANGES = ['binance', 'bybit', 'coinbase', 'kraken', 'okx', 'gate', 'mexc', 'bitget'] as const;
+export const DEFAULT_CCXT_EXCHANGES = [
+  'binance',
+  'bybit',
+  'coinbase',
+  'kraken',
+  'okx',
+  'gate',
+  'mexc',
+  'bitget',
+  'bigone',
+  'kucoin',
+  'htx',
+  'bitmart',
+  'lbank',
+  'whitebit',
+  'coinex',
+  'ascendex',
+] as const;
 
 export const DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS = 300;
 export const DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS = 60;

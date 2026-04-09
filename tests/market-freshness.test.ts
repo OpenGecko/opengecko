@@ -3,6 +3,40 @@ import { describe, expect, it } from 'vitest';
 import { getSnapshotAccessPolicy, getSnapshotFreshness, getUsableSnapshot } from '../src/modules/market-freshness';
 
 describe('market snapshot freshness', () => {
+  it('normalizes seconds-encoded persisted timestamps before computing freshness', () => {
+    const freshness = getSnapshotFreshness(
+      {
+        lastUpdated: new Date(1_775_466_023),
+        sourceProvidersJson: JSON.stringify(['coinbase']),
+        sourceCount: 1,
+      },
+      300,
+      Date.parse('2026-04-06T09:05:00.000Z'),
+    );
+
+    expect(freshness).toEqual({
+      ageSeconds: 277,
+      isStale: false,
+      providers: ['coinbase'],
+      sourceCount: 1,
+    });
+  });
+
+  it('treats invalid persisted timestamps as unusable instead of throwing', () => {
+    const snapshot = {
+      lastUpdated: new Date(Number.NaN),
+      sourceProvidersJson: '["binance"]',
+      sourceCount: 1,
+    };
+
+    expect(getUsableSnapshot(
+      snapshot,
+      300,
+      { initialSyncCompleted: true, allowStaleLiveService: true },
+      Date.parse('2026-03-20T00:10:00.000Z'),
+    )).toBeNull();
+  });
+
   it('marks recent snapshots as fresh and exposes provider metadata', () => {
     const freshness = getSnapshotFreshness(
       {

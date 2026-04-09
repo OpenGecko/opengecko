@@ -1,119 +1,43 @@
 {
   "groupId": "repo-quality-gates",
-  "testedAt": "2026-04-06T08:52:37.937856+00:00",
+  "testedAt": "2026-04-07T04:36:42.961435+00:00",
   "isolation": {
     "repoRoot": "/home/whoami/dev/opengecko/openGecko",
-    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba",
     "surface": "repo-quality-gates",
-    "constraints": [
-      "repo files and repo validation commands only",
-      "no API services started"
-    ]
+    "missionDir": "/home/whoami/.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba"
   },
   "toolsUsed": [
-    "Read",
-    "Execute",
     "shell"
   ],
   "assertions": [
-    {
-      "id": "VAL-QA-001",
-      "title": "CI workflow triggers on PR and main branch push",
-      "status": "pass",
-      "steps": [
-        {
-          "action": "Inspect .github/workflows/test.yml triggers",
-          "expected": "Workflow runs on pull_request and push to main",
-          "observed": "Workflow defines on.push.branches=[main] and on.pull_request"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml"
-        ],
-        "config": "on: push: branches: [main]; pull_request: present"
-      },
-      "issues": null
-    },
     {
       "id": "VAL-QA-002",
       "title": "CI enforces lint before typecheck/test/build",
       "status": "fail",
       "steps": [
         {
-          "action": "Inspect .github/workflows/test.yml step ordering",
-          "expected": "Dedicated Lint step running 'bun run lint' before typecheck/test/build",
-          "observed": "Workflow contains Typecheck, Build, Run test suite, and Verify Docker build steps, but no Lint step"
+          "action": "Inspect .github/workflows/test.yml",
+          "expected": "Workflow contains a dedicated lint step running 'bun run lint' before Typecheck, Run test suite, and Build.",
+          "observed": "Workflow contains Install dependencies, Typecheck, Build, Run test suite, and Verify Docker build; no lint step is present."
         },
         {
-          "action": "Run bun run lint",
-          "expected": "Command exists and non-zero exit would gate CI if wired",
-          "observed": "Command exited 0 with 32 warnings"
+          "action": "Run 'bun run lint' from repo root",
+          "expected": "Lint command exists and would gate CI if wired into the workflow.",
+          "observed": "Command exited 0 with 32 warnings and 0 errors, but the workflow does not invoke it."
         }
       ],
       "evidence": {
         "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/package.json"
+          ".github/workflows/test.yml",
+          "package.json",
+          "../.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/evidence/architecture-hardening/repo-quality-gates/config-evidence.txt"
         ],
-        "command": "bun run lint",
-        "exitCode": 0,
-        "observation": "Lint script exists in package.json, but workflow does not invoke it"
-      },
-      "issues": "Mandatory CI workflow lacks the required lint step and therefore does not enforce lint before later gates."
-    },
-    {
-      "id": "VAL-QA-003",
-      "title": "CI enforces TypeScript type safety",
-      "status": "pass",
-      "steps": [
-        {
-          "action": "Inspect workflow and package scripts for typecheck",
-          "expected": "Workflow runs bun run typecheck and script maps to tsc --noEmit",
-          "observed": "Workflow has Typecheck step running bun run typecheck; package.json maps typecheck to 'tsc --noEmit -p tsconfig.json'"
-        },
-        {
-          "action": "Run bun run typecheck",
-          "expected": "Typecheck completes with zero exit on healthy repo",
-          "observed": "Command exited 0"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/package.json"
+        "commands": [
+          "bun run lint -> exit 0 (32 warnings, 0 errors)"
         ],
-        "command": "bun run typecheck",
-        "exitCode": 0
+        "workingTree": "Repository contains unrelated modified/untracked files, but command evidence was still feasible because lint is read-only for source validation."
       },
-      "issues": null
-    },
-    {
-      "id": "VAL-QA-004",
-      "title": "CI enforces successful test execution",
-      "status": "pass",
-      "steps": [
-        {
-          "action": "Inspect workflow and package scripts for test execution",
-          "expected": "Workflow runs bun run test and script maps to vitest run",
-          "observed": "Workflow has Run test suite step with bun run test; package.json maps test to 'vitest run'"
-        },
-        {
-          "action": "Run bun run test",
-          "expected": "Test suite exits 0 when passing",
-          "observed": "Command exited 0; 57 files and 539 tests passed"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/package.json"
-        ],
-        "command": "bun run test",
-        "exitCode": 0,
-        "observation": "57 test files passed, 539 tests passed"
-      },
-      "issues": null
+      "issues": "Required CI lint gate is missing from .github/workflows/test.yml, so CI cannot enforce lint before later steps."
     },
     {
       "id": "VAL-QA-005",
@@ -121,126 +45,48 @@
       "status": "fail",
       "steps": [
         {
-          "action": "Inspect vitest.config.ts coverage thresholds",
-          "expected": "At least one threshold > 0",
-          "observed": "Coverage thresholds for statements, branches, functions, and lines are all 0"
+          "action": "Inspect vitest.config.ts",
+          "expected": "At least one coverage threshold is set to a positive value (>0).",
+          "observed": "Coverage thresholds are statements=0, branches=0, functions=0, lines=0."
         },
         {
-          "action": "Inspect workflow for coverage-mode test command",
-          "expected": "Workflow runs coverage-enforced tests (for example bun run test -- --coverage)",
-          "observed": "Workflow only runs bun run test without coverage flag or dedicated coverage script"
+          "action": "Inspect .github/workflows/test.yml",
+          "expected": "Workflow runs a coverage-enforced test command such as 'bun run test -- --coverage'.",
+          "observed": "Workflow only runs 'bun run test' and does not invoke a coverage-mode test step."
+        },
+        {
+          "action": "Run 'TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --coverage --maxWorkers=4' from repo root",
+          "expected": "Coverage-mode tests execute so coverage enforcement could fail the job if below threshold.",
+          "observed": "Command exited 1 immediately because dependency '@vitest/coverage-v8' is missing."
         }
       ],
       "evidence": {
         "files": [
-          "/home/whoami/dev/opengecko/openGecko/vitest.config.ts",
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml"
+          "vitest.config.ts",
+          ".github/workflows/test.yml",
+          "../.factory/missions/10528661-2553-42d8-b7b7-da54416b69ba/evidence/architecture-hardening/repo-quality-gates/config-evidence.txt"
         ],
-        "config": "thresholds={statements:0,branches:0,functions:0,lines:0}; no coverage-mode CI step present"
-      },
-      "issues": "Coverage thresholds are zero and the workflow does not execute a coverage-enforced test command."
-    },
-    {
-      "id": "VAL-QA-006",
-      "title": "CI enforces build viability",
-      "status": "pass",
-      "steps": [
-        {
-          "action": "Inspect workflow and package scripts for build",
-          "expected": "Workflow runs bun run build and script maps to tsc -p tsconfig.json",
-          "observed": "Workflow has Build step running bun run build; package.json maps build to 'tsc -p tsconfig.json'"
-        },
-        {
-          "action": "Run bun run build",
-          "expected": "Build exits 0 on healthy repo",
-          "observed": "Command exited 0"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/package.json"
+        "commands": [
+          "TMPDIR=/home/whoami/dev/opengecko/openGecko/data bun run test -- --coverage --maxWorkers=4 -> exit 1 ('Cannot find dependency @vitest/coverage-v8')",
+          "bun run typecheck -> exit 0",
+          "bun run build -> exit 0"
         ],
-        "command": "bun run build",
-        "exitCode": 0
+        "workingTree": "Existing unrelated working-tree changes did not block command execution; failure was due to missing coverage dependency and absent CI coverage gating."
       },
-      "issues": null
-    },
-    {
-      "id": "VAL-QA-007",
-      "title": "Endpoint script suite remains outside mandatory workflow gate",
-      "status": "pass",
-      "steps": [
-        {
-          "action": "Inspect workflow steps for endpoint smoke scripts",
-          "expected": "Mandatory workflow does not invoke bun run test:endpoint or test:endpoint:*",
-          "observed": "No endpoint smoke script commands appear in .github/workflows/test.yml"
-        },
-        {
-          "action": "Inspect package.json script definitions",
-          "expected": "Endpoint scripts remain separately defined",
-          "observed": "package.json defines test:endpoint and multiple test:endpoint:* scripts separately"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/package.json"
-        ],
-        "observation": "Endpoint scripts are defined but not part of mandatory test workflow"
-      },
-      "issues": null
-    },
-    {
-      "id": "VAL-QA-008",
-      "title": "CI validates container build integrity",
-      "status": "fail",
-      "steps": [
-        {
-          "action": "Inspect workflow for Docker build verification step",
-          "expected": "Workflow includes docker build -t opengecko-test .",
-          "observed": "Workflow includes Verify Docker build step running docker build -t opengecko-test ."
-        },
-        {
-          "action": "Run docker build -t opengecko-test .",
-          "expected": "Docker build exits 0 if container image is buildable",
-          "observed": "Command exited 1 during bun install because node-gyp in the container could not find Python while building better-sqlite3"
-        }
-      ],
-      "evidence": {
-        "files": [
-          "/home/whoami/dev/opengecko/openGecko/.github/workflows/test.yml",
-          "/home/whoami/dev/opengecko/openGecko/Dockerfile"
-        ],
-        "command": "docker build -t opengecko-test .",
-        "exitCode": 1,
-        "observation": "Build fails at Dockerfile RUN bun install --frozen-lockfile with 'Could not find any Python installation to use' from node-gyp/better-sqlite3"
-      },
-      "issues": "Workflow includes the container build gate, but the actual Docker build currently fails, so container build integrity is not satisfied."
+      "issues": "Coverage thresholds are all zero, CI does not run a coverage-mode command, and local coverage execution fails due to missing @vitest/coverage-v8."
     }
   ],
   "frictions": [
     {
-      "description": "The full vitest suite is long-running because market refresh timeout tests each take about 60 seconds.",
+      "description": "The guidance file did not contain a dedicated 'Flow Validator Guidance: repo-quality-gates' section, so validation relied on mission guidance, the quality-gate assertions in validation-contract.md, and the task-specific instructions.",
       "resolved": true,
-      "resolution": "Allowed the suite to complete and recorded the final passing summary.",
-      "affectedAssertions": [
-        "VAL-QA-004"
-      ]
-    },
-    {
-      "description": "Validator guidance expected serialized repo-quality-gate runs; command evidence was collected once per required gate without starting services.",
-      "resolved": true,
-      "resolution": "Recorded one execution result for lint, typecheck, test, build, and docker build.",
+      "resolution": "Used the available mission/testing guidance and inspected the workflow/config files directly.",
       "affectedAssertions": [
         "VAL-QA-002",
-        "VAL-QA-003",
-        "VAL-QA-004",
-        "VAL-QA-006",
-        "VAL-QA-008"
+        "VAL-QA-005"
       ]
     }
   ],
   "blockers": [],
-  "summary": "Tested 8 assertions: 5 passed and 3 failed. Failures were VAL-QA-002 (no lint step in CI workflow), VAL-QA-005 (zero coverage thresholds and no coverage-gated CI command), and VAL-QA-008 (Docker build gate exists but local docker build failed during bun install because Python was unavailable in the container)."
+  "summary": "Tested 2 assertions on the repo-quality-gates surface: both failed. The CI workflow lacks a lint gate, and coverage is neither meaningfully thresholded nor enforced in CI; local coverage-mode tests also fail because @vitest/coverage-v8 is missing."
 }
