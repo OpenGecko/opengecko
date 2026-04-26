@@ -110,6 +110,7 @@ import {
   trendingPoolsQuerySchema,
   trendingSearchQuerySchema,
 } from './onchain/query-schemas';
+import { getOnchainNetwork, requireOnchainNetwork } from './onchain/route-helpers';
 
 export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/onchain/networks', async (request) => {
@@ -296,11 +297,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const perPage = 100;
     const includes = parsePoolIncludes(query.include);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const rows = buildPoolDiscoveryRows(database.db
       .select()
@@ -369,11 +366,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includes = parsePoolIncludes(query.include);
     const duration = parseTrendingDuration(query.duration);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    const network = requireOnchainNetwork(database, params.network);
 
     const rows = buildPoolDiscoveryRows(
       database.db.select().from(onchainPools).where(eq(onchainPools.networkId, params.network)).all(),
@@ -403,10 +396,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     let rows = database.db.select().from(onchainPools).all();
 
     if (query.network !== undefined) {
-      const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, query.network)).limit(1).get();
-      if (!network) {
-        throw new HttpError(400, 'invalid_parameter', `Unknown onchain network: ${query.network}`);
-      }
+      requireOnchainNetwork(database, query.network, {
+        statusCode: 400,
+        code: 'invalid_parameter',
+        message: `Unknown onchain network: ${query.network}`,
+      });
       rows = rows.filter((row) => row.networkId === query.network);
     }
 
@@ -576,11 +570,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       };
     }
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const rows = database.db
       .select()
@@ -646,11 +636,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       .map((address) => normalizeAddress(address))
       .filter((address) => address.length > 0))];
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenRows = requestedAddresses
       .map((address) => {
@@ -684,11 +670,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, params.address, database);
 
@@ -714,11 +696,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includeInactiveSource = parseBooleanQuery(query.include_inactive_source, false);
     const includeComposition = parseBooleanQuery(query.include_composition, false);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, params.address, database);
 
@@ -755,11 +733,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   app.get('/onchain/simple/networks/:network/token_price/:addresses', async (request) => {
     const params = networkAddressesParamsSchema.parse(request.params);
     const query = simpleTokenPriceQuerySchema.parse(request.query);
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    const network = requireOnchainNetwork(database, params.network);
 
     const requestedAddresses = parseOnchainAddressList(params.addresses);
     const includeMarketCap = parseBooleanQuery(query.include_market_cap, false);
@@ -828,11 +802,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
   app.get('/onchain/networks/:network/tokens/:address/info', async (request) => {
     const params = networkAddressParamsSchema.parse(request.params);
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, params.address, database);
 
@@ -901,10 +871,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const perPage = 100;
 
     if (query.network) {
-      const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, query.network)).limit(1).get();
-      if (!network) {
-        throw new HttpError(400, 'invalid_parameter', `Unknown onchain network: ${query.network}`);
-      }
+      requireOnchainNetwork(database, query.network, {
+        statusCode: 400,
+        code: 'invalid_parameter',
+        message: `Unknown onchain network: ${query.network}`,
+      });
     }
 
     const poolRows = database.db.select().from(onchainPools).all();
@@ -936,7 +907,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const paged = tokenInfos.slice(start, start + perPage);
     const included = includes.includes('network')
       ? [...new Set(paged.map((item) => item.relationships.network.data.id))]
-          .map((networkId) => database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, networkId)).limit(1).get())
+          .map((networkId) => getOnchainNetwork(database, networkId))
           .filter((row): row is typeof onchainNetworks.$inferSelect => row !== undefined)
           .map((row) => buildNetworkResource(row))
       : [];
@@ -958,10 +929,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const holders = parseAnalyticsCount(query.holders, 'holders', 3);
     const tokenAddress = normalizeAddress(params.address);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, tokenAddress, database);
     if (tokenPools.length === 0) {
@@ -996,10 +964,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const sort = parseTopTraderSort(query.sort);
     const tokenAddress = normalizeAddress(params.address);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, tokenAddress, database);
     if (tokenPools.length === 0) {
@@ -1046,10 +1011,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const days = parseHoldersChartDays(query.days);
     const tokenAddress = normalizeAddress(params.address);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, tokenAddress, database);
     if (tokenPools.length === 0) {
@@ -1177,11 +1139,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const limit = parseOptionalPositiveInteger(query.limit, 'limit') ?? 100;
     const beforeTimestamp = parseOptionalTimestamp(query.before_timestamp, 'before_timestamp');
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenAddress = normalizeAddress(params.address);
     const tokenPools = collectTokenPools(params.network, tokenAddress, database);
@@ -1333,10 +1291,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const includeInactiveSource = parseBooleanQuery(query.include_inactive_source, false);
     const tokenAddress = normalizeAddress(params.address);
 
-    const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
-    if (!network) {
-      throw new HttpError(404, 'not_found', `Onchain network not found: ${params.network}`);
-    }
+    requireOnchainNetwork(database, params.network);
 
     const tokenPools = collectTokenPools(params.network, tokenAddress, database);
     if (tokenPools.length === 0) {
