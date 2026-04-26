@@ -82,134 +82,29 @@ import {
   derivePoolOhlcvFromTrades,
   fetchLivePoolTrades,
 } from './onchain/trades';
-
-const paginationQuerySchema = z.object({
-  page: z.string().optional(),
-});
-
-const poolListQuerySchema = z.object({
-  page: z.string().optional(),
-  sort: z.enum(['h24_volume_usd_liquidity_desc', 'h24_tx_count_desc', 'reserve_in_usd_desc']).optional(),
-});
-
-const poolDetailQuerySchema = z.object({
-  include: z.string().optional(),
-  include_volume_breakdown: z.string().optional(),
-  include_composition: z.string().optional(),
-});
-
-const poolMultiQuerySchema = z.object({
-  include: z.string().optional(),
-});
-
-const discoveryPoolsQuerySchema = z.object({
-  page: z.string().optional(),
-  include: z.string().optional(),
-});
-
-const trendingPoolsQuerySchema = z.object({
-  page: z.string().optional(),
-  include: z.string().optional(),
-  duration: z.string().optional(),
-});
-
-const searchPoolsQuerySchema = z.object({
-  query: z.string().optional(),
-  network: z.string().optional(),
-  page: z.string().optional(),
-});
-
-const trendingSearchQuerySchema = z.object({
-  page: z.string().optional(),
-  per_page: z.string().optional(),
-  pools: z.string().optional(),
-});
-
-const megafilterQuerySchema = z.object({
-  page: z.string().optional(),
-  per_page: z.string().optional(),
-  include: z.string().optional(),
-  networks: z.string().optional(),
-  dexes: z.string().optional(),
-  min_reserve_in_usd: z.string().optional(),
-  max_reserve_in_usd: z.string().optional(),
-  min_volume_usd_h24: z.string().optional(),
-  max_volume_usd_h24: z.string().optional(),
-  min_tx_count_h24: z.string().optional(),
-  max_tx_count_h24: z.string().optional(),
-  sort: z.string().optional(),
-});
-
-const tokenDetailQuerySchema = z.object({
-  include: z.string().optional(),
-  include_inactive_source: z.string().optional(),
-  include_composition: z.string().optional(),
-});
-
-const tokenMultiQuerySchema = z.object({
-  include: z.string().optional(),
-});
-
-const simpleTokenPriceQuerySchema = z.object({
-  include_market_cap: z.string().optional(),
-  include_24hr_vol: z.string().optional(),
-  include_24hr_price_change: z.string().optional(),
-  include_total_reserve_in_usd: z.string().optional(),
-});
-
-const poolInfoQuerySchema = z.object({
-  include: z.string().optional(),
-});
-
-const recentlyUpdatedTokenInfoQuerySchema = z.object({
-  include: z.string().optional(),
-  network: z.string().optional(),
-  page: z.string().optional(),
-});
-
-const tradesQuerySchema = z.object({
-  trade_volume_in_usd_greater_than: z.string().optional(),
-  token: z.string().optional(),
-  limit: z.string().optional(),
-  before_timestamp: z.string().optional(),
-});
-
-const onchainOhlcvQuerySchema = z.object({
-  aggregate: z.string().optional(),
-  before_timestamp: z.string().optional(),
-  limit: z.string().optional(),
-  currency: z.string().optional(),
-  token: z.string().optional(),
-  include_empty_intervals: z.string().optional(),
-  include_inactive_source: z.string().optional(),
-});
-
-const topHoldersQuerySchema = z.object({
-  holders: z.string().optional(),
-  include_pnl_details: z.string().optional(),
-  include: z.string().optional(),
-});
-
-const topTradersQuerySchema = z.object({
-  traders: z.string().optional(),
-  sort: z.string().optional(),
-  include_address_label: z.string().optional(),
-});
-
-const holdersChartQuerySchema = z.object({
-  days: z.string().optional(),
-});
-
-const onchainCategoriesQuerySchema = z.object({
-  page: z.string().optional(),
-  sort: z.string().optional(),
-});
-
-const onchainCategoryPoolsQuerySchema = z.object({
-  page: z.string().optional(),
-  sort: z.string().optional(),
-  include: z.string().optional(),
-});
+import {
+  discoveryPoolsQuerySchema,
+  holdersChartQuerySchema,
+  megafilterQuerySchema,
+  onchainCategoriesQuerySchema,
+  onchainCategoryPoolsQuerySchema,
+  onchainOhlcvQuerySchema,
+  paginationQuerySchema,
+  poolDetailQuerySchema,
+  poolInfoQuerySchema,
+  poolListQuerySchema,
+  poolMultiQuerySchema,
+  recentlyUpdatedTokenInfoQuerySchema,
+  searchPoolsQuerySchema,
+  simpleTokenPriceQuerySchema,
+  tokenDetailQuerySchema,
+  tokenMultiQuerySchema,
+  topHoldersQuerySchema,
+  topTradersQuerySchema,
+  tradesQuerySchema,
+  trendingPoolsQuerySchema,
+  trendingSearchQuerySchema,
+} from './onchain/query-schemas';
 
 export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/onchain/networks', async (request) => {
