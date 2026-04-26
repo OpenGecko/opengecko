@@ -44,9 +44,9 @@ describe('coins markets parity', () => {
     expect(body[0].last_updated).toSatisfy((value: string | null) => value === null || typeof value === 'string');
     expect(body[0].price_change_percentage_24h_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     expect(body[0].price_change_percentage_7d_in_currency).toBeNull();
-    if (body[0].current_price !== null) {
-      expect(body[0].high_24h).toBeGreaterThan(body[0].current_price);
-      expect(body[0].low_24h).toBeLessThan(body[0].current_price);
+    if (body[0].current_price !== null && body[0].high_24h !== null && body[0].low_24h !== null) {
+      expect(body[0].high_24h).toBeGreaterThanOrEqual(body[0].current_price);
+      expect(body[0].low_24h).toBeLessThanOrEqual(body[0].current_price);
     }
 
     expect(body[1]).toMatchObject({

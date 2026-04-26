@@ -21,6 +21,9 @@ const KNOWN_LABELS: Record<string, string> = {
 const logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info' });
 
 function logSqdFailure(message: string, error: unknown) {
+  if (process.env.VITEST === 'true') {
+    return;
+  }
   logger[EXPECTED_TEST_FAILURE_LOG_LEVEL]({ error: serializeErrorForLog(error) }, message);
 }
 

@@ -19,6 +19,9 @@ function getConfig() {
 }
 
 function logDefillamaFailure(message: string, error: unknown) {
+  if (process.env.VITEST === 'true') {
+    return;
+  }
   logger[EXPECTED_TEST_FAILURE_LOG_LEVEL]({ error: serializeErrorForLog(error) }, message);
 }
 

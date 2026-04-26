@@ -27,6 +27,8 @@ const defaultDefillamaOnchainCatalogMocks = () => {
   vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue(null);
   vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue(null);
   vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue(null);
+  vi.spyOn(defillamaProvider, 'fetchDefillamaTokens').mockResolvedValue(null);
+  vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockResolvedValue(null);
 };
 
 function resetCcxtProviderMocks() {

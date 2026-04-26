@@ -17,7 +17,7 @@ import {
   sortNumber,
   toNumberOrNull,
 } from './helpers';
-import { buildSparkline, getSeriesChangePercentage, getSeriesExtremes } from './market-data';
+import { buildSparkline, getConsistent24hExtremes, getSeriesChangePercentage } from './market-data';
 import { extractCoinMetadata, type ExchangeMarketSnapshot } from '../../providers/ccxt';
 
 export function buildCoinDetail(
@@ -64,7 +64,7 @@ export function buildCoinDetail(
     }
   }
 
-  const seriesExtremes = getSeriesExtremes(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const seriesExtremes = getConsistent24hExtremes(database, coin.id, 'usd', marketFreshnessThresholdSeconds, snapshotAccessPolicy, 'full', snapshot ? snapshot.price : null);
   const priceChangePercentage7d = getSeriesChangePercentage(
     database,
     coin.id,

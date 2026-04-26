@@ -34,10 +34,15 @@ export function getSeriesExtremes(
   marketFreshnessThresholdSeconds: number,
   snapshotAccessPolicy: SnapshotAccessPolicy,
   precision: number | 'full' = 'full',
+  snapshotPrice: number | null = null,
 ) {
   const rows = getChartSeries(database, coinId, 'usd');
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const values = rows.map((row) => row.price * rate);
+
+  if (snapshotPrice !== null) {
+    values.push(snapshotPrice * rate);
+  }
 
   if (values.length === 0) {
     return {
@@ -50,6 +55,26 @@ export function getSeriesExtremes(
     high24h: toNumberOrNull(Math.max(...values), precision),
     low24h: toNumberOrNull(Math.min(...values), precision),
   };
+}
+
+export function getConsistent24hExtremes(
+  database: AppDatabase,
+  coinId: string,
+  vsCurrency: string,
+  marketFreshnessThresholdSeconds: number,
+  snapshotAccessPolicy: SnapshotAccessPolicy,
+  precision: number | 'full' = 'full',
+  snapshotPrice: number | null = null,
+) {
+  return getSeriesExtremes(
+    database,
+    coinId,
+    vsCurrency,
+    marketFreshnessThresholdSeconds,
+    snapshotAccessPolicy,
+    precision,
+    snapshotPrice,
+  );
 }
 
 export function getSeriesChangePercentage(
@@ -217,6 +242,7 @@ export function buildMarketRow(
     marketFreshnessThresholdSeconds,
     snapshotAccessPolicy,
     options.precision,
+    snapshot ? snapshot.price : null,
   );
   const roi = row.coin.id === 'ethereum'
     ? {
