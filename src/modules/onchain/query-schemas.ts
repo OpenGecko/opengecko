@@ -1,5 +1,34 @@
 import { z } from 'zod';
 
+export const networkParamsSchema = z.object({
+  network: z.string(),
+});
+
+export const networkDexParamsSchema = z.object({
+  network: z.string(),
+  dex: z.string(),
+});
+
+export const categoryParamsSchema = z.object({
+  categoryId: z.string(),
+});
+
+export const networkAddressesParamsSchema = z.object({
+  network: z.string(),
+  addresses: z.string(),
+});
+
+export const networkAddressParamsSchema = z.object({
+  network: z.string(),
+  address: z.string(),
+});
+
+export const networkAddressTimeframeParamsSchema = z.object({
+  network: z.string(),
+  address: z.string(),
+  timeframe: z.string(),
+});
+
 export const paginationQuerySchema = z.object({
   page: z.string().optional(),
 });

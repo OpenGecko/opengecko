@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
 import { marketSnapshots, onchainNetworks, onchainPools } from '../db/schema';
@@ -83,9 +82,15 @@ import {
   fetchLivePoolTrades,
 } from './onchain/trades';
 import {
+  categoryParamsSchema,
   discoveryPoolsQuerySchema,
   holdersChartQuerySchema,
   megafilterQuerySchema,
+  networkAddressParamsSchema,
+  networkAddressesParamsSchema,
+  networkAddressTimeframeParamsSchema,
+  networkDexParamsSchema,
+  networkParamsSchema,
   onchainCategoriesQuerySchema,
   onchainCategoryPoolsQuerySchema,
   onchainOhlcvQuerySchema,
@@ -123,7 +128,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/dexes', async (request) => {
-    const params = z.object({ network: z.string() }).parse(request.params);
+    const params = networkParamsSchema.parse(request.params);
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -148,7 +153,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools', async (request) => {
-    const params = z.object({ network: z.string() }).parse(request.params);
+    const params = networkParamsSchema.parse(request.params);
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -212,7 +217,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/dexes/:dex/pools', async (request) => {
-    const params = z.object({ network: z.string(), dex: z.string() }).parse(request.params);
+    const params = networkDexParamsSchema.parse(request.params);
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -285,7 +290,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/new_pools', async (request) => {
-    const params = z.object({ network: z.string() }).parse(request.params);
+    const params = networkParamsSchema.parse(request.params);
     const query = discoveryPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -357,7 +362,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/trending_pools', async (request) => {
-    const params = z.object({ network: z.string() }).parse(request.params);
+    const params = networkParamsSchema.parse(request.params);
     const query = trendingPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -527,7 +532,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/categories/:categoryId/pools', async (request) => {
-    const params = z.object({ categoryId: z.string() }).parse(request.params);
+    const params = categoryParamsSchema.parse(request.params);
     const query = onchainCategoryPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -556,7 +561,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools/multi/:addresses', async (request) => {
-    const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
+    const params = networkAddressesParamsSchema.parse(request.params);
     const query = poolMultiQuerySchema.parse(request.query);
     const includes = parsePoolIncludes(query.include);
     const requestedAddresses = [...new Set(params.addresses
@@ -597,7 +602,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools/:address', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = poolDetailQuerySchema.parse(request.query);
     const includes = parsePoolIncludes(query.include);
     const includeVolumeBreakdown = parseBooleanQuery(query.include_volume_breakdown, false);
@@ -633,7 +638,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/multi/:addresses', async (request) => {
-    const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
+    const params = networkAddressesParamsSchema.parse(request.params);
     const query = tokenMultiQuerySchema.parse(request.query);
     const includes = parseTokenIncludes(query.include);
     const requestedAddresses = [...new Set(params.addresses
@@ -674,7 +679,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/pools', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -703,7 +708,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = tokenDetailQuerySchema.parse(request.query);
     const includes = parseTokenIncludes(query.include);
     const includeInactiveSource = parseBooleanQuery(query.include_inactive_source, false);
@@ -748,7 +753,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/simple/networks/:network/token_price/:addresses', async (request) => {
-    const params = z.object({ network: z.string(), addresses: z.string() }).parse(request.params);
+    const params = networkAddressesParamsSchema.parse(request.params);
     const query = simpleTokenPriceQuerySchema.parse(request.query);
     const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
 
@@ -822,7 +827,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/info', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const network = database.db.select().from(onchainNetworks).where(eq(onchainNetworks.id, params.network)).limit(1).get();
 
     if (!network) {
@@ -847,7 +852,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools/:address/info', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = poolInfoQuerySchema.parse(request.query);
     const includes = parsePoolInfoIncludes(query.include);
     const normalizedAddress = normalizeAddress(params.address);
@@ -946,7 +951,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/top_holders', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = topHoldersQuerySchema.parse(request.query);
     const includePnlDetails = parseBooleanQuery(query.include_pnl_details, false);
     const includes = parseTopHoldersIncludes(query.include);
@@ -984,7 +989,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/top_traders', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = topTradersQuerySchema.parse(request.query);
     const includeAddressLabel = parseBooleanQuery(query.include_address_label, false);
     const traders = parseAnalyticsCount(query.traders, 'traders', 3);
@@ -1036,7 +1041,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/holders_chart', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = holdersChartQuerySchema.parse(request.query);
     const days = parseHoldersChartDays(query.days);
     const tokenAddress = normalizeAddress(params.address);
@@ -1068,7 +1073,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools/:address/trades', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = tradesQuerySchema.parse(request.query);
     const threshold = parseTradeVolumeThreshold(query.trade_volume_in_usd_greater_than);
     const limit = parseOptionalPositiveInteger(query.limit, 'limit') ?? 100;
@@ -1166,7 +1171,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/trades', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string() }).parse(request.params);
+    const params = networkAddressParamsSchema.parse(request.params);
     const query = tradesQuerySchema.parse(request.query);
     const threshold = parseTradeVolumeThreshold(query.trade_volume_in_usd_greater_than);
     const limit = parseOptionalPositiveInteger(query.limit, 'limit') ?? 100;
@@ -1206,7 +1211,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/pools/:address/ohlcv/:timeframe', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string(), timeframe: z.string() }).parse(request.params);
+    const params = networkAddressTimeframeParamsSchema.parse(request.params);
     const query = onchainOhlcvQuerySchema.parse(request.query);
     const timeframe = parseOnchainOhlcvTimeframe(params.timeframe);
     const aggregate = parseOptionalPositiveInteger(query.aggregate, 'aggregate') ?? 1;
@@ -1318,7 +1323,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   });
 
   app.get('/onchain/networks/:network/tokens/:address/ohlcv/:timeframe', async (request) => {
-    const params = z.object({ network: z.string(), address: z.string(), timeframe: z.string() }).parse(request.params);
+    const params = networkAddressTimeframeParamsSchema.parse(request.params);
     const query = onchainOhlcvQuerySchema.parse(request.query);
     const timeframe = parseOnchainOhlcvTimeframe(params.timeframe);
     const aggregate = parseOptionalPositiveInteger(query.aggregate, 'aggregate') ?? 1;
