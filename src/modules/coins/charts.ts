@@ -1,11 +1,16 @@
 import type { AppDatabase } from '../../db/client';
 import type { MarketSnapshotRow } from '../../db/schema';
+import { coinTickers } from '../../db/schema';
 import { HttpError } from '../../http/errors';
 import { getConversionRate } from '../../lib/conversion';
 import { getChartSeries, getMarketRows } from '../catalog';
 import { downsampleTimeSeries, getRangeDurationMs } from '../chart-semantics';
-import { getCanonicalCandles } from '../../services/candle-store';
+import { fetchExchangeOHLCV } from '../../providers/ccxt';
+import { getCanonicalCandles, upsertCanonicalOhlcvCandle } from '../../services/candle-store';
 import { getGranularityMs, parseChartInterval, parseUnixTimestampSeconds, toNumberOrNull } from './helpers';
+import { asc, eq } from 'drizzle-orm';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function parseChartRange(query: { from: string; to: string }) {
   const from = parseUnixTimestampSeconds(query.from, 'from');
@@ -105,6 +110,71 @@ export function getOhlcRowsForDays(database: AppDatabase, coinId: string, days: 
   const cutoff = latestTimestamp - dayCount * 24 * 60 * 60 * 1000;
 
   return rows.filter((row) => row.timestamp.getTime() >= cutoff);
+}
+
+export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  if (parseChartInterval(interval) === 'hourly' || days === 'max') {
+    return null;
+  }
+
+  const dayCount = Number(days);
+  if (!Number.isFinite(dayCount) || dayCount <= 0) {
+    return null;
+  }
+
+  const ticker = database.db
+    .select()
+    .from(coinTickers)
+    .where(eq(coinTickers.coinId, coinId))
+    .orderBy(asc(coinTickers.lastFetchAt), asc(coinTickers.exchangeId), asc(coinTickers.marketName))
+    .limit(1)
+    .get();
+
+  if (!ticker) {
+    return null;
+  }
+
+  const candles = await fetchExchangeOHLCV(
+    ticker.exchangeId,
+    ticker.marketName,
+    '1d',
+    Date.now() - dayCount * DAY_MS,
+  );
+
+  if (candles.length === 0) {
+    return null;
+  }
+
+  for (const candle of candles) {
+    upsertCanonicalOhlcvCandle(database, {
+      coinId,
+      vsCurrency: 'usd',
+      interval: '1d',
+      timestamp: new Date(candle.timestamp),
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      totalVolume: candle.volume,
+      replaceExisting: true,
+    });
+  }
+
+  return candles.map((candle) => ({
+    coinId,
+    vsCurrency: 'usd',
+    source: 'canonical',
+    interval: '1d',
+    timestamp: new Date(candle.timestamp),
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: candle.volume,
+    marketCap: null,
+    totalVolume: candle.volume,
+  }));
 }
 
 export function getOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {

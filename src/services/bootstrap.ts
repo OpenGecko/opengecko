@@ -793,7 +793,7 @@ export function resolveBootstrapSnapshotAccessMode(
   return 'seeded_bootstrap';
 }
 
-export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, host?: string, port?: number) {
+export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, _host?: string, _port?: number) {
   if (runtimeDatabaseUrl !== ':memory:') {
     const resolvedRuntimeDatabaseUrl = resolve(process.cwd(), runtimeDatabaseUrl);
     if (existsSync(resolvedRuntimeDatabaseUrl) && hasUsableLiveSnapshots(runtimeDatabaseUrl)) {
@@ -808,14 +808,10 @@ export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string,
     return hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL) ? VALIDATION_FALLBACK_DATABASE_URL : null;
   }
 
-  if (host === '127.0.0.1' && port === 3102) {
-    const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
+  const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
 
-    if (!existsSync(resolvedValidationFallbackDatabaseUrl)) {
-      return null;
-    }
-
-    return hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL) ? VALIDATION_FALLBACK_DATABASE_URL : null;
+  if (existsSync(resolvedValidationFallbackDatabaseUrl) && hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL)) {
+    return VALIDATION_FALLBACK_DATABASE_URL;
   }
 
   const resolvedDefaultPersistentDatabaseUrl = resolve(process.cwd(), DEFAULT_PERSISTENT_DATABASE_URL);

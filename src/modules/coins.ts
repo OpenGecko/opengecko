@@ -10,6 +10,7 @@ import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows,
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
   buildChartPayload,
+  fetchProviderOhlcRowsForDays,
   getChartRowsForDays,
   getChartRowsForRange,
   getOhlcRowsForDays,
@@ -396,7 +397,8 @@ export function registerCoinRoutes(
     const precision = parsePrecision(query.precision);
     const vsCurrency = query.vs_currency.toLowerCase();
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
-    const rows = getOhlcRowsForDays(database, params.id, query.days, query.interval);
+    const rows = await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval)
+      ?? getOhlcRowsForDays(database, params.id, query.days, query.interval);
 
     return rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);
