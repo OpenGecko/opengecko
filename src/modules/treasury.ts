@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
 import { chartPoints, coins, marketSnapshots, treasuryEntities, treasuryHoldings, treasuryTransactions, type TreasuryEntityRow, type TreasuryTransactionRow } from '../db/schema';
+import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 import { sortNumber } from '../lib/shared';
@@ -45,6 +46,10 @@ const treasuryTransactionHistoryQuerySchema = z.object({
 });
 
 const VALID_TREASURY_CHART_DAYS = new Set(['7', '14', '30', '90', '180', '365', '730', 'max']);
+const TREASURY_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: 60,
+  staleWhileRevalidateSeconds: 60,
+};
 
 function mapEntitySegmentToType(entity: 'companies' | 'governments' | 'countries') {
   return entity === 'companies' ? 'company' : 'government';
@@ -181,7 +186,7 @@ function sumBigNumber(values: Array<number | null | undefined>) {
 }
 
 export function registerTreasuryRoutes(app: FastifyInstance, database: AppDatabase) {
-  app.get('/entities/list', async (request) => {
+  app.get('/entities/list', async (request, reply) => {
     const query = entitiesListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);
@@ -199,17 +204,17 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
 
     const data = sortedRows.slice(start, start + perPage).map(buildEntityListRow);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data,
       meta: {
         fixture: true,
         entity_count: filteredRows.length,
         note: 'Treasury data is seeded fixture, not live',
       },
-    };
+    }, TREASURY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/:entity/public_treasury/:coin_id', async (request) => {
+  app.get('/:entity/public_treasury/:coin_id', async (request, reply) => {
     const params = z.object({
       entity: z.enum(['companies', 'governments', 'countries']),
       coin_id: z.string(),
@@ -252,7 +257,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
     const totalHoldings = sumBigNumber(rows.map((row) => row.amount)).toNumber();
     const totalValueUsd = sumBigNumber(rows.map((row) => row.currentValueUsd)).toNumber();
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         coin_id: coin.id,
         current_price_usd: snapshot?.price ?? null,
@@ -278,10 +283,10 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         entity_count: rows.length,
         note: 'Treasury data is seeded fixture, not live',
       },
-    };
+    }, TREASURY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/public_treasury/:entity_id', async (request) => {
+  app.get('/public_treasury/:entity_id', async (request, reply) => {
     const params = z.object({ entity_id: z.string() }).parse(request.params);
     const entity = getTreasuryEntityOrThrow(database, params.entity_id);
 
@@ -325,7 +330,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
     const totalEntryValueUsd = sumBigNumber(holdings.map((holding) => holding.entry_value_usd)).toNumber();
     const totalCurrentValueUsd = sumBigNumber(holdings.map((holding) => holding.current_value_usd)).toNumber();
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         id: entity.id,
         name: entity.name,
@@ -344,10 +349,10 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         entity_count: 1,
         note: 'Treasury data is seeded fixture, not live',
       },
-    };
+    }, TREASURY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/public_treasury/:entity_id/:coin_id/holding_chart', async (request) => {
+  app.get('/public_treasury/:entity_id/:coin_id/holding_chart', async (request, reply) => {
     const params = z.object({
       entity_id: z.string(),
       coin_id: z.string(),
@@ -373,7 +378,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
       .all();
 
     if (rows.length === 0 || prices.length === 0) {
-      return {
+      return sendCacheableJson(request, reply, {
         data: {
           holdings: [],
           holding_value_in_usd: [],
@@ -382,7 +387,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
           fixture: true,
           note: 'Treasury data is seeded fixture, not live',
         },
-      };
+      }, TREASURY_HTTP_CACHE_POLICY);
     }
 
     const latestTimestamp = prices[prices.length - 1]?.timestamp.getTime() ?? 0;
@@ -423,7 +428,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
           })
           .filter((row): row is { timestamp: number; holdingBalance: number; holdingValueUsd: number } => row !== null);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         holdings: chartRows.map((row) => [row.timestamp, row.holdingBalance]),
         holding_value_in_usd: chartRows.map((row) => [row.timestamp, row.holdingValueUsd]),
@@ -432,10 +437,10 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         fixture: true,
         note: 'Treasury data is seeded fixture, not live',
       },
-    };
+    }, TREASURY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/public_treasury/:entity_id/transaction_history', async (request) => {
+  app.get('/public_treasury/:entity_id/transaction_history', async (request, reply) => {
     const params = z.object({ entity_id: z.string() }).parse(request.params);
     const query = treasuryTransactionHistoryQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -455,7 +460,7 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
     const sortedRows = sortTreasuryTransactions(filteredRows, query.order);
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         transactions: sortedRows.slice(start, start + perPage).map((row) => ({
           date: row.happenedAt.getTime(),
@@ -473,6 +478,6 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         transaction_count: 6,
         note: 'Treasury data is seeded fixture, not live',
       },
-    };
+    }, TREASURY_HTTP_CACHE_POLICY);
   });
 }

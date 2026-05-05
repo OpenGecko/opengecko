@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
 import { coins, marketSnapshots } from '../src/db/schema';
-import { getSimplePriceAvailabilityFailure, warmSimplePriceCache, type SimplePriceRequestQuery } from '../src/modules/simple';
+import {
+  createSimplePriceCache,
+  getSimplePriceAvailabilityFailure,
+  warmSimplePriceCache,
+  type SimplePriceRequestQuery,
+} from '../src/modules/simple';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 const now = new Date('2026-03-28T12:00:00.000Z');
@@ -145,8 +150,8 @@ describe('simple price parity helpers', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('populates requested canonical simple-price quote fields from usable live snapshots', () => {
-    const cache = new Map();
+  it('populates requested canonical simple-price quote fields from usable live snapshots', async () => {
+    const cache = createSimplePriceCache();
     const runtimeState = createRuntimeState({
       validationOverride: {
         mode: 'stale_allowed',
@@ -164,7 +169,7 @@ describe('simple price parity helpers', () => {
       include_last_updated_at: 'true',
     };
 
-    const payload = warmSimplePriceCache(
+    const payload = await warmSimplePriceCache(
       cache,
       query,
       database,
@@ -213,7 +218,7 @@ describe('simple price parity helpers', () => {
     expect(livePayloadFailure).toBeNull();
   });
 
-  it('resolves ids, names, and symbols to the same canonical coin ids while dropping unknown selector misses', () => {
+  it('resolves ids, names, and symbols to the same canonical coin ids while dropping unknown selector misses', async () => {
     const runtimeState = createRuntimeState({
       validationOverride: {
         mode: 'stale_allowed',
@@ -223,8 +228,8 @@ describe('simple price parity helpers', () => {
       },
     });
 
-    const idsPayload = warmSimplePriceCache(
-      new Map(),
+    const idsPayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         ids: 'bitcoin,unknown-coin',
         vs_currencies: 'usd',
@@ -233,8 +238,8 @@ describe('simple price parity helpers', () => {
       300,
       runtimeState,
     );
-    const namesPayload = warmSimplePriceCache(
-      new Map(),
+    const namesPayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         names: 'ethereum,unknown-name',
         vs_currencies: 'usd',
@@ -243,8 +248,8 @@ describe('simple price parity helpers', () => {
       300,
       runtimeState,
     );
-    const symbolsPayload = warmSimplePriceCache(
-      new Map(),
+    const symbolsPayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         symbols: 'btc,missing-symbol',
         vs_currencies: 'usd',
@@ -274,7 +279,7 @@ describe('simple price parity helpers', () => {
     expect(Object.keys(symbolsPayload)).toEqual(['bitcoin']);
   });
 
-  it('omits optional fields unless explicitly requested and keeps equivalent selector queries stable', () => {
+  it('omits optional fields unless explicitly requested and keeps equivalent selector queries stable', async () => {
     const runtimeState = createRuntimeState({
       validationOverride: {
         mode: 'stale_allowed',
@@ -284,8 +289,8 @@ describe('simple price parity helpers', () => {
       },
     });
 
-    const baselinePayload = warmSimplePriceCache(
-      new Map(),
+    const baselinePayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         ids: 'ethereum,bitcoin',
         vs_currencies: 'usd',
@@ -294,8 +299,8 @@ describe('simple price parity helpers', () => {
       300,
       runtimeState,
     );
-    const reorderedPayload = warmSimplePriceCache(
-      new Map(),
+    const reorderedPayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         ids: 'bitcoin,ethereum',
         vs_currencies: 'usd',
@@ -304,8 +309,8 @@ describe('simple price parity helpers', () => {
       300,
       runtimeState,
     );
-    const optionalPayload = warmSimplePriceCache(
-      new Map(),
+    const optionalPayload = await warmSimplePriceCache(
+      createSimplePriceCache(),
       {
         ids: 'bitcoin,ethereum',
         vs_currencies: 'usd',

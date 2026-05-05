@@ -3,6 +3,7 @@ import BigNumber from 'bignumber.js';
 
 import type { AppDatabase } from '../db/client';
 import { chartPoints, type MarketSnapshotRow } from '../db/schema';
+import { sendCacheableJson } from '../http/cache';
 import { asc } from 'drizzle-orm';
 import { getConversionRate, SUPPORTED_VS_CURRENCIES } from '../lib/conversion';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
@@ -52,6 +53,11 @@ const globalMarketCapChartQuerySchema = z.object({
   vs_currency: z.string(),
   days: z.string(),
 });
+
+const GLOBAL_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: 60,
+  staleWhileRevalidateSeconds: 60,
+};
 
 function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
   const canonicalRows = getCanonicalCandles(database, 'bitcoin', 'usd', '1d')
@@ -149,7 +155,7 @@ export function registerGlobalRoutes(
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
 ) {
-  app.get('/global/market_cap_chart', async (request) => {
+  app.get('/global/market_cap_chart', async (request, reply) => {
     const query = globalMarketCapChartQuerySchema.parse(request.query);
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
     const vsCurrency = query.vs_currency.toLowerCase();
@@ -178,12 +184,12 @@ export function registerGlobalRoutes(
       getChartGranularityMs(orderedRows.length > 1 ? orderedRows.at(-1)!.timestamp.getTime() - orderedRows[0]!.timestamp.getTime() : 0),
     );
 
-    return {
+    return sendCacheableJson(request, reply, {
       market_cap_chart: downsampledRows.map((row) => [row.timestamp.getTime(), row.marketCap]),
-    };
+    }, GLOBAL_HTTP_CACHE_POLICY);
   });
 
-  app.get('/global/decentralized_finance_defi', async () => {
+  app.get('/global/decentralized_finance_defi', async (request, reply) => {
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
     const marketRows = getMarketRows(database, 'usd', { status: 'active' })
       .map((row) => ({
@@ -211,7 +217,7 @@ export function registerGlobalRoutes(
       .sort((left, right) => compareNullableNumbersDescending(left.snapshot.marketCap, right.snapshot.marketCap))[0];
     const topCoinMarketCap = topCoin?.snapshot.marketCap ?? 0;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         defi_market_cap: defiMarketCap,
         eth_market_cap: ethMarketCap,
@@ -221,10 +227,10 @@ export function registerGlobalRoutes(
         top_coin_name: topCoin?.coin.name ?? null,
         top_coin_defi_dominance: defiMarketCap > 0 ? (topCoinMarketCap / defiMarketCap) * 100 : null,
       },
-    };
+    }, GLOBAL_HTTP_CACHE_POLICY);
   });
 
-  app.get('/global', async () => {
+  app.get('/global', async (request, reply) => {
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
     const marketRows = getMarketRows(database, 'usd', { status: 'active' })
       .map((row) => ({
@@ -270,7 +276,7 @@ export function registerGlobalRoutes(
       }, new BigNumber(0));
     const updatedAt = marketRows.reduce((maxTimestamp, row) => Math.max(maxTimestamp, row.snapshot.lastUpdated.getTime()), 0);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         active_cryptocurrencies: activeCoinCount,
         upcoming_icos: 0,
@@ -291,6 +297,6 @@ export function registerGlobalRoutes(
           : new BigNumber(totalVolumeUsd).minus(volumeChangePercentage24hUsd).dividedBy(volumeChangePercentage24hUsd).multipliedBy(100).toNumber(),
         updated_at: Math.floor(updatedAt / 1000),
       },
-    };
+    }, GLOBAL_HTTP_CACHE_POLICY);
   });
 }

@@ -139,9 +139,9 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
     ticker.marketName,
     '1d',
     Date.now() - dayCount * DAY_MS,
-  );
+  ).catch(() => null);
 
-  if (candles.length === 0) {
+  if (!candles || candles.length === 0) {
     return null;
   }
 

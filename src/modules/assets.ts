@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms } from '../db/schema';
+import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { getAssetPlatformById, getCoins, resolveCoinPlatformContract } from './catalog';
 
@@ -67,25 +68,31 @@ function buildTokenList(database: AppDatabase, assetPlatformId: string) {
 }
 
 export function registerAssetPlatformRoutes(app: FastifyInstance, database: AppDatabase) {
-  app.get('/asset_platforms', async (request) => {
+  app.get('/asset_platforms', async (request, reply) => {
     const query = assetPlatformsQuerySchema.parse(request.query);
     const queryBuilder = database.db.select().from(assetPlatforms).orderBy(asc(assetPlatforms.name));
 
     const rows = query.filter === 'nft' ? queryBuilder.where(eq(assetPlatforms.isNft, true)).all() : queryBuilder.all();
 
-    return rows.map((row) => ({
+    return sendCacheableJson(request, reply, rows.map((row) => ({
       id: row.id,
       chain_identifier: row.chainIdentifier,
       name: row.name,
       shortname: row.shortname,
       native_coin_id: row.nativeCoinId,
       image: row.imageUrl,
-    }));
+    })), {
+      maxAgeSeconds: 3_600,
+      staleWhileRevalidateSeconds: 3_600,
+    });
   });
 
-  app.get('/token_lists/:asset_platform_id/all.json', async (request) => {
+  app.get('/token_lists/:asset_platform_id/all.json', async (request, reply) => {
     const params = tokenListParamsSchema.parse(request.params);
 
-    return buildTokenList(database, params.asset_platform_id);
+    return sendCacheableJson(request, reply, buildTokenList(database, params.asset_platform_id), {
+      maxAgeSeconds: 3_600,
+      staleWhileRevalidateSeconds: 3_600,
+    });
   });
 }

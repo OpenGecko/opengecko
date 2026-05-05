@@ -2,9 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
+import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate } from '../lib/conversion';
+import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray } from './catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
@@ -51,6 +53,33 @@ const coinsListQuerySchema = z.object({
   include_platform: z.enum(['true', 'false']).optional(),
   status: z.enum(['active', 'inactive', 'all']).optional(),
 });
+
+const COINS_MARKETS_FRESHNESS_BUDGET = getEndpointFreshnessBudget('coins_markets');
+const COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS = Math.min(
+  COINS_MARKETS_CACHE_TTL_MS / 1_000,
+  COINS_MARKETS_FRESHNESS_BUDGET?.target_freshness_seconds ?? COINS_MARKETS_CACHE_TTL_MS / 1_000,
+);
+const COINS_MARKETS_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS,
+  staleWhileRevalidateSeconds: COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS,
+};
+const COIN_DETAIL_FRESHNESS_BUDGET = getEndpointFreshnessBudget('coin_detail');
+const COIN_DETAIL_HTTP_CACHE_MAX_AGE_SECONDS = Math.min(
+  60,
+  COIN_DETAIL_FRESHNESS_BUDGET?.target_freshness_seconds ?? 60,
+);
+const COIN_DETAIL_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: COIN_DETAIL_HTTP_CACHE_MAX_AGE_SECONDS,
+  staleWhileRevalidateSeconds: COIN_DETAIL_HTTP_CACHE_MAX_AGE_SECONDS,
+};
+const HISTORICAL_CHART_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: 60,
+  staleWhileRevalidateSeconds: 60,
+};
+const COIN_AUXILIARY_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: 60,
+  staleWhileRevalidateSeconds: 60,
+};
 
 const coinMarketsQuerySchema = z.object({
   vs_currency: z.string(),
@@ -159,12 +188,12 @@ export function registerCoinRoutes(
 ) {
   const coinMarketsCache = new Map<string, CoinMarketsCacheEntry>();
 
-  app.get('/coins/list', async (request) => {
+  app.get('/coins/list', async (request, reply) => {
     const query = coinsListQuerySchema.parse(request.query);
     const includePlatforms = parseBooleanQuery(query.include_platform, false);
     const rows = getCoins(database, { status: query.status ?? 'active' });
 
-    return rows.map((row) => {
+    const payload = rows.map((row) => {
       const payload = {
         id: row.id,
         symbol: row.symbol,
@@ -180,9 +209,14 @@ export function registerCoinRoutes(
         platforms: parsePlatforms(row.platformsJson),
       };
     });
+
+    return sendCacheableJson(request, reply, payload, {
+      maxAgeSeconds: 3_600,
+      staleWhileRevalidateSeconds: 3_600,
+    });
   });
 
-  app.get('/coins/markets', async (request) => {
+  app.get('/coins/markets', async (request, reply) => {
     const query = coinMarketsQuerySchema.parse(request.query);
     const cacheKey = createCoinMarketsCacheKey(query);
     const cached = coinMarketsCache.get(cacheKey);
@@ -190,7 +224,12 @@ export function registerCoinRoutes(
 
     if (cached && cached.revision === runtimeState.hotDataRevision && cached.expiresAt > now) {
       app.metrics.recordCacheHit('coins_markets');
-      return cloneCoinMarketsResponse(cached.value);
+      return sendCacheableJson(
+        request,
+        reply,
+        cloneCoinMarketsResponse(cached.value),
+        COINS_MARKETS_HTTP_CACHE_POLICY,
+      );
     }
 
     app.metrics.recordCacheMiss('coins_markets');
@@ -225,10 +264,10 @@ export function registerCoinRoutes(
       revision: runtimeState.hotDataRevision,
     });
 
-    return payload;
+    return sendCacheableJson(request, reply, payload, COINS_MARKETS_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/top_gainers_losers', async (request) => {
+  app.get('/coins/top_gainers_losers', async (request, reply) => {
     const query = topGainersLosersQuerySchema.parse(request.query);
     const vsCurrency = query.vs_currency.toLowerCase();
     const duration = parseMoverDuration(query.duration);
@@ -278,13 +317,13 @@ export function registerCoinRoutes(
       .slice(0, 30)
       .map((entry) => buildMoverRow(database, entry.row, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy, runtimeState, duration.days, requestedWindows));
 
-    return {
+    return sendCacheableJson(request, reply, {
       top_gainers: topGainers,
       top_losers: topLosers,
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/list/new', async () => {
+  app.get('/coins/list/new', async (request, reply) => {
     const rows = getCoins(database, { status: 'active' })
       .slice()
       .sort((left, right) => {
@@ -299,12 +338,12 @@ export function registerCoinRoutes(
         return left.id.localeCompare(right.id);
       });
 
-    return {
+    return sendCacheableJson(request, reply, {
       coins: rows.map(buildNewListingRow),
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id', async (request) => {
+  app.get('/coins/:id', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinDetailQuerySchema.parse(request.query);
     parseDexPairFormat(query.dex_pair_format);
@@ -315,7 +354,7 @@ export function registerCoinRoutes(
       throw new HttpError(404, 'not_found', `Coin not found: ${params.id}`);
     }
 
-    return buildCoinDetail(database, row.coin, getUsableSnapshot(getEffectiveSnapshot(row.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    const payload = buildCoinDetail(database, row.coin, getUsableSnapshot(getEffectiveSnapshot(row.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       includeLocalization: parseBooleanQuery(query.localization, true),
       includeMarketData: parseBooleanQuery(query.market_data, true),
       includeTickers: parseBooleanQuery(query.tickers, true),
@@ -324,9 +363,11 @@ export function registerCoinRoutes(
       includeSparkline: parseBooleanQuery(query.sparkline, false),
       includeCategoriesDetails: parseBooleanQuery(query.include_categories_details, false),
     });
+
+    return sendCacheableJson(request, reply, payload, COIN_DETAIL_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/history', async (request) => {
+  app.get('/coins/:id/history', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinHistoryQuerySchema.parse(request.query);
     const coin = getCoinById(database, params.id);
@@ -337,7 +378,7 @@ export function registerCoinRoutes(
 
     const historicalSnapshot = getHistorySnapshot(database, coin.id, parseHistoryDate(query.date));
 
-    return buildCoinDetail(database, coin, historicalSnapshot, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), {
+    return sendCacheableJson(request, reply, buildCoinDetail(database, coin, historicalSnapshot, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), {
       includeLocalization: parseBooleanQuery(query.localization, true),
       includeMarketData: true,
       includeTickers: false,
@@ -345,10 +386,10 @@ export function registerCoinRoutes(
       includeDeveloperData: false,
       includeSparkline: false,
       includeCategoriesDetails: false,
-    });
+    }), COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/tickers', async (request) => {
+  app.get('/coins/:id/tickers', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinTickersQuerySchema.parse(request.query);
     const coin = getRequiredCoin(database, params.id);
@@ -364,33 +405,43 @@ export function registerCoinRoutes(
       snapshotAccessPolicy: getSnapshotAccessPolicy(runtimeState),
     });
 
-    return {
+    return sendCacheableJson(request, reply, {
       name: coin.name,
       tickers: tickerPayload.tickers,
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/market_chart', async (request) => {
+  app.get('/coins/:id/market_chart', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     const vsCurrency = query.vs_currency.toLowerCase();
     const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
 
-    return buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision));
+    return sendCacheableJson(
+      request,
+      reply,
+      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      HISTORICAL_CHART_HTTP_CACHE_POLICY,
+    );
   });
 
-  app.get('/coins/:id/market_chart/range', async (request) => {
+  app.get('/coins/:id/market_chart/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     const vsCurrency = query.vs_currency.toLowerCase();
     const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
 
-    return buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision));
+    return sendCacheableJson(
+      request,
+      reply,
+      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      HISTORICAL_CHART_HTTP_CACHE_POLICY,
+    );
   });
 
-  app.get('/coins/:id/ohlc', async (request) => {
+  app.get('/coins/:id/ohlc', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
@@ -400,7 +451,7 @@ export function registerCoinRoutes(
     const rows = await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval)
       ?? getOhlcRowsForDays(database, params.id, query.days, query.interval);
 
-    return rows.map((row) => {
+    const payload = rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);
       const high = toNumberOrNull(row.high * rate, precision);
       const low = toNumberOrNull(row.low * rate, precision);
@@ -408,9 +459,11 @@ export function registerCoinRoutes(
 
       return [row.timestamp.getTime(), open, high, low, close];
     });
+
+    return sendCacheableJson(request, reply, payload, HISTORICAL_CHART_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/ohlc/range', async (request) => {
+  app.get('/coins/:id/ohlc/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = coinChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
@@ -419,7 +472,7 @@ export function registerCoinRoutes(
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
     const rows = getOhlcRowsForRange(database, params.id, parseChartRange(query), query.interval);
 
-    return rows.map((row) => {
+    const payload = rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);
       const high = toNumberOrNull(row.high * rate, precision);
       const low = toNumberOrNull(row.low * rate, precision);
@@ -427,78 +480,80 @@ export function registerCoinRoutes(
 
       return [row.timestamp.getTime(), open, high, low, close];
     });
+
+    return sendCacheableJson(request, reply, payload, HISTORICAL_CHART_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/circulating_supply_chart', async (request) => {
+  app.get('/coins/:id/circulating_supply_chart', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseChartInterval(query.interval);
     getChartRowsForDays(database, params.id, query.days, query.interval);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: [],
       meta: {
         fixture: true,
         coin_id: params.id,
         note: 'Circulating supply chart data is not available',
       },
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/circulating_supply_chart/range', async (request) => {
+  app.get('/coins/:id/circulating_supply_chart/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseExplicitRange(query);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: [],
       meta: {
         fixture: true,
         coin_id: params.id,
         note: 'Circulating supply chart data is not available',
       },
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/total_supply_chart', async (request) => {
+  app.get('/coins/:id/total_supply_chart', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseChartInterval(query.interval);
     getChartRowsForDays(database, params.id, query.days, query.interval);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: [],
       meta: {
         fixture: true,
         coin_id: params.id,
         note: 'Total supply chart data is not available',
       },
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:id/total_supply_chart/range', async (request) => {
+  app.get('/coins/:id/total_supply_chart/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseExplicitRange(query);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: [],
       meta: {
         fixture: true,
         coin_id: params.id,
         note: 'Total supply chart data is not available',
       },
-    };
+    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/categories/list', async () => {
+  app.get('/coins/categories/list', async (request, reply) => {
     const categories = getCategories(database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: categories.map((category) => ({
         category_id: category.id,
         name: category.name,
@@ -508,14 +563,17 @@ export function registerCoinRoutes(
         category_count: categories.length,
         note: 'Categories data is seeded fixture (2 categories)',
       },
-    };
+    }, {
+      maxAgeSeconds: 3_600,
+      staleWhileRevalidateSeconds: 3_600,
+    });
   });
 
-  app.get('/coins/categories', async (request) => {
+  app.get('/coins/categories', async (request, reply) => {
     const query = categoriesQuerySchema.parse(request.query);
     const sorted = sortCategories(getCategories(database), query.order);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: sorted.map((category) => ({
         id: category.id,
         name: category.name,
@@ -531,10 +589,13 @@ export function registerCoinRoutes(
         category_count: sorted.length,
         note: 'Categories data is seeded fixture (2 categories)',
       },
-    };
+    }, {
+      maxAgeSeconds: 300,
+      staleWhileRevalidateSeconds: 300,
+    });
   });
 
-  app.get('/coins/:platform_id/contract/:contract_address', async (request) => {
+  app.get('/coins/:platform_id/contract/:contract_address', async (request, reply) => {
     const params = z.object({ platform_id: z.string(), contract_address: z.string() }).parse(request.params);
     const query = coinDetailQuerySchema.parse(request.query);
     parseDexPairFormat(query.dex_pair_format);
@@ -547,7 +608,7 @@ export function registerCoinRoutes(
     const marketRow = getMarketRows(database, 'usd', { ids: [coin.id] })[0] ?? { coin, snapshot: null };
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
 
-    return buildCoinDetail(database, marketRow.coin, getUsableSnapshot(getEffectiveSnapshot(marketRow.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+    return sendCacheableJson(request, reply, buildCoinDetail(database, marketRow.coin, getUsableSnapshot(getEffectiveSnapshot(marketRow.snapshot, runtimeState), marketFreshnessThresholdSeconds, snapshotAccessPolicy), marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
       includeLocalization: parseBooleanQuery(query.localization, true),
       includeMarketData: parseBooleanQuery(query.market_data, true),
       includeTickers: parseBooleanQuery(query.tickers, true),
@@ -555,10 +616,10 @@ export function registerCoinRoutes(
       includeDeveloperData: parseBooleanQuery(query.developer_data, true),
       includeSparkline: parseBooleanQuery(query.sparkline, false),
       includeCategoriesDetails: parseBooleanQuery(query.include_categories_details, false),
-    });
+    }), COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
-  app.get('/coins/:platform_id/contract/:contract_address/market_chart', async (request) => {
+  app.get('/coins/:platform_id/contract/:contract_address/market_chart', async (request, reply) => {
     const params = z.object({ platform_id: z.string(), contract_address: z.string() }).parse(request.params);
     const query = coinChartQuerySchema.parse(request.query);
     const coin = getCoinByContract(database, params.platform_id, params.contract_address);
@@ -570,10 +631,15 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const rows = getChartRowsForDays(database, coin.id, query.days, query.interval);
 
-    return buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision));
+    return sendCacheableJson(
+      request,
+      reply,
+      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      HISTORICAL_CHART_HTTP_CACHE_POLICY,
+    );
   });
 
-  app.get('/coins/:platform_id/contract/:contract_address/market_chart/range', async (request) => {
+  app.get('/coins/:platform_id/contract/:contract_address/market_chart/range', async (request, reply) => {
     const params = z.object({ platform_id: z.string(), contract_address: z.string() }).parse(request.params);
     const query = coinChartRangeQuerySchema.parse(request.query);
     const coin = getCoinByContract(database, params.platform_id, params.contract_address);
@@ -585,6 +651,11 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const rows = getChartRowsForRange(database, coin.id, parseChartRange(query), query.interval);
 
-    return buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision));
+    return sendCacheableJson(
+      request,
+      reply,
+      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      HISTORICAL_CHART_HTTP_CACHE_POLICY,
+    );
   });
 }

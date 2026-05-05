@@ -4,6 +4,7 @@ import { registerErrorHandler } from '../http/errors';
 import { registerTransportControls } from '../http/transport';
 import { registerAssetPlatformRoutes } from '../modules/assets';
 import { registerCoinRoutes } from '../modules/coins';
+import { registerDerivativeRoutes } from '../modules/derivatives';
 import { registerDiagnosticsRoutes } from '../modules/diagnostics';
 import { registerExchangeRoutes } from '../modules/exchanges';
 import { registerGlobalRoutes } from '../modules/global';
@@ -34,11 +35,15 @@ export function registerAppRoutes(app: FastifyInstance, {
       requestTimeoutMs: config.requestTimeoutMs,
       responseCompressionThresholdBytes: config.responseCompressionThresholdBytes,
     },
+    {
+      ccxtExchanges: config.derivativesCcxtExchanges,
+    },
   );
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerAssetPlatformRoutes(app, database);
   registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerExchangeRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
+  registerDerivativeRoutes(app, database);
   registerTreasuryRoutes(app, database);
   registerOnchainRoutes(app, database);
   registerSearchRoutes(app, database);

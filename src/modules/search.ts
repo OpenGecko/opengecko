@@ -3,6 +3,7 @@ import { asc } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
+import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { exchanges } from '../db/schema';
 import { searchDocuments } from '../db/search-index';
@@ -15,6 +16,11 @@ const searchQuerySchema = z.object({
 const trendingQuerySchema = z.object({
   show_max: z.string().optional(),
 });
+
+const SEARCH_HTTP_CACHE_POLICY = {
+  maxAgeSeconds: 60,
+  staleWhileRevalidateSeconds: 60,
+};
 
 function parseShowMax(value: string | undefined) {
   if (value === undefined) {
@@ -61,7 +67,7 @@ function compareAscendingRankWithNullsLast(
 }
 
 export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase) {
-  app.get('/search', async (request) => {
+  app.get('/search', async (request, reply) => {
     const query = searchQuerySchema.parse(request.query).query.toLowerCase();
     const matches = searchDocuments(database, query, 20);
     const coinOrder = matches.filter((match) => match.docType === 'coin').map((match) => match.refId);
@@ -106,16 +112,16 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
         large: exchange.imageUrl,
       })));
 
-    return {
+    return sendCacheableJson(request, reply, {
       coins,
       exchanges: exchangeResults,
       icos: [],
       categories,
       nfts: [],
-    };
+    }, SEARCH_HTTP_CACHE_POLICY);
   });
 
-  app.get('/search/trending', async (request) => {
+  app.get('/search/trending', async (request, reply) => {
     const query = trendingQuerySchema.parse(request.query);
     const showMax = parseShowMax(query.show_max);
     const marketRows = getMarketRows(database, 'usd', { status: 'all' });
@@ -194,10 +200,10 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
         },
       }));
 
-    return {
+    return sendCacheableJson(request, reply, {
       coins,
       nfts: [],
       categories,
-    };
+    }, SEARCH_HTTP_CACHE_POLICY);
   });
 }

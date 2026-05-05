@@ -7,8 +7,10 @@ import { rebuildPersistentSqliteDatabase, resolveBootstrapSnapshotAccessMode } f
 import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
+import type { ResponseCache } from './services/response-cache';
 import { createFastifyApp } from './app/fastify';
 import { registerAppRoutes } from './app/routes';
+import type { SimplePriceResponse } from './modules/simple';
 import {
   canonicalizePersistedCoinNames,
   recordStartupPrewarmObservation,
@@ -24,7 +26,7 @@ declare module 'fastify' {
     db: ReturnType<typeof createDatabase>;
     appConfig: AppConfig;
     marketFreshnessThresholdSeconds: number;
-    simplePriceCache: Map<string, { value: Record<string, Record<string, number | null>>; expiresAt: number; revision: number }>;
+    simplePriceCache: ResponseCache<SimplePriceResponse>;
   }
 }
 
