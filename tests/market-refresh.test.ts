@@ -30,6 +30,12 @@ const mockedFetchExchangeTickers = fetchExchangeTickers as ReturnType<typeof vi.
 
 const now = new Date();
 
+function expireProviderBreakers(runtimeState: ReturnType<typeof createMarketDataRuntimeState>) {
+  for (const entry of Object.values(runtimeState.providerBreakers?.providers ?? {})) {
+    entry.openedUntil = Date.now() - 1;
+  }
+}
+
 const seededExchanges = [
   { id: 'binance', name: 'Binance', url: 'https://www.binance.com', trustScore: 10, updatedAt: now },
   { id: 'coinbase', name: 'Coinbase', url: 'https://www.coinbase.com', trustScore: 10, updatedAt: now },
@@ -708,6 +714,7 @@ describe('market refresh service', () => {
     expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(2);
 
     runtimeState.providerFailureCooldownUntil = Date.now() - 1;
+    expireProviderBreakers(runtimeState);
     mockedFetchExchangeTickers.mockResolvedValue([]);
 
     await runMarketRefreshOnce(database, {
@@ -717,6 +724,49 @@ describe('market refresh service', () => {
 
     expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(4);
     expect(runtimeState.providerFailureCooldownUntil).toBeNull();
+  });
+
+  it('skips provider work when all exchange breakers are open', async () => {
+    const runtimeState = createMarketDataRuntimeState();
+    runtimeState.providerBreakers = {
+      providers: {
+        binance: {
+          id: 'binance',
+          status: 'open',
+          failureCount: 1,
+          openedUntil: Date.now() + 60_000,
+          lastSuccessAt: null,
+          lastFailureAt: Date.now(),
+          lastFailureReason: 'timeout',
+        },
+        coinbase: {
+          id: 'coinbase',
+          status: 'open',
+          failureCount: 1,
+          openedUntil: Date.now() + 60_000,
+          lastSuccessAt: null,
+          lastFailureAt: Date.now(),
+          lastFailureReason: 'timeout',
+        },
+      },
+      options: {
+        baseBackoffMs: 30_000,
+        maxBackoffMs: 300_000,
+        multiplier: 2,
+        jitterRatio: 0,
+        jitter: () => 0,
+      },
+    };
+    const metrics = createMetricsRegistry();
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 2,
+    }, undefined, runtimeState, metrics);
+
+    expect(mockedFetchExchangeMarkets).not.toHaveBeenCalled();
+    expect(mockedFetchExchangeTickers).not.toHaveBeenCalled();
+    expect(metrics.renderPrometheus()).toContain('opengecko_provider_refresh_total{outcome="breaker_skip"} 1');
   });
 
   it('fails fast without hitting providers when validator-forced provider failure is active', async () => {
@@ -792,6 +842,7 @@ describe('market refresh service', () => {
       }];
     });
     runtimeState.providerFailureCooldownUntil = Date.now() - 1;
+    expireProviderBreakers(runtimeState);
 
     await runMarketRefreshOnce(database, {
       ccxtExchanges: ['binance', 'coinbase'],
@@ -816,6 +867,7 @@ describe('market refresh service', () => {
         raw: {} as never,
       },
     ]);
+    expireProviderBreakers(runtimeState);
 
     await runMarketRefreshOnce(database, {
       ccxtExchanges: ['binance', 'coinbase'],

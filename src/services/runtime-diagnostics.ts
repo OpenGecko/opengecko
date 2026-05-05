@@ -1,11 +1,13 @@
 import type { MarketSnapshotRow } from '../db/schema';
-import type { MarketDataRuntimeState } from './market-runtime-state';
+import { getMarketRuntimePhase, type MarketDataRuntimeState, type MarketRuntimePhase } from './market-runtime-state';
 import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
+import { summarizeProviderBreakerState } from './provider-breaker';
 
 export type RuntimeDiagnostics = {
   readiness: {
     state: 'starting' | 'ready' | 'degraded';
+    canonical_phase: MarketRuntimePhase;
     listener_bound: boolean;
     listener_bind_deferred: boolean;
     initial_sync_completed: boolean;
@@ -22,6 +24,16 @@ export type RuntimeDiagnostics = {
       active: boolean;
       reason: string | null;
     };
+    provider_breakers?: Array<{
+      id: string;
+      status: 'closed' | 'open' | 'half_open';
+      failure_count: number;
+      opened_until: string | null;
+      last_success_at: string | null;
+      last_failure_at: string | null;
+      last_failure_reason: string | null;
+      retry_in_ms: number;
+    }>;
     validation_override: {
       active: boolean;
       mode: 'off' | 'stale_disallowed' | 'stale_allowed' | 'degraded_seeded_bootstrap' | 'seeded_bootstrap' | 'zero_live_completed_boot';
@@ -66,6 +78,18 @@ export function buildRuntimeDiagnostics(
     ? getSnapshotFreshness(latestStoredUsdSnapshot, marketFreshnessThresholdSeconds, now)
     : null;
   const cooldownUntil = runtimeState.providerFailureCooldownUntil;
+  const providerBreakerDiagnostics = runtimeState.providerBreakers
+    ? summarizeProviderBreakerState(runtimeState.providerBreakers, now).map((provider) => ({
+      id: provider.id,
+      status: provider.status,
+      failure_count: provider.failure_count,
+      opened_until: provider.opened_until === null ? null : new Date(provider.opened_until).toISOString(),
+      last_success_at: provider.last_success_at === null ? null : new Date(provider.last_success_at).toISOString(),
+      last_failure_at: provider.last_failure_at === null ? null : new Date(provider.last_failure_at).toISOString(),
+      last_failure_reason: provider.last_failure_reason,
+      retry_in_ms: provider.retry_in_ms,
+    }))
+    : [];
   const injectedProviderFailure = runtimeState.forcedProviderFailure ?? {
     active: false,
     reason: null,
@@ -183,6 +207,7 @@ export function buildRuntimeDiagnostics(
   return {
     readiness: {
       state: readinessState,
+      canonical_phase: getMarketRuntimePhase(runtimeState, now),
       listener_bound: runtimeState.listenerBound,
       listener_bind_deferred: runtimeState.listenerBindDeferred,
       initial_sync_completed: effectiveInitialSyncCompleted,
@@ -201,6 +226,7 @@ export function buildRuntimeDiagnostics(
         active: injectedProviderFailure.active,
         reason: injectedProviderFailure.reason,
       },
+      ...(providerBreakerDiagnostics.length > 0 ? { provider_breakers: providerBreakerDiagnostics } : {}),
       validation_override: {
         active: validationOverrideActive,
         mode: validationOverride.mode,

@@ -55,7 +55,7 @@ export type MetricsRegistry = {
   recordRequest: (route: string, method: string, statusCode: number, durationMs: number) => void;
   recordCacheHit: (surface: string) => void;
   recordCacheMiss: (surface: string) => void;
-  recordProviderRefresh: (outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'forced_failure' | 'failure', exchangeCount: number, failedExchangeCount: number) => void;
+  recordProviderRefresh: (outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'breaker_skip' | 'forced_failure' | 'failure', exchangeCount: number, failedExchangeCount: number) => void;
   recordStartupPrewarmTarget: (target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) => void;
   recordStartupPrewarmFirstRequest: (target: string, cacheSurface: string, cacheHit: boolean, durationMs: number) => void;
   renderPrometheus: () => string;
@@ -138,7 +138,7 @@ export function createMetricsRegistry(): MetricsRegistry {
   }
 
   function recordProviderRefresh(
-    outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'forced_failure' | 'failure',
+    outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'breaker_skip' | 'forced_failure' | 'failure',
     exchangeCount: number,
     failedExchangeCount: number,
   ) {

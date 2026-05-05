@@ -137,8 +137,8 @@ async function runDirectSimplePricePrewarmWithinBudget(
 
   const prewarmStartedAt = Date.now();
   const query = parseSimplePricePrewarmQuery(endpoint);
-  const warmPromise = Promise.resolve().then(() => {
-    const warmed = warmSimplePriceCache(
+  const warmPromise = Promise.resolve().then(async () => {
+    const warmed = await warmSimplePriceCache(
       app.simplePriceCache,
       query,
       app.db,

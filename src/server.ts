@@ -2,6 +2,7 @@ import { buildApp } from './app';
 import { getLastResolvedConfig, loadConfig } from './config/env';
 import { detectSqliteRuntime } from './db/client';
 import { serializeErrorForLog } from './lib/logger';
+import { markMarketRuntimeListenerBound } from './services/market-runtime-state';
 import { createStartupProgressTracker } from './services/startup-progress';
 
 async function start() {
@@ -38,7 +39,7 @@ async function start() {
       host: config.host,
       port: config.port,
     });
-    app.marketDataRuntimeState.listenerBound = true;
+    markMarketRuntimeListenerBound(app.marketDataRuntimeState);
     startupProgress.complete('start_http_listener');
     startupProgress.finish(config.port);
     app.log.info({ timestamp: new Date().toISOString().replace('.000Z', 'Z') }, `Server listening at http://127.0.0.1:${config.port}`);

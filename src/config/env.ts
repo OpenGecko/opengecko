@@ -23,6 +23,7 @@ const envSchema = z.object({
   LOG_HTTP_STYLE: z.enum(HTTP_LOG_STYLES).default('emoji_compact_p'),
   DATABASE_URL: z.string().default('./data/opengecko.db'),
   CCXT_EXCHANGES: z.string().default(DEFAULT_CCXT_EXCHANGES.join(',')),
+  DERIVATIVES_CCXT_EXCHANGES: z.string().default(''),
   MARKET_FRESHNESS_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS),
   MARKET_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS),
   CURRENCY_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CURRENCY_REFRESH_INTERVAL_SECONDS),
@@ -47,6 +48,7 @@ export type AppConfig = {
   httpLogStyle: z.infer<typeof envSchema>['LOG_HTTP_STYLE'];
   databaseUrl: string;
   ccxtExchanges: string[];
+  derivativesCcxtExchanges: string;
   marketFreshnessThresholdSeconds: number;
   marketRefreshIntervalSeconds: number;
   currencyRefreshIntervalSeconds: number;
@@ -179,6 +181,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     httpLogStyle: env.LOG_HTTP_STYLE,
     databaseUrl: env.DATABASE_URL,
     ccxtExchanges: env.CCXT_EXCHANGES.split(',').map((value) => value.trim()).filter(Boolean),
+    derivativesCcxtExchanges: env.DERIVATIVES_CCXT_EXCHANGES,
     marketFreshnessThresholdSeconds: env.MARKET_FRESHNESS_THRESHOLD_SECONDS,
     marketRefreshIntervalSeconds: env.MARKET_REFRESH_INTERVAL_SECONDS,
     currencyRefreshIntervalSeconds: env.CURRENCY_REFRESH_INTERVAL_SECONDS,

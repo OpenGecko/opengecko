@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
+import { createProviderBreakerState, recordProviderFailure } from '../src/services/provider-breaker';
 
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   const baseState: MarketDataRuntimeState = {
@@ -120,6 +121,7 @@ describe('runtime diagnostics', () => {
     expect(diagnostics).toEqual({
       readiness: {
         state: 'starting',
+        canonical_phase: 'cold_boot',
         listener_bound: false,
         listener_bind_deferred: false,
         initial_sync_completed: false,
@@ -179,6 +181,7 @@ describe('runtime diagnostics', () => {
     expect(diagnostics).toEqual({
       readiness: {
         state: 'degraded',
+        canonical_phase: 'stale_ready',
         listener_bound: false,
         listener_bind_deferred: false,
         initial_sync_completed: false,
@@ -238,6 +241,7 @@ describe('runtime diagnostics', () => {
     expect(diagnostics).toEqual({
       readiness: {
         state: 'degraded',
+        canonical_phase: 'stale_ready',
         listener_bound: false,
         listener_bind_deferred: false,
         initial_sync_completed: false,
@@ -297,6 +301,7 @@ describe('runtime diagnostics', () => {
     expect(diagnostics).toEqual({
       readiness: {
         state: 'ready',
+        canonical_phase: 'live_ready',
         listener_bound: true,
         listener_bind_deferred: false,
         initial_sync_completed: true,
@@ -390,6 +395,7 @@ describe('runtime diagnostics', () => {
 
     expect(seededDiagnostics.readiness).toMatchObject({
       state: 'degraded',
+      canonical_phase: 'validation_override',
       listener_bind_deferred: false,
       initial_sync_completed: false,
       degraded: true,
@@ -426,6 +432,7 @@ describe('runtime diagnostics', () => {
 
     expect(diagnostics.readiness).toMatchObject({
       state: 'starting',
+      canonical_phase: 'validation_override',
       initial_sync_completed: false,
       degraded: false,
       zero_live_completed_boot: false,
@@ -501,6 +508,7 @@ describe('runtime diagnostics', () => {
     expect(diagnostics).toEqual({
       readiness: {
         state: 'degraded',
+        canonical_phase: 'stale_ready',
         listener_bound: true,
         listener_bind_deferred: false,
         initial_sync_completed: true,
@@ -577,6 +585,60 @@ describe('runtime diagnostics', () => {
     });
   });
 
+  it('reports provider breaker health without exposing provider credentials', () => {
+    const providerBreakers = createProviderBreakerState(['binance', 'coinbase'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    recordProviderFailure(
+      providerBreakers,
+      'binance',
+      new Date('2026-03-26T00:00:00.000Z').getTime(),
+      'ticker fetch timed out',
+    );
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:00:00.000Z'),
+        sourceProvidersJson: '["coinbase"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-26T00:00:30.000Z').getTime(),
+    );
+
+    expect(diagnostics.readiness.canonical_phase).toBe('provider_degraded');
+    expect(diagnostics.degraded.provider_breakers).toEqual([
+      {
+        id: 'binance',
+        status: 'open',
+        failure_count: 1,
+        opened_until: '2026-03-26T00:01:00.000Z',
+        last_success_at: null,
+        last_failure_at: '2026-03-26T00:00:00.000Z',
+        last_failure_reason: 'ticker fetch timed out',
+        retry_in_ms: 30_000,
+      },
+      {
+        id: 'coinbase',
+        status: 'closed',
+        failure_count: 0,
+        opened_until: null,
+        last_success_at: null,
+        last_failure_at: null,
+        last_failure_reason: null,
+        retry_in_ms: 0,
+      },
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('secret');
+    expect(JSON.stringify(diagnostics)).not.toContain('api_key');
+  });
+
   it('reports injected provider failure state alongside degraded recovery fields', () => {
     const diagnostics = buildRuntimeDiagnostics(
       createState({
@@ -627,6 +689,7 @@ describe('runtime diagnostics', () => {
 
     expect(diagnostics.readiness).toEqual({
       state: 'ready',
+      canonical_phase: 'live_ready',
       listener_bound: false,
       listener_bind_deferred: true,
       initial_sync_completed: true,
@@ -653,6 +716,7 @@ describe('runtime diagnostics', () => {
 
     expect(diagnostics.readiness).toMatchObject({
       state: 'ready',
+      canonical_phase: 'zero_live_ready',
       initial_sync_completed: true,
       degraded: false,
       zero_live_completed_boot: true,

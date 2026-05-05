@@ -12,8 +12,14 @@ import { mapWithConcurrency } from '../lib/async';
 import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle, enforceQuoteSnapshotRetention } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
 import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
-import type { MarketDataRuntimeState } from './market-runtime-state';
+import { clearProviderFailureCooldown, recordProviderFailureCooldown, type MarketDataRuntimeState } from './market-runtime-state';
 import type { MetricsRegistry } from './metrics';
+import {
+  canAttemptProvider,
+  createProviderBreakerState,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from './provider-breaker';
 
 const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
 const EXCHANGE_TICKER_FETCH_TIMEOUT_MS = 60_000;
@@ -582,11 +588,31 @@ export async function runMarketRefreshOnce(
     return;
   }
 
-  refreshLogger?.debug({ exchanges: exchangeIds }, 'starting market refresh');
+  const providerBreakers = runtimeState
+    ? runtimeState.providerBreakers ?? (runtimeState.providerBreakers = createProviderBreakerState(exchangeIds))
+    : null;
+  const attemptedExchangeIds = providerBreakers
+    ? exchangeIds.filter((exchangeId) => canAttemptProvider(providerBreakers, exchangeId, startTime))
+    : exchangeIds;
+  const blockedExchangeCount = exchangeIds.length - attemptedExchangeIds.length;
+
+  if (attemptedExchangeIds.length === 0) {
+    metrics?.recordProviderRefresh('breaker_skip', exchangeIds.length, 0);
+    refreshLogger?.warn({
+      exchangeCount: exchangeIds.length,
+      blockedExchangeCount,
+    }, 'market refresh skipped because all provider breakers are open');
+    return;
+  }
+
+  refreshLogger?.debug({
+    exchanges: attemptedExchangeIds,
+    blockedExchangeCount,
+  }, 'starting market refresh');
 
   await syncCoinCatalogFromExchanges(
     database,
-    exchangeIds,
+    attemptedExchangeIds,
     refreshLogger,
     config.providerFanoutConcurrency,
     { suppressSummaryLog: Boolean(progress?.suppressSummaryLogs) },
@@ -605,7 +631,7 @@ export async function runMarketRefreshOnce(
   );
 
   // Fetch all exchange tickers in parallel
-  const pendingExchangeIds = new Set(exchangeIds);
+  const pendingExchangeIds = new Set(attemptedExchangeIds);
   let waitingStatusTimer: ReturnType<typeof setInterval> | null = null;
   const stopWaitingStatus = () => {
     if (waitingStatusTimer) {
@@ -623,9 +649,9 @@ export async function runMarketRefreshOnce(
   }
 
   const fetchTickersPhase = createLongPhaseReporter(progress);
-  fetchTickersPhase.start(`Still working: fetching tickers from ${exchangeIds.length} exchanges`);
+  fetchTickersPhase.start(`Still working: fetching tickers from ${attemptedExchangeIds.length} exchanges`);
   const tickerResults = await mapWithConcurrency(
-    exchangeIds,
+    attemptedExchangeIds,
     config.providerFanoutConcurrency,
     async (exchangeId) => {
       const exchangeFetchStart = Date.now();
@@ -651,8 +677,8 @@ export async function runMarketRefreshOnce(
   fetchTickersPhase.stop();
   let failedExchanges = 0;
 
-  for (let i = 0; i < exchangeIds.length; i++) {
-    const exchangeId = exchangeIds[i];
+  for (let i = 0; i < attemptedExchangeIds.length; i++) {
+    const exchangeId = attemptedExchangeIds[i];
     const result = tickerResults[i];
     const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
     const exchangeStart = Date.now();
@@ -665,8 +691,15 @@ export async function runMarketRefreshOnce(
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
         : { message: String(result.reason) };
+      if (providerBreakers) {
+        recordProviderFailure(providerBreakers, exchangeId, Date.now(), errorInfo.message);
+      }
       exchangeLogger?.warn({ ...errorInfo, durationMs: Date.now() - exchangeStart }, 'exchange ticker fetch failed');
       continue;
+    }
+
+    if (providerBreakers) {
+      recordProviderSuccess(providerBreakers, exchangeId, Date.now());
     }
 
     const tickers = Array.isArray(result.value) ? result.value : [];
@@ -715,14 +748,17 @@ export async function runMarketRefreshOnce(
     }, 'exchange ticker fetch complete');
   }
 
-  if (failedExchanges === exchangeIds.length) {
+  const unavailableExchangeCount = failedExchanges + blockedExchangeCount;
+
+  if (failedExchanges === attemptedExchangeIds.length) {
     if (runtimeState) {
-      runtimeState.providerFailureCooldownUntil = startTime + PROVIDER_FAILURE_COOLDOWN_MS;
+      recordProviderFailureCooldown(runtimeState, startTime + PROVIDER_FAILURE_COOLDOWN_MS);
     }
 
-    metrics?.recordProviderRefresh('failure', exchangeIds.length, failedExchanges);
+    metrics?.recordProviderRefresh('failure', exchangeIds.length, unavailableExchangeCount);
     refreshLogger?.warn({
       failedExchangeCount: failedExchanges,
+      blockedExchangeCount,
       exchangeCount: exchangeIds.length,
       cooldownMs: PROVIDER_FAILURE_COOLDOWN_MS,
     }, 'all exchange ticker fetches failed; activating provider failure cooldown');
@@ -730,13 +766,13 @@ export async function runMarketRefreshOnce(
   }
 
   if (runtimeState) {
-    runtimeState.providerFailureCooldownUntil = null;
+    clearProviderFailureCooldown(runtimeState);
   }
 
   metrics?.recordProviderRefresh(
-    failedExchanges > 0 ? 'partial_failure' : 'success',
+    unavailableExchangeCount > 0 ? 'partial_failure' : 'success',
     exchangeIds.length,
-    failedExchanges,
+    unavailableExchangeCount,
   );
 
   const now = new Date();
@@ -757,6 +793,7 @@ export async function runMarketRefreshOnce(
       tickerCount: processingState.pendingCoinTickers.length,
       exchangeCount: exchangeIds.length,
       failedExchangeCount: failedExchanges,
+      blockedExchangeCount,
       durationMs,
     }, 'market refresh complete');
   }

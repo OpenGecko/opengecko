@@ -4,7 +4,11 @@ import { resolve } from 'node:path';
 import { createDatabase } from '../db/client';
 import { buildCoinName } from '../lib/coin-id';
 import { seedStaticReferenceData } from '../db/client';
-import type { MarketDataRuntimeState } from './market-runtime-state';
+import {
+  completeBootstrapRuntime,
+  recordSeededBootstrapRuntime,
+  type MarketDataRuntimeState,
+} from './market-runtime-state';
 
 type BootstrapSnapshotAccessMode = 'disabled' | 'seeded_bootstrap';
 type Database = ReturnType<typeof createDatabase>;
@@ -944,37 +948,9 @@ export function finalizeBootstrapState(
   bootstrapOnlyValidationRuntime: boolean,
 ) {
   if (seededBootstrapPreserved) {
-    marketDataRuntimeState.initialSyncCompleted = !bootstrapOnlyValidationRuntime;
-    marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots = false;
-    marketDataRuntimeState.allowStaleLiveService = true;
-    marketDataRuntimeState.syncFailureReason = null;
-    marketDataRuntimeState.listenerBindDeferred = false;
-    marketDataRuntimeState.validationOverride = bootstrapOnlyValidationRuntime
-      ? {
-        ...marketDataRuntimeState.validationOverride,
-        mode: 'seeded_bootstrap',
-      }
-      : {
-        mode: 'off',
-        reason: null,
-        snapshotTimestampOverride: null,
-        snapshotSourceCountOverride: null,
-      };
-    if (marketDataRuntimeState.hotDataRevision === 0) {
-      marketDataRuntimeState.hotDataRevision = 1;
-    }
+    recordSeededBootstrapRuntime(marketDataRuntimeState, bootstrapOnlyValidationRuntime);
     return;
   }
 
-  marketDataRuntimeState.initialSyncCompleted = true;
-  marketDataRuntimeState.allowStaleLiveService = bootstrapOnlyValidationRuntime
-    && marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots;
-  marketDataRuntimeState.syncFailureReason = null;
-
-  if (
-    !marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots
-    && marketDataRuntimeState.hotDataRevision > 0
-  ) {
-    marketDataRuntimeState.hotDataRevision += 1;
-  }
+  completeBootstrapRuntime(marketDataRuntimeState, bootstrapOnlyValidationRuntime);
 }

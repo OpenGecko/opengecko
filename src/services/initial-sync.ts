@@ -8,7 +8,7 @@ import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../pro
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce } from './market-refresh';
-import type { MarketDataRuntimeState } from './market-runtime-state';
+import { recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
@@ -296,7 +296,7 @@ export async function runInitialMarketSync(
   };
 
   if (runtimeState) {
-    runtimeState.initialSyncCompletedWithoutUsableLiveSnapshots = !didInitialSyncProduceUsableLiveSnapshots(result);
+    recordInitialSyncSnapshotAvailability(runtimeState, didInitialSyncProduceUsableLiveSnapshots(result));
   }
 
   return result;

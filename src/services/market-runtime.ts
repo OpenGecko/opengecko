@@ -4,7 +4,17 @@ import type { Logger } from 'pino';
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { refreshCurrencyApiRatesOnce } from './currency-rates';
-import type { MarketDataRuntimeState } from './market-runtime-state';
+import {
+  bumpMarketDataRevision,
+  completeInitialMarketSync,
+  enableStaleLiveFallback,
+  markMarketRuntimeListenerBound,
+  markMarketRuntimeListenerStopped,
+  recordInitialSyncFailure,
+  recordMarketRefreshFailure,
+  recordMarketRefreshSuccess,
+  type MarketDataRuntimeState,
+} from './market-runtime-state';
 import { runInitialMarketSync } from './initial-sync';
 import { runMarketRefreshOnce } from './market-refresh';
 import type { MetricsRegistry } from './metrics';
@@ -19,38 +29,6 @@ type JobRunner = () => Promise<void>;
 
 function formatRfc3339Timestamp() {
   return new Date().toISOString().replace('.000Z', 'Z');
-}
-
-function bumpHotDataRevision(state: MarketDataRuntimeState) {
-  state.hotDataRevision += 1;
-}
-
-function finalizeStartupHotDataRevision(state: MarketDataRuntimeState) {
-  bumpHotDataRevision(state);
-}
-
-function clearRecoveredDegradedState(state: MarketDataRuntimeState) {
-  state.syncFailureReason = null;
-  state.allowStaleLiveService = false;
-  state.providerFailureCooldownUntil = null;
-  state.listenerBindDeferred = false;
-}
-
-function enableFallbackFromExistingSnapshots(state: MarketDataRuntimeState) {
-  state.allowStaleLiveService = true;
-}
-
-function finalizeBootstrapSuccess(state: MarketDataRuntimeState) {
-  state.initialSyncCompleted = true;
-  clearRecoveredDegradedState(state);
-
-  if (state.initialSyncCompletedWithoutUsableLiveSnapshots) {
-    bumpHotDataRevision(state);
-    return;
-  }
-
-  finalizeStartupHotDataRevision(state);
-  state.listenerBindDeferred = true;
 }
 
 function shouldDeferListenerBoundRefreshAfterBootstrap(state: MarketDataRuntimeState) {
@@ -71,15 +49,12 @@ function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketD
         try {
           await runner();
           if (name === 'market_refresh') {
-            state.initialSyncCompletedWithoutUsableLiveSnapshots = false;
-            clearRecoveredDegradedState(state);
-            bumpHotDataRevision(state);
+            recordMarketRefreshSuccess(state);
           }
           logger.info({ timestamp: formatRfc3339Timestamp() }, `background job completed job=${name}`);
         } catch (error) {
           if (name === 'market_refresh') {
-            state.syncFailureReason = error instanceof Error ? error.message : String(error);
-            state.allowStaleLiveService = true;
+            recordMarketRefreshFailure(state, error instanceof Error ? error.message : String(error));
           }
           const errorInfo = error instanceof Error
             ? { message: error.message, stack: error.stack, name: error.name }
@@ -117,7 +92,12 @@ type MarketRuntimeOverrides = {
 };
 
 export function createMarketRuntime(
-  app: { inject: (opts: { method: string; url: string }) => Promise<unknown> },
+  app: {
+    inject: (opts: { method: string; url: string }) => Promise<unknown>;
+    simplePriceCache?: {
+      deleteExpired: (now?: number) => number;
+    };
+  },
   database: AppDatabase,
   config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency' | 'startupPrewarmBudgetMs' | 'disableRemoteCurrencyRefresh'>,
   logger: RuntimeLogger,
@@ -147,7 +127,7 @@ export function createMarketRuntime(
     try {
       const snapshotCount = queryDb.select().from(marketSnapshots).all().length;
       if (snapshotCount > 0) {
-        enableFallbackFromExistingSnapshots(state);
+        enableStaleLiveFallback(state);
         if (!startupProgress) {
           logger.warn({ timestamp: formatRfc3339Timestamp() }, 'using residual stale data while bootstrap is still running');
         }
@@ -227,7 +207,7 @@ export function createMarketRuntime(
           // Start OHLCV runtime without awaiting — it runs independently
           void (overrides.startOhlcvRuntime ?? (() => ohlcvRuntime.start()))();
           startupProgress?.complete('start_ohlcv_worker');
-          finalizeBootstrapSuccess(state);
+          completeInitialMarketSync(state);
 
           const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
           startupProgress?.begin('seed_reference_data');
@@ -246,13 +226,13 @@ export function createMarketRuntime(
           }
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
-          state.syncFailureReason = reason;
+          recordInitialSyncFailure(state, reason);
           logger.error({ error: reason }, 'initial market sync failed');
           await enableResidualStaleDataIfAvailable();
           if (state.allowStaleLiveService) {
-            enableFallbackFromExistingSnapshots(state);
+            enableStaleLiveFallback(state);
           }
-          bumpHotDataRevision(state);
+          bumpMarketDataRevision(state);
         }
 
         if (stopRequested) {
@@ -276,15 +256,10 @@ export function createMarketRuntime(
           void runSearchJob.run();
         }, config.searchRebuildIntervalSeconds * 1000);
 
-        if ('simplePriceCache' in app && app.simplePriceCache) {
+        const simplePriceCache = app.simplePriceCache;
+        if (simplePriceCache) {
           cacheEvictionTimer = setInterval(() => {
-            const cache = (app as Record<string, unknown>).simplePriceCache as Map<string, { expiresAt: number }>;
-            const now = Date.now();
-            for (const [key, entry] of cache) {
-              if (entry.expiresAt < now) {
-                cache.delete(key);
-              }
-            }
+            simplePriceCache.deleteExpired();
           }, 60_000);
         }
       })();
@@ -301,9 +276,8 @@ export function createMarketRuntime(
       }
     },
     markListenerBound() {
-      state.listenerBound = true;
-      if (state.listenerBindDeferred) {
-        state.listenerBindDeferred = false;
+      const { shouldRunStartupPrewarm } = markMarketRuntimeListenerBound(state);
+      if (shouldRunStartupPrewarm) {
         readinessTask = runStartupPrewarm(app as never, state, metrics, config.startupPrewarmBudgetMs);
       }
       if (listenerBoundDeferredMarketRefreshPending && !stopRequested) {
@@ -317,7 +291,7 @@ export function createMarketRuntime(
     },
     async stop() {
       stopRequested = true;
-      state.listenerBound = false;
+      markMarketRuntimeListenerStopped(state);
 
       if (currencyTimer) {
         clearInterval(currencyTimer);

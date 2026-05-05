@@ -55,11 +55,90 @@ export type QuoteSnapshotInput = {
   sourcePayloadJson: string;
 };
 
+export type CandleRange = { from?: number; to?: number };
+
+export type OhlcvGapRepairTarget = {
+  coinId: string;
+  exchangeId: string;
+  symbol: string;
+  vsCurrency: string;
+  interval: CandleInterval;
+  retentionDays?: number;
+};
+
+export type OhlcvGapRepairFetcher = (since: number, limit?: number) => Promise<Array<{
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number | null;
+}>>;
+
+export type HistoricalOhlcvStore = {
+  getCanonicalCandles: (
+    coinId: string,
+    vsCurrency: string,
+    interval: CandleInterval,
+    range?: CandleRange,
+  ) => OhlcvCandleRow[];
+  getCanonicalCloseSeries: (
+    coinId: string,
+    vsCurrency: string,
+    interval: CandleInterval,
+    range?: CandleRange,
+  ) => Array<{
+    timestamp: Date;
+    price: number;
+    marketCap: number | null;
+    totalVolume: number | null;
+  }>;
+  upsertCanonicalCandle: (input: CanonicalCandleInput) => void;
+  upsertCanonicalOhlcvCandle: (input: CanonicalOhlcvCandleInput) => void;
+  detectOhlcvGaps: (coinId: string, vsCurrency: string, interval: CandleInterval) => OhlcvGapDescriptor[];
+  repairOhlcvGaps: (
+    target: OhlcvGapRepairTarget,
+    fetchCandles: OhlcvGapRepairFetcher,
+  ) => Promise<{
+    gapsRepaired: number;
+    candlesRepaired: number;
+    intervalMs: number;
+  }>;
+  enforceOhlcvRetention: (input: {
+    coinId: string;
+    vsCurrency: string;
+    interval: CandleInterval;
+    retentionDays: number;
+    now?: Date;
+  }) => number;
+};
+
+export function createSqliteHistoricalOhlcvStore(database: AppDatabase): HistoricalOhlcvStore {
+  return {
+    getCanonicalCandles: (coinId, vsCurrency, interval, range) =>
+      getCanonicalCandles(database, coinId, vsCurrency, interval, range),
+    getCanonicalCloseSeries: (coinId, vsCurrency, interval, range) =>
+      getCanonicalCloseSeries(database, coinId, vsCurrency, interval, range),
+    upsertCanonicalCandle: (input) => {
+      upsertCanonicalCandle(database, input);
+    },
+    upsertCanonicalOhlcvCandle: (input) => {
+      upsertCanonicalOhlcvCandle(database, input);
+    },
+    detectOhlcvGaps: (coinId, vsCurrency, interval) =>
+      detectOhlcvGaps(database, coinId, vsCurrency, interval),
+    repairOhlcvGaps: (target, fetchCandles) =>
+      repairOhlcvGaps(database, target, fetchCandles),
+    enforceOhlcvRetention: (input) =>
+      enforceOhlcvRetention(database, input),
+  };
+}
+
 function buildRangeWhere(
   coinId: string,
   vsCurrency: string,
   interval: CandleInterval,
-  range?: { from?: number; to?: number },
+  range?: CandleRange,
 ) {
   const baseCondition = and(
     eq(ohlcvCandles.coinId, coinId),
@@ -88,7 +167,7 @@ export function getCanonicalCandles(
   coinId: string,
   vsCurrency: string,
   interval: CandleInterval,
-  range?: { from?: number; to?: number },
+  range?: CandleRange,
 ) {
   return database.db
     .select()
@@ -103,7 +182,7 @@ export function getCanonicalCloseSeries(
   coinId: string,
   vsCurrency: string,
   interval: CandleInterval,
-  range?: { from?: number; to?: number },
+  range?: CandleRange,
 ) {
   return getCanonicalCandles(database, coinId, vsCurrency, interval, range).map((row) => ({
     timestamp: row.timestamp,
@@ -314,22 +393,8 @@ export function detectOhlcvGaps(
 
 export async function repairOhlcvGaps(
   database: AppDatabase,
-  target: {
-    coinId: string;
-    exchangeId: string;
-    symbol: string;
-    vsCurrency: string;
-    interval: CandleInterval;
-    retentionDays?: number;
-  },
-  fetchCandles: (since: number, limit?: number) => Promise<Array<{
-    timestamp: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume?: number | null;
-  }>>,
+  target: OhlcvGapRepairTarget,
+  fetchCandles: OhlcvGapRepairFetcher,
 ) {
   const intervalMs = getIntervalMs(target.interval);
   let gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
