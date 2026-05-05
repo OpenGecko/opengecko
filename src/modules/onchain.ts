@@ -3,10 +3,17 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { marketSnapshots, onchainNetworks, onchainPools } from '../db/schema';
+import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parsePositiveInt } from '../http/params';
 import { fetchDefillamaTokens } from '../providers/defillama';
 import { resolveAddressLabel } from '../providers/sqd';
+import {
+  readOnchainHoldersChart,
+  readOnchainTokenHolders,
+  readOnchainTokenTraders,
+} from '../services/onchain-analytics-ingestion';
+import { readOnchainPoolOhlcvSeries } from '../services/onchain-ohlcv-ingestion';
 import {
   buildPaginationMeta,
   formatMetricValue,
@@ -113,7 +120,16 @@ import {
 import { getOnchainNetwork, requireOnchainNetwork } from './onchain/route-helpers';
 
 export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabase) {
-  app.get('/onchain/networks', async (request) => {
+  const ONCHAIN_HTTP_CACHE_POLICY = {
+    maxAgeSeconds: 60,
+    staleWhileRevalidateSeconds: 60,
+  };
+  const ONCHAIN_LIVE_HTTP_CACHE_POLICY = {
+    maxAgeSeconds: 30,
+    staleWhileRevalidateSeconds: 30,
+  };
+
+  app.get('/onchain/networks', async (request, reply) => {
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -122,13 +138,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const start = (page - 1) * perPage;
     const totalCount = rows.length;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: rows.slice(start, start + perPage).map(buildNetworkResource),
       meta: buildPaginationMeta(page, perPage, totalCount),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/dexes', async (request) => {
+  app.get('/onchain/networks/:network/dexes', async (request, reply) => {
     const params = networkParamsSchema.parse(request.params);
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -144,16 +160,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const start = (page - 1) * perPage;
     const totalCount = rows.length;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: rows.slice(start, start + perPage).map(buildDexResource),
       meta: {
         ...buildPaginationMeta(page, perPage, totalCount),
         network: seededNetwork.id,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools', async (request) => {
+  app.get('/onchain/networks/:network/pools', async (request, reply) => {
     const params = networkParamsSchema.parse(request.params);
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -208,16 +224,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: allRows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
         data_source: liveCatalog.poolsByAddress.size === 0 || params.network !== 'eth' ? 'seeded' : 'live',
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/dexes/:dex/pools', async (request) => {
+  app.get('/onchain/networks/:network/dexes/:dex/pools', async (request, reply) => {
     const params = networkDexParamsSchema.parse(request.params);
     const query = poolListQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -281,16 +297,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: allRows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
         dex: dex.id,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/new_pools', async (request) => {
+  app.get('/onchain/networks/:network/new_pools', async (request, reply) => {
     const params = networkParamsSchema.parse(request.params);
     const query = discoveryPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -309,16 +325,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = rows.slice(start, start + perPage);
     const included = buildIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
         page,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/new_pools', async (request) => {
+  app.get('/onchain/networks/new_pools', async (request, reply) => {
     const query = discoveryPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -328,16 +344,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = rows.slice(start, start + perPage);
     const included = buildIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
         page,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/trending_pools', async (request) => {
+  app.get('/onchain/networks/trending_pools', async (request, reply) => {
     const query = trendingPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -348,17 +364,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = rows.slice(start, start + perPage);
     const included = buildIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
         page,
         duration,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/trending_pools', async (request) => {
+  app.get('/onchain/networks/:network/trending_pools', async (request, reply) => {
     const params = networkParamsSchema.parse(request.params);
     const query = trendingPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -376,7 +392,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = rows.slice(start, start + perPage);
     const included = buildIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
@@ -384,10 +400,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         duration,
         network: network.id,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/search/pools', async (request) => {
+  app.get('/onchain/search/pools', async (request, reply) => {
     const query = searchPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 100;
@@ -407,18 +423,18 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const matchedRows = rawQuery.length === 0 ? [] : searchPoolRows(rows, rawQuery);
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: matchedRows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
         query: rawQuery,
         ...(query.network !== undefined ? { network: query.network } : {}),
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
 
-  app.get('/onchain/pools/megafilter', async (request) => {
+  app.get('/onchain/pools/megafilter', async (request, reply) => {
     const query = megafilterQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = Math.min(parsePositiveInt(query.per_page, 100), 250);
@@ -463,7 +479,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = sortedRows.slice(start, start + perPage);
     const included = buildMegafilterIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildMegafilterRow(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
@@ -480,10 +496,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           ...(maxTxCountH24 !== null ? { max_tx_count_h24: maxTxCountH24 } : {}),
         },
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/pools/trending_search', async (request) => {
+  app.get('/onchain/pools/trending_search', async (request, reply) => {
     const query = trendingSearchQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = parsePositiveInt(query.per_page, 100);
@@ -494,7 +510,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const subset = parseTrendingSearchCandidates(query.pools, rankedRows);
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: subset.rows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
@@ -502,10 +518,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         candidate_count: subset.candidateCount,
         ...(subset.ignoredCandidates.length > 0 ? { ignored_candidates: subset.ignoredCandidates } : {}),
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/categories', async (request) => {
+  app.get('/onchain/categories', async (request, reply) => {
     const query = onchainCategoriesQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
     const perPage = 1;
@@ -516,16 +532,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     );
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: rows.slice(start, start + perPage).map(buildOnchainCategoryResource),
       meta: {
         ...buildPaginationMeta(page, perPage, rows.length),
         sort,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/categories/:categoryId/pools', async (request) => {
+  app.get('/onchain/categories/:categoryId/pools', async (request, reply) => {
     const params = categoryParamsSchema.parse(request.params);
     const query = onchainCategoryPoolsQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -543,7 +559,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const pagedRows = rows.slice(start, start + perPage);
     const included = buildIncludedResources(includes, pagedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: pagedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
@@ -551,10 +567,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         sort,
         category_id: params.categoryId,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools/multi/:addresses', async (request) => {
+  app.get('/onchain/networks/:network/pools/multi/:addresses', async (request, reply) => {
     const params = networkAddressesParamsSchema.parse(request.params);
     const query = poolMultiQuerySchema.parse(request.query);
     const includes = parsePoolIncludes(query.include);
@@ -564,10 +580,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       .filter((address) => address.length > 0))];
 
     if (requestedAddresses.length === 0) {
-      return {
-      data: [],
-      ...(includes.length > 0 ? { included: [] } : {}),
-      };
+      return sendCacheableJson(request, reply, {
+        data: [],
+        ...(includes.length > 0 ? { included: [] } : {}),
+      }, ONCHAIN_HTTP_CACHE_POLICY);
     }
 
     requireOnchainNetwork(database, params.network);
@@ -585,13 +601,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       .filter((row): row is typeof onchainPools.$inferSelect => row !== undefined);
     const included = buildIncludedResources(includes, orderedRows, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: orderedRows.map((row) => buildPoolResource(row)),
       ...(included.length > 0 ? { included } : {}),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools/:address', async (request) => {
+  app.get('/onchain/networks/:network/pools/:address', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = poolDetailQuerySchema.parse(request.query);
     const includes = parsePoolIncludes(query.include);
@@ -615,7 +631,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const patchedRow = patchPoolRow(row, liveCatalog.poolsByAddress.get(row.address));
     const included = buildIncludedResources(includes, [patchedRow], database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: buildPoolResource(patchedRow, {
         includeVolumeBreakdown,
         includeComposition,
@@ -624,10 +640,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         data_source: liveCatalog.degraded || params.network !== 'eth' ? 'seeded' : 'live',
       },
       ...(included.length > 0 ? { included } : {}),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/multi/:addresses', async (request) => {
+  app.get('/onchain/networks/:network/tokens/multi/:addresses', async (request, reply) => {
     const params = networkAddressesParamsSchema.parse(request.params);
     const query = tokenMultiQuerySchema.parse(request.query);
     const includes = parseTokenIncludes(query.include);
@@ -658,13 +674,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           .map((row) => buildPoolResource(row))
       : [];
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: tokenRows,
       ...(included.length > 0 ? { included } : {}),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/pools', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/pools', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = paginationQuerySchema.parse(request.query);
     const page = parsePositiveInt(query.page, 1);
@@ -680,16 +696,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const start = (page - 1) * perPage;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: tokenPools.slice(start, start + perPage).map((row) => buildPoolResource(row)),
       meta: {
         page,
         token_address: normalizeAddress(params.address),
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = tokenDetailQuerySchema.parse(request.query);
     const includes = parseTokenIncludes(query.include);
@@ -722,15 +738,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: tokenResource,
       ...(includes.includes('top_pools')
         ? { included: tokenPools.map((row) => buildPoolResource(row)) }
         : {}),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/simple/networks/:network/token_price/:addresses', async (request) => {
+  app.get('/onchain/simple/networks/:network/token_price/:addresses', async (request, reply) => {
     const params = networkAddressesParamsSchema.parse(request.params);
     const query = simpleTokenPriceQuerySchema.parse(request.query);
     const network = requireOnchainNetwork(database, params.network);
@@ -785,7 +801,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         id: network.id,
         type: 'simple_token_price',
@@ -797,10 +813,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           ...(includeTotalReserveInUsd ? { total_reserve_in_usd: totalReserveInUsd } : {}),
         },
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/info', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/info', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     requireOnchainNetwork(database, params.network);
 
@@ -813,15 +829,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const livePrice = await fetchLiveSimpleTokenPrice(params.network, normalizeAddress(params.address), tokenPools, database);
     const coinId = resolveTokenCoinId(params.network, normalizeAddress(params.address), tokenPools);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: buildTokenInfoResource(params.network, params.address, tokenPools, {
         livePriceUsd: livePrice?.priceUsd ?? null,
         coinId,
       }),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools/:address/info', async (request) => {
+  app.get('/onchain/networks/:network/pools/:address/info', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = poolInfoQuerySchema.parse(request.query);
     const includes = parsePoolInfoIncludes(query.include);
@@ -858,13 +874,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       })(),
     ]);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: tokenInfos,
       ...(includes.includes('pool') ? { included: [buildPoolResource(row)] } : {}),
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/tokens/info_recently_updated', async (request) => {
+  app.get('/onchain/tokens/info_recently_updated', async (request, reply) => {
     const query = recentlyUpdatedTokenInfoQuerySchema.parse(request.query);
     const includes = parseRecentlyUpdatedTokenInfoIncludes(query.include);
     const page = parsePositiveInt(query.page, 1);
@@ -912,16 +928,16 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           .map((row) => buildNetworkResource(row))
       : [];
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: paged,
       ...(included.length > 0 ? { included } : {}),
       meta: {
         page,
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/top_holders', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/top_holders', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = topHoldersQuerySchema.parse(request.query);
     const includePnlDetails = parseBooleanQuery(query.include_pnl_details, false);
@@ -936,12 +952,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const holdersRows = buildTopHolderFixtures(params.network, tokenAddress)
+    const sourceHolders = readOnchainTokenHolders(database, params.network, tokenAddress);
+    const holdersSource = sourceHolders.length > 0 ? 'replay' : 'fixture';
+    const holdersRows = (sourceHolders.length > 0 ? sourceHolders : buildTopHolderFixtures(params.network, tokenAddress))
       .sort((left, right) => right.balance - left.balance || right.shareOfSupply - left.shareOfSupply || left.address.localeCompare(right.address))
       .slice(0, holders);
     const included = buildTopHoldersIncludedResources(includes, params.network, tokenAddress, tokenPools, database);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: holdersRows.map((holder) => buildTopHolderResource(holder, includePnlDetails)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
@@ -951,12 +969,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         holders,
         include_pnl_details: includePnlDetails,
         scope: 'USDC only',
-        note: 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays',
+        source: holdersSource,
+        note: holdersSource === 'replay'
+          ? 'Holder data is source-attributed replay, not live'
+          : 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/top_traders', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/top_traders', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = topTradersQuerySchema.parse(request.query);
     const includeAddressLabel = parseBooleanQuery(query.include_address_label, false);
@@ -971,7 +992,9 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const tradersRows = buildTopTraderFixtures(params.network, tokenAddress)
+    const sourceTraders = readOnchainTokenTraders(database, params.network, tokenAddress);
+    const tradersSource = sourceTraders.length > 0 ? 'replay' : 'fixture';
+    const tradersRows = (sourceTraders.length > 0 ? sourceTraders : buildTopTraderFixtures(params.network, tokenAddress))
       .sort((left, right) => {
         const primary = sort === 'realized_pnl_usd_desc'
           ? right.realizedPnlUsd - left.realizedPnlUsd
@@ -990,7 +1013,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       })
       .slice(0, traders);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: tradersRows.map((trader) => buildTopTraderResource(trader, includeAddressLabel)),
       meta: {
         fixture: true,
@@ -1000,12 +1023,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         sort,
         include_address_label: includeAddressLabel,
         scope: 'USDC only',
-        note: 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays',
+        source: tradersSource,
+        note: tradersSource === 'replay'
+          ? 'Trader data is source-attributed replay, not live'
+          : 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/holders_chart', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/holders_chart', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = holdersChartQuerySchema.parse(request.query);
     const days = parseHoldersChartDays(query.days);
@@ -1018,10 +1044,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const fullSeries = buildHoldersChartFixtures(params.network, tokenAddress).sort((left, right) => left.timestamp - right.timestamp);
+    const sourceSeries = readOnchainHoldersChart(database, params.network, tokenAddress);
+    const chartSource = sourceSeries.length > 0 ? 'replay' : 'fixture';
+    const fullSeries = (sourceSeries.length > 0 ? sourceSeries : buildHoldersChartFixtures(params.network, tokenAddress))
+      .sort((left, right) => left.timestamp - right.timestamp);
     const data = days <= 7 ? fullSeries.slice(-2) : fullSeries;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: data.map(buildHoldersChartResource),
       meta: {
         fixture: true,
@@ -1029,12 +1058,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         token_address: tokenAddress,
         days,
         scope: 'USDC only',
-        note: 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays',
+        source: chartSource,
+        note: chartSource === 'replay'
+          ? 'Holders chart data is source-attributed replay, not live'
+          : 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
-    };
+    }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools/:address/trades', async (request) => {
+  app.get('/onchain/networks/:network/pools/:address/trades', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = tradesQuerySchema.parse(request.query);
     const threshold = parseTradeVolumeThreshold(query.trade_volume_in_usd_greater_than);
@@ -1122,17 +1154,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       response_source: liveTrades ? 'live' : 'fixture',
     }, 'sending onchain pool trades response');
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: trades.map((trade) => buildTradeResource(trade, resolveAddressLabel(trade.poolAddress))),
       meta: {
         network: params.network,
         pool_address: params.address,
         source: liveTrades ? 'live' : 'fixture',
       },
-    };
+    }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/trades', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/trades', async (request, reply) => {
     const params = networkAddressParamsSchema.parse(request.params);
     const query = tradesQuerySchema.parse(request.query);
     const threshold = parseTradeVolumeThreshold(query.trade_volume_in_usd_greater_than);
@@ -1158,17 +1190,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       .sort((left, right) => right.blockTimestamp - left.blockTimestamp || left.id.localeCompare(right.id))
       .slice(0, limit);
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: trades.map((trade) => buildTradeResource(trade, resolveAddressLabel(trade.poolAddress))),
       meta: {
         network: params.network,
         token_address: tokenAddress,
         source: liveTrades.length > 0 ? 'live' : 'fixture',
       },
-    };
+    }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/pools/:address/ohlcv/:timeframe', async (request) => {
+  app.get('/onchain/networks/:network/pools/:address/ohlcv/:timeframe', async (request, reply) => {
     const params = networkAddressTimeframeParamsSchema.parse(request.params);
     const query = onchainOhlcvQuerySchema.parse(request.query);
     const timeframe = parseOnchainOhlcvTimeframe(params.timeframe);
@@ -1225,6 +1257,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         timeframe,
       }, 'failed to fetch live onchain pool trades for ohlcv');
     }
+    const sourceSeries = readOnchainPoolOhlcvSeries(
+      database,
+      pool,
+      timeframe,
+      aggregate,
+      currency as 'usd' | 'token',
+      tokenSelection,
+    );
+    const responseSource = liveTrades && liveTrades.length > 0
+      ? 'live'
+      : sourceSeries?.source ?? 'fixture';
     const baseSeries = liveTrades && liveTrades.length > 0
       ? derivePoolOhlcvFromTrades(
           liveTrades,
@@ -1234,6 +1277,8 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           tokenSelection,
           pool,
         )
+      : sourceSeries?.series
+        ? sourceSeries.series
       : buildSyntheticPoolOhlcvSeries(pool, timeframe, aggregate).map((point) => {
           const multiplier = currency === 'token' && tokenSelection !== null && normalizeAddress(pool.quoteTokenAddress) === tokenSelection
             ? 1 / (pool.priceUsd ?? 1)
@@ -1253,10 +1298,10 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       pool_address: normalizedAddress,
       timeframe,
       response_point_count: baseSeries.length,
-      response_source: liveTrades && liveTrades.length > 0 ? 'live' : 'fixture',
+      response_source: responseSource,
     }, 'sending onchain pool ohlcv response');
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         id: `${params.network}:${params.address}:${timeframe}`,
         type: 'ohlcv',
@@ -1274,13 +1319,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
             includeEmptyIntervals,
             timeframe,
           }),
-          source: liveTrades && liveTrades.length > 0 ? 'live' : 'fixture',
+          source: responseSource,
         },
       },
-    };
+    }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 
-  app.get('/onchain/networks/:network/tokens/:address/ohlcv/:timeframe', async (request) => {
+  app.get('/onchain/networks/:network/tokens/:address/ohlcv/:timeframe', async (request, reply) => {
     const params = networkAddressTimeframeParamsSchema.parse(request.params);
     const query = onchainOhlcvQuerySchema.parse(request.query);
     const timeframe = parseOnchainOhlcvTimeframe(params.timeframe);
@@ -1299,6 +1344,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     }
 
     const aggregatedSeries = await aggregatePoolSeriesForToken(
+      database,
       tokenPools,
       timeframe,
       aggregate,
@@ -1306,7 +1352,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       includeInactiveSource,
     );
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         id: `${params.network}:${tokenAddress}:${timeframe}`,
         type: 'ohlcv',
@@ -1336,6 +1382,6 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           source_pools: [...new Set(aggregatedSeries.flatMap((point) => point.source_pools))].sort(),
         },
       },
-    };
+    }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 }

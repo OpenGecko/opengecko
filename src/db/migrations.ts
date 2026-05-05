@@ -14,9 +14,14 @@ import {
   ohlcvSyncTargets,
   onchainDexes,
   onchainNetworks,
+  onchainPoolOhlcv,
   onchainPools,
+  onchainTokenHolderCounts,
+  onchainTokenHolders,
+  onchainTokenTraders,
   treasuryEntities,
   treasuryHoldings,
+  treasurySourceDocuments,
   treasuryTransactions,
 } from './schema';
 
@@ -34,9 +39,14 @@ type AppSchema = {
   ohlcvSyncTargets: typeof ohlcvSyncTargets;
   onchainDexes: typeof onchainDexes;
   onchainNetworks: typeof onchainNetworks;
+  onchainPoolOhlcv: typeof onchainPoolOhlcv;
   onchainPools: typeof onchainPools;
+  onchainTokenHolderCounts: typeof onchainTokenHolderCounts;
+  onchainTokenHolders: typeof onchainTokenHolders;
+  onchainTokenTraders: typeof onchainTokenTraders;
   treasuryEntities: typeof treasuryEntities;
   treasuryHoldings: typeof treasuryHoldings;
+  treasurySourceDocuments: typeof treasurySourceDocuments;
   treasuryTransactions: typeof treasuryTransactions;
 };
 

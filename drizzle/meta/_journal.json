@@ -106,6 +106,34 @@
       "when": 1775100000000,
       "tag": "0013_missing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1777966800000,
+      "tag": "0014_derivative_ticker_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1777966860000,
+      "tag": "0015_onchain_pool_ohlcv",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1777966920000,
+      "tag": "0016_treasury_source_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1777966980000,
+      "tag": "0017_onchain_token_analytics",
+      "breakpoints": true
     }
   ]
 }

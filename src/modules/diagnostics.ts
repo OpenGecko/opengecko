@@ -4,9 +4,17 @@ import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
 import { assetPlatforms, coins, marketSnapshots } from '../db/schema';
+import { sendCacheableJson } from '../http/cache';
 import { resolveCanonicalPlatform } from '../lib/platform-id';
+import { buildDerivativesProviderDiagnostics } from '../services/derivatives-venues';
+import { buildCoverageMatrix } from '../services/coverage-matrix';
+import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
 import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
 import { buildRuntimeDiagnostics } from '../services/runtime-diagnostics';
+import {
+  recordForcedProviderFailure,
+  recordValidationRuntimeOverride,
+} from '../services/market-runtime-state';
 
 export function registerDiagnosticsRoutes(
   app: FastifyInstance,
@@ -19,8 +27,20 @@ export function registerDiagnosticsRoutes(
     requestTimeoutMs: number;
     responseCompressionThresholdBytes: number;
   },
+  derivatives: {
+    ccxtExchanges: string;
+  },
 ) {
-  app.get('/diagnostics/chain_coverage', async () => {
+  const stableDiagnosticsCachePolicy = {
+    maxAgeSeconds: 300,
+    staleWhileRevalidateSeconds: 300,
+  };
+  const dynamicDiagnosticsCachePolicy = {
+    maxAgeSeconds: 60,
+    staleWhileRevalidateSeconds: 60,
+  };
+
+  app.get('/diagnostics/chain_coverage', async (request, reply) => {
     const platformRows = database.db.select().from(assetPlatforms).all();
     const totalPlatforms = platformRows.length;
 
@@ -47,7 +67,7 @@ export function registerDiagnosticsRoutes(
       .where(eq(coins.status, 'active'))
       .all().length;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         platform_counts: {
           total: totalPlatforms,
@@ -65,13 +85,33 @@ export function registerDiagnosticsRoutes(
           coins_without_platform_mappings: Math.max(activeCoins - contractMappedCoins, 0),
         },
       },
-    };
+    }, stableDiagnosticsCachePolicy);
   });
 
-  app.get('/diagnostics/ohlcv_sync', async () => {
-    return {
+  app.get('/diagnostics/ohlcv_sync', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
       data: summarizeOhlcvSyncStatus(database, new Date()),
-    };
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/freshness_budgets', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: {
+        budgets: getEndpointFreshnessBudgets(),
+      },
+    }, stableDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/coverage_matrix', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildCoverageMatrix(database),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/derivatives', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildDerivativesProviderDiagnostics(database, derivatives.ccxtExchanges),
+    }, dynamicDiagnosticsCachePolicy);
   });
 
   app.get('/diagnostics/runtime', async () => {
@@ -128,14 +168,7 @@ export function registerDiagnosticsRoutes(
         : 'forced provider failure active')
       : null;
 
-    app.marketDataRuntimeState.forcedProviderFailure = {
-      active,
-      reason,
-    };
-
-    if (!active) {
-      app.marketDataRuntimeState.providerFailureCooldownUntil = null;
-    }
+    recordForcedProviderFailure(app.marketDataRuntimeState, { active, reason });
 
     return {
       data: {
@@ -196,22 +229,12 @@ export function registerDiagnosticsRoutes(
         ? 1
         : null;
 
-    app.marketDataRuntimeState.validationOverride = {
+    recordValidationRuntimeOverride(app.marketDataRuntimeState, {
       mode,
       reason,
       snapshotTimestampOverride,
       snapshotSourceCountOverride,
-    };
-    app.marketDataRuntimeState.initialSyncCompleted = mode === 'zero_live_completed_boot'
-      ? true
-      : mode === 'seeded_bootstrap' || mode === 'degraded_seeded_bootstrap'
-        ? false
-        : app.marketDataRuntimeState.initialSyncCompleted;
-    app.marketDataRuntimeState.initialSyncCompletedWithoutUsableLiveSnapshots = mode === 'zero_live_completed_boot';
-    if (mode === 'zero_live_completed_boot') {
-      app.marketDataRuntimeState.allowStaleLiveService = false;
-    }
-    app.marketDataRuntimeState.hotDataRevision += 1;
+    });
 
     return {
       data: {

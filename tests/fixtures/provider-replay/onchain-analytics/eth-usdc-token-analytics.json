@@ -1,0 +1,58 @@
+{
+  "provider": "etherscan-token-analytics-replay",
+  "captured_at": "2026-05-05T00:03:00.000Z",
+  "network_id": "eth",
+  "token_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "holders": [
+    {
+      "address": "0xholder900000000000000000000000000000000001",
+      "balance": "300000000",
+      "share_of_supply": "0.3",
+      "pnl_usd": "3000000",
+      "avg_buy_price_usd": "0.997",
+      "realized_pnl_usd": "900000"
+    },
+    {
+      "address": "0xholder900000000000000000000000000000000002",
+      "balance": "175000000",
+      "share_of_supply": "0.175",
+      "pnl_usd": "1200000",
+      "avg_buy_price_usd": "0.999",
+      "realized_pnl_usd": "350000"
+    }
+  ],
+  "traders": [
+    {
+      "address": "0xtrader900000000000000000000000000000000001",
+      "volume_usd": "15000000",
+      "buy_volume_usd": "9000000",
+      "sell_volume_usd": "6000000",
+      "realized_pnl_usd": "550000",
+      "trade_count": "160",
+      "address_label": "Replay Whale"
+    },
+    {
+      "address": "0xtrader900000000000000000000000000000000002",
+      "volume_usd": "8500000",
+      "buy_volume_usd": "4400000",
+      "sell_volume_usd": "4100000",
+      "realized_pnl_usd": "650000",
+      "trade_count": "95",
+      "address_label": "Replay Arb"
+    }
+  ],
+  "holders_chart": [
+    {
+      "timestamp": 1711843200,
+      "holder_count": 205000
+    },
+    {
+      "timestamp": 1712448000,
+      "holder_count": 209500
+    },
+    {
+      "timestamp": 1713052800,
+      "holder_count": 214250
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "provider": "defillama",
+  "captured_at": "2026-05-05T00:00:00.000Z",
+  "requests": {
+    "protocols": {
+      "body": [
+        {
+          "id": "219",
+          "slug": "uniswap-v3",
+          "name": "Uniswap V3",
+          "category": "Dexes",
+          "chains": ["Ethereum"],
+          "tvl": 4100000000
+        }
+      ]
+    },
+    "pools": {
+      "body": {
+        "data": [
+          {
+            "chain": "Ethereum",
+            "project": "uniswap-v3",
+            "symbol": "USDC-WETH",
+            "pool": "eth-uniswap-v3-usdc-weth-005",
+            "tvlUsd": 400000000,
+            "volumeUsd1d": 80000000,
+            "volumeUsd7d": 500000000,
+            "underlyingTokens": [
+              "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+              "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+            ]
+          }
+        ]
+      }
+    },
+    "dex_overview": {
+      "body": {
+        "protocols": [
+          {
+            "name": "uniswap-v3",
+            "displayName": "Uniswap V3",
+            "chains": ["Ethereum"],
+            "total24h": 80000000,
+            "total7d": 500000000,
+            "total30d": 2400000000,
+            "totalAllTime": 120000000000,
+            "change_1d": 4.2
+          }
+        ]
+      }
+    }
+  }
+}

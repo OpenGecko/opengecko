@@ -1,0 +1,31 @@
+{
+  "provider": "ccxt",
+  "exchange_id": "binance_futures",
+  "captured_at": "2026-05-05T00:01:00.000Z",
+  "tickers": [
+    {
+      "exchangeId": "binance_futures",
+      "symbol": "ETH/USDT:USDT",
+      "market": "ETHUSDT",
+      "base": "ETH",
+      "quote": "USDT",
+      "indexId": "ETH",
+      "markPrice": "3200.50",
+      "percentage": "-0.8",
+      "contractType": "perpetual swap",
+      "indexPrice": "3199.75",
+      "basis": "0.75",
+      "bid": "3200.25",
+      "ask": "3200.75",
+      "fundingRate": "0.000075",
+      "openInterestBtc": "195250.5",
+      "tradeVolume24hBtc": "875000",
+      "timestamp": 1777939260000,
+      "info": {
+        "source": "binance-funding-open-interest-replay",
+        "nextFundingTime": 1777968000000,
+        "openInterestSource": "openInterestHist"
+      }
+    }
+  ]
+}

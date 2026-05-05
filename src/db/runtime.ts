@@ -19,10 +19,15 @@ import {
   ohlcvSyncTargets,
   onchainDexes,
   onchainNetworks,
+  onchainPoolOhlcv,
   onchainPools,
+  onchainTokenHolderCounts,
+  onchainTokenHolders,
+  onchainTokenTraders,
   quoteSnapshots,
   treasuryEntities,
   treasuryHoldings,
+  treasurySourceDocuments,
   treasuryTransactions,
 } from './schema';
 
@@ -40,10 +45,15 @@ const schema = {
   ohlcvSyncTargets,
   onchainDexes,
   onchainNetworks,
+  onchainPoolOhlcv,
   onchainPools,
+  onchainTokenHolderCounts,
+  onchainTokenHolders,
+  onchainTokenTraders,
   quoteSnapshots,
   treasuryEntities,
   treasuryHoldings,
+  treasurySourceDocuments,
   treasuryTransactions,
 };
 

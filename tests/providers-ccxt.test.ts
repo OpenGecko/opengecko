@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 const binanceFetchTickers = vi.fn();
 const binanceFetchTicker = vi.fn();
 const bigoneFetchTickers = vi.fn();
+const nofetchFetchTicker = vi.fn();
 
 vi.mock('ccxt', () => {
   class BinanceExchange {
@@ -11,6 +12,15 @@ vi.mock('ccxt', () => {
       'BTC/USDT': { symbol: 'BTC/USDT' },
       'ETH/USDT': { symbol: 'ETH/USDT' },
       'SOL/USDT': { symbol: 'SOL/USDT' },
+      'BTC/USDT:USDT': {
+        symbol: 'BTC/USDT:USDT',
+        id: 'BTCUSDT',
+        base: 'BTC',
+        quote: 'USDT',
+        contract: true,
+        swap: true,
+        future: false,
+      },
     };
     has = { fetchTickers: true };
 
@@ -52,10 +62,48 @@ vi.mock('ccxt', () => {
     }
   }
 
+  class NofetchExchange {
+    id = 'nofetch';
+    markets = {
+      'BTC/USDT:USDT': {
+        symbol: 'BTC/USDT:USDT',
+        id: 'BTCUSDT',
+        base: 'BTC',
+        quote: 'USDT',
+        contract: true,
+        swap: false,
+        future: true,
+        expiry: 1782547200000,
+      },
+      'ETH/USDT': {
+        symbol: 'ETH/USDT',
+        id: 'ETHUSDT',
+        base: 'ETH',
+        quote: 'USDT',
+        contract: false,
+        spot: true,
+      },
+    };
+    has = { fetchTickers: false };
+
+    async loadMarkets() {
+      return this.markets;
+    }
+
+    async fetchTicker(symbol: string) {
+      return nofetchFetchTicker(symbol);
+    }
+
+    async close() {
+      return undefined;
+    }
+  }
+
   const ccxtModule = {
-    exchanges: ['binance', 'bigone'],
+    exchanges: ['binance', 'bigone', 'nofetch'],
     binance: BinanceExchange,
     bigone: BigoneExchange,
+    nofetch: NofetchExchange,
   };
 
   return {
@@ -71,7 +119,7 @@ describe('ccxt provider adapter', () => {
     expect(isValidExchangeId('binance')).toBe(true);
     expect(isValidExchangeId('bigone')).toBe(true);
     expect(isValidExchangeId('coinbase')).toBe(false);
-    expect(getValidExchangeIds()).toEqual(['binance', 'bigone']);
+    expect(getValidExchangeIds()).toEqual(['binance', 'bigone', 'nofetch']);
   });
 
   it('creates known exchange clients from the ccxt module export', async () => {
@@ -160,5 +208,81 @@ describe('ccxt provider adapter', () => {
     expect(rows).toHaveLength(120);
     expect(bigoneFetchTickers.mock.calls.length).toBeGreaterThan(1);
     expect(bigoneFetchTickers.mock.calls.every(([chunk]) => Array.isArray(chunk) && chunk.length <= 50)).toBe(true);
+  });
+
+  it('fetches only derivative market tickers for configured futures venues', async () => {
+    binanceFetchTickers.mockReset();
+    binanceFetchTicker.mockReset();
+    bigoneFetchTickers.mockReset();
+
+    binanceFetchTickers.mockImplementation(async (symbols?: string[]) => Object.fromEntries((symbols ?? []).map((symbol) => [symbol, {
+      symbol,
+      last: 64000.25,
+      bid: 63999.5,
+      ask: 64001,
+      percentage: 2.4,
+      timestamp: 1777939200000,
+      info: {
+        markPrice: '64000.25',
+        indexPrice: '63990.5',
+        fundingRate: '0.0001',
+        openInterestBtc: '182500',
+        tradeVolume24hBtc: '912000',
+      },
+    }])));
+
+    const { fetchExchangeDerivativeTickers } = await import('../src/providers/ccxt');
+
+    const rows = await fetchExchangeDerivativeTickers('binance', 'binance_futures');
+
+    expect(binanceFetchTickers).toHaveBeenCalledWith(['BTC/USDT:USDT']);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        exchangeId: 'binance_futures',
+        symbol: 'BTC/USDT:USDT',
+        market: 'BTCUSDT',
+        contractType: 'perpetual',
+        markPrice: 64000.25,
+        fundingRate: 0.0001,
+        openInterestBtc: 182500,
+        tradeVolume24hBtc: 912000,
+      }),
+    ]);
+  });
+
+  it('falls back to single derivative ticker fetches when bulk derivative fetch is unsupported', async () => {
+    nofetchFetchTicker.mockReset();
+    nofetchFetchTicker.mockImplementation(async (symbol: string) => ({
+      symbol,
+      last: 85840,
+      bid: 85800,
+      ask: 85880,
+      percentage: 1.1,
+      timestamp: 1777939200000,
+      info: {},
+    }));
+
+    const { fetchExchangeDerivativeTickers } = await import('../src/providers/ccxt');
+
+    const rows = await fetchExchangeDerivativeTickers('nofetch', 'bybit');
+
+    expect(nofetchFetchTicker).toHaveBeenCalledWith('BTC/USDT:USDT');
+    expect(rows).toEqual([
+      expect.objectContaining({
+        exchangeId: 'bybit',
+        symbol: 'BTC/USDT:USDT',
+        contractType: 'future',
+        expiredAt: 1782547200000,
+      }),
+    ]);
+  });
+
+  it('returns no derivative tickers when configured symbols are unsupported', async () => {
+    binanceFetchTickers.mockReset();
+
+    const { fetchExchangeDerivativeTickers } = await import('../src/providers/ccxt');
+
+    await expect(fetchExchangeDerivativeTickers('binance', 'binance_futures', ['DOGE/USDT:USDT'])).resolves.toEqual([]);
+    expect(binanceFetchTickers).not.toHaveBeenCalled();
   });
 });

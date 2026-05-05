@@ -4,6 +4,7 @@ import type { AppDatabase } from '../../db/client';
 import { marketSnapshots, onchainPools } from '../../db/schema';
 import { buildCoinId } from '../../lib/coin-id';
 import { fetchDefillamaTokenPrices } from '../../providers/defillama';
+import { readOnchainPoolOhlcvSeries } from '../../services/onchain-ohlcv-ingestion';
 import {
   type LiveSimpleTokenPrice,
   type OnchainOhlcvSeriesPoint,
@@ -223,6 +224,7 @@ export function buildSyntheticPoolOhlcvSeries(
 }
 
 export async function aggregatePoolSeriesForToken(
+  database: AppDatabase,
   pools: typeof onchainPools.$inferSelect[],
   timeframe: OnchainOhlcvTimeframe,
   aggregate: number,
@@ -248,8 +250,11 @@ export async function aggregatePoolSeriesForToken(
 
   for (const [index, pool] of pools.entries()) {
     const liveTrades = poolTradeGroups[index] ?? null;
+    const sourceSeries = readOnchainPoolOhlcvSeries(database, pool, timeframe, aggregate, 'usd', normalizedToken);
     const baseSeries = liveTrades && liveTrades.length > 0
       ? derivePoolOhlcvFromTrades(liveTrades, timeframe, aggregate, 'usd', normalizedToken, pool)
+      : sourceSeries?.series
+        ? sourceSeries.series
       : buildSyntheticPoolOhlcvSeries(pool, timeframe, aggregate);
     const tokenMultiplier = normalizeAddress(pool.baseTokenAddress) === normalizedToken ? 1 : pool.priceUsd ?? 1;
     const poolIsInactive = pool.volume24hUsd === null || pool.volume24hUsd <= 30_000_000;

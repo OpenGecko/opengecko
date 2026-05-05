@@ -1,0 +1,29 @@
+{
+  "provider": "ccxt",
+  "exchange_id": "binance_futures",
+  "captured_at": "2026-05-05T00:00:00.000Z",
+  "tickers": [
+    {
+      "exchangeId": "binance_futures",
+      "symbol": "BTC/USDT:USDT",
+      "market": "BTCUSDT",
+      "base": "BTC",
+      "quote": "USDT",
+      "indexId": "BTC",
+      "markPrice": 64000.25,
+      "percentage": 2.4,
+      "contractType": "perpetual_swap",
+      "indexPrice": 63990.5,
+      "basis": 9.75,
+      "bid": 63999.5,
+      "ask": 64001,
+      "fundingRate": 0.0001,
+      "openInterestBtc": 182500,
+      "tradeVolume24hBtc": 912000,
+      "timestamp": 1777939200000,
+      "info": {
+        "source": "binance-futures-replay"
+      }
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import ccxt, { type Exchange, type OHLCV, type Ticker } from 'ccxt';
 
+import type { RawDerivativeTickerReplay } from '../services/derivatives-normalizer';
+
 export type ExchangeId = string;
 
 export type ExchangeTickerSnapshot = {
@@ -114,6 +116,10 @@ function getTickerChunkSize(exchangeId: ExchangeId) {
   return undefined;
 }
 
+function isDerivativeMarket(market: Exchange['markets'][string]) {
+  return Boolean(market.swap || market.future || market.contract);
+}
+
 function chunkSymbols(symbols: string[], size: number) {
   const chunks: string[][] = [];
 
@@ -142,6 +148,52 @@ function toTickerSnapshot(exchangeId: ExchangeId, ticker: Ticker): ExchangeTicke
     percentage: ticker.percentage ?? null,
     timestamp: ticker.timestamp ?? null,
     raw: ticker,
+  };
+}
+
+function toOptionalNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function toDerivativeTickerReplay(
+  exchangeId: ExchangeId,
+  ticker: Ticker,
+  market: Exchange['markets'][string] | undefined,
+): RawDerivativeTickerReplay {
+  const { base, quote } = deriveBaseQuote(ticker.symbol);
+  const tickerInfo = ticker.info ?? {};
+  const marketInfo = (market?.info ?? {}) as Record<string, unknown>;
+
+  return {
+    exchangeId,
+    symbol: ticker.symbol,
+    market: market?.id ?? ticker.symbol,
+    base: market?.base ?? base,
+    quote: market?.quote ?? quote,
+    indexId: typeof marketInfo.index === 'string' ? marketInfo.index : undefined,
+    price: ticker.last ?? ticker.close ?? null,
+    markPrice: toOptionalNumber(tickerInfo.markPrice),
+    last: ticker.last ?? null,
+    percentage: ticker.percentage ?? null,
+    contractType: market?.swap ? 'perpetual' : market?.future ? 'future' : undefined,
+    indexPrice: toOptionalNumber(tickerInfo.indexPrice),
+    bid: ticker.bid ?? null,
+    ask: ticker.ask ?? null,
+    fundingRate: toOptionalNumber(tickerInfo.fundingRate),
+    openInterestBtc: toOptionalNumber(tickerInfo.openInterestBtc),
+    tradeVolume24hBtc: toOptionalNumber(tickerInfo.tradeVolume24hBtc),
+    timestamp: ticker.timestamp ?? null,
+    expiredAt: typeof market?.expiry === 'number' ? market.expiry : null,
+    info: tickerInfo,
   };
 }
 
@@ -310,6 +362,44 @@ export async function fetchExchangeTickers(exchangeId: ExchangeId, symbols?: str
   );
 
   return tickers;
+}
+
+export async function fetchExchangeDerivativeTickers(
+  providerExchangeId: ExchangeId,
+  exchangeId: ExchangeId = providerExchangeId,
+  symbols?: string[],
+) {
+  const exchange = getOrCreateExchange(providerExchangeId);
+
+  await exchange.loadMarkets();
+
+  const derivativeSymbols = Object.values(exchange.markets)
+    .filter(isDerivativeMarket)
+    .map((market) => market.symbol);
+  const supportedSymbols = getSupportedSymbols(exchange, symbols ?? derivativeSymbols);
+  const targetSymbols = supportedSymbols ?? [];
+
+  if (targetSymbols.length === 0) {
+    return [];
+  }
+
+  if (exchange.has.fetchTickers) {
+    const tickers = await exchange.fetchTickers(targetSymbols);
+
+    return Object.values(tickers).map((ticker) => toDerivativeTickerReplay(
+      exchangeId,
+      ticker,
+      exchange.markets[ticker.symbol],
+    ));
+  }
+
+  const tickers = await Promise.all(targetSymbols.map((symbol) => exchange.fetchTicker(symbol)));
+
+  return tickers.map((ticker) => toDerivativeTickerReplay(
+    exchangeId,
+    ticker,
+    exchange.markets[ticker.symbol],
+  ));
 }
 
 export async function fetchExchangeMarkets(exchangeId: ExchangeId) {

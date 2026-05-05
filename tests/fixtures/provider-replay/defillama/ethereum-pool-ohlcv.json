@@ -1,0 +1,44 @@
+{
+  "provider": "defillama",
+  "captured_at": "2026-05-05T00:02:00.000Z",
+  "network_id": "eth",
+  "pool_address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+  "candles": [
+    {
+      "network_id": "eth",
+      "pool_address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+      "timeframe": "hour",
+      "aggregate": 1,
+      "timestamp": 1714741200,
+      "open": "1.0001",
+      "high": "1.0005",
+      "low": "0.9998",
+      "close": "1.0003",
+      "volume_usd": "2450000.55"
+    },
+    {
+      "network_id": "eth",
+      "pool_address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+      "timeframe": "hour",
+      "aggregate": 1,
+      "timestamp": 1714744800,
+      "open": "1.0003",
+      "high": "1.001",
+      "low": "1.0002",
+      "close": "1.0008",
+      "volume_usd": "3100000.45"
+    },
+    {
+      "network_id": "eth",
+      "pool_address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+      "timeframe": "hour",
+      "aggregate": 1,
+      "timestamp": 1714748400,
+      "open": "1.0008",
+      "high": "1.0012",
+      "low": "1.0004",
+      "close": "1.0006",
+      "volume_usd": "2800000"
+    }
+  ]
+}

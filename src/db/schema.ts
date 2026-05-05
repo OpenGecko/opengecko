@@ -251,6 +251,9 @@ export const derivativeTickers = sqliteTable(
     tradeVolume24hBtc: real('trade_volume_24h_btc'),
     lastTradedAt: integer('last_traded_at', { mode: 'timestamp_ms' }),
     expiredAt: integer('expired_at', { mode: 'timestamp_ms' }),
+    sourceKind: text('source_kind', { enum: ['seed', 'replay', 'live'] }).notNull().default('seed'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.exchangeId, table.symbol] }),
@@ -265,6 +268,20 @@ export const treasuryEntities = sqliteTable('treasury_entities', {
   country: text('country'),
   description: text('description').notNull().default(''),
   websiteUrl: text('website_url'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const treasurySourceDocuments = sqliteTable('treasury_source_documents', {
+  sourceUrl: text('source_url').primaryKey(),
+  entityId: text('entity_id')
+    .notNull()
+    .references(() => treasuryEntities.id),
+  provider: text('provider').notNull().default('disclosure_replay'),
+  documentType: text('document_type').notNull().default('treasury_disclosure'),
+  acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }).notNull(),
+  contentHash: text('content_hash').notNull(),
+  rawJson: text('raw_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
@@ -357,6 +374,99 @@ export const onchainPools = sqliteTable(
   }),
 );
 
+export const onchainPoolOhlcv = sqliteTable(
+  'onchain_pool_ohlcv',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    poolAddress: text('pool_address').notNull(),
+    timeframe: text('timeframe', { enum: ['minute', 'hour', 'day'] }).notNull(),
+    aggregate: integer('aggregate').notNull().default(1),
+    timestamp: integer('timestamp').notNull(),
+    open: real('open').notNull(),
+    high: real('high').notNull(),
+    low: real('low').notNull(),
+    close: real('close').notNull(),
+    volumeUsd: real('volume_usd'),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.networkId, table.poolAddress, table.timeframe, table.aggregate, table.timestamp],
+    }),
+    sourceFetchedAtIdx: index('onchain_pool_ohlcv_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
+export const onchainTokenHolders = sqliteTable(
+  'onchain_token_holders',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    tokenAddress: text('token_address').notNull(),
+    holderAddress: text('holder_address').notNull(),
+    balance: real('balance').notNull(),
+    shareOfSupply: real('share_of_supply').notNull(),
+    pnlUsd: real('pnl_usd').notNull().default(0),
+    avgBuyPriceUsd: real('avg_buy_price_usd').notNull().default(0),
+    realizedPnlUsd: real('realized_pnl_usd').notNull().default(0),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.tokenAddress, table.holderAddress] }),
+    sourceFetchedAtIdx: index('onchain_token_holders_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
+export const onchainTokenTraders = sqliteTable(
+  'onchain_token_traders',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    tokenAddress: text('token_address').notNull(),
+    traderAddress: text('trader_address').notNull(),
+    volumeUsd: real('volume_usd').notNull(),
+    buyVolumeUsd: real('buy_volume_usd').notNull(),
+    sellVolumeUsd: real('sell_volume_usd').notNull(),
+    realizedPnlUsd: real('realized_pnl_usd').notNull().default(0),
+    tradeCount: integer('trade_count').notNull().default(0),
+    addressLabel: text('address_label'),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.tokenAddress, table.traderAddress] }),
+    sourceFetchedAtIdx: index('onchain_token_traders_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
+export const onchainTokenHolderCounts = sqliteTable(
+  'onchain_token_holder_counts',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    tokenAddress: text('token_address').notNull(),
+    timestamp: integer('timestamp').notNull(),
+    holderCount: integer('holder_count').notNull(),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.tokenAddress, table.timestamp] }),
+    sourceFetchedAtIdx: index('onchain_token_holder_counts_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
 export const coinTickers = sqliteTable(
   'coin_tickers',
   {
@@ -402,9 +512,14 @@ export type ExchangeVolumePointRow = typeof exchangeVolumePoints.$inferSelect;
 export type DerivativesExchangeRow = typeof derivativesExchanges.$inferSelect;
 export type DerivativeTickerRow = typeof derivativeTickers.$inferSelect;
 export type TreasuryEntityRow = typeof treasuryEntities.$inferSelect;
+export type TreasurySourceDocumentRow = typeof treasurySourceDocuments.$inferSelect;
 export type TreasuryHoldingRow = typeof treasuryHoldings.$inferSelect;
 export type TreasuryTransactionRow = typeof treasuryTransactions.$inferSelect;
 export type OnchainNetworkRow = typeof onchainNetworks.$inferSelect;
 export type OnchainDexRow = typeof onchainDexes.$inferSelect;
 export type OnchainPoolRow = typeof onchainPools.$inferSelect;
+export type OnchainPoolOhlcvRow = typeof onchainPoolOhlcv.$inferSelect;
+export type OnchainTokenHolderRow = typeof onchainTokenHolders.$inferSelect;
+export type OnchainTokenTraderRow = typeof onchainTokenTraders.$inferSelect;
+export type OnchainTokenHolderCountRow = typeof onchainTokenHolderCounts.$inferSelect;
 export type CoinTickerRow = typeof coinTickers.$inferSelect;

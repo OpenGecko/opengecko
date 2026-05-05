@@ -1,0 +1,30 @@
+{
+  "source_url": "https://www.sec.gov/Archives/edgar/data/1050446/000119312526120001/strategy-2026q1-8k.htm",
+  "accepted_at": "2026-05-05T00:00:00.000Z",
+  "entity": {
+    "id": "strategy",
+    "name": "Strategy",
+    "symbol": "MSTR",
+    "entity_type": "company",
+    "country": "United States",
+    "description": "Strategy is a public company with a large bitcoin treasury position.",
+    "website_url": "https://www.strategy.com"
+  },
+  "coin_id": "bitcoin",
+  "holding": {
+    "amount": 650000,
+    "entry_value_usd": 42000000000,
+    "reported_at": "2026-05-05T00:00:00.000Z"
+  },
+  "transactions": [
+    {
+      "id": "strategy-bitcoin-2026-05-05-replay",
+      "type": "buy",
+      "holding_net_change": 25000,
+      "transaction_value_usd": 2500000000,
+      "holding_balance": 650000,
+      "average_entry_value_usd": 64615.38461538462,
+      "happened_at": "2026-05-05T00:00:00.000Z"
+    }
+  ]
+}
