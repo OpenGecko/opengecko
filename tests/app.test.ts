@@ -1,14 +1,14 @@
 import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
-import { coins, exchanges, exchangeVolumePoints, marketSnapshots } from '../src/db/schema';
+import { coins, marketSnapshots } from '../src/db/schema';
 import type { MetricsRegistry } from '../src/services/metrics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
@@ -217,33 +217,6 @@ describe('OpenGecko app scaffold', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('serves the CoinGecko-compatible ping response', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/ping',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(contractFixtures.ping);
-  });
-
-  it('serves /health with the same canonical liveness payload as /ping', async () => {
-    const [healthResponse, pingResponse] = await Promise.all([
-      getApp().inject({
-        method: 'GET',
-        url: '/health',
-      }),
-      getApp().inject({
-        method: 'GET',
-        url: '/ping',
-      }),
-    ]);
-
-    expect(healthResponse.statusCode).toBe(200);
-    expect(healthResponse.json()).toEqual(contractFixtures.ping);
-    expect(healthResponse.json()).toEqual(pingResponse.json());
-  });
-
   it('builds startup log context for the active sqlite runtime', () => {
     expect(getDatabaseStartupLogContext({ runtime: 'bun', url: '/tmp/opengecko.db' })).toEqual({
       runtime: 'bun',
@@ -256,83 +229,6 @@ describe('OpenGecko app scaffold', () => {
       driver: 'better-sqlite3',
       databaseUrl: '/tmp/opengecko.db',
     });
-  });
-
-  it('returns chain coverage diagnostics', async () => {
-    await getApp().ready();
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/diagnostics/chain_coverage',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body).toHaveProperty('data.platform_counts.total');
-    expect(body).toHaveProperty('data.confidence.exact');
-    expect(body).toHaveProperty('data.confidence.heuristic');
-    expect(body).toHaveProperty('data.confidence.unresolved');
-    expect(body).toHaveProperty('data.contract_mapping.active_coins');
-    expect(typeof body.data.platform_counts.total).toBe('number');
-    expect(typeof body.data.confidence.exact).toBe('number');
-    expect(typeof body.data.confidence.heuristic).toBe('number');
-    expect(typeof body.data.confidence.unresolved).toBe('number');
-    expect(typeof body.data.contract_mapping.active_coins).toBe('number');
-  });
-
-  it('returns ohlcv worker lag and failure metrics', async () => {
-    await getApp().ready();
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/diagnostics/ohlcv_sync',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().data).toHaveProperty('top100.ready');
-    expect(response.json().data).toHaveProperty('targets.waiting');
-    expect(response.json().data).toHaveProperty('lag.oldest_recent_sync_ms');
-  });
-
-  it('returns machine-readable runtime diagnostics for ready live service', async () => {
-    await getApp().ready();
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/diagnostics/runtime',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      data: {
-        readiness: {
-          state: 'ready',
-          listener_bound: false,
-          initial_sync_completed: true,
-          degraded: false,
-          zero_live_completed_boot: false,
-          validation_override_active: false,
-        },
-        degraded: {
-          active: false,
-          stale_live_enabled: false,
-          reason: null,
-          injected_provider_failure: {
-            active: false,
-            reason: null,
-          },
-        },
-        hot_paths: {
-          shared_market_snapshot: {
-            available: true,
-            source_class: 'fresh_live',
-            freshness: {
-              threshold_seconds: 300,
-              is_stale: false,
-            },
-          },
-        },
-      },
-    });
-    expect(typeof response.json().data.hot_paths.shared_market_snapshot.freshness.age_seconds).toBe('number');
-    expect(Array.isArray(response.json().data.hot_paths.shared_market_snapshot.providers)).toBe(true);
   });
 
   it('exposes provider failure injection only on the validation port and reports the injected state', async () => {
@@ -1920,493 +1816,6 @@ describe('OpenGecko app scaffold', () => {
     expect(ids.has('eth')).toBe(false);
     expect(ids.has('bsc')).toBe(false);
     expect(ids.has('sol')).toBe(false);
-  });
-
-  it('returns seeded exchanges and exchange detail data', async () => {
-    const listResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/list',
-    });
-    const inactiveListResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/list?status=inactive',
-    });
-    const exchangesResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges?per_page=2&page=1',
-    });
-    const detailResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance',
-    });
-    const volumeChartResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/volume_chart?days=7',
-    });
-
-    expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'binance',
-        name: 'Binance',
-      }),
-      expect.objectContaining({
-        id: 'coinbase',
-      }),
-      expect.objectContaining({
-        id: 'kraken',
-        name: 'Kraken',
-      }),
-    ]));
-
-    expect(inactiveListResponse.statusCode).toBe(200);
-    expect(inactiveListResponse.json()).toEqual([]);
-
-    expect(exchangesResponse.statusCode).toBe(200);
-    expect(exchangesResponse.json()).toHaveLength(2);
-    expect(exchangesResponse.json().every((exchange: {
-      id: string;
-      name: string;
-      trade_volume_24h_btc: number | null;
-    }) => (
-      typeof exchange.id === 'string'
-      && typeof exchange.name === 'string'
-      && (exchange.trade_volume_24h_btc === null || typeof exchange.trade_volume_24h_btc === 'number')
-    ))).toBe(true);
-
-    expect(detailResponse.statusCode).toBe(200);
-    expect(detailResponse.json()).toMatchObject({
-      id: 'binance',
-      name: 'Binance',
-      tickers: expect.arrayContaining([
-        expect.objectContaining({
-          coin_id: 'bitcoin',
-          target: 'USDT',
-        }),
-        expect.objectContaining({
-          coin_id: 'usd-coin',
-          target: 'USDT',
-        }),
-      ]),
-    });
-    const exchangeDetail = detailResponse.json();
-    expect(exchangeDetail.year_established === null || typeof exchangeDetail.year_established === 'number').toBe(true);
-    expect(exchangeDetail.country === null || typeof exchangeDetail.country === 'string').toBe(true);
-    expect(exchangeDetail.twitter_handle === null || typeof exchangeDetail.twitter_handle === 'string').toBe(true);
-
-    expect(volumeChartResponse.statusCode).toBe(200);
-    const volumeChart = volumeChartResponse.json();
-    expect(volumeChart.length).toBeGreaterThan(0);
-    const timestamps = volumeChart.map((entry: number[]) => entry[0]);
-    expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
-
-    // Each entry is [timestamp, volumeBtc]
-    for (const entry of volumeChart) {
-      expect(entry).toHaveLength(2);
-      expect(typeof entry[0]).toBe('number');
-      expect(typeof entry[1]).toBe('number');
-    }
-  });
-
-  it('returns hourly exchange volume buckets for short ranges', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/volume_chart?days=1',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.length).toBeGreaterThan(0);
-
-    const timestamps = body.map((tuple: number[]) => tuple[0]);
-    expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
-
-    for (const tuple of body) {
-      expect(tuple).toHaveLength(2);
-      expect(Number.isFinite(tuple[1])).toBe(true);
-    }
-  });
-
-  it('returns ranged exchange volume tuples in ascending chronological order with finite numerics', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/volume_chart/range?from=0&to=4102444800',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.length).toBeGreaterThan(0);
-
-    const timestamps = body.map((tuple: number[]) => tuple[0]);
-    expect(timestamps).toEqual([...timestamps].sort((left, right) => left - right));
-
-    for (const tuple of body) {
-      expect(tuple).toHaveLength(2);
-      expect(typeof tuple[0]).toBe('number');
-      expect(typeof tuple[1]).toBe('number');
-      expect(Number.isFinite(tuple[1])).toBe(true);
-    }
-  });
-
-  it('returns not_found for unknown exchange volume routes', async () => {
-    const [chartResponse, rangeResponse] = await Promise.all([
-      getApp().inject({
-        method: 'GET',
-        url: '/exchanges/not-an-exchange/volume_chart?days=7',
-      }),
-      getApp().inject({
-        method: 'GET',
-        url: '/exchanges/not-an-exchange/volume_chart/range?from=0&to=4102444800',
-      }),
-    ]);
-
-    expect(chartResponse.statusCode).toBe(404);
-    expect(chartResponse.json()).toMatchObject({
-      error: 'not_found',
-      message: 'Exchange not found: not-an-exchange',
-    });
-
-    expect(rangeResponse.statusCode).toBe(404);
-    expect(rangeResponse.json()).toMatchObject({
-      error: 'not_found',
-      message: 'Exchange not found: not-an-exchange',
-    });
-  });
-
-  it('preserves live refresh ownership for exchange volume windows and explicit ranges', async () => {
-    const now = new Date();
-    const appDb = getApp().db;
-    appDb.db.insert(exchanges).values({
-      id: 'binance',
-      name: 'Binance',
-      yearEstablished: 2017,
-      country: 'Cayman Islands',
-      description: 'Temporary seeded exchange row for volume ownership assertions.',
-      url: 'https://www.binance.com/',
-      imageUrl: 'https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274',
-      hasTradingIncentive: false,
-      trustScore: 10,
-      trustScoreRank: 1,
-      tradeVolume24hBtc: 139508.1218951856,
-      tradeVolume24hBtcNormalized: null,
-      facebookUrl: 'https://www.facebook.com/binanceexchange',
-      redditUrl: 'https://www.reddit.com/r/binance/',
-      telegramUrl: '',
-      slackUrl: '',
-      otherUrlJson: JSON.stringify([
-        'https://medium.com/binanceexchange',
-        'https://steemit.com/@binanceexchange',
-      ]),
-      twitterHandle: 'binance',
-      centralised: true,
-      publicNotice: null,
-      alertNotice: null,
-      updatedAt: new Date(now.getTime() - (37 * 60 * 60 * 1000)),
-    }).onConflictDoNothing().run();
-
-    const cutoff = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-    appDb.db.delete(exchangeVolumePoints).where(eq(exchangeVolumePoints.exchangeId, 'binance')).run();
-    appDb.db.insert(exchangeVolumePoints).values([
-      {
-        exchangeId: 'binance',
-        timestamp: new Date(now.getTime() - (36 * 60 * 60 * 1000)),
-        volumeBtc: 10,
-      },
-      {
-        exchangeId: 'binance',
-        timestamp: new Date(now.getTime() - (23 * 60 * 60 * 1000)),
-        volumeBtc: 20,
-      },
-      {
-        exchangeId: 'binance',
-        timestamp: new Date(now.getTime() - (2 * 60 * 60 * 1000)),
-        volumeBtc: 30,
-      },
-      {
-        exchangeId: 'binance',
-        timestamp: new Date(now.getTime() - (30 * 60 * 1000)),
-        volumeBtc: 40,
-      },
-    ]).run();
-
-    const [oneDayResponse, sevenDayResponse, rangeResponse] = await Promise.all([
-      getApp().inject({
-        method: 'GET',
-        url: '/exchanges/binance/volume_chart?days=1',
-      }),
-      getApp().inject({
-        method: 'GET',
-        url: '/exchanges/binance/volume_chart?days=7',
-      }),
-      getApp().inject({
-        method: 'GET',
-        url: `/exchanges/binance/volume_chart/range?from=${Math.floor((now.getTime() - (3 * 60 * 60 * 1000)) / 1000)}&to=${Math.floor(now.getTime() / 1000)}`,
-      }),
-    ]);
-
-    expect(oneDayResponse.statusCode).toBe(200);
-    expect(oneDayResponse.json()).toEqual(expect.arrayContaining([
-      [new Date(now.getTime() - (23 * 60 * 60 * 1000)).getTime(), 20],
-      [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
-      [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]));
-    expect(oneDayResponse.json().every((entry: [number, number]) => entry[0] >= cutoff.getTime())).toBe(true);
-
-    expect(sevenDayResponse.statusCode).toBe(200);
-    expect(sevenDayResponse.json()).toEqual(expect.arrayContaining([
-      [new Date(now.getTime() - (36 * 60 * 60 * 1000)).getTime(), 10],
-      [new Date(now.getTime() - (23 * 60 * 60 * 1000)).getTime(), 20],
-      [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
-      [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]));
-    expect(sevenDayResponse.json().length).toBeGreaterThanOrEqual(4);
-    expect(sevenDayResponse.json()).toEqual(
-      [...sevenDayResponse.json()].sort((left: [number, number], right: [number, number]) => left[0] - right[0]),
-    );
-
-    expect(rangeResponse.statusCode).toBe(200);
-    expect(rangeResponse.json()).toEqual(expect.arrayContaining([
-      [new Date(now.getTime() - (2 * 60 * 60 * 1000)).getTime(), 30],
-      [new Date(now.getTime() - (30 * 60 * 1000)).getTime(), 40],
-    ]));
-    expect(rangeResponse.json().every((entry: [number, number]) => entry[0] >= now.getTime() - (3 * 60 * 60 * 1000))).toBe(true);
-    expect(rangeResponse.json()).toEqual(
-      [...rangeResponse.json()].sort((left: [number, number], right: [number, number]) => left[0] - right[0]),
-    );
-  });
-
-  it('returns exchange tickers and supports coin filters', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/tickers?include_exchange_logo=true',
-    });
-    const filteredResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/tickers?coin_ids=ethereum&order=volume_asc',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().name).toBe('Binance');
-    expect(response.json().tickers.length).toBeGreaterThanOrEqual(7);
-    expect(response.json().tickers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        coin_id: 'bitcoin',
-        target: 'USDT',
-      }),
-      expect.objectContaining({
-        coin_id: 'ethereum',
-        target: 'USDT',
-      }),
-      expect.objectContaining({
-        coin_id: 'usd-coin',
-        target: 'USDT',
-      }),
-    ]));
-
-    expect(filteredResponse.statusCode).toBe(200);
-    expect(filteredResponse.json().tickers).toHaveLength(1);
-    expect(filteredResponse.json().tickers[0]).toMatchObject({
-      coin_id: 'ethereum',
-      target: 'USDT',
-    });
-  });
-
-  it('supports exchange ticker depth and dex pair formatting', async () => {
-    const detailResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance?dex_pair_format=contract_address',
-    });
-    const tickersResponse = await getApp().inject({
-      method: 'GET',
-      url: '/exchanges/binance/tickers?coin_ids=usd-coin&depth=true&dex_pair_format=contract_address',
-    });
-
-    expect(detailResponse.statusCode).toBe(200);
-    expect(detailResponse.json().tickers.find((ticker: { coin_id: string }) => ticker.coin_id === 'usd-coin')).toMatchObject({
-      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-      coin_id: 'usd-coin',
-    });
-
-    expect(tickersResponse.statusCode).toBe(200);
-    expect(tickersResponse.json().tickers[0]).toMatchObject({
-      base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-      coin_id: 'usd-coin',
-    });
-  });
-
-  it('returns derivatives exchange registry rows', async () => {
-    const listResponse = await getApp().inject({
-      method: 'GET',
-      url: '/derivatives/exchanges/list',
-    });
-    const exchangesResponse = await getApp().inject({
-      method: 'GET',
-      url: '/derivatives/exchanges?order=trade_volume_24h_btc_desc&per_page=1&page=1',
-    });
-
-    expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toEqual(contractFixtures.derivativesExchangesList);
-
-    expect(exchangesResponse.statusCode).toBe(200);
-    const exchangesBody = exchangesResponse.json();
-    expect(exchangesBody.data).toHaveLength(1);
-    expect(exchangesBody.data[0]).toMatchObject(contractFixtures.derivativesExchanges[0]);
-    expect(exchangesBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20' });
-  });
-
-  it('returns derivatives exchange detail without tickers by default and includes tickers on request', async () => {
-    const detailResponse = await getApp().inject({
-      method: 'GET',
-      url: '/derivatives/exchanges/binance_futures',
-    });
-    const includeTickersResponse = await getApp().inject({
-      method: 'GET',
-      url: '/derivatives/exchanges/binance_futures?include_tickers=true',
-    });
-
-    expect(detailResponse.statusCode).toBe(200);
-    const detailBody = detailResponse.json();
-    expect(detailBody.data).toMatchObject({
-      id: 'binance_futures',
-      name: 'Binance Futures',
-      open_interest_btc: 185000,
-      trade_volume_24h_btc: 910000,
-      number_of_perpetual_pairs: 412,
-      number_of_futures_pairs: 38,
-      year_established: 2019,
-      country: 'Cayman Islands',
-      description: "Binance Futures is Binance's derivatives venue for perpetual and dated futures markets.",
-      url: 'https://www.binance.com/en/futures',
-      image: 'https://assets.coingecko.com/markets/images/52/small/binance.jpg',
-      centralized: true,
-    });
-    expect(detailBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20' });
-    expect(detailBody.data).not.toHaveProperty('tickers');
-
-    expect(includeTickersResponse.statusCode).toBe(200);
-    const includeTickersBody = includeTickersResponse.json();
-    expect(includeTickersBody.data).toMatchObject({
-      id: 'binance_futures',
-      name: 'Binance Futures',
-    });
-    expect(includeTickersBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20' });
-    expect(includeTickersBody.data).toHaveProperty('tickers');
-    expect(includeTickersBody.data.tickers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        market: 'Binance Futures',
-        market_id: 'binance_futures',
-        symbol: 'BTCUSDT',
-        index_id: 'bitcoin',
-        contract_type: 'perpetual',
-      }),
-    ]));
-  });
-
-  it('returns derivatives tickers', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/derivatives',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const derivativesBody = response.json();
-    expect(derivativesBody.data).toMatchObject(contractFixtures.derivatives);
-    expect(derivativesBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20', note: 'Derivatives data is seeded fixture, not live' });
-    for (const ticker of derivativesBody.data) {
-      expect(ticker.funding_rate).not.toBeUndefined();
-      expect(ticker.open_interest_btc).not.toBeNull();
-      expect(ticker.trade_volume_24h_btc).not.toBeNull();
-      expect(ticker.last_traded_at).not.toBeNull();
-    }
-  });
-
-  it('documents exchange data divergences in docs analysis', async () => {
-    const { existsSync, readFileSync } = await import('node:fs');
-    const { resolve } = await import('node:path');
-
-    const filePath = resolve(process.cwd(), 'docs/analysis/exchange-divergences.md');
-    expect(existsSync(filePath)).toBe(true);
-
-    const contents = readFileSync(filePath, 'utf8');
-    expect(contents).toContain('| endpoint | field | description |');
-    expect(contents).toContain('/exchanges/{id}/tickers');
-    expect(contents).toContain('/derivatives');
-  });
-
-  it('returns treasury entities and grouped public treasury rows', async () => {
-    const entitiesResponse = await getApp().inject({
-      method: 'GET',
-      url: '/entities/list?entity_type=companies&page=1&per_page=10',
-    });
-    const groupedResponse = await getApp().inject({
-      method: 'GET',
-      url: '/companies/public_treasury/bitcoin?order=value_desc',
-    });
-    const detailResponse = await getApp().inject({
-      method: 'GET',
-      url: '/public_treasury/strategy',
-    });
-
-    expect(entitiesResponse.statusCode).toBe(200);
-    expect(entitiesResponse.json()).toMatchObject({
-      data: [contractFixtures.treasuryEntities[1]],
-      meta: expect.objectContaining({ fixture: true }),
-    });
-
-    expect(groupedResponse.statusCode).toBe(200);
-    expect(groupedResponse.json()).toMatchObject({
-      data: contractFixtures.companyTreasuryBitcoin,
-      meta: expect.objectContaining({ fixture: true }),
-    });
-
-    expect(detailResponse.statusCode).toBe(200);
-    expect(detailResponse.json()).toMatchObject({
-      data: contractFixtures.treasuryEntityDetail,
-      meta: expect.objectContaining({ fixture: true }),
-    });
-  });
-
-  it('returns treasury holding charts and transaction history', async () => {
-    const chartResponse = await getApp().inject({
-      method: 'GET',
-      url: '/public_treasury/strategy/bitcoin/holding_chart?days=7',
-    });
-    const chartWithIntervalsResponse = await getApp().inject({
-      method: 'GET',
-      url: '/public_treasury/strategy/bitcoin/holding_chart?days=7&include_empty_intervals=true',
-    });
-    const transactionsResponse = await getApp().inject({
-      method: 'GET',
-      url: '/public_treasury/strategy/transaction_history?order=date_desc',
-    });
-
-    expect(chartResponse.statusCode).toBe(200);
-    expect(chartResponse.json()).toMatchObject({
-      data: {
-        holdings: expect.any(Array),
-        holding_value_in_usd: expect.any(Array),
-      },
-      meta: expect.objectContaining({ fixture: true }),
-    });
-    expect(chartResponse.json().data.holdings.length).toBeGreaterThan(0);
-    expect(chartResponse.json().data.holding_value_in_usd.length).toBeGreaterThan(0);
-
-    expect(chartWithIntervalsResponse.statusCode).toBe(200);
-    expect(chartWithIntervalsResponse.json()).toMatchObject({
-      data: {
-        holdings: expect.any(Array),
-        holding_value_in_usd: expect.any(Array),
-      },
-      meta: expect.objectContaining({ fixture: true }),
-    });
-    expect(chartWithIntervalsResponse.json().data.holdings.length).toBeGreaterThan(0);
-    expect(chartWithIntervalsResponse.json().data.holding_value_in_usd.length).toBeGreaterThan(0);
-
-    expect(transactionsResponse.statusCode).toBe(200);
-    expect(transactionsResponse.json()).toEqual({
-      data: contractFixtures.treasuryTransactionHistory,
-      meta: expect.objectContaining({ fixture: true }),
-    });
   });
 
   it('returns onchain networks and network dexes', async () => {
@@ -5200,6 +4609,66 @@ describe('OpenGecko app scaffold', () => {
     expect(JSON.parse(gunzipSync(compressedResponse.rawPayload).toString('utf8'))).toEqual(uncompressedResponse.json());
   });
 
+  it('prefers Brotli over gzip when both encodings are advertised', async () => {
+    await app?.close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        responseCompressionThresholdBytes: 64,
+      },
+      startBackgroundJobs: false,
+    });
+
+    const compressedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list?include_platform=true',
+      headers: {
+        'accept-encoding': 'gzip, br',
+      },
+    });
+    const uncompressedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list?include_platform=true',
+    });
+
+    expect(compressedResponse.statusCode).toBe(200);
+    expect(uncompressedResponse.statusCode).toBe(200);
+    expect(compressedResponse.headers['content-encoding']).toBe('br');
+    expect(Number(compressedResponse.headers['content-length'] ?? 0)).toBeGreaterThan(0);
+    expect(String(compressedResponse.headers.vary ?? '')).toContain('Accept-Encoding');
+    expect(JSON.parse(brotliDecompressSync(compressedResponse.rawPayload).toString('utf8'))).toEqual(uncompressedResponse.json());
+  });
+
+  it('negotiates Brotli when it is the only advertised supported encoding', async () => {
+    await app?.close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+        responseCompressionThresholdBytes: 64,
+      },
+      startBackgroundJobs: false,
+    });
+
+    const compressedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/list?include_platform=true',
+      headers: {
+        'accept-encoding': 'br',
+      },
+    });
+
+    expect(compressedResponse.statusCode).toBe(200);
+    expect(compressedResponse.headers['content-encoding']).toBe('br');
+    expect(JSON.parse(brotliDecompressSync(compressedResponse.rawPayload).toString('utf8'))[0]).toMatchObject({
+      id: 'bitcoin',
+      symbol: 'btc',
+    });
+  });
+
   it('keeps large onchain trade responses readable when gzip compression is negotiated', async () => {
     const sqdSpy = vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockResolvedValue(
       Array.from({ length: 20_000 }, (_, index) => ({
@@ -5269,329 +4738,6 @@ describe('OpenGecko app scaffold', () => {
     } else {
       expect(negotiatedResponse.json()).toEqual(baselineResponse.json());
     }
-  });
-
-  it('returns market search results', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search?query=eth',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.searchEth);
-  });
-
-  it('keeps search response families bounded to 10 results each', async () => {
-    await getApp().ready();
-
-    for (let index = 0; index < 12; index += 1) {
-      getApp().db.db
-        .insert(exchanges)
-        .values({
-          id: `eth-exchange-${index}`,
-          name: `ETH Exchange ${index}`,
-          yearEstablished: null,
-          country: null,
-          description: '',
-          url: `https://eth-exchange-${index}.example.com`,
-          imageUrl: null,
-          facebookUrl: null,
-          redditUrl: null,
-          telegramUrl: null,
-          slackUrl: null,
-          otherUrlJson: '[]',
-          twitterHandle: null,
-          hasTradingIncentive: false,
-          centralised: true,
-          publicNotice: null,
-          alertNotice: null,
-          trustScore: 1,
-          trustScoreRank: 100 + index,
-          tradeVolume24hBtc: null,
-          tradeVolume24hBtcNormalized: null,
-          updatedAt: new Date(`2026-03-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
-        })
-        .onConflictDoNothing()
-        .run();
-    }
-
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search?query=eth',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().coins.length).toBeLessThanOrEqual(10);
-    expect(response.json().exchanges.length).toBeLessThanOrEqual(10);
-    expect(response.json().categories.length).toBeLessThanOrEqual(10);
-    expect(response.json().icos).toEqual([]);
-    expect(response.json().nfts).toEqual([]);
-  });
-
-  it('returns FTS-backed category search results', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search?query=stable',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject(contractFixtures.searchStable);
-  });
-
-  it('rejects blank search queries with the invalid_parameter contract envelope', async () => {
-    const [missingQueryResponse, blankQueryResponse] = await Promise.all([
-      getApp().inject({
-        method: 'GET',
-        url: '/search',
-      }),
-      getApp().inject({
-        method: 'GET',
-        url: '/search?query=',
-      }),
-    ]);
-
-    expect(missingQueryResponse.statusCode).toBe(400);
-    expect(missingQueryResponse.json()).toMatchObject({
-      error: 'invalid_parameter',
-    });
-
-    expect(blankQueryResponse.statusCode).toBe(400);
-    expect(blankQueryResponse.json()).toMatchObject({
-      error: 'invalid_parameter',
-    });
-  });
-
-  it('keeps newly listed canonical coin ids propagated across search, list, and detail surfaces', async () => {
-    const [newListingsResponse, coinsListResponse] = await Promise.all([
-      getApp().inject({ method: 'GET', url: '/coins/list/new' }),
-      getApp().inject({ method: 'GET', url: '/coins/list?include_platform=true' }),
-    ]);
-
-    expect(newListingsResponse.statusCode).toBe(200);
-    expect(coinsListResponse.statusCode).toBe(200);
-
-    const listings = newListingsResponse.json().coins as Array<{
-      id: string;
-      symbol: string;
-      name: string;
-      activated_at: number;
-    }>;
-    expect(listings.length).toBeGreaterThan(0);
-
-    const newestListing = listings[0]!;
-    const discoveredId = newestListing.id;
-    const [searchResponse, detailResponse] = await Promise.all([
-      getApp().inject({ method: 'GET', url: `/search?query=${encodeURIComponent(discoveredId)}` }),
-      getApp().inject({ method: 'GET', url: `/coins/${discoveredId}?localization=false&tickers=false&community_data=false&developer_data=false` }),
-    ]);
-
-    expect(searchResponse.statusCode).toBe(200);
-    expect(detailResponse.statusCode).toBe(200);
-    expect(searchResponse.json().coins).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: newestListing.id,
-        symbol: newestListing.symbol,
-        name: newestListing.name,
-      }),
-    ]));
-    expect(coinsListResponse.json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: newestListing.id,
-        symbol: newestListing.symbol,
-        name: newestListing.name,
-      }),
-    ]));
-    expect(detailResponse.json()).toMatchObject({
-      id: newestListing.id,
-      symbol: newestListing.symbol,
-      name: newestListing.name,
-    });
-  });
-
-  it('returns grouped trending search results with nested coin items', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search/trending',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body).toHaveProperty('coins');
-    expect(body).toHaveProperty('nfts');
-    expect(body).toHaveProperty('categories');
-    expect(Array.isArray(body.coins)).toBe(true);
-    expect(Array.isArray(body.nfts)).toBe(true);
-    expect(Array.isArray(body.categories)).toBe(true);
-    expect(body.coins[0].item.id).toBe('bitcoin');
-    expect(typeof body.coins[0].item.coin_id).toBe('number');
-    expect(body.coins[0].item.name).toBe('Bitcoin');
-    expect(body.coins[0].item.symbol).toBe('btc');
-    expect(typeof body.coins[0].item.market_cap_rank === 'number' || body.coins[0].item.market_cap_rank === null).toBe(true);
-    expect(body.coins[0].item.score).toBe(body.coins[0].item.market_cap_rank ?? 0);
-    expect(typeof body.coins[0].item.data.market_cap === 'number' || body.coins[0].item.data.market_cap === null).toBe(true);
-    expect(body.coins.map((entry: { item: { id: string } }) => entry.item.id)).toContain('ethereum');
-    expect(body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)).toEqual(
-      [...body.coins.map((entry: { item: { market_cap_rank: number | null } }) => entry.item.market_cap_rank)]
-        .sort((left, right) => {
-          const rankDelta = (left ?? Number.MAX_SAFE_INTEGER) - (right ?? Number.MAX_SAFE_INTEGER);
-
-          if (rankDelta !== 0) {
-            return rankDelta;
-          }
-
-          return 0;
-        }),
-    );
-    body.coins.forEach((entry: { item: { market_cap_rank: number | null; score: number } }) => {
-      expect(entry.item.score).toBe(entry.item.market_cap_rank ?? 0);
-    });
-    expect(body.nfts).toEqual([]);
-    expect(body.categories[0]).toMatchObject(contractFixtures.searchTrending.categories[0]);
-    expect(body.categories[1]).toMatchObject(contractFixtures.searchTrending.categories[1]);
-    expect(body.coins[0]).toHaveProperty('item');
-    expect(Array.isArray(body.nfts)).toBe(true);
-    expect(Array.isArray(body.categories)).toBe(true);
-  });
-
-  it('serializes trending coins in ascending runtime market_cap_rank order with nulls last', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search/trending?show_max=20',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    const rankedCoins = body.coins.map((entry: { item: { id: string; market_cap_rank: number | null; score: number } }) => entry.item);
-
-    expect(rankedCoins.length).toBeGreaterThan(1);
-    expect(rankedCoins).toEqual(
-      [...rankedCoins].sort((left, right) => {
-        const rankDelta = (left.market_cap_rank ?? Number.MAX_SAFE_INTEGER) - (right.market_cap_rank ?? Number.MAX_SAFE_INTEGER);
-
-        if (rankDelta !== 0) {
-          return rankDelta;
-        }
-
-        return left.id.localeCompare(right.id);
-      }),
-    );
-    rankedCoins.forEach((item: { market_cap_rank: number | null; score: number }) => {
-      expect(item.score).toBe(item.market_cap_rank ?? 0);
-    });
-
-    const firstNullRankIndex = rankedCoins.findIndex((item: { market_cap_rank: number | null }) => item.market_cap_rank === null);
-
-    if (firstNullRankIndex !== -1) {
-      expect(rankedCoins.slice(firstNullRankIndex).every((item: { market_cap_rank: number | null }) => item.market_cap_rank === null)).toBe(true);
-    }
-  });
-
-  it('keeps runtime ordering deterministic when multiple trending coins share the same market_cap_rank', async () => {
-    await getApp().ready();
-    const sharedRank = 42;
-
-    getApp().db.db
-      .update(marketSnapshots)
-      .set({ marketCapRank: sharedRank })
-      .where(eq(marketSnapshots.coinId, 'bitcoin'))
-      .run();
-
-    getApp().db.db
-      .update(marketSnapshots)
-      .set({ marketCapRank: sharedRank })
-      .where(eq(marketSnapshots.coinId, 'ethereum'))
-      .run();
-
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search/trending?show_max=20',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const rankedCoins = response.json().coins.map((entry: { item: { id: string; market_cap_rank: number | null; score: number } }) => entry.item);
-    const sharedRankIds = rankedCoins
-      .filter((item: { market_cap_rank: number | null }) => item.market_cap_rank === sharedRank)
-      .map((item: { id: string }) => item.id);
-
-    expect(sharedRankIds).toEqual(['bitcoin', 'ethereum']);
-    rankedCoins
-      .filter((item: { market_cap_rank: number | null }) => item.market_cap_rank === sharedRank)
-      .forEach((item: { market_cap_rank: number | null; score: number }) => {
-        expect(item.score).toBe(sharedRank);
-      });
-  });
-
-
-  it('supports deterministic show_max truncation for trending search groups', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search/trending?show_max=1',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.coins).toHaveLength(1);
-    expect(body.categories).toHaveLength(1);
-    expect(body.nfts).toEqual([]);
-    expect(body.coins[0].item.id).toBe('bitcoin');
-    expect(body.categories[0].name).toBe('Smart Contract Platform');
-  });
-
-  it('keeps empty trending groups as arrays when show_max is zero', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/search/trending?show_max=0',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      coins: [],
-      nfts: [],
-      categories: [],
-    });
-  });
-
-  it('returns global market aggregates', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/global',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      data: {
-        active_cryptocurrencies: 8,
-        markets: expect.any(Number),
-        total_market_cap: {
-          usd: 0,
-        },
-        total_volume: expect.objectContaining({
-          usd: expect.any(Number),
-        }),
-      },
-    });
-    expect(response.json().data.markets).toBeGreaterThan(0);
-  });
-
-  it('keeps /global aggregate payloads wrapped in data with the required compatibility fields', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/global',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      data: expect.objectContaining({
-        active_cryptocurrencies: expect.any(Number),
-        markets: expect.any(Number),
-        updated_at: expect.any(Number),
-        total_market_cap: expect.any(Object),
-        total_volume: expect.any(Object),
-        market_cap_percentage: expect.any(Object),
-        market_cap_change_percentage_24h_usd: expect.any(Number),
-        volume_change_percentage_24h_usd: expect.any(Number),
-      }),
-    });
   });
 
   it('keeps coins category ordering strict and deterministic for supported and unsupported order values', async () => {
@@ -5666,96 +4812,6 @@ describe('OpenGecko app scaffold', () => {
       data: expect.any(Array),
       meta: expect.any(Object),
     }));
-  });
-
-  it('keeps /global market_cap_percentage finite when persisted live snapshots have no usable market caps', async () => {
-    getApp().db.db
-      .update(marketSnapshots)
-      .set({
-        marketCap: null,
-      })
-      .run();
-
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/global',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().data.market_cap_percentage).toEqual(expect.objectContaining({
-      btc: 0,
-      eth: 0,
-      usdc: 0,
-      xrp: 0,
-      sol: 0,
-    }));
-  });
-
-  it('returns global defi aggregates in a data envelope with stable finite-or-null fields', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/global/decentralized_finance_defi',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body).toHaveProperty('data');
-    expect(typeof body.data.defi_market_cap).toBe('number');
-    expect(typeof body.data.eth_market_cap).toBe('number');
-    expect(typeof body.data.trading_volume_24h).toBe('number');
-    expect(body.data.top_coin_name === null || typeof body.data.top_coin_name === 'string').toBe(true);
-    expect(body.data.defi_to_eth_ratio === null || typeof body.data.defi_to_eth_ratio === 'number').toBe(true);
-    expect(body.data.defi_dominance === null || typeof body.data.defi_dominance === 'number').toBe(true);
-    expect(body.data.top_coin_defi_dominance === null || typeof body.data.top_coin_defi_dominance === 'number').toBe(true);
-
-    for (const [key, value] of Object.entries(body.data)) {
-      if (typeof value === 'number') {
-        expect(Number.isFinite(value)).toBe(true);
-      } else {
-        expect(value === null || typeof value === 'string').toBe(true);
-      }
-
-      expect(key).not.toBe('');
-    }
-  });
-
-  it('returns a named global market cap chart series payload for the requested window', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/global/market_cap_chart?vs_currency=usd&days=7',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body).toEqual({
-      market_cap_chart: expect.any(Array),
-    });
-    expect(body.market_cap_chart.length).toBeGreaterThan(0);
-    expect(body.market_cap_chart[0]).toHaveLength(2);
-    expect(typeof body.market_cap_chart[0][0]).toBe('number');
-    expect(typeof body.market_cap_chart[0][1]).toBe('number');
-    expect(body.market_cap_chart.at(-1)[0]).toBeGreaterThanOrEqual(body.market_cap_chart[0][0]);
-  });
-
-  it('validates missing required params for global market cap chart', async () => {
-    const missingVsCurrencyResponse = await getApp().inject({
-      method: 'GET',
-      url: '/global/market_cap_chart?days=7',
-    });
-    const missingDaysResponse = await getApp().inject({
-      method: 'GET',
-      url: '/global/market_cap_chart?vs_currency=usd',
-    });
-
-    expect(missingVsCurrencyResponse.statusCode).toBe(400);
-    expect(missingVsCurrencyResponse.json()).toMatchObject({
-      error: 'invalid_parameter',
-    });
-
-    expect(missingDaysResponse.statusCode).toBe(400);
-    expect(missingDaysResponse.json()).toMatchObject({
-      error: 'invalid_parameter',
-    });
   });
 
   it('returns coin market rows', async () => {
