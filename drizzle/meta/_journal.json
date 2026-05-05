@@ -134,6 +134,48 @@
       "when": 1777966980000,
       "tag": "0017_onchain_token_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1777983300000,
+      "tag": "0018_onchain_pool_trades",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1777983600000,
+      "tag": "0019_supply_chart_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1777983900000,
+      "tag": "0020_exchange_volume_source_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1777984200000,
+      "tag": "0021_coin_history_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1777984500000,
+      "tag": "0022_market_chart_source_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1777984800000,
+      "tag": "0023_optional_provider_job_runs",
+      "breakpoints": true
     }
   ]
 }

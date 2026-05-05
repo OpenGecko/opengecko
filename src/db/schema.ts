@@ -74,6 +74,44 @@ export const marketSnapshots = sqliteTable(
   }),
 );
 
+export const coinHistorySnapshots = sqliteTable(
+  'coin_history_snapshots',
+  {
+    coinId: text('coin_id')
+      .notNull()
+      .references(() => coins.id),
+    vsCurrency: text('vs_currency').notNull().default('usd'),
+    snapshotAt: integer('snapshot_at', { mode: 'timestamp_ms' }).notNull(),
+    price: real('price').notNull(),
+    marketCap: real('market_cap'),
+    totalVolume: real('total_volume'),
+    marketCapRank: integer('market_cap_rank'),
+    fullyDilutedValuation: real('fully_diluted_valuation'),
+    circulatingSupply: real('circulating_supply'),
+    totalSupply: real('total_supply'),
+    maxSupply: real('max_supply'),
+    ath: real('ath'),
+    athChangePercentage: real('ath_change_percentage'),
+    athDate: integer('ath_date', { mode: 'timestamp_ms' }),
+    atl: real('atl'),
+    atlChangePercentage: real('atl_change_percentage'),
+    atlDate: integer('atl_date', { mode: 'timestamp_ms' }),
+    priceChange24h: real('price_change_24h'),
+    priceChangePercentage24h: real('price_change_percentage_24h'),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider').notNull().default('unknown'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+    rawPayloadJson: text('raw_payload_json').notNull().default('{}'),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    lastUpdated: integer('last_updated', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.coinId, table.vsCurrency, table.snapshotAt, table.sourceKind, table.sourceProvider] }),
+    coinCurrencySnapshotIdx: index('coin_history_snapshots_coin_currency_snapshot_idx').on(table.coinId, table.vsCurrency, table.snapshotAt),
+    sourceFetchedAtIdx: index('coin_history_snapshots_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
 export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -99,6 +137,66 @@ export const chartPoints = sqliteTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.coinId, table.vsCurrency, table.timestamp] }),
+  }),
+);
+
+export const marketChartSourcePoints = sqliteTable(
+  'market_chart_source_points',
+  {
+    coinId: text('coin_id')
+      .notNull()
+      .references(() => coins.id),
+    vsCurrency: text('vs_currency').notNull().default('usd'),
+    interval: text('interval', { enum: ['1m', '1d'] }).notNull().default('1d'),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+    price: real('price').notNull(),
+    marketCap: real('market_cap'),
+    totalVolume: real('total_volume'),
+    open: real('open').notNull(),
+    high: real('high').notNull(),
+    low: real('low').notNull(),
+    close: real('close').notNull(),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider').notNull().default('unknown'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.coinId, table.vsCurrency, table.interval, table.timestamp, table.sourceKind, table.sourceProvider] }),
+    coinCurrencyIntervalTimestampIdx: index('market_chart_source_points_coin_currency_interval_timestamp_idx').on(table.coinId, table.vsCurrency, table.interval, table.timestamp),
+    sourceFetchedAtIdx: index('market_chart_source_points_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
+export const optionalProviderJobRuns = sqliteTable('optional_provider_job_runs', {
+  jobId: text('job_id').primaryKey(),
+  status: text('status', { enum: ['running', 'succeeded', 'failed'] }).notNull(),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  targetsAttempted: integer('targets_attempted').notNull().default(0),
+  rowsWritten: integer('rows_written'),
+  failureReason: text('failure_reason'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => ({
+  statusUpdatedAtIdx: index('optional_provider_job_runs_status_updated_at_idx').on(table.status, table.updatedAt),
+}));
+
+export const supplyChartPoints = sqliteTable(
+  'supply_chart_points',
+  {
+    coinId: text('coin_id')
+      .notNull()
+      .references(() => coins.id),
+    supplyType: text('supply_type', { enum: ['circulating', 'total'] }).notNull(),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+    value: real('value').notNull(),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider').notNull().default('unknown'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.coinId, table.supplyType, table.timestamp, table.sourceKind, table.sourceProvider] }),
+    coinTypeTimestampIdx: index('supply_chart_points_coin_type_timestamp_idx').on(table.coinId, table.supplyType, table.timestamp),
+    sourceFetchedAtIdx: index('supply_chart_points_source_fetched_at_idx').on(table.sourceFetchedAt),
   }),
 );
 
@@ -212,6 +310,25 @@ export const exchangeVolumePoints = sqliteTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.exchangeId, table.timestamp] }),
+  }),
+);
+
+export const exchangeVolumeSourcePoints = sqliteTable(
+  'exchange_volume_source_points',
+  {
+    exchangeId: text('exchange_id')
+      .notNull()
+      .references(() => exchanges.id),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+    volumeBtc: real('volume_btc').notNull(),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider').notNull().default('unknown'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.exchangeId, table.timestamp, table.sourceKind, table.sourceProvider] }),
+    exchangeTimestampIdx: index('exchange_volume_source_points_exchange_timestamp_idx').on(table.exchangeId, table.timestamp),
+    sourceFetchedAtIdx: index('exchange_volume_source_points_source_fetched_at_idx').on(table.sourceFetchedAt),
   }),
 );
 
@@ -401,6 +518,32 @@ export const onchainPoolOhlcv = sqliteTable(
   }),
 );
 
+export const onchainPoolTrades = sqliteTable(
+  'onchain_pool_trades',
+  {
+    networkId: text('network_id')
+      .notNull()
+      .references(() => onchainNetworks.id),
+    poolAddress: text('pool_address').notNull(),
+    tradeId: text('trade_id').notNull(),
+    tokenAddress: text('token_address').notNull(),
+    side: text('side', { enum: ['buy', 'sell'] }).notNull(),
+    volumeUsd: real('volume_usd').notNull(),
+    priceUsd: real('price_usd').notNull(),
+    txHash: text('tx_hash').notNull(),
+    blockTimestamp: integer('block_timestamp').notNull(),
+    sourceKind: text('source_kind', { enum: ['replay', 'live'] }).notNull().default('replay'),
+    sourceProvider: text('source_provider'),
+    sourceFetchedAt: integer('source_fetched_at', { mode: 'timestamp_ms' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.networkId, table.poolAddress, table.tradeId] }),
+    poolTimestampIdx: index('onchain_pool_trades_pool_timestamp_idx').on(table.networkId, table.poolAddress, table.blockTimestamp),
+    tokenTimestampIdx: index('onchain_pool_trades_token_timestamp_idx').on(table.networkId, table.tokenAddress, table.blockTimestamp),
+    sourceFetchedAtIdx: index('onchain_pool_trades_source_fetched_at_idx').on(table.sourceFetchedAt),
+  }),
+);
+
 export const onchainTokenHolders = sqliteTable(
   'onchain_token_holders',
   {
@@ -502,13 +645,18 @@ export const coinTickers = sqliteTable(
 export type CoinRow = typeof coins.$inferSelect;
 export type AssetPlatformRow = typeof assetPlatforms.$inferSelect;
 export type MarketSnapshotRow = typeof marketSnapshots.$inferSelect;
+export type CoinHistorySnapshotRow = typeof coinHistorySnapshots.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type ChartPointRow = typeof chartPoints.$inferSelect;
+export type MarketChartSourcePointRow = typeof marketChartSourcePoints.$inferSelect;
+export type OptionalProviderJobRunRow = typeof optionalProviderJobRuns.$inferSelect;
+export type SupplyChartPointRow = typeof supplyChartPoints.$inferSelect;
 export type QuoteSnapshotRow = typeof quoteSnapshots.$inferSelect;
 export type OhlcvCandleRow = typeof ohlcvCandles.$inferSelect;
 export type OhlcvSyncTargetRow = typeof ohlcvSyncTargets.$inferSelect;
 export type ExchangeRow = typeof exchanges.$inferSelect;
 export type ExchangeVolumePointRow = typeof exchangeVolumePoints.$inferSelect;
+export type ExchangeVolumeSourcePointRow = typeof exchangeVolumeSourcePoints.$inferSelect;
 export type DerivativesExchangeRow = typeof derivativesExchanges.$inferSelect;
 export type DerivativeTickerRow = typeof derivativeTickers.$inferSelect;
 export type TreasuryEntityRow = typeof treasuryEntities.$inferSelect;
@@ -519,6 +667,7 @@ export type OnchainNetworkRow = typeof onchainNetworks.$inferSelect;
 export type OnchainDexRow = typeof onchainDexes.$inferSelect;
 export type OnchainPoolRow = typeof onchainPools.$inferSelect;
 export type OnchainPoolOhlcvRow = typeof onchainPoolOhlcv.$inferSelect;
+export type OnchainPoolTradeRow = typeof onchainPoolTrades.$inferSelect;
 export type OnchainTokenHolderRow = typeof onchainTokenHolders.$inferSelect;
 export type OnchainTokenTraderRow = typeof onchainTokenTraders.$inferSelect;
 export type OnchainTokenHolderCountRow = typeof onchainTokenHolderCounts.$inferSelect;

@@ -8,17 +8,23 @@ import {
   assetPlatforms,
   categories,
   chartPoints,
+  coinHistorySnapshots,
   coins,
   derivativeTickers,
   derivativesExchanges,
+  exchangeVolumeSourcePoints,
+  marketChartSourcePoints,
   ohlcvSyncTargets,
+  optionalProviderJobRuns,
   onchainDexes,
   onchainNetworks,
   onchainPoolOhlcv,
+  onchainPoolTrades,
   onchainPools,
   onchainTokenHolderCounts,
   onchainTokenHolders,
   onchainTokenTraders,
+  supplyChartPoints,
   treasuryEntities,
   treasuryHoldings,
   treasurySourceDocuments,
@@ -33,17 +39,23 @@ type AppSchema = {
   assetPlatforms: typeof assetPlatforms;
   categories: typeof categories;
   chartPoints: typeof chartPoints;
+  coinHistorySnapshots: typeof coinHistorySnapshots;
   coins: typeof coins;
   derivativeTickers: typeof derivativeTickers;
   derivativesExchanges: typeof derivativesExchanges;
+  exchangeVolumeSourcePoints: typeof exchangeVolumeSourcePoints;
+  marketChartSourcePoints: typeof marketChartSourcePoints;
   ohlcvSyncTargets: typeof ohlcvSyncTargets;
+  optionalProviderJobRuns: typeof optionalProviderJobRuns;
   onchainDexes: typeof onchainDexes;
   onchainNetworks: typeof onchainNetworks;
   onchainPoolOhlcv: typeof onchainPoolOhlcv;
+  onchainPoolTrades: typeof onchainPoolTrades;
   onchainPools: typeof onchainPools;
   onchainTokenHolderCounts: typeof onchainTokenHolderCounts;
   onchainTokenHolders: typeof onchainTokenHolders;
   onchainTokenTraders: typeof onchainTokenTraders;
+  supplyChartPoints: typeof supplyChartPoints;
   treasuryEntities: typeof treasuryEntities;
   treasuryHoldings: typeof treasuryHoldings;
   treasurySourceDocuments: typeof treasurySourceDocuments;
