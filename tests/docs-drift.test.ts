@@ -56,4 +56,68 @@ describe('documentation drift guards', () => {
     expect(vitestConfig).not.toContain('statements: 0');
     expect(guide).toContain('coverage-backed tests');
   });
+
+  it('keeps the optional provider operator guide aligned with config, commands, and diagnostics routes', () => {
+    const readme = readRepoFile('README.md');
+    const envConfig = readRepoFile('src/config/env.ts');
+    const packageJson = readRepoFile('package.json');
+    const diagnosticsRoutes = readRepoFile('src/modules/diagnostics.ts');
+
+    for (const envVar of [
+      'COIN_HISTORY_TARGETS',
+      'COIN_HISTORY_BASE_URL',
+      'EXCHANGE_VOLUME_TARGETS',
+      'EXCHANGE_VOLUME_BASE_URL',
+      'MARKET_CHART_TARGETS',
+      'MARKET_CHART_BASE_URL',
+      'ONCHAIN_ANALYTICS_TARGETS',
+      'ONCHAIN_ANALYTICS_BASE_URL',
+      'ONCHAIN_TRADE_TARGETS',
+      'ONCHAIN_TRADE_BASE_URL',
+      'SUPPLY_CHART_TARGETS',
+      'SUPPLY_CHART_BASE_URL',
+      'OPTIONAL_PROVIDER_SYNC_ENABLED',
+      'OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS',
+    ]) {
+      expect(readme).toContain(envVar);
+    }
+
+    for (const configuredEnvVar of [
+      'COIN_HISTORY_TARGETS',
+      'EXCHANGE_VOLUME_TARGETS',
+      'MARKET_CHART_TARGETS',
+      'ONCHAIN_ANALYTICS_TARGETS',
+      'ONCHAIN_TRADE_TARGETS',
+      'SUPPLY_CHART_TARGETS',
+      'OPTIONAL_PROVIDER_SYNC_ENABLED',
+      'OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS',
+    ]) {
+      expect(envConfig).toContain(configuredEnvVar);
+    }
+
+    for (const command of [
+      'bun run coin:history:sync',
+      'bun run exchange:volumes:sync',
+      'bun run market:charts:sync',
+      'bun run onchain:analytics:sync',
+      'bun run onchain:trades:sync',
+      'bun run supply:charts:sync',
+    ]) {
+      expect(readme).toContain(command);
+      expect(packageJson).toContain(command.replace('bun run ', ''));
+    }
+
+    for (const route of [
+      '/diagnostics/jobs',
+      '/diagnostics/market_charts',
+      '/diagnostics/coin_history',
+      '/diagnostics/exchange_volumes',
+      '/diagnostics/onchain_analytics',
+      '/diagnostics/onchain_trades',
+      '/diagnostics/supply_charts',
+    ]) {
+      expect(readme).toContain(route);
+      expect(diagnosticsRoutes).toContain(route);
+    }
+  });
 });

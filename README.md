@@ -217,6 +217,20 @@ This README intentionally lists representative onchain routes rather than the fu
 | `MARKET_FRESHNESS_THRESHOLD_SECONDS` | `300` | Freshness threshold for live reads |
 | `SEARCH_REBUILD_INTERVAL_SECONDS` | `900` | Search index rebuild cadence |
 | `REQUEST_TIMEOUT_MS` | `15000` | Upstream exchange request timeout |
+| `COIN_HISTORY_TARGETS` | empty | Optional `provider=coin:YYYY-MM-DD` source-backed dated coin history sync targets |
+| `COIN_HISTORY_BASE_URL` | unset | Base URL for the optional coin history provider adapter used by `bun run coin:history:sync` |
+| `EXCHANGE_VOLUME_TARGETS` | empty | Optional `provider=exchange` source-backed exchange volume sync targets |
+| `EXCHANGE_VOLUME_BASE_URL` | unset | Base URL for the optional exchange volume provider adapter used by `bun run exchange:volumes:sync` |
+| `MARKET_CHART_TARGETS` | empty | Optional `provider=coin:interval:vs_currency` source-backed chart/OHLC sync targets; see `docs/reference/market-chart-targets.json` |
+| `MARKET_CHART_BASE_URL` | unset | Base URL for the optional market chart provider adapter used by `bun run market:charts:sync` |
+| `ONCHAIN_ANALYTICS_TARGETS` | empty | Optional source-backed onchain holder/trader analytics sync targets |
+| `ONCHAIN_ANALYTICS_BASE_URL` | unset | Base URL for the optional onchain analytics provider adapter used by `bun run onchain:analytics:sync` |
+| `ONCHAIN_TRADE_TARGETS` | empty | Optional source-backed onchain pool trade sync targets |
+| `ONCHAIN_TRADE_BASE_URL` | unset | Base URL for the optional onchain trade provider adapter used by `bun run onchain:trades:sync` |
+| `SUPPLY_CHART_TARGETS` | empty | Optional `provider=coin:supply_type` source-backed supply chart sync targets |
+| `SUPPLY_CHART_BASE_URL` | unset | Base URL for the optional supply chart provider adapter used by `bun run supply:charts:sync` |
+| `OPTIONAL_PROVIDER_SYNC_ENABLED` | `false` | Enables interval scheduler hooks for optional source-backed sync jobs |
+| `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS` | `900` | Interval for optional provider sync scheduler when enabled |
 
 Full schema in `src/config/env.ts`.
 
@@ -228,6 +242,8 @@ Full schema in `src/config/env.ts`.
 | `GET /diagnostics/runtime` | Startup state, stale fallback, provider and cache status |
 | `GET /diagnostics/ohlcv_sync` | OHLCV worker progress and sync health |
 | `GET /diagnostics/chain_coverage` | Chain/network normalization coverage |
+| `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, and fallback-only gaps |
+| `GET /diagnostics/jobs` | Optional provider sync job target counts and last persisted or in-process run outcome |
 | `GET /metrics` | Prometheus-compatible metrics |
 
 > [!TIP]
@@ -240,7 +256,21 @@ bun run markets:refresh   # refresh hot market snapshots
 bun run ohlcv:worker      # continuous OHLCV ingestion (top-100 first)
 bun run search:rebuild    # rebuild SQLite FTS5 search index
 bun run charts:backfill   # backfill historical OHLCV data
+bun run coin:history:sync # optional source-backed dated coin history sync
+bun run exchange:volumes:sync # optional source-backed exchange volume sync
+bun run market:charts:sync # optional source-backed market chart/OHLC target sync
+bun run onchain:analytics:sync # optional source-backed onchain holder/trader analytics sync
+bun run onchain:trades:sync # optional source-backed onchain pool trade sync
+bun run supply:charts:sync # optional source-backed supply chart sync
 ```
+
+**Optional provider scheduler playbook:**
+
+1. Keep `OPTIONAL_PROVIDER_SYNC_ENABLED=false` until target envs and provider base URLs are configured and verified with the standalone commands above.
+2. Start with a small target set, such as the starter `MARKET_CHART_TARGETS` in `docs/reference/market-chart-targets.json`, then expand by the gaps shown in `/diagnostics/market_charts`, `/diagnostics/coin_history`, `/diagnostics/exchange_volumes`, `/diagnostics/onchain_analytics`, `/diagnostics/onchain_trades`, and `/diagnostics/supply_charts`.
+3. Run `GET /diagnostics/jobs` after each standalone command. The route reports target counts, last start/finish timestamps, rows written, and failure reasons from persisted job state.
+4. Enable `OPTIONAL_PROVIDER_SYNC_ENABLED=true` only after diagnostics show the configured standalone jobs can succeed. Leave `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS=900` unless the provider and database can safely handle a tighter interval.
+5. Roll back by setting `OPTIONAL_PROVIDER_SYNC_ENABLED=false` and running the same standalone sync commands from cron or an external scheduler. Public API response shapes are unchanged either way.
 
 ## Migrating from CoinGecko
 
