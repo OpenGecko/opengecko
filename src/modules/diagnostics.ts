@@ -7,10 +7,20 @@ import { assetPlatforms, coins, marketSnapshots } from '../db/schema';
 import { sendCacheableJson } from '../http/cache';
 import { resolveCanonicalPlatform } from '../lib/platform-id';
 import { buildDerivativesProviderDiagnostics } from '../services/derivatives-venues';
+import { buildCoinHistoryProviderDiagnostics } from '../services/coin-history-diagnostics';
 import { buildCoverageMatrix } from '../services/coverage-matrix';
+import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
 import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
+import { buildMarketChartProviderDiagnostics } from '../services/market-chart-diagnostics';
+import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
+import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
+import {
+  buildOptionalProviderJobDiagnostics,
+  type OptionalProviderJobRegistry,
+} from '../services/optional-provider-jobs';
 import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
 import { buildRuntimeDiagnostics } from '../services/runtime-diagnostics';
+import { buildSupplyChartProviderDiagnostics } from '../services/supply-chart-diagnostics';
 import {
   recordForcedProviderFailure,
   recordValidationRuntimeOverride,
@@ -30,6 +40,25 @@ export function registerDiagnosticsRoutes(
   derivatives: {
     ccxtExchanges: string;
   },
+  coinHistory: {
+    targets: string;
+  },
+  exchangeVolumes: {
+    targets: string;
+  },
+  marketCharts: {
+    targets: string;
+  },
+  onchainAnalytics: {
+    targets: string;
+  },
+  onchainTrades: {
+    targets: string;
+  },
+  supplyCharts: {
+    targets: string;
+  },
+  optionalProviderJobs: OptionalProviderJobRegistry,
 ) {
   const stableDiagnosticsCachePolicy = {
     maxAgeSeconds: 300,
@@ -111,6 +140,48 @@ export function registerDiagnosticsRoutes(
   app.get('/diagnostics/derivatives', async (request, reply) => {
     return sendCacheableJson(request, reply, {
       data: buildDerivativesProviderDiagnostics(database, derivatives.ccxtExchanges),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/coin_history', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildCoinHistoryProviderDiagnostics(database, coinHistory.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/exchange_volumes', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildExchangeVolumeProviderDiagnostics(database, exchangeVolumes.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/market_charts', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildMarketChartProviderDiagnostics(database, marketCharts.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/onchain_analytics', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildOnchainAnalyticsProviderDiagnostics(database, onchainAnalytics.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/onchain_trades', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildOnchainTradeProviderDiagnostics(database, onchainTrades.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/supply_charts', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildSupplyChartProviderDiagnostics(database, supplyCharts.targets),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/jobs', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildOptionalProviderJobDiagnostics(app.appConfig, optionalProviderJobs, database),
     }, dynamicDiagnosticsCachePolicy);
   });
 

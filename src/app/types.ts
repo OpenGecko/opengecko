@@ -5,6 +5,7 @@ import type { createDatabase } from '../db/client';
 import type { MarketRuntime } from '../services/market-runtime';
 import { createMarketDataRuntimeState, type MarketDataRuntimeState } from '../services/market-runtime-state';
 import type { MetricsRegistry } from '../services/metrics';
+import type { OptionalProviderJobRegistry } from '../services/optional-provider-jobs';
 import type { StartupProgressReporter } from '../services/startup-progress';
 
 export type BuildAppOptions = {
@@ -32,6 +33,7 @@ export type AppRouteDependencies = {
   config: AppConfig;
   marketDataRuntimeState: MarketDataRuntimeState;
   metrics: MetricsRegistry;
+  optionalProviderJobs: OptionalProviderJobRegistry;
 };
 
 export type BuildAppContext = {
@@ -40,6 +42,7 @@ export type BuildAppContext = {
   database: Database;
   marketDataRuntimeState: AppLifecycleState;
   metrics: MetricsRegistry;
+  optionalProviderJobs: OptionalProviderJobRegistry;
   runtime: MarketRuntime | null;
   bootstrapSnapshotAccessMode: 'disabled' | 'seeded_bootstrap';
   bootstrapOnlyValidationRuntime: boolean;

@@ -47,7 +47,7 @@ export type OnchainTradeRecord = {
 };
 
 export type LiveTradeRecord = OnchainTradeRecord & {
-  source: 'live' | 'fixture';
+  source: 'live' | 'replay' | 'fixture';
 };
 
 export type NormalizedSwapTradeShape = {

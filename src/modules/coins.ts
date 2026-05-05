@@ -8,6 +8,11 @@ import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } fr
 import { getConversionRate } from '../lib/conversion';
 import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
+import {
+  readSupplyChartRowsForDays,
+  readSupplyChartRowsForRange,
+  type SupplyType,
+} from '../services/supply-chart-ingestion';
 import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows, parseJsonArray } from './catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
@@ -17,6 +22,7 @@ import {
   getChartRowsForRange,
   getOhlcRowsForDays,
   getOhlcRowsForRange,
+  getSourceBackedOhlcRowsForDays,
   parseChartRange,
   parseExplicitRange,
 } from './coins/charts';
@@ -178,6 +184,37 @@ function sortCategories(
     default:
       throw new HttpError(400, 'invalid_parameter', `Unsupported order value: ${order}`);
   }
+}
+
+function buildSupplyChartResponse(
+  coinId: string,
+  supplyType: SupplyType,
+  rows: ReturnType<typeof readSupplyChartRowsForDays>,
+  fallbackNote: string,
+) {
+  if (rows.length === 0) {
+    return {
+      data: [],
+      meta: {
+        fixture: true,
+        coin_id: coinId,
+        note: fallbackNote,
+      },
+    };
+  }
+
+  const sourceProviders = [...new Set(rows.map((row) => row.sourceProvider).filter(Boolean))].sort();
+
+  return {
+    data: rows.map((row) => [row.timestamp.getTime(), row.value]),
+    meta: {
+      fixture: false,
+      coin_id: coinId,
+      supply_type: supplyType,
+      source: rows.some((row) => row.sourceKind === 'live') ? 'live' : 'replay',
+      source_providers: sourceProviders,
+    },
+  };
 }
 
 export function registerCoinRoutes(
@@ -448,8 +485,11 @@ export function registerCoinRoutes(
     const precision = parsePrecision(query.precision);
     const vsCurrency = query.vs_currency.toLowerCase();
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
-    const rows = await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval)
-      ?? getOhlcRowsForDays(database, params.id, query.days, query.interval);
+    const sourceRows = getSourceBackedOhlcRowsForDays(database, params.id, query.days, query.interval);
+    const rows = sourceRows.length > 0
+      ? sourceRows
+      : await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval)
+        ?? getOhlcRowsForDays(database, params.id, query.days, query.interval);
 
     const payload = rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);
@@ -489,32 +529,29 @@ export function registerCoinRoutes(
     const query = supplyChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseChartInterval(query.interval);
-    getChartRowsForDays(database, params.id, query.days, query.interval);
+    const rows = readSupplyChartRowsForDays(database, params.id, 'circulating', query.days, query.interval);
 
-    return sendCacheableJson(request, reply, {
-      data: [],
-      meta: {
-        fixture: true,
-        coin_id: params.id,
-        note: 'Circulating supply chart data is not available',
-      },
-    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
+    return sendCacheableJson(
+      request,
+      reply,
+      buildSupplyChartResponse(params.id, 'circulating', rows, 'Circulating supply chart data is not available'),
+      COIN_AUXILIARY_HTTP_CACHE_POLICY,
+    );
   });
 
   app.get('/coins/:id/circulating_supply_chart/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
-    parseExplicitRange(query);
+    const range = parseExplicitRange(query);
+    const rows = readSupplyChartRowsForRange(database, params.id, 'circulating', range);
 
-    return sendCacheableJson(request, reply, {
-      data: [],
-      meta: {
-        fixture: true,
-        coin_id: params.id,
-        note: 'Circulating supply chart data is not available',
-      },
-    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
+    return sendCacheableJson(
+      request,
+      reply,
+      buildSupplyChartResponse(params.id, 'circulating', rows, 'Circulating supply chart data is not available'),
+      COIN_AUXILIARY_HTTP_CACHE_POLICY,
+    );
   });
 
   app.get('/coins/:id/total_supply_chart', async (request, reply) => {
@@ -522,32 +559,29 @@ export function registerCoinRoutes(
     const query = supplyChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     parseChartInterval(query.interval);
-    getChartRowsForDays(database, params.id, query.days, query.interval);
+    const rows = readSupplyChartRowsForDays(database, params.id, 'total', query.days, query.interval);
 
-    return sendCacheableJson(request, reply, {
-      data: [],
-      meta: {
-        fixture: true,
-        coin_id: params.id,
-        note: 'Total supply chart data is not available',
-      },
-    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
+    return sendCacheableJson(
+      request,
+      reply,
+      buildSupplyChartResponse(params.id, 'total', rows, 'Total supply chart data is not available'),
+      COIN_AUXILIARY_HTTP_CACHE_POLICY,
+    );
   });
 
   app.get('/coins/:id/total_supply_chart/range', async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = supplyChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
-    parseExplicitRange(query);
+    const range = parseExplicitRange(query);
+    const rows = readSupplyChartRowsForRange(database, params.id, 'total', range);
 
-    return sendCacheableJson(request, reply, {
-      data: [],
-      meta: {
-        fixture: true,
-        coin_id: params.id,
-        note: 'Total supply chart data is not available',
-      },
-    }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
+    return sendCacheableJson(
+      request,
+      reply,
+      buildSupplyChartResponse(params.id, 'total', rows, 'Total supply chart data is not available'),
+      COIN_AUXILIARY_HTTP_CACHE_POLICY,
+    );
   });
 
   app.get('/coins/categories/list', async (request, reply) => {

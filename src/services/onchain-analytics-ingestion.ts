@@ -41,6 +41,14 @@ export type RawOnchainAnalyticsReplay = {
   }>;
 };
 
+export type OnchainAnalyticsSourceKind = 'replay' | 'live';
+
+export type IngestOnchainAnalyticsOptions = {
+  sourceKind?: OnchainAnalyticsSourceKind;
+  sourceProvider?: string | null;
+  sourceFetchedAt?: Date;
+};
+
 function parseFiniteNumber(value: number | string | null | undefined, field: string, defaultValue?: number) {
   if (value === null || value === undefined || value === '') {
     if (defaultValue !== undefined) {
@@ -113,17 +121,22 @@ export function normalizeOnchainAnalyticsReplay(raw: RawOnchainAnalyticsReplay) 
   };
 }
 
-export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnchainAnalyticsReplay) {
+export function ingestOnchainAnalytics(
+  database: AppDatabase,
+  raw: RawOnchainAnalyticsReplay,
+  options: IngestOnchainAnalyticsOptions = {},
+) {
   const normalized = normalizeOnchainAnalyticsReplay(raw);
-  const sourceProvider = raw.provider.trim() || null;
-  const sourceFetchedAt = normalized.capturedAt;
+  const sourceKind = options.sourceKind ?? 'replay';
+  const sourceProvider = options.sourceProvider ?? (raw.provider.trim() || null);
+  const sourceFetchedAt = options.sourceFetchedAt ?? normalized.capturedAt;
 
   for (const holder of normalized.holders) {
     database.db
       .insert(onchainTokenHolders)
       .values({
         ...holder,
-        sourceKind: 'replay',
+        sourceKind,
         sourceProvider,
         sourceFetchedAt,
       })
@@ -135,7 +148,7 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
           pnlUsd: holder.pnlUsd,
           avgBuyPriceUsd: holder.avgBuyPriceUsd,
           realizedPnlUsd: holder.realizedPnlUsd,
-          sourceKind: 'replay',
+          sourceKind,
           sourceProvider,
           sourceFetchedAt,
         },
@@ -148,7 +161,7 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
       .insert(onchainTokenTraders)
       .values({
         ...trader,
-        sourceKind: 'replay',
+        sourceKind,
         sourceProvider,
         sourceFetchedAt,
       })
@@ -161,7 +174,7 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
           realizedPnlUsd: trader.realizedPnlUsd,
           tradeCount: trader.tradeCount,
           addressLabel: trader.addressLabel,
-          sourceKind: 'replay',
+          sourceKind,
           sourceProvider,
           sourceFetchedAt,
         },
@@ -174,7 +187,7 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
       .insert(onchainTokenHolderCounts)
       .values({
         ...point,
-        sourceKind: 'replay',
+        sourceKind,
         sourceProvider,
         sourceFetchedAt,
       })
@@ -182,7 +195,7 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
         target: [onchainTokenHolderCounts.networkId, onchainTokenHolderCounts.tokenAddress, onchainTokenHolderCounts.timestamp],
         set: {
           holderCount: point.holderCount,
-          sourceKind: 'replay',
+          sourceKind,
           sourceProvider,
           sourceFetchedAt,
         },
@@ -196,9 +209,26 @@ export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnch
     holders_written: normalized.holders.length,
     traders_written: normalized.traders.length,
     holder_counts_written: normalized.holderCounts.length,
+    source_kind: sourceKind,
     source_provider: sourceProvider,
     source_fetched_at: sourceFetchedAt.toISOString(),
   };
+}
+
+export function ingestOnchainAnalyticsReplay(database: AppDatabase, raw: RawOnchainAnalyticsReplay) {
+  return ingestOnchainAnalytics(database, raw, { sourceKind: 'replay' });
+}
+
+function resolveSourceKind(rows: Array<{ sourceKind: OnchainAnalyticsSourceKind }>): OnchainAnalyticsSourceKind | null {
+  if (rows.some((row) => row.sourceKind === 'live')) {
+    return 'live';
+  }
+
+  if (rows.some((row) => row.sourceKind === 'replay')) {
+    return 'replay';
+  }
+
+  return null;
 }
 
 export function readOnchainTokenHolders(
@@ -222,6 +252,21 @@ export function readOnchainTokenHolders(
       avgBuyPriceUsd: holder.avgBuyPriceUsd,
       realizedPnlUsd: holder.realizedPnlUsd,
     }));
+}
+
+export function readOnchainTokenHolderSourceKind(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceKind | null {
+  return resolveSourceKind(database.db
+    .select()
+    .from(onchainTokenHolders)
+    .where(and(
+      eq(onchainTokenHolders.networkId, networkId),
+      eq(onchainTokenHolders.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
 }
 
 export function readOnchainTokenTraders(
@@ -248,6 +293,21 @@ export function readOnchainTokenTraders(
     }));
 }
 
+export function readOnchainTokenTraderSourceKind(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceKind | null {
+  return resolveSourceKind(database.db
+    .select()
+    .from(onchainTokenTraders)
+    .where(and(
+      eq(onchainTokenTraders.networkId, networkId),
+      eq(onchainTokenTraders.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
+}
+
 export function readOnchainHoldersChart(
   database: AppDatabase,
   networkId: string,
@@ -265,4 +325,19 @@ export function readOnchainHoldersChart(
       timestamp: point.timestamp,
       holderCount: point.holderCount,
     }));
+}
+
+export function readOnchainHoldersChartSourceKind(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceKind | null {
+  return resolveSourceKind(database.db
+    .select()
+    .from(onchainTokenHolderCounts)
+    .where(and(
+      eq(onchainTokenHolderCounts.networkId, networkId),
+      eq(onchainTokenHolderCounts.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
 }

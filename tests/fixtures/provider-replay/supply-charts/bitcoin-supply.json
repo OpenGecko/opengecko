@@ -1,0 +1,22 @@
+{
+  "provider": "supply-replay",
+  "captured_at": "2026-05-05T00:12:00.000Z",
+  "coin_id": "bitcoin",
+  "points": [
+    {
+      "timestamp": 1773792000,
+      "circulating_supply": "19812000.5",
+      "total_supply": "21000000"
+    },
+    {
+      "timestamp": 1773878400,
+      "circulating_supply": "19813000.75",
+      "total_supply": "21000000"
+    },
+    {
+      "timestamp": 1773964800,
+      "circulating_supply": "19814000.25",
+      "total_supply": "21000000"
+    }
+  ]
+}

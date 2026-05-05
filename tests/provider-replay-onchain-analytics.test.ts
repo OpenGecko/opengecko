@@ -75,6 +75,7 @@ describe('onchain analytics provider replay fixtures', () => {
         holders_written: 2,
         traders_written: 2,
         holder_counts_written: 3,
+        source_kind: 'replay',
         source_provider: 'etherscan-token-analytics-replay',
         source_fetched_at: '2026-05-05T00:03:00.000Z',
       });

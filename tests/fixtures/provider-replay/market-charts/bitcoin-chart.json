@@ -1,0 +1,39 @@
+{
+  "provider": "market-chart-replay",
+  "captured_at": "2026-05-05T01:00:00.000Z",
+  "coin_id": "bitcoin",
+  "vs_currency": "usd",
+  "interval": "1d",
+  "points": [
+    {
+      "timestamp": 1773792000,
+      "price": 84000.25,
+      "market_cap": 1660000000000,
+      "total_volume": 32000000000,
+      "open": 83500,
+      "high": 85000,
+      "low": 83000,
+      "close": 84000.25
+    },
+    {
+      "timestamp": 1773878400,
+      "price": 85010.5,
+      "market_cap": 1680000000000,
+      "total_volume": 33000000000,
+      "open": 84000,
+      "high": 85500,
+      "low": 83800,
+      "close": 85010.5
+    },
+    {
+      "timestamp": 1773964800,
+      "price": 86020.75,
+      "market_cap": 1700000000000,
+      "total_volume": 34000000000,
+      "open": 85000,
+      "high": 86500,
+      "low": 84800,
+      "close": 86020.75
+    }
+  ]
+}

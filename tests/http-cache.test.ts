@@ -1,6 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+
+vi.mock('../src/providers/ccxt', () => ({
+  fetchExchangeMarkets: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, spot: true, baseName: 'Ethereum', raw: {} },
+  ]),
+  fetchExchangeTickers: vi.fn().mockResolvedValue([
+    { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: 1773964800000, raw: {} as never },
+    { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: 1773964800000, raw: {} as never },
+  ]),
+  fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
+  fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
+  closeExchangePool: vi.fn().mockResolvedValue(undefined),
+  isValidExchangeId: (value: string): value is string =>
+    ['binance', 'coinbase', 'kraken', 'bybit', 'okx'].includes(value),
+}));
 
 async function expectCacheableEndpoint(
   app: ReturnType<typeof buildApp>,
@@ -485,6 +501,120 @@ describe('HTTP cache semantics', () => {
               }),
             ]),
             gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/coin_history',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            histories: expect.any(Array),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/exchange_volumes',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            exchanges: expect.arrayContaining([
+              expect.objectContaining({
+                exchange_id: 'binance',
+                status: expect.any(String),
+              }),
+            ]),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/market_charts',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            coins: expect.arrayContaining([
+              expect.objectContaining({
+                coin_id: 'bitcoin',
+                status: expect.any(String),
+              }),
+            ]),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/onchain_analytics',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            tokens: expect.arrayContaining([
+              expect.objectContaining({
+                network_id: 'eth',
+                status: expect.any(String),
+              }),
+            ]),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/onchain_trades',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            pools: expect.arrayContaining([
+              expect.objectContaining({
+                network_id: 'eth',
+                status: expect.any(String),
+              }),
+            ]),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/supply_charts',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            coins: expect.arrayContaining([
+              expect.objectContaining({
+                coin_id: 'bitcoin',
+                status: expect.any(String),
+              }),
+            ]),
+            gaps: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
+        '/diagnostics/jobs',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            jobs: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'market_charts',
+                status: expect.any(String),
+              }),
+            ]),
+            summary: expect.any(Object),
           },
         }),
       );

@@ -85,12 +85,28 @@ describe('repo dotenv loading', () => {
     const env: NodeJS.ProcessEnv = {
       LOG_PRETTY: 'false',
       DISABLE_REMOTE_CURRENCY_REFRESH: '1',
+      COIN_HISTORY_TARGETS: 'mock.history=bitcoin:2026-03-20',
+      EXCHANGE_VOLUME_TARGETS: 'mock.volume=binance',
+      MARKET_CHART_TARGETS: 'mock.chart=bitcoin:1d:usd',
+      ONCHAIN_ANALYTICS_TARGETS: 'mock.analytics=eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      ONCHAIN_TRADE_TARGETS: 'mock.trades=eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+      SUPPLY_CHART_TARGETS: 'mock.supply=bitcoin',
+      OPTIONAL_PROVIDER_SYNC_ENABLED: 'true',
+      OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS: '120',
     };
 
     const config = loadConfig(env);
 
     expect(config.logPretty).toBe(false);
     expect(config.disableRemoteCurrencyRefresh).toBe(true);
+    expect(config.coinHistoryTargets).toBe('mock.history=bitcoin:2026-03-20');
+    expect(config.exchangeVolumeTargets).toBe('mock.volume=binance');
+    expect(config.marketChartTargets).toBe('mock.chart=bitcoin:1d:usd');
+    expect(config.onchainAnalyticsTargets).toBe('mock.analytics=eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
+    expect(config.onchainTradeTargets).toBe('mock.trades=eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640');
+    expect(config.supplyChartTargets).toBe('mock.supply=bitcoin');
+    expect(config.optionalProviderSyncEnabled).toBe(true);
+    expect(config.optionalProviderSyncIntervalSeconds).toBe(120);
   });
 
   it('retains the last successfully resolved config for deterministic startup failure logging', () => {

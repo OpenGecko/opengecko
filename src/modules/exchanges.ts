@@ -7,6 +7,10 @@ import { exchanges } from '../db/schema';
 import { sendCacheableJson } from '../http/cache';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
 import { parseDexPairFormat } from '../lib/shared';
+import {
+  getSourceBackedExchangeVolumeChart,
+  getSourceBackedExchangeVolumeChartRange,
+} from '../services/exchange-volume-ingestion';
 import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { buildExchangeDetail, buildExchangeSummary, getExchangeOrThrow } from './exchange-detail';
@@ -128,11 +132,14 @@ export function registerExchangeRoutes(
     const query = exchangeVolumeChartQuerySchema.parse(request.query);
 
     getExchangeOrThrow(database, params.id);
+    const sourceBackedRows = getSourceBackedExchangeVolumeChart(database, params.id, query.days);
 
     return sendCacheableJson(
       request,
       reply,
-      getExchangeVolumeChart(database, params.id, query.days),
+      sourceBackedRows.length > 0
+        ? sourceBackedRows
+        : getExchangeVolumeChart(database, params.id, query.days),
       EXCHANGE_VOLUME_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -142,11 +149,14 @@ export function registerExchangeRoutes(
     const query = exchangeVolumeRangeQuerySchema.parse(request.query);
 
     getExchangeOrThrow(database, params.id);
+    const sourceBackedRows = getSourceBackedExchangeVolumeChartRange(database, params.id, query.from, query.to);
 
     return sendCacheableJson(
       request,
       reply,
-      getExchangeVolumeChartRange(database, params.id, query.from, query.to),
+      sourceBackedRows.length > 0
+        ? sourceBackedRows
+        : getExchangeVolumeChartRange(database, params.id, query.from, query.to),
       EXCHANGE_VOLUME_CHART_HTTP_CACHE_POLICY,
     );
   });

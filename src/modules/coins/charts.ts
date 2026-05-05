@@ -7,6 +7,12 @@ import { getChartSeries, getMarketRows } from '../catalog';
 import { downsampleTimeSeries, getRangeDurationMs } from '../chart-semantics';
 import { fetchExchangeOHLCV } from '../../providers/ccxt';
 import { getCanonicalCandles, upsertCanonicalOhlcvCandle } from '../../services/candle-store';
+import {
+  readMarketChartSourceOhlcRowsForDays,
+  readMarketChartSourceOhlcRowsForRange,
+  readMarketChartSourceRowsForDays,
+  readMarketChartSourceRowsForRange,
+} from '../../services/market-chart-ingestion';
 import { getGranularityMs, parseChartInterval, parseUnixTimestampSeconds, toNumberOrNull } from './helpers';
 import { asc, eq } from 'drizzle-orm';
 
@@ -35,6 +41,12 @@ export function parseExplicitRange(query: { from: string; to: string }) {
 }
 
 export function getChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  const sourceRows = readMarketChartSourceRowsForDays(database, coinId, 'usd', days, interval);
+
+  if (sourceRows.length > 0) {
+    return sourceRows;
+  }
+
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = candleInterval === '1d'
     ? getChartSeries(database, coinId, 'usd')
@@ -74,6 +86,12 @@ export function getChartRowsForDays(database: AppDatabase, coinId: string, days:
 }
 
 export function getChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  const sourceRows = readMarketChartSourceRowsForRange(database, coinId, 'usd', range, interval);
+
+  if (sourceRows.length > 0) {
+    return sourceRows;
+  }
+
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = candleInterval === '1d'
     ? getChartSeries(database, coinId, 'usd', range)
@@ -88,6 +106,12 @@ export function getChartRowsForRange(database: AppDatabase, coinId: string, rang
 }
 
 export function getOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  const sourceRows = readMarketChartSourceOhlcRowsForDays(database, coinId, 'usd', days, interval);
+
+  if (sourceRows.length > 0) {
+    return sourceRows;
+  }
+
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = getCanonicalCandles(database, coinId, 'usd', candleInterval);
 
@@ -110,6 +134,10 @@ export function getOhlcRowsForDays(database: AppDatabase, coinId: string, days: 
   const cutoff = latestTimestamp - dayCount * 24 * 60 * 60 * 1000;
 
   return rows.filter((row) => row.timestamp.getTime() >= cutoff);
+}
+
+export function getSourceBackedOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  return readMarketChartSourceOhlcRowsForDays(database, coinId, 'usd', days, interval);
 }
 
 export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
@@ -178,6 +206,12 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
 }
 
 export function getOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  const sourceRows = readMarketChartSourceOhlcRowsForRange(database, coinId, 'usd', range, interval);
+
+  if (sourceRows.length > 0) {
+    return sourceRows;
+  }
+
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
 
   return getCanonicalCandles(database, coinId, 'usd', candleInterval, range);

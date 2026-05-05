@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,6 +10,36 @@ import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
 import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates';
+import {
+  ingestCoinHistoryReplay,
+  type RawCoinHistoryReplay,
+} from '../src/services/coin-history-ingestion';
+import { syncCoinHistorySnapshots } from '../src/services/coin-history-sync';
+import {
+  ingestExchangeVolumeReplay,
+  type RawExchangeVolumeReplay,
+} from '../src/services/exchange-volume-ingestion';
+import { syncExchangeVolumes } from '../src/services/exchange-volume-sync';
+import {
+  ingestMarketChartReplay,
+  type RawMarketChartReplay,
+} from '../src/services/market-chart-ingestion';
+import { syncMarketCharts } from '../src/services/market-chart-sync';
+import {
+  ingestOnchainAnalyticsReplay,
+  type RawOnchainAnalyticsReplay,
+} from '../src/services/onchain-analytics-ingestion';
+import { syncOnchainAnalytics } from '../src/services/onchain-analytics-sync';
+import {
+  ingestOnchainTradeReplay,
+  type RawOnchainTradeReplay,
+} from '../src/services/onchain-trade-ingestion';
+import { syncOnchainTrades } from '../src/services/onchain-trade-sync';
+import {
+  ingestSupplyChartReplay,
+  type RawSupplyChartReplay,
+} from '../src/services/supply-chart-ingestion';
+import { syncSupplyCharts } from '../src/services/supply-chart-sync';
 
 function resetCcxtProviderMocks() {
   const mockedFetchExchangeMarkets = ccxtProvider.fetchExchangeMarkets as ReturnType<typeof vi.fn>;
@@ -51,6 +81,48 @@ describe('diagnostics routes', () => {
     }
 
     return app;
+  }
+
+  function loadOnchainAnalyticsFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/onchain-analytics/eth-usdc-token-analytics.json'),
+      'utf8',
+    )) as RawOnchainAnalyticsReplay;
+  }
+
+  function loadCoinHistoryFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/coin-history/bitcoin-2026-03-20.json'),
+      'utf8',
+    )) as RawCoinHistoryReplay;
+  }
+
+  function loadExchangeVolumeFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/exchange-volumes/binance-volume.json'),
+      'utf8',
+    )) as RawExchangeVolumeReplay;
+  }
+
+  function loadMarketChartFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/market-charts/bitcoin-chart.json'),
+      'utf8',
+    )) as RawMarketChartReplay;
+  }
+
+  function loadOnchainTradeFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/onchain-trades/eth-usdc-weth-pool-trades.json'),
+      'utf8',
+    )) as RawOnchainTradeReplay;
+  }
+
+  function loadSupplyChartFixture() {
+    return JSON.parse(readFileSync(
+      join(process.cwd(), 'tests/fixtures/provider-replay/supply-charts/bitcoin-supply.json'),
+      'utf8',
+    )) as RawSupplyChartReplay;
   }
 
   beforeEach(() => {
@@ -233,6 +305,7 @@ describe('diagnostics routes', () => {
       'onchain',
       'derivatives',
       'historical_charts',
+      'supply_charts',
       'treasury',
       'stable_catalog',
     ];
@@ -332,6 +405,687 @@ describe('diagnostics routes', () => {
         configured_without_source_rows: ['binance_futures'],
       }),
     });
+  });
+
+  it('returns exchange volume provider gap diagnostics for fixture, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fixtureOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/exchange_volumes',
+    });
+
+    expect(fixtureOnlyResponse.statusCode).toBe(200);
+    expect(fixtureOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      exchanges: expect.arrayContaining([
+        expect.objectContaining({
+          exchange_id: 'binance',
+          status: 'fixture_only',
+          row_counts: { total: 0, live: 0, replay: 0 },
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        fixture_only_exchanges: expect.arrayContaining(['binance']),
+      }),
+      notes: expect.stringContaining('fixture-only exchanges must not be advertised as live'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-exchange-volumes.db'),
+        ccxtExchanges: ['binance'],
+        exchangeVolumeTargets: 'mock.volume=binance',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/exchange_volumes',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.volume',
+        exchange_id: 'binance',
+        source_provider: 'mock.volume',
+      }],
+      exchanges: expect.arrayContaining([
+        expect.objectContaining({
+          exchange_id: 'binance',
+          status: 'configured_pending',
+          configured_provider: 'mock.volume',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['binance'],
+      }),
+    });
+
+    const fixture = loadExchangeVolumeFixture();
+    ingestExchangeVolumeReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/exchange_volumes',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.exchanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        exchange_id: fixture.exchange_id,
+        status: 'replay_backed',
+        source_providers: ['exchange-volume-replay'],
+        row_counts: { total: 3, live: 0, replay: 3 },
+        latest_source_fetched_at: '2026-05-05T00:20:00.000Z',
+      }),
+    ]));
+
+    await syncExchangeVolumes(getApp().db, {
+      targets: [{
+        provider: 'mock.volume',
+        exchangeId: fixture.exchange_id,
+      }],
+      now: new Date('2026-05-05T00:44:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/exchange_volumes',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.exchanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        exchange_id: fixture.exchange_id,
+        status: 'live_backed',
+        source_providers: ['exchange-volume-replay', 'mock.volume'],
+        row_counts: { total: 6, live: 3, replay: 3 },
+        latest_source_fetched_at: '2026-05-05T00:44:00.000Z',
+      }),
+    ]));
+  });
+
+  it('returns onchain analytics provider gap diagnostics for fixture, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fixtureOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_analytics',
+    });
+
+    expect(fixtureOnlyResponse.statusCode).toBe(200);
+    expect(fixtureOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      tokens: expect.arrayContaining([
+        expect.objectContaining({
+          network_id: 'eth',
+          token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          status: 'fixture_only',
+          row_counts: expect.objectContaining({
+            holders: { total: 0, live: 0, replay: 0 },
+          }),
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        fixture_only_tokens: expect.arrayContaining(['eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48']),
+      }),
+      notes: expect.stringContaining('fixture-only tokens must not be advertised as live'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-onchain-analytics.db'),
+        ccxtExchanges: ['binance'],
+        onchainAnalyticsTargets: 'mock.analytics=eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_analytics',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.analytics',
+        network_id: 'eth',
+        token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        source_provider: 'mock.analytics',
+      }],
+      tokens: expect.arrayContaining([
+        expect.objectContaining({
+          network_id: 'eth',
+          token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          status: 'configured_pending',
+          configured_provider: 'mock.analytics',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['eth:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'],
+      }),
+    });
+
+    const fixture = loadOnchainAnalyticsFixture();
+    ingestOnchainAnalyticsReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_analytics',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.tokens).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        token_address: fixture.token_address,
+        status: 'replay_backed',
+        source_providers: ['etherscan-token-analytics-replay'],
+        row_counts: {
+          holders: { total: 2, live: 0, replay: 2 },
+          traders: { total: 2, live: 0, replay: 2 },
+          holder_counts: { total: 3, live: 0, replay: 3 },
+        },
+        latest_source_fetched_at: '2026-05-05T00:03:00.000Z',
+      }),
+    ]));
+
+    await syncOnchainAnalytics(getApp().db, {
+      targets: [{
+        provider: 'mock.analytics',
+        networkId: fixture.network_id,
+        tokenAddress: fixture.token_address,
+      }],
+      now: new Date('2026-05-05T00:08:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_analytics',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.tokens).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        token_address: fixture.token_address,
+        status: 'live_backed',
+        source_providers: ['mock.analytics'],
+        row_counts: {
+          holders: { total: 2, live: 2, replay: 0 },
+          traders: { total: 2, live: 2, replay: 0 },
+          holder_counts: { total: 3, live: 3, replay: 0 },
+        },
+        latest_source_fetched_at: '2026-05-05T00:08:00.000Z',
+      }),
+    ]));
+  });
+
+  it('returns onchain trade provider gap diagnostics for fixture, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fixtureOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_trades',
+    });
+
+    expect(fixtureOnlyResponse.statusCode).toBe(200);
+    expect(fixtureOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      pools: expect.arrayContaining([
+        expect.objectContaining({
+          network_id: 'eth',
+          pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+          status: 'fixture_only',
+          row_counts: { total: 0, live: 0, replay: 0 },
+          tokens: [],
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        fixture_only_pools: expect.arrayContaining(['eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640']),
+      }),
+      notes: expect.stringContaining('fixture-only pools must not be advertised as live'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-onchain-trades.db'),
+        ccxtExchanges: ['binance'],
+        onchainTradeTargets: 'mock.trades=eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_trades',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.trades',
+        network_id: 'eth',
+        pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+        source_provider: 'mock.trades',
+      }],
+      pools: expect.arrayContaining([
+        expect.objectContaining({
+          network_id: 'eth',
+          pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+          status: 'configured_pending',
+          configured_provider: 'mock.trades',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640'],
+      }),
+    });
+
+    const fixture = loadOnchainTradeFixture();
+    ingestOnchainTradeReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_trades',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.pools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pool_address: fixture.pool_address,
+        status: 'replay_backed',
+        source_providers: ['sqd-swap-replay'],
+        row_counts: { total: 2, live: 0, replay: 2 },
+        tokens: expect.arrayContaining([
+          {
+            token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            row_counts: { total: 1, live: 0, replay: 1 },
+          },
+        ]),
+        latest_source_fetched_at: '2026-05-05T00:09:00.000Z',
+      }),
+    ]));
+
+    await syncOnchainTrades(getApp().db, {
+      targets: [{
+        provider: 'mock.trades',
+        networkId: fixture.network_id,
+        poolAddress: fixture.pool_address,
+      }],
+      now: new Date('2026-05-05T00:14:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain_trades',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.pools).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pool_address: fixture.pool_address,
+        status: 'live_backed',
+        source_providers: ['mock.trades'],
+        row_counts: { total: 2, live: 2, replay: 0 },
+        tokens: expect.arrayContaining([
+          {
+            token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            row_counts: { total: 1, live: 1, replay: 0 },
+          },
+        ]),
+        latest_source_fetched_at: '2026-05-05T00:14:00.000Z',
+      }),
+    ]));
+  });
+
+  it('returns coin history provider gap diagnostics for fallback, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fallbackOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coin_history',
+    });
+
+    expect(fallbackOnlyResponse.statusCode).toBe(200);
+    expect(fallbackOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      histories: [],
+      gaps: expect.objectContaining({
+        fallback_only_coins: expect.arrayContaining(['bitcoin']),
+      }),
+      notes: expect.stringContaining('fallback-only coin history uses seeded chart/current snapshot blending'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-coin-history.db'),
+        ccxtExchanges: ['binance'],
+        coinHistoryTargets: 'mock.history=bitcoin:2026-03-20',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coin_history',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.history',
+        coin_id: 'bitcoin',
+        date: '2026-03-20',
+        source_provider: 'mock.history',
+      }],
+      histories: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          date: '2026-03-20',
+          status: 'configured_pending',
+          configured_provider: 'mock.history',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['bitcoin:2026-03-20'],
+      }),
+    });
+
+    const fixture = loadCoinHistoryFixture();
+    ingestCoinHistoryReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coin_history',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.histories).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        date: fixture.date,
+        status: 'replay_backed',
+        source_providers: ['coin-history-replay'],
+        row_counts: { total: 1, live: 0, replay: 1 },
+        latest_source_fetched_at: '2026-05-05T00:40:00.000Z',
+      }),
+    ]));
+
+    await syncCoinHistorySnapshots(getApp().db, {
+      targets: [{
+        provider: 'mock.history',
+        coinId: fixture.coin_id,
+        date: fixture.date,
+      }],
+      now: new Date('2026-05-05T00:54:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coin_history',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.histories).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        date: fixture.date,
+        status: 'live_backed',
+        source_providers: ['coin-history-replay', 'mock.history'],
+        row_counts: { total: 2, live: 1, replay: 1 },
+        latest_source_fetched_at: '2026-05-05T00:54:00.000Z',
+      }),
+    ]));
+  });
+
+  it('returns market chart provider gap diagnostics for fallback, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fallbackOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(fallbackOnlyResponse.statusCode).toBe(200);
+    expect(fallbackOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      coins: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: '1d',
+          status: 'fallback_only',
+          row_counts: { total: 0, live: 0, replay: 0 },
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        fallback_only_coins: expect.arrayContaining(['bitcoin:usd:1d']),
+      }),
+      notes: expect.stringContaining('fallback-only market charts use seeded OHLCV/current snapshot blending'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-market-charts.db'),
+        ccxtExchanges: ['binance'],
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.chart',
+        coin_id: 'bitcoin',
+        vs_currency: 'usd',
+        interval: '1d',
+        source_provider: 'mock.chart',
+      }],
+      coins: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: '1d',
+          status: 'configured_pending',
+          configured_provider: 'mock.chart',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['bitcoin:usd:1d'],
+      }),
+    });
+
+    const fixture = loadMarketChartFixture();
+    ingestMarketChartReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        vs_currency: fixture.vs_currency,
+        interval: fixture.interval,
+        status: 'replay_backed',
+        source_providers: ['market-chart-replay'],
+        row_counts: { total: 3, live: 0, replay: 3 },
+        latest_source_fetched_at: '2026-05-05T01:00:00.000Z',
+      }),
+    ]));
+
+    await syncMarketCharts(getApp().db, {
+      targets: [{
+        provider: 'mock.chart',
+        coinId: fixture.coin_id,
+        vsCurrency: fixture.vs_currency ?? 'usd',
+        interval: fixture.interval ?? '1d',
+      }],
+      now: new Date('2026-05-05T01:12:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        vs_currency: fixture.vs_currency,
+        interval: fixture.interval,
+        status: 'live_backed',
+        source_providers: ['market-chart-replay', 'mock.chart'],
+        row_counts: { total: 6, live: 3, replay: 3 },
+        latest_source_fetched_at: '2026-05-05T01:12:00.000Z',
+      }),
+    ]));
+  });
+
+  it('returns supply chart provider gap diagnostics for fixture, configured, replay, and live states', async () => {
+    await getApp().ready();
+    const fixtureOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/supply_charts',
+    });
+
+    expect(fixtureOnlyResponse.statusCode).toBe(200);
+    expect(fixtureOnlyResponse.json().data).toMatchObject({
+      configured_targets: [],
+      coins: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          status: 'fixture_only',
+          row_counts: {
+            circulating: { total: 0, live: 0, replay: 0 },
+            total: { total: 0, live: 0, replay: 0 },
+          },
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        fixture_only_coins: expect.arrayContaining(['bitcoin']),
+      }),
+      notes: expect.stringContaining('fixture-only coins must not be advertised as live'),
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'configured-supply-charts.db'),
+        ccxtExchanges: ['binance'],
+        supplyChartTargets: 'mock.supply=bitcoin',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const configuredResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/supply_charts',
+    });
+
+    expect(configuredResponse.statusCode).toBe(200);
+    expect(configuredResponse.json().data).toMatchObject({
+      configured_targets: [{
+        provider: 'mock.supply',
+        coin_id: 'bitcoin',
+        source_provider: 'mock.supply',
+      }],
+      coins: expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          status: 'configured_pending',
+          configured_provider: 'mock.supply',
+          latest_source_fetched_at: null,
+        }),
+      ]),
+      gaps: expect.objectContaining({
+        configured_without_source_rows: ['bitcoin'],
+      }),
+    });
+
+    const fixture = loadSupplyChartFixture();
+    ingestSupplyChartReplay(getApp().db, fixture);
+
+    const replayResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/supply_charts',
+    });
+
+    expect(replayResponse.statusCode).toBe(200);
+    expect(replayResponse.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        status: 'replay_backed',
+        source_providers: ['supply-replay'],
+        row_counts: {
+          circulating: { total: 3, live: 0, replay: 3 },
+          total: { total: 3, live: 0, replay: 3 },
+        },
+        latest_source_fetched_at: '2026-05-05T00:12:00.000Z',
+      }),
+    ]));
+
+    await syncSupplyCharts(getApp().db, {
+      targets: [{
+        provider: 'mock.supply',
+        coinId: fixture.coin_id,
+      }],
+      now: new Date('2026-05-05T00:18:00.000Z'),
+      fetcher: async () => fixture,
+    });
+
+    const liveResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/supply_charts',
+    });
+
+    expect(liveResponse.statusCode).toBe(200);
+    expect(liveResponse.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: fixture.coin_id,
+        status: 'live_backed',
+        source_providers: ['mock.supply', 'supply-replay'],
+        row_counts: {
+          circulating: { total: 6, live: 3, replay: 3 },
+          total: { total: 6, live: 3, replay: 3 },
+        },
+        latest_source_fetched_at: '2026-05-05T00:18:00.000Z',
+      }),
+    ]));
   });
 
   it('returns machine-readable runtime diagnostics for ready live service', async () => {

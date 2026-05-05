@@ -1,0 +1,19 @@
+{
+  "provider": "exchange-volume-replay",
+  "captured_at": "2026-05-05T00:20:00.000Z",
+  "exchange_id": "binance",
+  "points": [
+    {
+      "timestamp": 1777852800,
+      "volume_btc": "141000.5"
+    },
+    {
+      "timestamp": 1777939200,
+      "volume_btc": "142500.25"
+    },
+    {
+      "timestamp": 1778025600,
+      "volume_btc": "143750.75"
+    }
+  ]
+}

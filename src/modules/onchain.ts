@@ -10,10 +10,14 @@ import { fetchDefillamaTokens } from '../providers/defillama';
 import { resolveAddressLabel } from '../providers/sqd';
 import {
   readOnchainHoldersChart,
+  readOnchainHoldersChartSourceKind,
   readOnchainTokenHolders,
+  readOnchainTokenHolderSourceKind,
   readOnchainTokenTraders,
+  readOnchainTokenTraderSourceKind,
 } from '../services/onchain-analytics-ingestion';
 import { readOnchainPoolOhlcvSeries } from '../services/onchain-ohlcv-ingestion';
+import { readOnchainPoolTrades, readOnchainTokenTrades } from '../services/onchain-trade-ingestion';
 import {
   buildPaginationMeta,
   formatMetricValue,
@@ -953,7 +957,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     }
 
     const sourceHolders = readOnchainTokenHolders(database, params.network, tokenAddress);
-    const holdersSource = sourceHolders.length > 0 ? 'replay' : 'fixture';
+    const holdersSource = readOnchainTokenHolderSourceKind(database, params.network, tokenAddress) ?? 'fixture';
     const holdersRows = (sourceHolders.length > 0 ? sourceHolders : buildTopHolderFixtures(params.network, tokenAddress))
       .sort((left, right) => right.balance - left.balance || right.shareOfSupply - left.shareOfSupply || left.address.localeCompare(right.address))
       .slice(0, holders);
@@ -963,16 +967,18 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       data: holdersRows.map((holder) => buildTopHolderResource(holder, includePnlDetails)),
       ...(included.length > 0 ? { included } : {}),
       meta: {
-        fixture: true,
+        fixture: holdersSource !== 'live',
         network: params.network,
         token_address: tokenAddress,
         holders,
         include_pnl_details: includePnlDetails,
-        scope: 'USDC only',
+        scope: holdersSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
         source: holdersSource,
-        note: holdersSource === 'replay'
-          ? 'Holder data is source-attributed replay, not live'
-          : 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays',
+        note: holdersSource === 'live'
+          ? 'Holder data is source-attributed live provider data'
+          : holdersSource === 'replay'
+            ? 'Holder data is source-attributed replay, not live'
+            : 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -993,7 +999,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     }
 
     const sourceTraders = readOnchainTokenTraders(database, params.network, tokenAddress);
-    const tradersSource = sourceTraders.length > 0 ? 'replay' : 'fixture';
+    const tradersSource = readOnchainTokenTraderSourceKind(database, params.network, tokenAddress) ?? 'fixture';
     const tradersRows = (sourceTraders.length > 0 ? sourceTraders : buildTopTraderFixtures(params.network, tokenAddress))
       .sort((left, right) => {
         const primary = sort === 'realized_pnl_usd_desc'
@@ -1016,17 +1022,19 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     return sendCacheableJson(request, reply, {
       data: tradersRows.map((trader) => buildTopTraderResource(trader, includeAddressLabel)),
       meta: {
-        fixture: true,
+        fixture: tradersSource !== 'live',
         network: params.network,
         token_address: tokenAddress,
         traders,
         sort,
         include_address_label: includeAddressLabel,
-        scope: 'USDC only',
+        scope: tradersSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
         source: tradersSource,
-        note: tradersSource === 'replay'
-          ? 'Trader data is source-attributed replay, not live'
-          : 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays',
+        note: tradersSource === 'live'
+          ? 'Trader data is source-attributed live provider data'
+          : tradersSource === 'replay'
+            ? 'Trader data is source-attributed replay, not live'
+            : 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -1045,7 +1053,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     }
 
     const sourceSeries = readOnchainHoldersChart(database, params.network, tokenAddress);
-    const chartSource = sourceSeries.length > 0 ? 'replay' : 'fixture';
+    const chartSource = readOnchainHoldersChartSourceKind(database, params.network, tokenAddress) ?? 'fixture';
     const fullSeries = (sourceSeries.length > 0 ? sourceSeries : buildHoldersChartFixtures(params.network, tokenAddress))
       .sort((left, right) => left.timestamp - right.timestamp);
     const data = days <= 7 ? fullSeries.slice(-2) : fullSeries;
@@ -1053,15 +1061,17 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     return sendCacheableJson(request, reply, {
       data: data.map(buildHoldersChartResource),
       meta: {
-        fixture: true,
+        fixture: chartSource !== 'live',
         network: params.network,
         token_address: tokenAddress,
         days,
-        scope: 'USDC only',
+        scope: chartSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
         source: chartSource,
-        note: chartSource === 'replay'
-          ? 'Holders chart data is source-attributed replay, not live'
-          : 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays',
+        note: chartSource === 'live'
+          ? 'Holders chart data is source-attributed live provider data'
+          : chartSource === 'replay'
+            ? 'Holders chart data is source-attributed replay, not live'
+            : 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -1139,7 +1149,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }, 'failed to fetch live onchain pool trades');
     }
 
-    const trades = (liveTrades ?? buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
+    const sourceTrades = liveTrades ?? readOnchainPoolTrades(database, params.network, normalizedAddress);
+    const tradeSource = liveTrades
+      ? 'live'
+      : sourceTrades.length > 0
+        ? sourceTrades[0]?.source ?? 'replay'
+        : 'fixture';
+    const trades = (sourceTrades.length > 0 ? sourceTrades : buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
       .filter((trade) => trade.networkId === params.network && normalizeAddress(trade.poolAddress) === normalizedAddress)
       .filter((trade) => threshold === null || trade.volumeUsd > threshold)
       .filter((trade) => filteredToken === null || trade.tokenAddress === filteredToken)
@@ -1151,7 +1167,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       network: params.network,
       pool_address: normalizedAddress,
       response_trade_count: trades.length,
-      response_source: liveTrades ? 'live' : 'fixture',
+      response_source: tradeSource,
     }, 'sending onchain pool trades response');
 
     return sendCacheableJson(request, reply, {
@@ -1159,7 +1175,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       meta: {
         network: params.network,
         pool_address: params.address,
-        source: liveTrades ? 'live' : 'fixture',
+        source: tradeSource,
       },
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
@@ -1183,7 +1199,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     const liveTradeGroups = await Promise.all(tokenPools.map((pool) => fetchLivePoolTrades(pool)));
     const liveTrades = liveTradeGroups.flatMap((group) => group ?? []);
     const poolAddresses = new Set(tokenPools.map((pool) => pool.address));
-    const trades = (liveTrades.length > 0 ? liveTrades : buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
+    const sourceTrades = liveTrades.length > 0 ? liveTrades : readOnchainTokenTrades(database, params.network, tokenAddress);
+    const tradeSource = liveTrades.length > 0
+      ? 'live'
+      : sourceTrades.length > 0
+        ? sourceTrades[0]?.source ?? 'replay'
+        : 'fixture';
+    const trades = (sourceTrades.length > 0 ? sourceTrades : buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
       .filter((trade) => trade.networkId === params.network && trade.tokenAddress === tokenAddress && poolAddresses.has(trade.poolAddress))
       .filter((trade) => threshold === null || trade.volumeUsd > threshold)
       .filter((trade) => beforeTimestamp === null || trade.blockTimestamp <= beforeTimestamp)
@@ -1195,7 +1217,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       meta: {
         network: params.network,
         token_address: tokenAddress,
-        source: liveTrades.length > 0 ? 'live' : 'fixture',
+        source: tradeSource,
       },
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });

@@ -24,6 +24,14 @@ const envSchema = z.object({
   DATABASE_URL: z.string().default('./data/opengecko.db'),
   CCXT_EXCHANGES: z.string().default(DEFAULT_CCXT_EXCHANGES.join(',')),
   DERIVATIVES_CCXT_EXCHANGES: z.string().default(''),
+  COIN_HISTORY_TARGETS: z.string().default(''),
+  EXCHANGE_VOLUME_TARGETS: z.string().default(''),
+  MARKET_CHART_TARGETS: z.string().default(''),
+  ONCHAIN_ANALYTICS_TARGETS: z.string().default(''),
+  ONCHAIN_TRADE_TARGETS: z.string().default(''),
+  SUPPLY_CHART_TARGETS: z.string().default(''),
+  OPTIONAL_PROVIDER_SYNC_ENABLED: z.boolean().default(false),
+  OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS: z.coerce.number().int().positive().default(900),
   MARKET_FRESHNESS_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS),
   MARKET_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS),
   CURRENCY_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CURRENCY_REFRESH_INTERVAL_SECONDS),
@@ -49,6 +57,14 @@ export type AppConfig = {
   databaseUrl: string;
   ccxtExchanges: string[];
   derivativesCcxtExchanges: string;
+  coinHistoryTargets: string;
+  exchangeVolumeTargets: string;
+  marketChartTargets: string;
+  onchainAnalyticsTargets: string;
+  onchainTradeTargets: string;
+  supplyChartTargets: string;
+  optionalProviderSyncEnabled: boolean;
+  optionalProviderSyncIntervalSeconds: number;
   marketFreshnessThresholdSeconds: number;
   marketRefreshIntervalSeconds: number;
   currencyRefreshIntervalSeconds: number;
@@ -182,6 +198,14 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: env.DATABASE_URL,
     ccxtExchanges: env.CCXT_EXCHANGES.split(',').map((value) => value.trim()).filter(Boolean),
     derivativesCcxtExchanges: env.DERIVATIVES_CCXT_EXCHANGES,
+    coinHistoryTargets: env.COIN_HISTORY_TARGETS,
+    exchangeVolumeTargets: env.EXCHANGE_VOLUME_TARGETS,
+    marketChartTargets: env.MARKET_CHART_TARGETS,
+    onchainAnalyticsTargets: env.ONCHAIN_ANALYTICS_TARGETS,
+    onchainTradeTargets: env.ONCHAIN_TRADE_TARGETS,
+    supplyChartTargets: env.SUPPLY_CHART_TARGETS,
+    optionalProviderSyncEnabled: env.OPTIONAL_PROVIDER_SYNC_ENABLED,
+    optionalProviderSyncIntervalSeconds: env.OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS,
     marketFreshnessThresholdSeconds: env.MARKET_FRESHNESS_THRESHOLD_SECONDS,
     marketRefreshIntervalSeconds: env.MARKET_REFRESH_INTERVAL_SECONDS,
     currencyRefreshIntervalSeconds: env.CURRENCY_REFRESH_INTERVAL_SECONDS,

@@ -19,6 +19,14 @@ import { runInitialMarketSync } from './initial-sync';
 import { runMarketRefreshOnce } from './market-refresh';
 import type { MetricsRegistry } from './metrics';
 import { createOhlcvRuntime } from './ohlcv-runtime';
+import {
+  createOptionalProviderJobRegistry,
+  type OptionalProviderJobRegistry,
+} from './optional-provider-jobs';
+import {
+  createConfiguredOptionalProviderSyncJobs,
+  createOptionalProviderSyncScheduler,
+} from './optional-provider-scheduler';
 import { runSearchRebuildOnce } from './search-rebuild';
 import { runStartupPrewarm } from './startup-prewarm';
 import type { StartupProgressReporter } from './startup-progress';
@@ -99,12 +107,13 @@ export function createMarketRuntime(
     };
   },
   database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency' | 'startupPrewarmBudgetMs' | 'disableRemoteCurrencyRefresh'>,
+  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency' | 'startupPrewarmBudgetMs' | 'disableRemoteCurrencyRefresh' | 'optionalProviderSyncEnabled' | 'optionalProviderSyncIntervalSeconds' | 'coinHistoryTargets' | 'exchangeVolumeTargets' | 'marketChartTargets' | 'onchainAnalyticsTargets' | 'onchainTradeTargets' | 'supplyChartTargets'>,
   logger: RuntimeLogger,
   state: MarketDataRuntimeState,
   metrics: MetricsRegistry,
   overrides: MarketRuntimeOverrides = {},
   startupProgress?: StartupProgressReporter,
+  optionalProviderJobs: OptionalProviderJobRegistry = createOptionalProviderJobRegistry(),
 ): MarketRuntime {
   let currencyTimer: NodeJS.Timeout | null = null;
   let marketTimer: NodeJS.Timeout | null = null;
@@ -116,6 +125,14 @@ export function createMarketRuntime(
   let startupSettled = true;
   let stopRequested = false;
   const ohlcvRuntime = createOhlcvRuntime(database, { ccxtExchanges: config.ccxtExchanges }, logger);
+  const optionalProviderScheduler = createOptionalProviderSyncScheduler({
+    enabled: config.optionalProviderSyncEnabled,
+    intervalSeconds: config.optionalProviderSyncIntervalSeconds,
+    jobs: createConfiguredOptionalProviderSyncJobs(database, config),
+    registry: optionalProviderJobs,
+    logger,
+    database,
+  });
 
   async function enableResidualStaleDataIfAvailable() {
     const queryDb = (database as Partial<AppDatabase>).db;
@@ -255,6 +272,7 @@ export function createMarketRuntime(
         searchTimer = setInterval(() => {
           void runSearchJob.run();
         }, config.searchRebuildIntervalSeconds * 1000);
+        optionalProviderScheduler.start();
 
         const simplePriceCache = app.simplePriceCache;
         if (simplePriceCache) {
@@ -312,6 +330,7 @@ export function createMarketRuntime(
         clearInterval(cacheEvictionTimer);
         cacheEvictionTimer = null;
       }
+      await optionalProviderScheduler.stop();
 
       if (startupTask && startupSettled) {
         await startupTask;

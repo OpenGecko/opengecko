@@ -7,6 +7,7 @@ import { SUPPORTED_VS_CURRENCIES } from '../../lib/conversion';
 import { getCategories, getChartSeries, getCoinById, getMarketRows, parseJsonArray, parseJsonObject } from '../catalog';
 import type { SnapshotAccessPolicy } from '../market-freshness';
 import { withResolvedCoinImages } from '../../services/asset-image-identity';
+import { getSourceBackedCoinHistorySnapshot } from '../../services/coin-history-ingestion';
 import {
   buildCategoriesDetails,
   buildCommunityData,
@@ -299,6 +300,12 @@ export function getRequiredCoin(database: AppDatabase, coinId: string) {
 }
 
 export function getHistorySnapshot(database: AppDatabase, coinId: string, targetDate: number) {
+  const sourceBackedSnapshot = getSourceBackedCoinHistorySnapshot(database, coinId, targetDate);
+
+  if (sourceBackedSnapshot) {
+    return sourceBackedSnapshot;
+  }
+
   const currentRow = getMarketRows(database, 'usd', { ids: [coinId], status: 'all' })[0];
   const chartSeries = getChartSeries(database, coinId, 'usd', { to: targetDate });
   const lastPoint = chartSeries.at(-1);

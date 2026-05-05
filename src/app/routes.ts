@@ -20,6 +20,7 @@ export function registerAppRoutes(app: FastifyInstance, {
   config,
   marketDataRuntimeState,
   metrics,
+  optionalProviderJobs,
 }: AppRouteDependencies) {
   registerErrorHandler(app);
   registerTransportControls(app, {
@@ -38,6 +39,25 @@ export function registerAppRoutes(app: FastifyInstance, {
     {
       ccxtExchanges: config.derivativesCcxtExchanges,
     },
+    {
+      targets: config.coinHistoryTargets,
+    },
+    {
+      targets: config.exchangeVolumeTargets,
+    },
+    {
+      targets: config.marketChartTargets,
+    },
+    {
+      targets: config.onchainAnalyticsTargets,
+    },
+    {
+      targets: config.onchainTradeTargets,
+    },
+    {
+      targets: config.supplyChartTargets,
+    },
+    optionalProviderJobs,
   );
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerAssetPlatformRoutes(app, database);
