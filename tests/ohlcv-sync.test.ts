@@ -21,6 +21,7 @@ vi.mock('../src/providers/ccxt', () => ({
 import { fetchExchangeOHLCV } from '../src/providers/ccxt';
 
 const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('ohlcv sync units', () => {
   let tempDir: string;
@@ -92,13 +93,15 @@ describe('ohlcv sync units', () => {
     expect(fetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', Date.parse('2026-03-22T00:00:00.000Z'));
   });
 
-  it('deepens historical sync backward from oldestSyncedAt until target depth is reached', async () => {
+  it('deepens historical sync backward from oldestSyncedAt in provider-safe chunks', async () => {
+    const oldestSyncedAt = Date.parse('2025-03-22T00:00:00.000Z');
+    const expectedSince = oldestSyncedAt - 182 * DAY_MS;
     mockedFetchExchangeOHLCV.mockResolvedValue([
       {
         exchangeId: 'binance',
         symbol: 'BTC/USDT',
         timeframe: '1d',
-        timestamp: Date.parse('2025-03-20T00:00:00.000Z'),
+        timestamp: expectedSince,
         open: 60_000,
         high: 61_000,
         low: 59_500,
@@ -116,20 +119,37 @@ describe('ohlcv sync units', () => {
       interval: '1d',
       priorityTier: 'top100',
       latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
-      oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
-      targetHistoryDays: 365,
+      oldestSyncedAt: new Date(oldestSyncedAt),
+      targetHistoryDays: 730,
     }, new Date('2026-03-23T00:00:00.000Z'));
 
-    expect(fetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', Date.parse('2025-03-20T00:00:00.000Z'));
+    expect(fetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', expectedSince, 182);
 
     const candles = getCanonicalCandles(database, 'bitcoin', 'usd', '1d', {
-      from: Date.parse('2025-03-20T00:00:00.000Z'),
-      to: Date.parse('2025-03-20T00:00:00.000Z'),
+      from: expectedSince,
+      to: expectedSince,
     });
     expect(candles[0]).toMatchObject({
       open: 60_000,
       close: 60_500,
       totalVolume: 900,
     });
+  });
+
+  it('skips historical deepening when the target history window is already covered', async () => {
+    const result = await deepenHistoricalOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2025-03-20T00:00:00.000Z'),
+      targetHistoryDays: 365,
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(result).toEqual([]);
+    expect(fetchExchangeOHLCV).not.toHaveBeenCalled();
   });
 });

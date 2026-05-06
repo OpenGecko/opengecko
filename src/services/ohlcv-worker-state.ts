@@ -9,6 +9,7 @@ const PRIORITY_RANK: Record<OhlcvPriorityTier, number> = {
   requested: 1,
   long_tail: 2,
 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 type OhlcvTargetKey = {
   coinId: string;
@@ -66,18 +67,43 @@ export function leaseNextOhlcvTarget(database: AppDatabase, now: Date): OhlcvSyn
     .from(ohlcvSyncTargets)
     .where(
       and(
-        eq(ohlcvSyncTargets.status, 'idle'),
+        or(
+          eq(ohlcvSyncTargets.status, 'idle'),
+          eq(ohlcvSyncTargets.status, 'failed'),
+        ),
         or(isNull(ohlcvSyncTargets.nextRetryAt), lte(ohlcvSyncTargets.nextRetryAt, now)),
       ),
     )
     .orderBy(asc(ohlcvSyncTargets.lastSuccessAt), asc(ohlcvSyncTargets.updatedAt))
     .all();
 
+  const remainingDepthDays = (target: OhlcvSyncTargetRow) => {
+    const desiredOldestMs = now.getTime() - target.targetHistoryDays * DAY_MS;
+    const historicalGapMs = target.oldestSyncedAt
+      ? Math.max(target.oldestSyncedAt.getTime() - desiredOldestMs, 0)
+      : target.targetHistoryDays * DAY_MS;
+
+    return Math.ceil(historicalGapMs / DAY_MS);
+  };
+
   const selected = [...candidates].sort((left, right) => {
     const priorityDifference = PRIORITY_RANK[left.priorityTier] - PRIORITY_RANK[right.priorityTier];
 
     if (priorityDifference !== 0) {
       return priorityDifference;
+    }
+
+    const leftRetryDue = left.status === 'failed' ? 0 : 1;
+    const rightRetryDue = right.status === 'failed' ? 0 : 1;
+
+    if (leftRetryDue !== rightRetryDue) {
+      return leftRetryDue - rightRetryDue;
+    }
+
+    const depthDifference = remainingDepthDays(right) - remainingDepthDays(left);
+
+    if (depthDifference !== 0) {
+      return depthDifference;
     }
 
     const leftSuccess = left.lastSuccessAt?.getTime() ?? 0;

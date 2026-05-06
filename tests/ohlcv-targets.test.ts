@@ -128,12 +128,37 @@ describe('ohlcv targets', () => {
       coinId: 'bitcoin',
       symbol: 'BTC/USDT',
       priorityTier: 'top100',
-      targetHistoryDays: 365,
+      targetHistoryDays: 1825,
     }));
     expect(targets).toContainEqual(expect.objectContaining({
       coinId: 'litecoin',
       symbol: 'LTC/USD',
       priorityTier: 'long_tail',
+      targetHistoryDays: 1825,
+    }));
+  });
+
+  it('allows operators to override the default five-year history window per target refresh', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+    ]);
+
+    const targets = await buildOhlcvSyncTargets(database, ['binance'], new Set(['bitcoin']), {
+      targetHistoryDays: 365,
+    });
+
+    expect(targets).toContainEqual(expect.objectContaining({
+      coinId: 'bitcoin',
+      symbol: 'BTC/USDT',
       targetHistoryDays: 365,
     }));
   });

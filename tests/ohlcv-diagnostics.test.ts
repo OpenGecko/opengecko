@@ -64,6 +64,188 @@ describe('ohlcv diagnostics route', () => {
         retry_scheduled: 3,
         max_target_history_days: 365,
       },
+      history: {
+        target_depth_days: 365,
+        desired_oldest_at: '2025-03-23T00:00:00.000Z',
+        oldest_covered_at: '2025-03-22T00:00:00.000Z',
+        newest_covered_at: '2026-03-22T00:00:00.000Z',
+        targets_with_any_history: 97,
+        targets_at_target_depth: 94,
+        by_tier: {
+          top100: {
+            total: 100,
+            with_any_history: 97,
+            at_target_depth: 94,
+            oldest_covered_at: '2025-03-22T00:00:00.000Z',
+            remaining_depth_days: 6,
+            estimated_remaining_chunks: 1,
+            depth_status_counts: {
+              complete: 94,
+              catching_up: 6,
+              blocked: 0,
+            },
+            retry_recovery_counts: {
+              due: 0,
+              backoff: 0,
+            },
+            retry_starvation_counts: {
+              starved: 0,
+            },
+          },
+          requested: {
+            total: 0,
+            with_any_history: 0,
+            at_target_depth: 0,
+            oldest_covered_at: null,
+            remaining_depth_days: 0,
+            estimated_remaining_chunks: 0,
+            depth_status_counts: {
+              complete: 0,
+              catching_up: 0,
+              blocked: 0,
+            },
+            retry_recovery_counts: {
+              due: 0,
+              backoff: 0,
+            },
+            retry_starvation_counts: {
+              starved: 0,
+            },
+          },
+          long_tail: {
+            total: 0,
+            with_any_history: 0,
+            at_target_depth: 0,
+            oldest_covered_at: null,
+            remaining_depth_days: 0,
+            estimated_remaining_chunks: 0,
+            depth_status_counts: {
+              complete: 0,
+              catching_up: 0,
+              blocked: 0,
+            },
+            retry_recovery_counts: {
+              due: 0,
+              backoff: 0,
+            },
+            retry_starvation_counts: {
+              starved: 0,
+            },
+          },
+        },
+        depth_status_counts: {
+          complete: 94,
+          catching_up: 6,
+          blocked: 0,
+        },
+        retry_recovery_counts: {
+          due: 0,
+          backoff: 0,
+        },
+        retry_starvation_counts: {
+          starved: 0,
+        },
+        retry_starvation_thresholds: {
+          due_age_seconds: 120,
+        },
+        queue_priority_summary: {
+          totals: {
+            eligible_for_lease: 94,
+            retry_due_failed: 0,
+            retry_backoff_failed: 0,
+            incomplete_depth: 6,
+            complete_depth: 94,
+            running: 0,
+            starved_retry_due: 0,
+          },
+          by_tier: {
+            top100: {
+              eligible_for_lease: 94,
+              retry_due_failed: 0,
+              retry_backoff_failed: 0,
+              incomplete_depth: 6,
+              complete_depth: 94,
+              running: 0,
+              starved_retry_due: 0,
+            },
+            requested: {
+              eligible_for_lease: 0,
+              retry_due_failed: 0,
+              retry_backoff_failed: 0,
+              incomplete_depth: 0,
+              complete_depth: 0,
+              running: 0,
+              starved_retry_due: 0,
+            },
+            long_tail: {
+              eligible_for_lease: 0,
+              retry_due_failed: 0,
+              retry_backoff_failed: 0,
+              incomplete_depth: 0,
+              complete_depth: 0,
+              running: 0,
+              starved_retry_due: 0,
+            },
+          },
+        },
+        depth_alert_thresholds: {
+          complete_remaining_depth_days: 0,
+          catching_up_min_remaining_depth_days: 1,
+          blocked_statuses: ['failed'],
+        },
+        completion_estimate: {
+          chunk_days: 180,
+          overlap_days: 2,
+          targets_incomplete: 6,
+          remaining_depth_days: 6,
+          estimated_remaining_chunks: 1,
+          max_remaining_depth_days: 1,
+        },
+        most_behind_samples: {
+          top100: [
+            {
+              coin_id: 'bitcoin',
+              exchange_id: 'binance',
+              symbol: 'BTC/USDT',
+              vs_currency: 'usd',
+              interval: '1d',
+              status: 'idle',
+              target_history_days: 365,
+              oldest_synced_at: '2025-03-24T00:00:00.000Z',
+              latest_synced_at: '2026-03-22T00:00:00.000Z',
+              remaining_depth_days: 1,
+              estimated_remaining_chunks: 1,
+            },
+          ],
+          requested: [],
+          long_tail: [],
+        },
+        blocked_target_samples: {
+          top100: [
+            {
+              coin_id: 'bitcoin',
+              exchange_id: 'binance',
+              symbol: 'BTC/USDT',
+              vs_currency: 'usd',
+              interval: '1d',
+              status: 'failed',
+              target_history_days: 365,
+              oldest_synced_at: '2025-03-24T00:00:00.000Z',
+              latest_synced_at: '2026-03-22T00:00:00.000Z',
+              remaining_depth_days: 1,
+              estimated_remaining_chunks: 1,
+              failure_count: 2,
+              next_retry_at: '2026-03-23T00:10:00.000Z',
+              retry_in_seconds: 600,
+              last_attempt_at: '2026-03-23T00:00:00.000Z',
+              last_success_at: '2026-03-22T00:00:00.000Z',
+              last_error: 'rate limit',
+            },
+          ],
+          requested: [],
+          long_tail: [],
+        },
+      },
     };
 
     const summarizeSpy = vi
@@ -99,6 +281,7 @@ describe('ohlcv diagnostics route', () => {
           retry_scheduled: 3,
           max_target_history_days: 365,
         },
+        history: summary.history,
       },
     });
 
@@ -112,5 +295,7 @@ describe('ohlcv diagnostics route', () => {
     expect(response.json().data.backfill.behind).toBeGreaterThanOrEqual(0);
     expect(response.json().data.backfill.retry_scheduled).toBeGreaterThanOrEqual(0);
     expect(response.json().data.backfill.max_target_history_days).toBeGreaterThanOrEqual(0);
+    expect(response.json().data.history.target_depth_days).toBe(365);
+    expect(response.json().data.history.targets_with_any_history).toBeGreaterThanOrEqual(response.json().data.history.targets_at_target_depth);
   });
 });

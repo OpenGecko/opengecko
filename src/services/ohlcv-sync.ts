@@ -9,6 +9,8 @@ type OhlcvSyncTargetLike = Pick<
 >;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const HISTORICAL_DEEPEN_CHUNK_DAYS = 180;
+export const HISTORICAL_DEEPEN_OVERLAP_DAYS = 2;
 
 function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: Awaited<ReturnType<typeof fetchExchangeOHLCV>>) {
   for (const candle of candles) {
@@ -55,11 +57,18 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
 
 export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target: OhlcvSyncTargetLike, now: Date) {
   const desiredOldest = now.getTime() - target.targetHistoryDays * DAY_MS;
-  const since = target.oldestSyncedAt
-    ? target.oldestSyncedAt.getTime() - 2 * DAY_MS
-    : desiredOldest;
+  const oldestSyncedAt = target.oldestSyncedAt?.getTime();
 
-  const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, '1d', since);
+  if (oldestSyncedAt !== undefined && oldestSyncedAt <= desiredOldest) {
+    return [];
+  }
+
+  const referenceEnd = oldestSyncedAt ?? target.latestSyncedAt?.getTime() ?? now.getTime();
+  const chunkDays = HISTORICAL_DEEPEN_CHUNK_DAYS + HISTORICAL_DEEPEN_OVERLAP_DAYS;
+  const since = Math.max(desiredOldest, referenceEnd - chunkDays * DAY_MS);
+  const limit = Math.max(Math.ceil((referenceEnd - since) / DAY_MS), 1);
+
+  const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, '1d', since, limit);
   persistCandles(database, target, candles);
   await repairPersistedGaps(database, target);
 

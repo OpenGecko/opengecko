@@ -7,8 +7,10 @@ import { createDatabase, migrateDatabase, seedStaticReferenceData, type AppDatab
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { coins } from '../src/db/schema';
+import { coins, ohlcvSyncTargets } from '../src/db/schema';
 import { detectOhlcvGaps, getCanonicalCandles, upsertCanonicalOhlcvCandle } from '../src/services/candle-store';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -328,6 +330,83 @@ describe('ohlcv runtime', () => {
     expect(syncRecentOhlcvWindow).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({ coinId: 'ethereum' }), expect.any(Date));
   });
 
+  it('retries due failed targets and clears retry diagnostics after success', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-retry-'));
+    const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));
+    const now = new Date('2026-03-23T00:00:00.000Z');
+
+    try {
+      migrateDatabase(database);
+      seedStaticReferenceData(database);
+      database.db.insert(coins).values({
+        id: 'bitcoin',
+        symbol: 'btc',
+        name: 'Bitcoin',
+        apiSymbol: 'bitcoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 1,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-22T00:00:00.000Z'),
+      }).onConflictDoNothing().run();
+      database.db.insert(ohlcvSyncTargets).values({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        status: 'failed',
+        lastAttemptAt: new Date('2026-03-22T23:54:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+        failureCount: 1,
+        nextRetryAt: new Date('2026-03-22T23:59:00.000Z'),
+        lastRequestedAt: null,
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-22T23:54:00.000Z'),
+      }).run();
+
+      expect(summarizeOhlcvSyncStatus(database, now).history.retry_recovery_counts).toEqual({
+        due: 1,
+        backoff: 0,
+      });
+
+      const runtime = createOhlcvRuntime(database, { ccxtExchanges: ['binance'] }, logger, {
+        refreshTargets: vi.fn().mockResolvedValue(undefined),
+        syncRecentOhlcvWindow: vi.fn().mockResolvedValue([{ timestamp: now.getTime() }]),
+        deepenHistoricalOhlcvWindow: vi.fn().mockResolvedValue([]),
+      });
+
+      await runtime.tick(now);
+
+      const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+      expect(row.status).toBe('idle');
+      expect(row.failureCount).toBe(0);
+      expect(row.lastError).toBeNull();
+      expect(row.nextRetryAt).toBeNull();
+      expect(summarizeOhlcvSyncStatus(database, now).history.retry_recovery_counts).toEqual({
+        due: 0,
+        backoff: 0,
+      });
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not throw when target refresh fails', async () => {
     const leaseNextOhlcvTarget = vi.fn();
     const runtime = createOhlcvRuntime({} as never, { ccxtExchanges: ['binance'] }, logger, {
@@ -365,12 +444,20 @@ describe('ohlcv runtime', () => {
               },
               {
                 coinId: 'some-microcap',
+                exchangeId: 'binance',
+                symbol: 'SMC/USDT',
+                vsCurrency: 'usd',
+                interval: '1d',
                 priorityTier: 'long_tail',
                 status: 'failed',
                 latestSyncedAt: null,
                 oldestSyncedAt: null,
                 targetHistoryDays: 365,
                 lastError: 'rate limit',
+                failureCount: 1,
+                nextRetryAt: new Date('2026-03-23T00:05:00.000Z'),
+                lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+                lastSuccessAt: null,
               },
             ],
           }),
@@ -382,6 +469,135 @@ describe('ohlcv runtime', () => {
     expect(summary.targets.failed).toBe(1);
     expect(summary.lag.oldest_recent_sync_ms).toBeGreaterThan(0);
     expect(summary.lag.oldest_historical_gap_ms).toBeGreaterThan(0);
+    expect(summary.history).toMatchObject({
+      target_depth_days: 365,
+      desired_oldest_at: '2025-03-23T00:00:00.000Z',
+      oldest_covered_at: '2025-03-22T00:00:00.000Z',
+      newest_covered_at: '2026-03-22T00:00:00.000Z',
+      targets_with_any_history: 1,
+      targets_at_target_depth: 1,
+    });
+    expect(summary.history.by_tier.top100).toMatchObject({
+      total: 1,
+      with_any_history: 1,
+      at_target_depth: 1,
+      oldest_covered_at: '2025-03-22T00:00:00.000Z',
+      remaining_depth_days: 0,
+      estimated_remaining_chunks: 0,
+      depth_status_counts: {
+        complete: 1,
+        catching_up: 0,
+        blocked: 0,
+      },
+      retry_recovery_counts: {
+        due: 0,
+        backoff: 0,
+      },
+      retry_starvation_counts: {
+        starved: 0,
+      },
+    });
+    expect(summary.history.by_tier.long_tail).toMatchObject({
+      total: 1,
+      with_any_history: 0,
+      at_target_depth: 0,
+      oldest_covered_at: null,
+      remaining_depth_days: 365,
+      estimated_remaining_chunks: 3,
+      depth_status_counts: {
+        complete: 0,
+        catching_up: 0,
+        blocked: 1,
+      },
+      retry_recovery_counts: {
+        due: 0,
+        backoff: 1,
+      },
+      retry_starvation_counts: {
+        starved: 0,
+      },
+    });
+    expect(summary.history.depth_status_counts).toEqual({
+      complete: 1,
+      catching_up: 0,
+      blocked: 1,
+    });
+    expect(summary.history.retry_recovery_counts).toEqual({
+      due: 0,
+      backoff: 1,
+    });
+    expect(summary.history.retry_starvation_counts).toEqual({
+      starved: 0,
+    });
+    expect(summary.history.retry_starvation_thresholds).toEqual({
+      due_age_seconds: 120,
+    });
+    expect(summary.history.queue_priority_summary).toEqual({
+      totals: {
+        eligible_for_lease: 1,
+        retry_due_failed: 0,
+        retry_backoff_failed: 1,
+        incomplete_depth: 1,
+        complete_depth: 1,
+        running: 0,
+        starved_retry_due: 0,
+      },
+      by_tier: {
+        top100: {
+          eligible_for_lease: 1,
+          retry_due_failed: 0,
+          retry_backoff_failed: 0,
+          incomplete_depth: 0,
+          complete_depth: 1,
+          running: 0,
+          starved_retry_due: 0,
+        },
+        requested: {
+          eligible_for_lease: 0,
+          retry_due_failed: 0,
+          retry_backoff_failed: 0,
+          incomplete_depth: 0,
+          complete_depth: 0,
+          running: 0,
+          starved_retry_due: 0,
+        },
+        long_tail: {
+          eligible_for_lease: 0,
+          retry_due_failed: 0,
+          retry_backoff_failed: 1,
+          incomplete_depth: 1,
+          complete_depth: 0,
+          running: 0,
+          starved_retry_due: 0,
+        },
+      },
+    });
+    expect(summary.history.depth_alert_thresholds).toEqual({
+      complete_remaining_depth_days: 0,
+      catching_up_min_remaining_depth_days: 1,
+      blocked_statuses: ['failed'],
+    });
+    expect(summary.history.completion_estimate).toEqual({
+      chunk_days: 180,
+      overlap_days: 2,
+      targets_incomplete: 1,
+      remaining_depth_days: 365,
+      estimated_remaining_chunks: 3,
+      max_remaining_depth_days: 365,
+    });
+    expect(summary.history.blocked_target_samples.long_tail).toEqual([
+      expect.objectContaining({
+        coin_id: 'some-microcap',
+        exchange_id: 'binance',
+        symbol: 'SMC/USDT',
+        failure_count: 1,
+        next_retry_at: '2026-03-23T00:05:00.000Z',
+        retry_in_seconds: 300,
+        last_attempt_at: '2026-03-23T00:00:00.000Z',
+        last_success_at: null,
+        last_error: 'rate limit',
+      }),
+    ]);
   });
 
   it('reports freshness lag and backfill health counts in diagnostics summary', () => {
@@ -402,6 +618,10 @@ describe('ohlcv runtime', () => {
               },
               {
                 coinId: 'ethereum',
+                exchangeId: 'binance',
+                symbol: 'ETH/USDT',
+                vsCurrency: 'usd',
+                interval: '1d',
                 priorityTier: 'top100',
                 status: 'failed',
                 latestSyncedAt: new Date('2026-03-20T00:00:00.000Z'),
@@ -409,6 +629,9 @@ describe('ohlcv runtime', () => {
                 targetHistoryDays: 180,
                 failureCount: 2,
                 nextRetryAt: new Date('2026-03-23T00:10:00.000Z'),
+                lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+                lastSuccessAt: new Date('2026-03-20T00:00:00.000Z'),
+                lastError: 'binance GET https://adapter.example/fetch?api_key=secret-token&symbol=ETH failed',
               },
               {
                 coinId: 'some-microcap',
@@ -443,6 +666,663 @@ describe('ohlcv runtime', () => {
       behind: 2,
       retry_scheduled: 1,
       max_target_history_days: 180,
+    });
+    expect(summary.history).toEqual({
+      target_depth_days: 180,
+      desired_oldest_at: new Date(Date.parse('2026-03-23T00:00:00.000Z') - 180 * DAY_MS).toISOString(),
+      oldest_covered_at: '2025-12-23T00:00:00.000Z',
+      newest_covered_at: '2026-03-22T00:00:00.000Z',
+      targets_with_any_history: 2,
+      targets_at_target_depth: 1,
+      by_tier: {
+        top100: {
+          total: 2,
+          with_any_history: 1,
+          at_target_depth: 1,
+          oldest_covered_at: '2025-12-23T00:00:00.000Z',
+          remaining_depth_days: 180,
+          estimated_remaining_chunks: 1,
+          depth_status_counts: {
+            complete: 1,
+            catching_up: 0,
+            blocked: 1,
+          },
+          retry_recovery_counts: {
+            due: 0,
+            backoff: 1,
+          },
+          retry_starvation_counts: {
+            starved: 0,
+          },
+        },
+        requested: {
+          total: 0,
+          with_any_history: 0,
+          at_target_depth: 0,
+          oldest_covered_at: null,
+          remaining_depth_days: 0,
+          estimated_remaining_chunks: 0,
+          depth_status_counts: {
+            complete: 0,
+            catching_up: 0,
+            blocked: 0,
+          },
+          retry_recovery_counts: {
+            due: 0,
+            backoff: 0,
+          },
+          retry_starvation_counts: {
+            starved: 0,
+          },
+        },
+        long_tail: {
+          total: 1,
+          with_any_history: 1,
+          at_target_depth: 0,
+          oldest_covered_at: '2026-03-15T00:00:00.000Z',
+          remaining_depth_days: 22,
+          estimated_remaining_chunks: 1,
+          depth_status_counts: {
+            complete: 0,
+            catching_up: 1,
+            blocked: 0,
+          },
+          retry_recovery_counts: {
+            due: 0,
+            backoff: 0,
+          },
+          retry_starvation_counts: {
+            starved: 0,
+          },
+        },
+      },
+      depth_status_counts: {
+        complete: 1,
+        catching_up: 1,
+        blocked: 1,
+      },
+      retry_recovery_counts: {
+        due: 0,
+        backoff: 1,
+      },
+      retry_starvation_counts: {
+        starved: 0,
+      },
+      retry_starvation_thresholds: {
+        due_age_seconds: 120,
+      },
+      queue_priority_summary: {
+        totals: {
+          eligible_for_lease: 1,
+          retry_due_failed: 0,
+          retry_backoff_failed: 1,
+          incomplete_depth: 2,
+          complete_depth: 1,
+          running: 1,
+          starved_retry_due: 0,
+        },
+        by_tier: {
+          top100: {
+            eligible_for_lease: 1,
+            retry_due_failed: 0,
+            retry_backoff_failed: 1,
+            incomplete_depth: 1,
+            complete_depth: 1,
+            running: 0,
+            starved_retry_due: 0,
+          },
+          requested: {
+            eligible_for_lease: 0,
+            retry_due_failed: 0,
+            retry_backoff_failed: 0,
+            incomplete_depth: 0,
+            complete_depth: 0,
+            running: 0,
+            starved_retry_due: 0,
+          },
+          long_tail: {
+            eligible_for_lease: 0,
+            retry_due_failed: 0,
+            retry_backoff_failed: 0,
+            incomplete_depth: 1,
+            complete_depth: 0,
+            running: 1,
+            starved_retry_due: 0,
+          },
+        },
+      },
+      depth_alert_thresholds: {
+        complete_remaining_depth_days: 0,
+        catching_up_min_remaining_depth_days: 1,
+        blocked_statuses: ['failed'],
+      },
+      completion_estimate: {
+        chunk_days: 180,
+        overlap_days: 2,
+        targets_incomplete: 2,
+        remaining_depth_days: 202,
+        estimated_remaining_chunks: 2,
+        max_remaining_depth_days: 180,
+      },
+      most_behind_samples: {
+        top100: [
+          {
+            coin_id: 'ethereum',
+            exchange_id: 'binance',
+            symbol: 'ETH/USDT',
+            vs_currency: 'usd',
+            interval: '1d',
+            status: 'failed',
+            target_history_days: 180,
+            oldest_synced_at: null,
+            latest_synced_at: '2026-03-20T00:00:00.000Z',
+            remaining_depth_days: 180,
+            estimated_remaining_chunks: 1,
+          },
+        ],
+        requested: [],
+        long_tail: [
+          {
+            coin_id: 'some-microcap',
+            exchange_id: undefined,
+            symbol: undefined,
+            vs_currency: undefined,
+            interval: undefined,
+            status: 'running',
+            target_history_days: 30,
+            oldest_synced_at: '2026-03-15T00:00:00.000Z',
+            latest_synced_at: null,
+            remaining_depth_days: 22,
+            estimated_remaining_chunks: 1,
+          },
+        ],
+      },
+      blocked_target_samples: {
+        top100: [
+          {
+            coin_id: 'ethereum',
+            exchange_id: 'binance',
+            symbol: 'ETH/USDT',
+            vs_currency: 'usd',
+            interval: '1d',
+            status: 'failed',
+            target_history_days: 180,
+            oldest_synced_at: null,
+            latest_synced_at: '2026-03-20T00:00:00.000Z',
+            remaining_depth_days: 180,
+            estimated_remaining_chunks: 1,
+            failure_count: 2,
+            next_retry_at: '2026-03-23T00:10:00.000Z',
+            retry_in_seconds: 600,
+            last_attempt_at: '2026-03-23T00:00:00.000Z',
+            last_success_at: '2026-03-20T00:00:00.000Z',
+            last_error: 'binance GET https://adapter.example/fetch?redacted failed',
+          },
+        ],
+        requested: [],
+        long_tail: [],
+      },
+    });
+  });
+
+  it('estimates fewer remaining historical chunks as oldest coverage approaches target depth', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const baseTarget = {
+      coinId: 'bitcoin',
+      priorityTier: 'top100',
+      status: 'idle',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      targetHistoryDays: 365,
+      failureCount: 0,
+      nextRetryAt: null,
+    };
+    const summarizeWithOldest = (oldestSyncedAt: Date | null) => summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => [{
+              ...baseTarget,
+              oldestSyncedAt,
+            }],
+          }),
+        }),
+      },
+    } as never, now);
+
+    const shallowCoverage = summarizeWithOldest(new Date('2026-02-01T00:00:00.000Z'));
+    const deeperCoverage = summarizeWithOldest(new Date('2025-07-01T00:00:00.000Z'));
+    const completeCoverage = summarizeWithOldest(new Date('2025-03-22T00:00:00.000Z'));
+
+    expect(shallowCoverage.history.completion_estimate).toMatchObject({
+      targets_incomplete: 1,
+      remaining_depth_days: 315,
+      estimated_remaining_chunks: 2,
+      max_remaining_depth_days: 315,
+    });
+    expect(deeperCoverage.history.completion_estimate).toMatchObject({
+      targets_incomplete: 1,
+      remaining_depth_days: 100,
+      estimated_remaining_chunks: 1,
+      max_remaining_depth_days: 100,
+    });
+    expect(completeCoverage.history.completion_estimate).toMatchObject({
+      targets_incomplete: 0,
+      remaining_depth_days: 0,
+      estimated_remaining_chunks: 0,
+      max_remaining_depth_days: 0,
+    });
+  });
+
+  it('samples the most-behind ohlcv targets per tier with a fixed cap and deterministic ordering', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const targetRows = [
+      ['bitcoin', 'BTC/USDT', '2026-02-01T00:00:00.000Z'],
+      ['ethereum', 'ETH/USDT', null],
+      ['solana', 'SOL/USDT', '2025-09-01T00:00:00.000Z'],
+      ['cardano', 'ADA/USDT', '2025-08-01T00:00:00.000Z'],
+      ['dogecoin', 'DOGE/USDT', '2025-07-01T00:00:00.000Z'],
+      ['chainlink', 'LINK/USDT', '2025-06-01T00:00:00.000Z'],
+      ['ripple', 'XRP/USDT', '2025-05-01T00:00:00.000Z'],
+    ].map(([coinId, symbol, oldestSyncedAt]) => ({
+      coinId,
+      exchangeId: 'binance',
+      symbol,
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      status: 'idle',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: oldestSyncedAt ? new Date(oldestSyncedAt) : null,
+      targetHistoryDays: 365,
+      failureCount: 0,
+      nextRetryAt: null,
+    }));
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => targetRows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.most_behind_samples.top100).toHaveLength(5);
+    expect(summary.history.most_behind_samples.top100.map((sample) => sample.coin_id)).toEqual([
+      'ethereum',
+      'bitcoin',
+      'solana',
+      'cardano',
+      'dogecoin',
+    ]);
+    expect(summary.history.most_behind_samples.top100[0]).toMatchObject({
+      coin_id: 'ethereum',
+      exchange_id: 'binance',
+      symbol: 'ETH/USDT',
+      remaining_depth_days: 365,
+      estimated_remaining_chunks: 3,
+      oldest_synced_at: null,
+    });
+    expect(summary.history.most_behind_samples.top100[1]).toMatchObject({
+      coin_id: 'bitcoin',
+      remaining_depth_days: 315,
+      estimated_remaining_chunks: 2,
+    });
+  });
+
+  it('samples blocked ohlcv targets with retry metadata, sanitized errors, and deterministic ordering', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const targetRows = [
+      ['bitcoin', 'BTC/USDT', null, '2026-03-23T00:30:00.000Z', 'GET https://adapter.example/ohlcv?api_key=secret&symbol=BTC failed'],
+      ['ethereum', 'ETH/USDT', null, '2026-03-23T00:05:00.000Z', 'token=secret-token rate limit'],
+      ['solana', 'SOL/USDT', '2026-01-01T00:00:00.000Z', '2026-03-23T00:05:00.000Z', 'temporary upstream error'],
+      ['cardano', 'ADA/USDT', null, '2026-03-23T00:10:00.000Z', 'temporary upstream error'],
+      ['dogecoin', 'DOGE/USDT', null, '2026-03-23T00:15:00.000Z', 'temporary upstream error'],
+      ['chainlink', 'LINK/USDT', null, '2026-03-23T00:20:00.000Z', 'temporary upstream error'],
+    ].map(([coinId, symbol, oldestSyncedAt, nextRetryAt, lastError], index) => ({
+      coinId,
+      exchangeId: 'binance',
+      symbol,
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      status: 'failed',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: oldestSyncedAt ? new Date(oldestSyncedAt) : null,
+      targetHistoryDays: 365,
+      failureCount: index + 1,
+      nextRetryAt: nextRetryAt ? new Date(nextRetryAt) : null,
+      lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+      lastSuccessAt: null,
+      lastError,
+    }));
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => targetRows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.blocked_target_samples.top100).toHaveLength(5);
+    expect(summary.history.blocked_target_samples.top100.map((sample) => sample.coin_id)).toEqual([
+      'ethereum',
+      'solana',
+      'cardano',
+      'dogecoin',
+      'chainlink',
+    ]);
+    expect(summary.history.blocked_target_samples.top100[0]).toMatchObject({
+      coin_id: 'ethereum',
+      next_retry_at: '2026-03-23T00:05:00.000Z',
+      retry_in_seconds: 300,
+      failure_count: 2,
+      last_error: 'token=redacted rate limit',
+    });
+    expect(summary.history.blocked_target_samples.top100[1]).toMatchObject({
+      coin_id: 'solana',
+      next_retry_at: '2026-03-23T00:05:00.000Z',
+      remaining_depth_days: 284,
+    });
+    expect(summary.history.blocked_target_samples.top100.some((sample) =>
+      sample.last_error?.includes('secret'))).toBe(false);
+  });
+
+  it('splits failed ohlcv targets by retry due and backoff state per tier', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const rows = [
+      {
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 1,
+        nextRetryAt: new Date('2026-03-22T23:59:00.000Z'),
+        lastAttemptAt: new Date('2026-03-22T23:54:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+      {
+        coinId: 'ethereum',
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 2,
+        nextRetryAt: new Date('2026-03-23T00:10:00.000Z'),
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+      {
+        coinId: 'some-microcap',
+        exchangeId: 'binance',
+        symbol: 'SMC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'long_tail',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 30,
+        failureCount: 1,
+        nextRetryAt: null,
+        lastAttemptAt: new Date('2026-03-22T23:54:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'timeout',
+      },
+    ];
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => rows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.retry_recovery_counts).toEqual({
+      due: 2,
+      backoff: 1,
+    });
+    expect(summary.history.by_tier.top100.retry_recovery_counts).toEqual({
+      due: 1,
+      backoff: 1,
+    });
+    expect(summary.history.by_tier.long_tail.retry_recovery_counts).toEqual({
+      due: 1,
+      backoff: 0,
+    });
+    expect(summary.history.retry_starvation_counts).toEqual({
+      starved: 1,
+    });
+    expect(summary.history.by_tier.top100.retry_starvation_counts).toEqual({
+      starved: 0,
+    });
+    expect(summary.history.by_tier.long_tail.retry_starvation_counts).toEqual({
+      starved: 1,
+    });
+  });
+
+  it('summarizes the coarse ohlcv retry and backfill queue by lease-priority buckets', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const rows = [
+      {
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-02-01T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        failureCount: 2,
+        nextRetryAt: new Date('2026-03-22T23:57:00.000Z'),
+        lastAttemptAt: new Date('2026-03-22T23:52:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+      {
+        coinId: 'ethereum',
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 1,
+        nextRetryAt: new Date('2026-03-23T00:05:00.000Z'),
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'timeout',
+      },
+      {
+        coinId: 'solana',
+        exchangeId: 'binance',
+        symbol: 'SOL/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'requested',
+        status: 'idle',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-01-01T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastAttemptAt: null,
+        lastSuccessAt: new Date('2026-03-22T00:00:00.000Z'),
+        lastError: null,
+      },
+      {
+        coinId: 'cardano',
+        exchangeId: 'binance',
+        symbol: 'ADA/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'long_tail',
+        status: 'running',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: new Date('2026-03-22T00:00:00.000Z'),
+        lastError: null,
+      },
+    ];
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => rows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.queue_priority_summary).toEqual({
+      totals: {
+        eligible_for_lease: 2,
+        retry_due_failed: 1,
+        retry_backoff_failed: 1,
+        incomplete_depth: 3,
+        complete_depth: 1,
+        running: 1,
+        starved_retry_due: 1,
+      },
+      by_tier: {
+        top100: {
+          eligible_for_lease: 1,
+          retry_due_failed: 1,
+          retry_backoff_failed: 1,
+          incomplete_depth: 2,
+          complete_depth: 0,
+          running: 0,
+          starved_retry_due: 1,
+        },
+        requested: {
+          eligible_for_lease: 1,
+          retry_due_failed: 0,
+          retry_backoff_failed: 0,
+          incomplete_depth: 1,
+          complete_depth: 0,
+          running: 0,
+          starved_retry_due: 0,
+        },
+        long_tail: {
+          eligible_for_lease: 0,
+          retry_due_failed: 0,
+          retry_backoff_failed: 0,
+          incomplete_depth: 0,
+          complete_depth: 1,
+          running: 1,
+          starved_retry_due: 0,
+        },
+      },
+    });
+  });
+
+  it('counts retry-due failed targets as starvation risk only after the due-age threshold', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const rows = [
+      {
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 1,
+        nextRetryAt: new Date('2026-03-22T23:57:59.000Z'),
+        lastAttemptAt: new Date('2026-03-22T23:52:59.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+      {
+        coinId: 'ethereum',
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 2,
+        nextRetryAt: new Date('2026-03-22T23:59:00.000Z'),
+        lastAttemptAt: new Date('2026-03-22T23:54:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+      {
+        coinId: 'some-microcap',
+        exchangeId: 'binance',
+        symbol: 'SMC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'long_tail',
+        status: 'failed',
+        latestSyncedAt: null,
+        oldestSyncedAt: null,
+        targetHistoryDays: 30,
+        failureCount: 2,
+        nextRetryAt: new Date('2026-03-23T00:10:00.000Z'),
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: null,
+        lastError: 'rate limit',
+      },
+    ];
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => rows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.retry_starvation_thresholds).toEqual({
+      due_age_seconds: 120,
+    });
+    expect(summary.history.retry_starvation_counts).toEqual({
+      starved: 1,
+    });
+    expect(summary.history.by_tier.top100.retry_starvation_counts).toEqual({
+      starved: 1,
+    });
+    expect(summary.history.by_tier.long_tail.retry_starvation_counts).toEqual({
+      starved: 0,
     });
   });
 });
