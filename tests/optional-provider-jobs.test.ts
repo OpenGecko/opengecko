@@ -110,6 +110,7 @@ describe('optional provider job diagnostics', () => {
         summary: {
           succeeded: 1,
           failed: 0,
+          partial_failure: 0,
         },
         jobs: expect.arrayContaining([
           expect.objectContaining({
@@ -122,9 +123,130 @@ describe('optional provider job diagnostics', () => {
             last_targets_attempted: 2,
             last_rows_written: 6,
             last_failure_reason: null,
+            last_partial_failure_reason: null,
+            last_partial_failure_samples: [],
+            last_partial_failure_retry_targets_template: null,
           }),
         ]),
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('reports partial success state without classifying the job as clean success', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      app.optionalProviderJobs.recordSuccess('market_charts', {
+        startedAt: new Date('2026-05-05T02:10:00.000Z'),
+        finishedAt: new Date('2026-05-05T02:10:02.000Z'),
+        targetsAttempted: 2,
+        rowsWritten: 1,
+        partialFailureReason: '1 market chart target(s) failed; first failure: provider timeout for bitcoin',
+        partialFailureSamples: [{
+          provider: 'mock.chart',
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: '1d',
+          error: 'provider timeout for bitcoin',
+        }],
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toMatchObject({
+        summary: {
+          succeeded: 1,
+          failed: 0,
+          partial_failure: 1,
+        },
+        jobs: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'market_charts',
+            status: 'succeeded',
+            configured_target_count: 2,
+            last_targets_attempted: 2,
+            last_rows_written: 1,
+            last_failure_reason: null,
+            last_partial_failure_reason: '1 market chart target(s) failed; first failure: provider timeout for bitcoin',
+            last_partial_failure_samples: [
+              {
+                provider: 'mock.chart',
+                coin_id: 'bitcoin',
+                vs_currency: 'usd',
+                interval: '1d',
+                error: 'provider timeout for bitcoin',
+              },
+            ],
+            last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+          }),
+        ]),
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('redacts secrets from partial failure reasons and samples', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      app.optionalProviderJobs.recordSuccess('market_charts', {
+        startedAt: new Date('2026-05-05T02:20:00.000Z'),
+        finishedAt: new Date('2026-05-05T02:20:01.000Z'),
+        targetsAttempted: 2,
+        rowsWritten: 1,
+        partialFailureReason: '1 target failed: GET https://user:pass@adapter.example/fetch?api_key=secret-token&symbol=BTC token=secret-token failed',
+        partialFailureSamples: [{
+          provider: 'mock.chart',
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: '1d',
+          error: 'GET https://adapter.example/fetch?password=hunter2&symbol=BTC failed',
+        }],
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const payloadText = response.body;
+
+      expect(response.statusCode).toBe(200);
+      expect(payloadText).not.toContain('secret-token');
+      expect(payloadText).not.toContain('hunter2');
+      expect(payloadText).not.toContain('user:pass');
+      expect(response.json().data.jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'market_charts',
+          last_partial_failure_reason: expect.stringContaining('redacted'),
+          last_partial_failure_samples: [
+            expect.objectContaining({
+              error: expect.stringContaining('redacted'),
+            }),
+          ],
+          last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+        }),
+      ]));
     } finally {
       await app.close();
     }
@@ -218,6 +340,97 @@ describe('optional provider job diagnostics', () => {
         await app.close();
       }
     } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists standalone market chart partial failures and exposes them after app restart', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-job-diagnostics-'));
+    const databaseUrl = join(tempDir, 'jobs.db');
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+
+      if (url.includes('/coins/bitcoin/')) {
+        return new Response('{}', { status: 500 });
+      }
+
+      return new Response(JSON.stringify({
+        provider: 'mock.chart',
+        captured_at: '2026-05-05T03:00:00.000Z',
+        coin_id: 'solana',
+        vs_currency: 'usd',
+        interval: '1d',
+        points: [{
+          timestamp: 1774137600,
+          price: 151.4,
+          open: 150.8,
+          high: 151.9,
+          low: 150.4,
+          close: 151.4,
+        }],
+      }), { status: 200 });
+    });
+
+    vi.stubGlobal('fetch', fetchImpl);
+
+    try {
+      await runMarketChartSyncJob({
+        DATABASE_URL: databaseUrl,
+        MARKET_CHART_BASE_URL: 'https://charts.example',
+        MARKET_CHART_TARGETS: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+        LOG_LEVEL: 'silent',
+      } as NodeJS.ProcessEnv);
+
+      const app = buildApp({
+        config: {
+          databaseUrl,
+          marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+          logLevel: 'silent',
+        },
+        startBackgroundJobs: false,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/diagnostics/jobs',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        expect(response.json().data).toMatchObject({
+          summary: {
+            succeeded: 1,
+            failed: 0,
+            partial_failure: 1,
+          },
+          jobs: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'market_charts',
+              status: 'succeeded',
+              configured_target_count: 2,
+              last_targets_attempted: 2,
+              last_rows_written: 1,
+              last_failure_reason: null,
+              last_partial_failure_reason: '1 market chart target(s) failed; first failure: Market chart provider request failed with status 500',
+              last_partial_failure_samples: [
+                {
+                  provider: 'mock.chart',
+                  coin_id: 'bitcoin',
+                  vs_currency: 'usd',
+                  interval: '1d',
+                  error: 'Market chart provider request failed with status 500',
+                },
+              ],
+              last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+            }),
+          ]),
+        });
+      } finally {
+        await app.close();
+      }
+    } finally {
+      vi.unstubAllGlobals();
       rmSync(tempDir, { recursive: true, force: true });
     }
   });

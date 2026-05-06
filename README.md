@@ -389,12 +389,14 @@ Daily `/coins/{id}/ohlc/range` requests use source-backed rows first, then canon
 **Optional provider scheduler playbook:**
 
 1. Keep `OPTIONAL_PROVIDER_SYNC_ENABLED=false` until target envs and provider base URLs are configured and verified with the standalone commands above.
-2. Start with a small target set, such as the starter `MARKET_CHART_TARGETS` in `docs/reference/market-chart-targets.json`. It covers every seeded chart coin daily and the highest-priority assets intraday; `docs/reference/market-chart-provider-presets.json` shows provider-specific adapter IDs and request paths. Expand further by the gaps shown in `/diagnostics/market_charts`, `/diagnostics/coin_history`, `/diagnostics/exchange_volumes`, `/diagnostics/onchain_analytics`, `/diagnostics/onchain_trades`, and `/diagnostics/supply_charts`.
-3. Run `GET /diagnostics/jobs` after each standalone command. The route reports target counts, last start/finish timestamps, rows written, and failure reasons from persisted job state.
+2. Start with a bounded target set, such as the starter `MARKET_CHART_TARGETS` in `docs/reference/market-chart-targets.json`. It covers every seeded chart coin daily and intraday; `docs/reference/market-chart-provider-presets.json` shows provider-specific adapter IDs and request paths. Expand further by the gaps shown in `/diagnostics/market_charts`, `/diagnostics/coin_history`, `/diagnostics/exchange_volumes`, `/diagnostics/onchain_analytics`, `/diagnostics/onchain_trades`, and `/diagnostics/supply_charts`.
+3. Run `GET /diagnostics/jobs` after each standalone command. The route reports target counts, last start/finish timestamps, rows written, failure reasons, partial-failure reasons, bounded sanitized partial-failure target samples, and retry-only target templates from persisted job state.
 4. Enable `OPTIONAL_PROVIDER_SYNC_ENABLED=true` only after diagnostics show the configured standalone jobs can succeed. Leave `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS=900` unless the provider and database can safely handle a tighter interval.
 5. Roll back by setting `OPTIONAL_PROVIDER_SYNC_ENABLED=false` and running the same standalone sync commands from cron or an external scheduler. Public API response shapes are unchanged either way.
 
 **Market chart preset example:**
+
+For the detailed chart/OHLC fallback remediation workflow, see [`docs/reference/market-chart-diagnostics-workflow.md`](docs/reference/market-chart-diagnostics-workflow.md). The README keeps a representative payload and command path here; the reference page is the source for operator triage steps.
 
 ```bash
 export MARKET_CHART_BASE_URL="https://charts-adapter.example"
@@ -418,6 +420,7 @@ Use the provider IDs and request paths in `docs/reference/market-chart-provider-
     "source_backed_configured_targets": 1,
     "status_counts": { "configured_pending": 1, "live_backed": 1 },
     "freshness_counts": { "fresh": 1, "stale": 1, "unknown": 0 },
+    "production_freshness_counts": { "fresh": 0, "stale": 2, "unknown": 0 },
     "depth_counts": { "deep": 1, "shallow": 1, "empty": 0 }
   },
   "coins": [
@@ -436,6 +439,7 @@ Use the provider IDs and request paths in `docs/reference/market-chart-provider-
   ],
   "gaps": {
     "stale_source_targets": ["bitcoin:usd:1d"],
+    "production_stale_source_targets": ["ethereum:usd:1m"],
     "shallow_source_targets": ["solana:usd:1m"]
   },
   "response_source_counts": {
@@ -499,6 +503,83 @@ Use the provider IDs and request paths in `docs/reference/market-chart-provider-
     "suggestions_returned": 1,
     "suggestions_limit": 20
   },
+  "response_source_fallback_alert": {
+    "status": "action_needed",
+    "reason": "unresolved_recent_fallback_pressure",
+    "recent_events_total": 2,
+    "events_eligible_for_suggestion": 2,
+    "suggestions_returned": 1,
+    "stale_events_ignored": 0,
+    "source_backed_events_suppressed": 0
+  },
+  "response_source_target_suggestion_operator_summary": {
+    "total_suggestions": 1,
+    "target_history_counts": {
+      "daily_history": 1,
+      "intraday_history": 0
+    },
+    "suggested_action_counts": {
+      "expand_daily_history": 1,
+      "expand_intraday_history": 0
+    },
+    "request_pattern_counts": {
+      "days": 0,
+      "range": 1,
+      "none": 0
+    },
+    "range_window_counts": {
+      "intraday": 0,
+      "single_day": 1,
+      "multi_day": 0,
+      "none": 0
+    }
+  },
+  "response_source_target_suggestion_overflow": {
+    "basis": "eligible_unique_targets_after_stale_and_source_backed_filtering",
+    "suggestions_limit": 20,
+    "eligible_targets": 1,
+    "returned_suggestions": 1,
+    "omitted_by_suggestion_cap": 0,
+    "target_history_counts": {
+      "daily_history": {
+        "eligible_targets": 1,
+        "returned_suggestions": 1,
+        "omitted_by_suggestion_cap": 0
+      },
+      "intraday_history": {
+        "eligible_targets": 0,
+        "returned_suggestions": 0,
+        "omitted_by_suggestion_cap": 0
+      }
+    }
+  },
+  "response_source_target_suggestion_batch_previews": {
+    "provider_placeholder": "<provider>",
+    "total_suggestions": 1,
+    "cap": {
+      "preview_source": "response_source_target_suggestions",
+      "suggestions_returned": 1,
+      "suggestions_limit": 20
+    },
+    "groups": {
+      "daily_history": {
+        "target_history": "daily_history",
+        "suggested_action": "expand_daily_history",
+        "target_count": 1,
+        "target_templates": [
+          "<provider>=bitcoin:1d:usd"
+        ],
+        "market_chart_targets_template": "<provider>=bitcoin:1d:usd"
+      },
+      "intraday_history": {
+        "target_history": "intraday_history",
+        "suggested_action": "expand_intraday_history",
+        "target_count": 0,
+        "target_templates": [],
+        "market_chart_targets_template": null
+      }
+    }
+  },
   "response_source_target_suggestion_exclusions": {
     "sample_limit": 5,
     "stale_events": [],
@@ -532,6 +613,44 @@ Use the provider IDs and request paths in `docs/reference/market-chart-provider-
         "provider_filled": 1,
         "empty": 1
       },
+      "priority": {
+        "rank": 1,
+        "pressure_score": 2,
+        "latest_observed_at": "2026-05-06T03:00:00.000Z"
+      },
+      "route_pressure": {
+        "dominant_route": "ohlc_range",
+        "totals": {
+          "market_chart_days": 0,
+          "market_chart_range": 1,
+          "ohlc_days": 0,
+          "ohlc_range": 1
+        }
+      },
+      "request_kind_pressure": {
+        "dominant_kind": "range",
+        "totals": {
+          "days": 0,
+          "range": 2
+        }
+      },
+      "range_span_pressure": {
+        "dominant_bucket": "single_day",
+        "range_requests": 2,
+        "buckets": {
+          "intraday": 0,
+          "single_day": 2,
+          "multi_day": 0
+        },
+        "min_span_seconds": 0,
+        "max_span_seconds": 0
+      },
+      "coverage_target_hint": {
+        "target_history": "daily_history",
+        "suggested_action": "expand_daily_history",
+        "request_pattern": "range",
+        "range_window": "single_day"
+      },
       "sample_requests": [
         {
           "route": "ohlc_range",
@@ -550,24 +669,7 @@ Use the provider IDs and request paths in `docs/reference/market-chart-provider-
 }
 ```
 
-Use `summary` for the rollout view and `coins` for per-target detail. Treat `configured_pending` as not synced yet, `live_backed` as source rows present, `stale_source_targets` as targets that need a successful fresh sync, and `shallow_source_targets` as targets that need deeper historical backfill. `response_source_counts` shows durable counters for whether public chart and OHLC requests are being served by `source_backed`, `canonical`, `provider_filled`, or `empty` paths; these counters survive process restarts and remain diagnostics-only. `response_source_recent_events` is capped to the 50 most recent `provider_filled` and `empty` events, excludes `source_backed` and `canonical` events, and stores only sanitized route, coin, currency, interval, and days/range request context. `response_source_recent_event_rollups` derives from those capped events and groups fallback pressure by route and by coin so operators can prioritize source-backed target expansion without scanning each event. `response_source_target_suggestion_window` shows the UTC-day-bucketed seven-day cutoff used for suggestions and how many stale fallback events were ignored. `response_source_target_suggestion_summary` reconciles the suggestion pipeline by counting capped events, stale events ignored, in-window source-backed events suppressed, eligible events, unique eligible targets, returned suggestions, and the suggestion cap. `response_source_target_suggestion_exclusions` gives capped sanitized examples of stale ignored events and source-backed suppressed events, so an empty suggestion list can distinguish old fallback pressure from already-solved targets. `response_source_target_suggestions` converts unresolved fallback pressure inside that freshness window into deterministic `<provider>=coin:interval:vs_currency` `MARKET_CHART_TARGETS` templates without choosing a provider or writing operator config; each suggestion includes up to three sanitized `sample_requests` sorted by newest observed fallback event so operators can inspect representative route/range pressure without scanning every recent event. Targets that already have `live_backed` or `replay_backed` source coverage are suppressed from suggestions even if older fallback events remain in the recent-event window. Provider-filled counts, recent events, rollups, and target suggestions are useful short-term fallback signals, not a substitute for durable source-backed coverage. Use `docs/reference/market-chart-targets.json` for the starter target set and `docs/reference/market-chart-provider-presets.json` for adapter IDs. A target should not be described as CoinGecko-fresh until it is `live_backed` with `coverage.freshness=fresh` and enough `coverage.depth` for the user-facing chart window.
-
-**Applying suggested chart targets:**
-
-```bash
-curl "http://localhost:3000/diagnostics/market_charts" \
-  | jq -r '.data.response_source_target_suggestions[0].target_template'
-
-# Pick a provider ID from docs/reference/market-chart-provider-presets.json.
-export MARKET_CHART_BASE_URL="https://charts-adapter.example"
-export MARKET_CHART_TARGETS="ccxt.binance=bitcoin:1d:usd"
-
-bun run market:charts:sync
-curl "http://localhost:3000/diagnostics/market_charts" \
-  | jq '.data.coins[] | select(.coin_id == "bitcoin" and .interval == "1d") | {status, coverage}'
-```
-
-Only replace `<provider>` with a provider ID that your adapter supports, such as `ccxt.binance` from `docs/reference/market-chart-provider-presets.json`. A successful follow-up check should move the target from fallback pressure into `live_backed` or `replay_backed` chart coverage; do not treat the suggestion itself as proof of live CoinGecko-level freshness.
+Use `summary` for the rollout view and `coins` for per-target detail. The `response_source_*` diagnostics show recent chart/OHLC fallback pressure, ranked target suggestions, daily/intraday batch previews, and suggestion-cap overflow counters. These fields are operator hints only: they do not change public chart/OHLC response shapes, choose providers, write config, or prove CoinGecko freshness. Use [`docs/reference/market-chart-diagnostics-workflow.md`](docs/reference/market-chart-diagnostics-workflow.md) for the full alert, batching, overflow, sync, and verification workflow.
 
 ## Migrating from CoinGecko
 

@@ -1,0 +1,29 @@
+{
+  "provider": "ccxt.binance",
+  "captured_at": "2026-05-05T01:35:00.000Z",
+  "coin_id": "solana",
+  "vs_currency": "usd",
+  "interval": "1d",
+  "points": [
+    {
+      "timestamp": "1774051200",
+      "price": "146.25",
+      "market_cap": null,
+      "total_volume": "4200000000",
+      "open": "142.8",
+      "high": "148.1",
+      "low": "141.9",
+      "close": "146.25"
+    },
+    {
+      "timestamp": "1774137600",
+      "price": "151.4",
+      "market_cap": null,
+      "total_volume": "4550000000",
+      "open": "146.25",
+      "high": "153",
+      "low": "145.6",
+      "close": "151.4"
+    }
+  ]
+}

@@ -79,7 +79,7 @@ describe('market chart target manifest', () => {
     expect(parsedTargets.filter((target) => target.interval === '1d').map((target) => target.coinId).sort())
       .toEqual([...seededChartCoinIds].sort());
     expect(parsedTargets.filter((target) => target.interval === '1m').map((target) => target.coinId).sort())
-      .toEqual(['bitcoin', 'ethereum', 'solana']);
+      .toEqual([...seededChartCoinIds].sort());
   });
 
   it('keeps provider preset examples parseable and aligned with the HTTP adapter URL contract', async () => {

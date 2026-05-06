@@ -602,6 +602,21 @@ describe('HTTP cache semantics', () => {
         }),
       );
 
+      app.optionalProviderJobs.recordSuccess('market_charts', {
+        startedAt: new Date('2026-05-05T04:00:00.000Z'),
+        finishedAt: new Date('2026-05-05T04:00:01.000Z'),
+        targetsAttempted: 2,
+        rowsWritten: 1,
+        partialFailureReason: '1 market chart target(s) failed; first failure: provider timeout for bitcoin',
+        partialFailureSamples: [{
+          provider: 'mock.chart',
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: '1d',
+          error: 'provider timeout for bitcoin',
+        }],
+      });
+
       await expectCacheableEndpoint(
         app,
         '/diagnostics/jobs',
@@ -611,10 +626,13 @@ describe('HTTP cache semantics', () => {
             jobs: expect.arrayContaining([
               expect.objectContaining({
                 id: 'market_charts',
-                status: expect.any(String),
+                status: 'succeeded',
+                last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
               }),
             ]),
-            summary: expect.any(Object),
+            summary: expect.objectContaining({
+              partial_failure: 1,
+            }),
           },
         }),
       );

@@ -24,6 +24,70 @@ describe('chart response source diagnostics', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('reports a clear fallback alert status when there are no recent fallback events', () => {
+    const diagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      undefined,
+      new Date('2026-05-06T00:00:00.000Z'),
+      undefined,
+      [],
+    );
+
+    expect(diagnostics.response_source_fallback_alert).toEqual({
+      status: 'clear',
+      reason: 'no_recent_fallback_events',
+      recent_events_total: 0,
+      events_eligible_for_suggestion: 0,
+      suggestions_returned: 0,
+      stale_events_ignored: 0,
+      source_backed_events_suppressed: 0,
+    });
+    expect(diagnostics.response_source_target_suggestion_batch_previews).toEqual({
+      provider_placeholder: '<provider>',
+      total_suggestions: 0,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 0,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        },
+        intraday_history: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        },
+      },
+    });
+    expect(diagnostics.response_source_target_suggestion_overflow).toEqual({
+      basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+      suggestions_limit: 20,
+      eligible_targets: 0,
+      returned_suggestions: 0,
+      omitted_by_suggestion_cap: 0,
+      target_history_counts: {
+        daily_history: {
+          eligible_targets: 0,
+          returned_suggestions: 0,
+          omitted_by_suggestion_cap: 0,
+        },
+        intraday_history: {
+          eligible_targets: 0,
+          returned_suggestions: 0,
+          omitted_by_suggestion_cap: 0,
+        },
+      },
+    });
+  });
+
   it('persists capped sanitized recent provider-filled and empty events across restarts', () => {
     const diagnostics = createChartResponseSourceDiagnostics(database);
 
@@ -223,6 +287,61 @@ describe('chart response source diagnostics', () => {
         },
       ],
     });
+    expect(diagnostics.response_source_fallback_alert).toEqual({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: 2,
+      events_eligible_for_suggestion: 1,
+      suggestions_returned: 1,
+      stale_events_ignored: 0,
+      source_backed_events_suppressed: 1,
+    });
+    const sourceBackedOnlyDiagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      'mock.chart=bitcoin:1d:usd',
+      now,
+      undefined,
+      [
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-04-01T00:00:00.000Z', to: '2026-04-01T00:00:00.000Z' },
+          observed_at: '2026-05-06T00:00:00.000Z',
+        },
+      ],
+    );
+    expect(sourceBackedOnlyDiagnostics.response_source_fallback_alert).toEqual({
+      status: 'watch',
+      reason: 'source_backed_fallback_pressure_suppressed',
+      recent_events_total: 1,
+      events_eligible_for_suggestion: 0,
+      suggestions_returned: 0,
+      stale_events_ignored: 0,
+      source_backed_events_suppressed: 1,
+    });
+    expect(sourceBackedOnlyDiagnostics.response_source_target_suggestion_batch_previews).toEqual(expect.objectContaining({
+      total_suggestions: 0,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 0,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+        intraday_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+      },
+    }));
     expect(diagnostics.response_source_target_suggestions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ target_template: '<provider>=bitcoin:1d:usd' }),
     ]));
@@ -291,6 +410,15 @@ describe('chart response source diagnostics', () => {
       ],
       source_backed_events: [],
     });
+    expect(diagnostics.response_source_fallback_alert).toEqual({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: 2,
+      events_eligible_for_suggestion: 1,
+      suggestions_returned: 1,
+      stale_events_ignored: 1,
+      source_backed_events_suppressed: 0,
+    });
     expect(diagnostics.response_source_target_suggestions).toEqual([
       expect.objectContaining({
         coin_id: 'recentcoin',
@@ -300,6 +428,393 @@ describe('chart response source diagnostics', () => {
     expect(diagnostics.response_source_target_suggestions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ target_template: '<provider>=oldcoin:1d:usd' }),
     ]));
+  });
+
+  it('ranks target suggestions by unresolved fallback pressure with stable tie-breakers', () => {
+    const diagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      undefined,
+      new Date('2026-05-06T00:00:00.000Z'),
+      undefined,
+      [
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'charlie',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-01T00:00:00.000Z', to: '2026-05-01T00:00:00.000Z' },
+          observed_at: '2026-05-05T00:00:00.000Z',
+        },
+        {
+          route: 'ohlc_range',
+          source: 'provider_filled',
+          coin_id: 'charlie',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-02T00:00:00.000Z', to: '2026-05-02T00:00:00.000Z' },
+          observed_at: '2026-05-05T01:00:00.000Z',
+        },
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'bravo',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-01T00:00:00.000Z', to: '2026-05-01T00:00:00.000Z' },
+          observed_at: '2026-05-05T00:00:00.000Z',
+        },
+        {
+          route: 'market_chart_days',
+          source: 'empty',
+          coin_id: 'bravo',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'days', days: '7', from: null, to: null },
+          observed_at: '2026-05-05T00:30:00.000Z',
+        },
+        {
+          route: 'ohlc_days',
+          source: 'empty',
+          coin_id: 'bravo',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'days', days: '7', from: null, to: null },
+          observed_at: '2026-05-05T01:00:00.000Z',
+        },
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'alpha',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-01T00:00:00.000Z', to: '2026-05-01T00:00:00.000Z' },
+          observed_at: '2026-05-05T02:00:00.000Z',
+        },
+        {
+          route: 'ohlc_range',
+          source: 'provider_filled',
+          coin_id: 'alpha',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-02T00:00:00.000Z', to: '2026-05-02T00:00:00.000Z' },
+          observed_at: '2026-05-05T03:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(diagnostics.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'bravo',
+        route_pressure: {
+          dominant_route: 'market_chart_days',
+          totals: {
+            market_chart_days: 1,
+            market_chart_range: 1,
+            ohlc_days: 1,
+            ohlc_range: 0,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'days',
+          totals: {
+            days: 2,
+            range: 1,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 1,
+          buckets: {
+            intraday: 0,
+            single_day: 1,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'days',
+          range_window: 'single_day',
+        },
+        priority: {
+          rank: 1,
+          pressure_score: 3,
+          latest_observed_at: '2026-05-05T01:00:00.000Z',
+        },
+      }),
+      expect.objectContaining({
+        coin_id: 'alpha',
+        route_pressure: {
+          dominant_route: 'market_chart_range',
+          totals: {
+            market_chart_days: 0,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 1,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 0,
+            range: 2,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 2,
+          buckets: {
+            intraday: 0,
+            single_day: 2,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'single_day',
+        },
+        priority: {
+          rank: 2,
+          pressure_score: 2,
+          latest_observed_at: '2026-05-05T03:00:00.000Z',
+        },
+      }),
+      expect.objectContaining({
+        coin_id: 'charlie',
+        priority: {
+          rank: 3,
+          pressure_score: 2,
+          latest_observed_at: '2026-05-05T01:00:00.000Z',
+        },
+      }),
+    ]);
+  });
+
+  it('classifies range-span pressure buckets for target suggestions', () => {
+    const diagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      undefined,
+      new Date('2026-05-06T00:00:00.000Z'),
+      undefined,
+      [
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'intradaycoin',
+          vs_currency: 'usd',
+          interval: 'hourly',
+          request: { kind: 'range', days: null, from: '2026-05-05T00:00:00.000Z', to: '2026-05-05T01:00:00.000Z' },
+          observed_at: '2026-05-05T02:00:00.000Z',
+        },
+        {
+          route: 'ohlc_range',
+          source: 'provider_filled',
+          coin_id: 'historycoin',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-05-01T00:00:00.000Z', to: '2026-05-04T00:00:00.000Z' },
+          observed_at: '2026-05-05T03:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(diagnostics.response_source_target_suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: 'intradaycoin',
+        interval: '1m',
+        coverage_target_hint: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          request_pattern: 'range',
+          range_window: 'intraday',
+        },
+        range_span_pressure: {
+          dominant_bucket: 'intraday',
+          range_requests: 1,
+          buckets: {
+            intraday: 1,
+            single_day: 0,
+            multi_day: 0,
+          },
+          min_span_seconds: 3_600,
+          max_span_seconds: 3_600,
+        },
+      }),
+      expect.objectContaining({
+        coin_id: 'historycoin',
+        interval: '1d',
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'multi_day',
+        },
+        range_span_pressure: {
+          dominant_bucket: 'multi_day',
+          range_requests: 1,
+          buckets: {
+            intraday: 0,
+            single_day: 0,
+            multi_day: 1,
+          },
+          min_span_seconds: 259_200,
+          max_span_seconds: 259_200,
+        },
+      }),
+    ]));
+    expect(diagnostics.response_source_target_suggestion_operator_summary).toEqual({
+      total_suggestions: 2,
+      target_history_counts: {
+        daily_history: 1,
+        intraday_history: 1,
+      },
+      suggested_action_counts: {
+        expand_daily_history: 1,
+        expand_intraday_history: 1,
+      },
+      request_pattern_counts: {
+        days: 0,
+        range: 2,
+        none: 0,
+      },
+      range_window_counts: {
+        intraday: 1,
+        single_day: 0,
+        multi_day: 1,
+        none: 0,
+      },
+    });
+    expect(diagnostics.response_source_target_suggestion_batch_previews).toEqual({
+      provider_placeholder: '<provider>',
+      total_suggestions: 2,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 2,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          target_count: 1,
+          target_templates: ['<provider>=historycoin:1d:usd'],
+          market_chart_targets_template: '<provider>=historycoin:1d:usd',
+        },
+        intraday_history: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          target_count: 1,
+          target_templates: ['<provider>=intradaycoin:1m:usd'],
+          market_chart_targets_template: '<provider>=intradaycoin:1m:usd',
+        },
+      },
+    });
+  });
+
+  it('keeps empty intraday batch preview groups explainable when returned suggestions hit the cap', () => {
+    const dailyEvents = Array.from({ length: 20 }, (_, index) => ({
+      route: 'market_chart_range' as const,
+      source: 'empty' as const,
+      coin_id: `daily-${index.toString().padStart(2, '0')}`,
+      vs_currency: 'usd',
+      interval: 'daily',
+      request: {
+        kind: 'range' as const,
+        days: null,
+        from: '2026-05-01T00:00:00.000Z',
+        to: '2026-05-01T00:00:00.000Z',
+      },
+      observed_at: `2026-05-05T00:${(index + 1).toString().padStart(2, '0')}:00.000Z`,
+    }));
+    const diagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      undefined,
+      new Date('2026-05-06T00:00:00.000Z'),
+      undefined,
+      [
+        ...dailyEvents,
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'intraday-capped',
+          vs_currency: 'usd',
+          interval: 'hourly',
+          request: { kind: 'range', days: null, from: '2026-05-01T00:00:00.000Z', to: '2026-05-01T01:00:00.000Z' },
+          observed_at: '2026-05-05T00:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(diagnostics.response_source_target_suggestion_summary).toEqual(expect.objectContaining({
+      events_eligible_for_suggestion: 21,
+      unique_eligible_targets: 21,
+      suggestions_returned: 20,
+      suggestions_limit: 20,
+    }));
+    expect(diagnostics.response_source_target_suggestion_overflow).toEqual({
+      basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+      suggestions_limit: 20,
+      eligible_targets: 21,
+      returned_suggestions: 20,
+      omitted_by_suggestion_cap: 1,
+      target_history_counts: {
+        daily_history: {
+          eligible_targets: 20,
+          returned_suggestions: 20,
+          omitted_by_suggestion_cap: 0,
+        },
+        intraday_history: {
+          eligible_targets: 1,
+          returned_suggestions: 0,
+          omitted_by_suggestion_cap: 1,
+        },
+      },
+    });
+    expect(diagnostics.response_source_fallback_alert).toEqual(expect.objectContaining({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      events_eligible_for_suggestion: 21,
+      suggestions_returned: 20,
+    }));
+    expect(diagnostics.response_source_target_suggestions).toHaveLength(20);
+    expect(diagnostics.response_source_target_suggestions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ target_template: '<provider>=intraday-capped:1m:usd' }),
+    ]));
+    expect(diagnostics.response_source_target_suggestion_batch_previews).toEqual(expect.objectContaining({
+      total_suggestions: 20,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 20,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: expect.objectContaining({
+          target_count: 20,
+          target_templates: expect.arrayContaining([
+            '<provider>=daily-19:1d:usd',
+            '<provider>=daily-00:1d:usd',
+          ]),
+        }),
+        intraday_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+      },
+    }));
+    expect(diagnostics.response_source_target_suggestion_overflow?.target_history_counts.daily_history.returned_suggestions).toBe(
+      diagnostics.response_source_target_suggestion_batch_previews?.groups.daily_history.target_count,
+    );
+    expect(diagnostics.response_source_target_suggestion_overflow?.target_history_counts.intraday_history.returned_suggestions).toBe(
+      diagnostics.response_source_target_suggestion_batch_previews?.groups.intraday_history.target_count,
+    );
   });
 
   it('attaches capped deterministic request samples to target suggestions', () => {
@@ -378,6 +893,13 @@ describe('chart response source diagnostics', () => {
         ],
       }),
     ]);
+    expect(diagnostics.response_source_fallback_alert).toEqual(expect.objectContaining({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: 4,
+      events_eligible_for_suggestion: 4,
+      suggestions_returned: 1,
+    }));
   });
 
   it('caps stale exclusion drilldowns deterministically', () => {
@@ -414,5 +936,34 @@ describe('chart response source diagnostics', () => {
       'stale-2',
       'stale-1',
     ]);
+    expect(diagnostics.response_source_fallback_alert).toEqual({
+      status: 'watch',
+      reason: 'stale_fallback_pressure_only',
+      recent_events_total: 6,
+      events_eligible_for_suggestion: 0,
+      suggestions_returned: 0,
+      stale_events_ignored: 6,
+      source_backed_events_suppressed: 0,
+    });
+    expect(diagnostics.response_source_target_suggestion_batch_previews).toEqual(expect.objectContaining({
+      total_suggestions: 0,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 0,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+        intraday_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+      },
+    }));
   });
 });

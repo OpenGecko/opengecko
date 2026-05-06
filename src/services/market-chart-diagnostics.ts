@@ -21,6 +21,8 @@ type ResponseSourceTargetSuggestionExclusionSample = ResponseSourceTargetSuggest
 
 const DAILY_FRESHNESS_THRESHOLD_SECONDS = 36 * 60 * 60;
 const INTRADAY_FRESHNESS_THRESHOLD_SECONDS = 30 * 60;
+const DAILY_PRODUCTION_FRESHNESS_THRESHOLD_SECONDS = 2 * 60 * 60;
+const INTRADAY_PRODUCTION_FRESHNESS_THRESHOLD_SECONDS = 5 * 60;
 const DAILY_DEPTH_THRESHOLD_DAYS = 30;
 const INTRADAY_DEPTH_THRESHOLD_DAYS = 1;
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -71,6 +73,10 @@ function freshnessThresholdSeconds(interval: string) {
   return interval === '1m' ? INTRADAY_FRESHNESS_THRESHOLD_SECONDS : DAILY_FRESHNESS_THRESHOLD_SECONDS;
 }
 
+function productionFreshnessThresholdSeconds(interval: string) {
+  return interval === '1m' ? INTRADAY_PRODUCTION_FRESHNESS_THRESHOLD_SECONDS : DAILY_PRODUCTION_FRESHNESS_THRESHOLD_SECONDS;
+}
+
 function depthThresholdDays(interval: string) {
   return interval === '1m' ? INTRADAY_DEPTH_THRESHOLD_DAYS : DAILY_DEPTH_THRESHOLD_DAYS;
 }
@@ -83,6 +89,7 @@ function buildCoverageDiagnostics(rows: MarketChartSourceRow[], interval: string
   const latestFetchedAt = latestDate(rows);
   const bounds = timestampBounds(rows);
   const freshnessThreshold = freshnessThresholdSeconds(interval);
+  const productionFreshnessThreshold = productionFreshnessThresholdSeconds(interval);
   const depthThreshold = depthThresholdDays(interval);
   const sourceAgeSeconds = latestFetchedAt === null
     ? null
@@ -99,6 +106,12 @@ function buildCoverageDiagnostics(rows: MarketChartSourceRow[], interval: string
     freshness: latestFetchedAt === null
       ? 'unknown'
       : sourceAgeSeconds !== null && sourceAgeSeconds <= freshnessThreshold
+        ? 'fresh'
+        : 'stale',
+    production_freshness_threshold_seconds: productionFreshnessThreshold,
+    production_freshness: latestFetchedAt === null
+      ? 'unknown'
+      : sourceAgeSeconds !== null && sourceAgeSeconds <= productionFreshnessThreshold
         ? 'fresh'
         : 'stale',
     source_coverage_days: Number(sourceCoverageDays.toFixed(6)),
@@ -127,6 +140,127 @@ function emptyRecentEventRouteCounts() {
     route,
     emptyRecentEventSourceCounts(),
   ])) as Record<ResponseSourceRecentEventRoute, Record<ResponseSourceRecentEventSource, number>>;
+}
+
+function buildRoutePressure(routes: Record<ResponseSourceRecentEventRoute, Record<ResponseSourceRecentEventSource, number>>) {
+  const totals = Object.fromEntries(RESPONSE_SOURCE_EVENT_ROUTES.map((route) => [
+    route,
+    routes[route].provider_filled + routes[route].empty,
+  ])) as Record<ResponseSourceRecentEventRoute, number>;
+  const dominantRoute = RESPONSE_SOURCE_EVENT_ROUTES
+    .filter((route) => totals[route] > 0)
+    .sort((left, right) =>
+      totals[right] - totals[left]
+      || RESPONSE_SOURCE_EVENT_ROUTES.indexOf(left) - RESPONSE_SOURCE_EVENT_ROUTES.indexOf(right))[0] ?? null;
+
+  return {
+    dominant_route: dominantRoute,
+    totals,
+  };
+}
+
+function emptyRequestKindPressure() {
+  return {
+    days: 0,
+    range: 0,
+  };
+}
+
+function buildRequestKindPressure(requestKinds: Record<'days' | 'range', number>) {
+  const dominantKind = requestKinds.days === 0 && requestKinds.range === 0
+    ? null
+    : requestKinds.days >= requestKinds.range
+      ? 'days'
+      : 'range';
+
+  return {
+    dominant_kind: dominantKind,
+    totals: {
+      days: requestKinds.days,
+      range: requestKinds.range,
+    },
+  };
+}
+
+type RangeSpanBucket = 'intraday' | 'single_day' | 'multi_day';
+
+function emptyRangeSpanPressure() {
+  return {
+    range_requests: 0,
+    buckets: {
+      intraday: 0,
+      single_day: 0,
+      multi_day: 0,
+    } satisfies Record<RangeSpanBucket, number>,
+    min_span_seconds: null as number | null,
+    max_span_seconds: null as number | null,
+  };
+}
+
+function rangeSpanBucket(event: ChartResponseSourceRecentEvent, spanSeconds: number): RangeSpanBucket {
+  const interval = targetIntervalFromEvent(event);
+  if (interval === '1m' && spanSeconds < 24 * 60 * 60) {
+    return 'intraday';
+  }
+
+  return spanSeconds <= 24 * 60 * 60 ? 'single_day' : 'multi_day';
+}
+
+function recordRangeSpan(
+  pressure: ReturnType<typeof emptyRangeSpanPressure>,
+  event: ChartResponseSourceRecentEvent,
+) {
+  if (event.request.kind !== 'range' || event.request.from === null || event.request.to === null) {
+    return;
+  }
+
+  const fromMs = Date.parse(event.request.from);
+  const toMs = Date.parse(event.request.to);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+    return;
+  }
+
+  const spanSeconds = Math.max(0, Math.floor((toMs - fromMs) / 1_000));
+  pressure.range_requests += 1;
+  pressure.buckets[rangeSpanBucket(event, spanSeconds)] += 1;
+  pressure.min_span_seconds = pressure.min_span_seconds === null
+    ? spanSeconds
+    : Math.min(pressure.min_span_seconds, spanSeconds);
+  pressure.max_span_seconds = pressure.max_span_seconds === null
+    ? spanSeconds
+    : Math.max(pressure.max_span_seconds, spanSeconds);
+}
+
+function buildRangeSpanPressure(pressure: ReturnType<typeof emptyRangeSpanPressure>) {
+  const bucketOrder: RangeSpanBucket[] = ['intraday', 'single_day', 'multi_day'];
+  const dominantBucket = bucketOrder
+    .filter((bucket) => pressure.buckets[bucket] > 0)
+    .sort((left, right) =>
+      pressure.buckets[right] - pressure.buckets[left]
+      || bucketOrder.indexOf(left) - bucketOrder.indexOf(right))[0] ?? null;
+
+  return {
+    dominant_bucket: dominantBucket,
+    range_requests: pressure.range_requests,
+    buckets: pressure.buckets,
+    min_span_seconds: pressure.min_span_seconds,
+    max_span_seconds: pressure.max_span_seconds,
+  };
+}
+
+function buildCoverageTargetHint(
+  interval: '1d' | '1m',
+  requestKindPressure: ReturnType<typeof buildRequestKindPressure>,
+  rangeSpanPressure: ReturnType<typeof buildRangeSpanPressure>,
+) {
+  const targetHistory = interval === '1m' ? 'intraday_history' : 'daily_history';
+
+  return {
+    target_history: targetHistory,
+    suggested_action: interval === '1m' ? 'expand_intraday_history' : 'expand_daily_history',
+    request_pattern: requestKindPressure.dominant_kind,
+    range_window: rangeSpanPressure.dominant_bucket,
+  };
 }
 
 function buildResponseSourceRecentEventRollups(events: ChartResponseSourceRecentEvent[]) {
@@ -239,6 +373,9 @@ function buildResponseSourceTargetSuggestions(
       empty: number;
     };
     routes: Record<ResponseSourceRecentEventRoute, Record<ResponseSourceRecentEventSource, number>>;
+    request_kinds: Record<'days' | 'range', number>;
+    range_spans: ReturnType<typeof emptyRangeSpanPressure>;
+    latest_observed_at: string | null;
     sample_requests: ResponseSourceTargetSuggestionRequestSample[];
   }>();
 
@@ -266,12 +403,21 @@ function buildResponseSourceTargetSuggestions(
         empty: 0,
       },
       routes: emptyRecentEventRouteCounts(),
+      request_kinds: emptyRequestKindPressure(),
+      range_spans: emptyRangeSpanPressure(),
+      latest_observed_at: null,
       sample_requests: [],
     };
 
     existing.event_counts.total += 1;
     existing.event_counts[event.source] += 1;
     existing.routes[event.route][event.source] += 1;
+    existing.request_kinds[event.request.kind] += 1;
+    recordRangeSpan(existing.range_spans, event);
+    existing.latest_observed_at = existing.latest_observed_at === null
+      || observedAtMs > Date.parse(existing.latest_observed_at)
+      ? event.observed_at
+      : existing.latest_observed_at;
     existing.sample_requests.push({
       route: event.route,
       source: event.source,
@@ -284,6 +430,9 @@ function buildResponseSourceTargetSuggestions(
   return [...suggestions.values()]
     .map((suggestion) => ({
       ...suggestion,
+      route_pressure: buildRoutePressure(suggestion.routes),
+      request_kind_pressure: buildRequestKindPressure(suggestion.request_kinds),
+      range_span_pressure: buildRangeSpanPressure(suggestion.range_spans),
       sample_requests: suggestion.sample_requests
         .sort(sortSuggestionSampleRequests)
         .slice(0, RESPONSE_SOURCE_TARGET_SUGGESTION_SAMPLE_LIMIT),
@@ -292,10 +441,188 @@ function buildResponseSourceTargetSuggestions(
       right.event_counts.total - left.event_counts.total
       || right.event_counts.provider_filled - left.event_counts.provider_filled
       || right.event_counts.empty - left.event_counts.empty
+      || Date.parse(right.latest_observed_at ?? '') - Date.parse(left.latest_observed_at ?? '')
       || left.coin_id.localeCompare(right.coin_id)
       || left.vs_currency.localeCompare(right.vs_currency)
       || left.interval.localeCompare(right.interval))
-    .slice(0, RESPONSE_SOURCE_TARGET_SUGGESTION_LIMIT);
+    .slice(0, RESPONSE_SOURCE_TARGET_SUGGESTION_LIMIT)
+    .map((suggestion, index) => ({
+      coin_id: suggestion.coin_id,
+      vs_currency: suggestion.vs_currency,
+      interval: suggestion.interval,
+      target_template: suggestion.target_template,
+      reason: suggestion.reason,
+      event_counts: suggestion.event_counts,
+      routes: suggestion.routes,
+      route_pressure: suggestion.route_pressure,
+      request_kind_pressure: suggestion.request_kind_pressure,
+      range_span_pressure: suggestion.range_span_pressure,
+      coverage_target_hint: buildCoverageTargetHint(
+        suggestion.interval,
+        suggestion.request_kind_pressure,
+        suggestion.range_span_pressure,
+      ),
+      sample_requests: suggestion.sample_requests,
+      priority: {
+        rank: index + 1,
+        pressure_score: suggestion.event_counts.total,
+        latest_observed_at: suggestion.latest_observed_at,
+      },
+    }));
+}
+
+function buildResponseSourceTargetSuggestionOperatorSummary(
+  suggestions: ReturnType<typeof buildResponseSourceTargetSuggestions>,
+) {
+  const targetHistoryCounts = {
+    daily_history: 0,
+    intraday_history: 0,
+  };
+  const suggestedActionCounts = {
+    expand_daily_history: 0,
+    expand_intraday_history: 0,
+  };
+  const requestPatternCounts = {
+    days: 0,
+    range: 0,
+    none: 0,
+  };
+  const rangeWindowCounts = {
+    intraday: 0,
+    single_day: 0,
+    multi_day: 0,
+    none: 0,
+  };
+
+  for (const suggestion of suggestions) {
+    const targetHistory = suggestion.coverage_target_hint.target_history as keyof typeof targetHistoryCounts;
+    const suggestedAction = suggestion.coverage_target_hint.suggested_action as keyof typeof suggestedActionCounts;
+    const requestPattern = (suggestion.coverage_target_hint.request_pattern ?? 'none') as keyof typeof requestPatternCounts;
+    const rangeWindow = (suggestion.coverage_target_hint.range_window ?? 'none') as keyof typeof rangeWindowCounts;
+
+    targetHistoryCounts[targetHistory] += 1;
+    suggestedActionCounts[suggestedAction] += 1;
+    requestPatternCounts[requestPattern] += 1;
+    rangeWindowCounts[rangeWindow] += 1;
+  }
+
+  return {
+    total_suggestions: suggestions.length,
+    target_history_counts: targetHistoryCounts,
+    suggested_action_counts: suggestedActionCounts,
+    request_pattern_counts: requestPatternCounts,
+    range_window_counts: rangeWindowCounts,
+  };
+}
+
+function buildResponseSourceTargetSuggestionOverflow(
+  events: ChartResponseSourceRecentEvent[],
+  sourceBackedTargetKeys: Set<string>,
+  now: Date,
+  suggestions: ReturnType<typeof buildResponseSourceTargetSuggestions>,
+) {
+  const cutoffMs = responseSourceTargetSuggestionCutoffMs(now);
+  const eligibleTargets = new Map<string, {
+    target_history: 'daily_history' | 'intraday_history';
+  }>();
+  const targetHistoryCounts = {
+    daily_history: {
+      eligible_targets: 0,
+      returned_suggestions: 0,
+      omitted_by_suggestion_cap: 0,
+    },
+    intraday_history: {
+      eligible_targets: 0,
+      returned_suggestions: 0,
+      omitted_by_suggestion_cap: 0,
+    },
+  };
+
+  for (const event of events) {
+    const observedAtMs = Date.parse(event.observed_at);
+    if (!Number.isFinite(observedAtMs) || observedAtMs < cutoffMs) {
+      continue;
+    }
+
+    const interval = targetIntervalFromEvent(event);
+    const key = candidateKey(event.coin_id, event.vs_currency, interval);
+    if (sourceBackedTargetKeys.has(key)) {
+      continue;
+    }
+
+    eligibleTargets.set(key, {
+      target_history: interval === '1m' ? 'intraday_history' : 'daily_history',
+    });
+  }
+
+  for (const target of eligibleTargets.values()) {
+    targetHistoryCounts[target.target_history].eligible_targets += 1;
+  }
+
+  for (const suggestion of suggestions) {
+    const targetHistory = suggestion.coverage_target_hint.target_history as keyof typeof targetHistoryCounts;
+    targetHistoryCounts[targetHistory].returned_suggestions += 1;
+  }
+
+  for (const targetHistory of Object.keys(targetHistoryCounts) as Array<keyof typeof targetHistoryCounts>) {
+    targetHistoryCounts[targetHistory].omitted_by_suggestion_cap = Math.max(
+      0,
+      targetHistoryCounts[targetHistory].eligible_targets - targetHistoryCounts[targetHistory].returned_suggestions,
+    );
+  }
+
+  return {
+    basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+    suggestions_limit: RESPONSE_SOURCE_TARGET_SUGGESTION_LIMIT,
+    eligible_targets: eligibleTargets.size,
+    returned_suggestions: suggestions.length,
+    omitted_by_suggestion_cap: Math.max(0, eligibleTargets.size - suggestions.length),
+    target_history_counts: targetHistoryCounts,
+  };
+}
+
+function buildResponseSourceTargetSuggestionBatchPreviews(
+  suggestions: ReturnType<typeof buildResponseSourceTargetSuggestions>,
+) {
+  const groups = {
+    daily_history: {
+      target_history: 'daily_history',
+      suggested_action: 'expand_daily_history',
+      target_count: 0,
+      target_templates: [] as string[],
+      market_chart_targets_template: null as string | null,
+    },
+    intraday_history: {
+      target_history: 'intraday_history',
+      suggested_action: 'expand_intraday_history',
+      target_count: 0,
+      target_templates: [] as string[],
+      market_chart_targets_template: null as string | null,
+    },
+  };
+
+  for (const suggestion of suggestions) {
+    const targetHistory = suggestion.coverage_target_hint.target_history as keyof typeof groups;
+    groups[targetHistory].target_templates.push(suggestion.target_template);
+  }
+
+  for (const group of Object.values(groups)) {
+    group.target_count = group.target_templates.length;
+    group.market_chart_targets_template = group.target_templates.length > 0
+      ? group.target_templates.join(',')
+      : null;
+  }
+
+  return {
+    provider_placeholder: '<provider>',
+    total_suggestions: suggestions.length,
+    cap: {
+      preview_source: 'response_source_target_suggestions',
+      suggestions_returned: suggestions.length,
+      suggestions_limit: RESPONSE_SOURCE_TARGET_SUGGESTION_LIMIT,
+    },
+    groups,
+  };
 }
 
 function buildResponseSourceTargetSuggestionExclusions(
@@ -372,6 +699,56 @@ function buildResponseSourceTargetSuggestionSummary(
     suggestions_returned: suggestionsReturned,
     suggestions_limit: RESPONSE_SOURCE_TARGET_SUGGESTION_LIMIT,
     sample_requests_limit: RESPONSE_SOURCE_TARGET_SUGGESTION_SAMPLE_LIMIT,
+  };
+}
+
+function buildMarketChartFallbackAlertStatus(
+  summary: ReturnType<typeof buildResponseSourceTargetSuggestionSummary>,
+) {
+  if (summary.recent_events_total === 0) {
+    return {
+      status: 'clear',
+      reason: 'no_recent_fallback_events',
+      recent_events_total: summary.recent_events_total,
+      events_eligible_for_suggestion: summary.events_eligible_for_suggestion,
+      suggestions_returned: summary.suggestions_returned,
+      stale_events_ignored: summary.stale_events_ignored,
+      source_backed_events_suppressed: summary.source_backed_events_suppressed,
+    };
+  }
+
+  if (summary.suggestions_returned > 0 || summary.events_eligible_for_suggestion > 0) {
+    return {
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: summary.recent_events_total,
+      events_eligible_for_suggestion: summary.events_eligible_for_suggestion,
+      suggestions_returned: summary.suggestions_returned,
+      stale_events_ignored: summary.stale_events_ignored,
+      source_backed_events_suppressed: summary.source_backed_events_suppressed,
+    };
+  }
+
+  if (summary.source_backed_events_suppressed > 0) {
+    return {
+      status: 'watch',
+      reason: 'source_backed_fallback_pressure_suppressed',
+      recent_events_total: summary.recent_events_total,
+      events_eligible_for_suggestion: summary.events_eligible_for_suggestion,
+      suggestions_returned: summary.suggestions_returned,
+      stale_events_ignored: summary.stale_events_ignored,
+      source_backed_events_suppressed: summary.source_backed_events_suppressed,
+    };
+  }
+
+  return {
+    status: 'watch',
+    reason: 'stale_fallback_pressure_only',
+    recent_events_total: summary.recent_events_total,
+    events_eligible_for_suggestion: summary.events_eligible_for_suggestion,
+    suggestions_returned: summary.suggestions_returned,
+    stale_events_ignored: summary.stale_events_ignored,
+    source_backed_events_suppressed: summary.source_backed_events_suppressed,
   };
 }
 
@@ -460,6 +837,14 @@ export function buildMarketChartProviderDiagnostics(
   const responseSourceTargetSuggestions = responseSourceRecentEvents
     ? buildResponseSourceTargetSuggestions(responseSourceRecentEvents, sourceBackedTargetKeys, now)
     : null;
+  const responseSourceTargetSuggestionSummary = responseSourceRecentEvents
+    ? buildResponseSourceTargetSuggestionSummary(
+      responseSourceRecentEvents,
+      sourceBackedTargetKeys,
+      now,
+      responseSourceTargetSuggestions?.length ?? 0,
+    )
+    : null;
 
   return {
     configured_targets: configuredTargets.map((target) => ({
@@ -482,6 +867,10 @@ export function buildMarketChartProviderDiagnostics(
         configuredCoinDiagnostics.map((coin) => coin.coverage.freshness),
         ['fresh', 'stale', 'unknown'],
       ),
+      production_freshness_counts: countBy(
+        configuredCoinDiagnostics.map((coin) => coin.coverage.production_freshness),
+        ['fresh', 'stale', 'unknown'],
+      ),
       depth_counts: countBy(
         configuredCoinDiagnostics.map((coin) => coin.coverage.depth),
         ['deep', 'shallow', 'empty'],
@@ -493,13 +882,18 @@ export function buildMarketChartProviderDiagnostics(
       ? buildResponseSourceRecentEventRollups(responseSourceRecentEvents)
       : null,
     response_source_target_suggestion_window: buildResponseSourceTargetSuggestionWindow(now, responseSourceRecentEvents),
-    response_source_target_suggestion_summary: responseSourceRecentEvents
-      ? buildResponseSourceTargetSuggestionSummary(
-        responseSourceRecentEvents,
-        sourceBackedTargetKeys,
-        now,
-        responseSourceTargetSuggestions?.length ?? 0,
-      )
+    response_source_target_suggestion_summary: responseSourceTargetSuggestionSummary,
+    response_source_fallback_alert: responseSourceTargetSuggestionSummary
+      ? buildMarketChartFallbackAlertStatus(responseSourceTargetSuggestionSummary)
+      : null,
+    response_source_target_suggestion_operator_summary: responseSourceTargetSuggestions
+      ? buildResponseSourceTargetSuggestionOperatorSummary(responseSourceTargetSuggestions)
+      : null,
+    response_source_target_suggestion_overflow: responseSourceRecentEvents && responseSourceTargetSuggestions
+      ? buildResponseSourceTargetSuggestionOverflow(responseSourceRecentEvents, sourceBackedTargetKeys, now, responseSourceTargetSuggestions)
+      : null,
+    response_source_target_suggestion_batch_previews: responseSourceTargetSuggestions
+      ? buildResponseSourceTargetSuggestionBatchPreviews(responseSourceTargetSuggestions)
       : null,
     response_source_target_suggestion_exclusions: responseSourceRecentEvents
       ? buildResponseSourceTargetSuggestionExclusions(responseSourceRecentEvents, sourceBackedTargetKeys, now)
@@ -518,6 +912,9 @@ export function buildMarketChartProviderDiagnostics(
         .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)),
       stale_source_targets: coinDiagnostics
         .filter((coin) => coin.configured_provider !== null && coin.coverage.freshness === 'stale')
+        .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)),
+      production_stale_source_targets: coinDiagnostics
+        .filter((coin) => coin.configured_provider !== null && coin.coverage.production_freshness === 'stale')
         .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)),
       shallow_source_targets: coinDiagnostics
         .filter((coin) => coin.configured_provider !== null && coin.coverage.depth === 'shallow')

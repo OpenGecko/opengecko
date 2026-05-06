@@ -1,0 +1,39 @@
+{
+  "provider": "intraday.archive",
+  "captured_at": "2026-05-05T02:05:00.000Z",
+  "coin_id": "solana",
+  "vs_currency": "usd",
+  "interval": "1m",
+  "points": [
+    {
+      "timestamp": "1774051200",
+      "price": "146.25",
+      "market_cap": "72000000000",
+      "total_volume": "4200000000",
+      "open": "146.1",
+      "high": "146.4",
+      "low": "145.9",
+      "close": "146.25"
+    },
+    {
+      "timestamp": "1774051260",
+      "price": "146.55",
+      "market_cap": "72150000000",
+      "total_volume": "4210000000",
+      "open": "146.25",
+      "high": "146.7",
+      "low": "146.2",
+      "close": "146.55"
+    },
+    {
+      "timestamp": "1774137600",
+      "price": "151.4",
+      "market_cap": "74600000000",
+      "total_volume": "4550000000",
+      "open": "150.8",
+      "high": "151.9",
+      "low": "150.4",
+      "close": "151.4"
+    }
+  ]
+}

@@ -925,6 +925,8 @@ describe('diagnostics routes', () => {
             source_age_seconds: null,
             freshness_threshold_seconds: 129600,
             freshness: 'unknown',
+            production_freshness_threshold_seconds: 7200,
+            production_freshness: 'unknown',
             source_coverage_days: 0,
             depth_threshold_days: 30,
             depth: 'empty',
@@ -942,6 +944,11 @@ describe('diagnostics routes', () => {
           missing: 0,
         },
         freshness_counts: {
+          fresh: 0,
+          stale: 0,
+          unknown: 1,
+        },
+        production_freshness_counts: {
           fresh: 0,
           stale: 0,
           unknown: 1,
@@ -1071,6 +1078,11 @@ describe('diagnostics routes', () => {
         stale: 0,
         unknown: 0,
       },
+      production_freshness_counts: {
+        fresh: 2,
+        stale: 0,
+        unknown: 0,
+      },
       depth_counts: {
         deep: 1,
         shallow: 1,
@@ -1079,6 +1091,28 @@ describe('diagnostics routes', () => {
     });
     expect(freshDiagnostics.gaps.shallow_source_targets).toContain('bitcoin:usd:1d');
     expect(freshDiagnostics.gaps.shallow_source_targets).not.toContain('ethereum:usd:1d');
+    expect(freshDiagnostics.gaps.production_stale_source_targets).toEqual([]);
+
+    const productionStaleDiagnostics = buildMarketChartProviderDiagnostics(
+      getApp().db,
+      'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1d:usd',
+      new Date('2026-05-05T04:00:00.000Z'),
+    );
+    expect(productionStaleDiagnostics.summary.freshness_counts).toMatchObject({
+      fresh: 2,
+      stale: 0,
+      unknown: 0,
+    });
+    expect(productionStaleDiagnostics.summary.production_freshness_counts).toMatchObject({
+      fresh: 0,
+      stale: 2,
+      unknown: 0,
+    });
+    expect(productionStaleDiagnostics.gaps.stale_source_targets).toEqual([]);
+    expect(productionStaleDiagnostics.gaps.production_stale_source_targets).toEqual(expect.arrayContaining([
+      'bitcoin:usd:1d',
+      'ethereum:usd:1d',
+    ]));
 
     const staleDiagnostics = buildMarketChartProviderDiagnostics(
       getApp().db,
@@ -1102,6 +1136,54 @@ describe('diagnostics routes', () => {
       stale: 2,
       unknown: 0,
     });
+    expect(staleDiagnostics.summary.production_freshness_counts).toMatchObject({
+      fresh: 0,
+      stale: 2,
+      unknown: 0,
+    });
+  });
+
+  it('exposes documented daily and intraday market chart freshness thresholds through diagnostics', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'market-chart-thresholds.db'),
+        ccxtExchanges: ['binance'],
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1m:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        interval: '1d',
+        configured_provider: 'mock.chart',
+        coverage: expect.objectContaining({
+          freshness_threshold_seconds: 129600,
+          production_freshness_threshold_seconds: 7200,
+          depth_threshold_days: 30,
+        }),
+      }),
+      expect.objectContaining({
+        coin_id: 'ethereum',
+        interval: '1m',
+        configured_provider: 'mock.chart',
+        coverage: expect.objectContaining({
+          freshness_threshold_seconds: 1800,
+          production_freshness_threshold_seconds: 300,
+          depth_threshold_days: 1,
+        }),
+      }),
+    ]));
   });
 
   it('reports public chart and ohlc response source counters without changing route payloads', async () => {
@@ -1163,6 +1245,9 @@ describe('diagnostics routes', () => {
       [1775001600000, 91_000, 92_500, 90_250, 92_000],
     ]);
     expect(providerOhlcPayload).not.toHaveProperty('response_source_counts');
+    expect(providerOhlcPayload).not.toHaveProperty('response_source_fallback_alert');
+    expect(providerOhlcPayload).not.toHaveProperty('response_source_target_suggestion_overflow');
+    expect(providerOhlcPayload).not.toHaveProperty('response_source_target_suggestion_batch_previews');
 
     const emptyChartResponse = await getApp().inject({
       method: 'GET',
@@ -1176,6 +1261,34 @@ describe('diagnostics routes', () => {
       total_volumes: [],
     });
     expect(emptyChartPayload).not.toHaveProperty('response_source_recent_events');
+    expect(emptyChartPayload).not.toHaveProperty('response_source_fallback_alert');
+    expect(emptyChartPayload).not.toHaveProperty('response_source_target_suggestion_overflow');
+    expect(emptyChartPayload).not.toHaveProperty('response_source_target_suggestion_batch_previews');
+
+    getApp().chartResponseSources.record('market_chart_range', 'empty', {
+      coinId: 'ethereum',
+      vsCurrency: 'usd',
+      interval: 'daily',
+      request: { kind: 'range', from: Date.UTC(2026, 3, 3), to: Date.UTC(2026, 3, 3) },
+    });
+    getApp().chartResponseSources.record('ohlc_range', 'provider_filled', {
+      coinId: 'ethereum',
+      vsCurrency: 'usd',
+      interval: 'daily',
+      request: { kind: 'range', from: Date.UTC(2026, 3, 4), to: Date.UTC(2026, 3, 4) },
+    });
+    getApp().chartResponseSources.record('market_chart_days', 'empty', {
+      coinId: 'ethereum',
+      vsCurrency: 'usd',
+      interval: 'daily',
+      request: { kind: 'days', days: '30' },
+    });
+    getApp().chartResponseSources.record('market_chart_range', 'empty', {
+      coinId: 'solana',
+      vsCurrency: 'usd',
+      interval: 'hourly',
+      request: { kind: 'range', from: Date.UTC(2026, 3, 5, 0), to: Date.UTC(2026, 3, 5, 1) },
+    });
 
     const diagnosticsResponse = await getApp().inject({
       method: 'GET',
@@ -1186,18 +1299,18 @@ describe('diagnostics routes', () => {
     expect(diagnosticsResponse.json().data.response_source_counts).toMatchObject({
       market_chart_days: {
         canonical: 1,
+        empty: 1,
         source_backed: 0,
         provider_filled: 0,
-        empty: 0,
       },
       market_chart_range: {
         source_backed: 1,
         canonical: 0,
         provider_filled: 0,
-        empty: 1,
+        empty: 3,
       },
       ohlc_range: {
-        provider_filled: 1,
+        provider_filled: 2,
         source_backed: 0,
         canonical: 0,
         empty: 0,
@@ -1230,24 +1343,75 @@ describe('diagnostics routes', () => {
           to: '2026-04-02T00:00:00.000Z',
         },
       }),
+      expect.objectContaining({
+        route: 'market_chart_days',
+        source: 'empty',
+        coin_id: 'ethereum',
+        vs_currency: 'usd',
+        interval: 'daily',
+        request: {
+          kind: 'days',
+          days: '30',
+          from: null,
+          to: null,
+        },
+      }),
+      expect.objectContaining({
+        route: 'market_chart_range',
+        source: 'empty',
+        coin_id: 'solana',
+        vs_currency: 'usd',
+        interval: 'hourly',
+        request: {
+          kind: 'range',
+          days: null,
+          from: '2026-04-05T00:00:00.000Z',
+          to: '2026-04-05T01:00:00.000Z',
+        },
+      }),
     ]));
     expect(diagnosticsResponse.json().data.response_source_recent_events).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'canonical' }),
       expect.objectContaining({ source: 'source_backed' }),
     ]));
     expect(diagnosticsResponse.json().data.response_source_recent_event_rollups).toMatchObject({
-      total_events: 2,
+      total_events: 6,
       by_route: {
-        market_chart_range: {
+        market_chart_days: {
           provider_filled: 0,
           empty: 1,
         },
+        market_chart_range: {
+          provider_filled: 0,
+          empty: 3,
+        },
         ohlc_range: {
-          provider_filled: 1,
+          provider_filled: 2,
           empty: 0,
         },
       },
       by_coin: [
+        {
+          coin_id: 'ethereum',
+          vs_currency: 'usd',
+          total: 3,
+          provider_filled: 1,
+          empty: 2,
+          routes: {
+            market_chart_days: {
+              provider_filled: 0,
+              empty: 1,
+            },
+            market_chart_range: {
+              provider_filled: 0,
+              empty: 1,
+            },
+            ohlc_range: {
+              provider_filled: 1,
+              empty: 0,
+            },
+          },
+        },
         {
           coin_id: 'bitcoin',
           vs_currency: 'usd',
@@ -1265,9 +1429,78 @@ describe('diagnostics routes', () => {
             },
           },
         },
+        {
+          coin_id: 'solana',
+          vs_currency: 'usd',
+          total: 1,
+          provider_filled: 0,
+          empty: 1,
+          routes: {
+            market_chart_range: {
+              provider_filled: 0,
+              empty: 1,
+            },
+          },
+        },
       ],
     });
     expect(diagnosticsResponse.json().data.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'ethereum',
+        vs_currency: 'usd',
+        interval: '1d',
+        target_template: '<provider>=ethereum:1d:usd',
+        event_counts: {
+          total: 3,
+          provider_filled: 1,
+          empty: 2,
+        },
+        priority: {
+          rank: 1,
+          pressure_score: 3,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_days',
+          totals: {
+            market_chart_days: 1,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 1,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 1,
+            range: 2,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 2,
+          buckets: {
+            intraday: 0,
+            single_day: 2,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'single_day',
+        },
+        sample_requests: expect.arrayContaining([
+          expect.objectContaining({
+            route: 'market_chart_days',
+            source: 'empty',
+            request: { kind: 'days', days: '30', from: null, to: null },
+          }),
+        ]),
+      }),
       expect.objectContaining({
         coin_id: 'bitcoin',
         vs_currency: 'usd',
@@ -1278,6 +1511,44 @@ describe('diagnostics routes', () => {
           total: 2,
           provider_filled: 1,
           empty: 1,
+        },
+        priority: {
+          rank: 2,
+          pressure_score: 2,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_range',
+          totals: {
+            market_chart_days: 0,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 1,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 0,
+            range: 2,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 2,
+          buckets: {
+            intraday: 0,
+            single_day: 2,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'single_day',
         },
         routes: expect.objectContaining({
           market_chart_range: {
@@ -1290,7 +1561,145 @@ describe('diagnostics routes', () => {
           },
         }),
       }),
+      expect.objectContaining({
+        coin_id: 'solana',
+        vs_currency: 'usd',
+        interval: '1m',
+        target_template: '<provider>=solana:1m:usd',
+        event_counts: {
+          total: 1,
+          provider_filled: 0,
+          empty: 1,
+        },
+        priority: {
+          rank: 3,
+          pressure_score: 1,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_range',
+          totals: {
+            market_chart_days: 0,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 0,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 0,
+            range: 1,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'intraday',
+          range_requests: 1,
+          buckets: {
+            intraday: 1,
+            single_day: 0,
+            multi_day: 0,
+          },
+          min_span_seconds: 3_600,
+          max_span_seconds: 3_600,
+        },
+        coverage_target_hint: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          request_pattern: 'range',
+          range_window: 'intraday',
+        },
+      }),
     ]);
+    expect(diagnosticsResponse.json().data.response_source_fallback_alert).toEqual({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: 6,
+      events_eligible_for_suggestion: 6,
+      suggestions_returned: 3,
+      stale_events_ignored: 0,
+      source_backed_events_suppressed: 0,
+    });
+    expect(diagnosticsResponse.json().data.response_source_target_suggestion_operator_summary).toEqual({
+      total_suggestions: 3,
+      target_history_counts: {
+        daily_history: 2,
+        intraday_history: 1,
+      },
+      suggested_action_counts: {
+        expand_daily_history: 2,
+        expand_intraday_history: 1,
+      },
+      request_pattern_counts: {
+        days: 0,
+        range: 3,
+        none: 0,
+      },
+      range_window_counts: {
+        intraday: 1,
+        single_day: 2,
+        multi_day: 0,
+        none: 0,
+      },
+    });
+    expect(diagnosticsResponse.json().data.response_source_target_suggestion_overflow).toEqual({
+      basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+      suggestions_limit: 20,
+      eligible_targets: 3,
+      returned_suggestions: 3,
+      omitted_by_suggestion_cap: 0,
+      target_history_counts: {
+        daily_history: {
+          eligible_targets: 2,
+          returned_suggestions: 2,
+          omitted_by_suggestion_cap: 0,
+        },
+        intraday_history: {
+          eligible_targets: 1,
+          returned_suggestions: 1,
+          omitted_by_suggestion_cap: 0,
+        },
+      },
+    });
+    expect(diagnosticsResponse.json().data.response_source_target_suggestion_batch_previews).toEqual({
+      provider_placeholder: '<provider>',
+      total_suggestions: 3,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 3,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          target_count: 2,
+          target_templates: [
+            '<provider>=ethereum:1d:usd',
+            '<provider>=bitcoin:1d:usd',
+          ],
+          market_chart_targets_template: '<provider>=ethereum:1d:usd,<provider>=bitcoin:1d:usd',
+        },
+        intraday_history: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          target_count: 1,
+          target_templates: ['<provider>=solana:1m:usd'],
+          market_chart_targets_template: '<provider>=solana:1m:usd',
+        },
+      },
+    });
+    expect(diagnosticsResponse.headers.etag).toEqual(expect.any(String));
+    const cachedDiagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+      headers: {
+        'if-none-match': diagnosticsResponse.headers.etag,
+      },
+    });
+    expect(cachedDiagnosticsResponse.statusCode).toBe(304);
+    expect(cachedDiagnosticsResponse.headers.etag).toBe(diagnosticsResponse.headers.etag);
+    expect(cachedDiagnosticsResponse.headers['cache-control']).toBe(diagnosticsResponse.headers['cache-control']);
 
     await getApp().close();
     app = buildApp({
@@ -1311,31 +1720,94 @@ describe('diagnostics routes', () => {
     expect(restartedDiagnosticsResponse.json().data.response_source_counts).toMatchObject({
       market_chart_days: {
         canonical: 1,
+        empty: 1,
       },
       market_chart_range: {
         source_backed: 1,
-        empty: 1,
+        empty: 3,
       },
       ohlc_range: {
-        provider_filled: 1,
+        provider_filled: 2,
       },
     });
     expect(restartedDiagnosticsResponse.json().data.response_source_recent_events).toEqual(expect.arrayContaining([
       expect.objectContaining({ route: 'ohlc_range', source: 'provider_filled', coin_id: 'bitcoin' }),
       expect.objectContaining({ route: 'market_chart_range', source: 'empty', coin_id: 'bitcoin' }),
+      expect.objectContaining({ route: 'market_chart_days', source: 'empty', coin_id: 'ethereum' }),
+      expect.objectContaining({ route: 'market_chart_range', source: 'empty', coin_id: 'solana', interval: 'hourly' }),
     ]));
     expect(restartedDiagnosticsResponse.json().data.response_source_recent_event_rollups).toMatchObject({
-      total_events: 2,
+      total_events: 6,
       by_coin: [
+        {
+          coin_id: 'ethereum',
+          total: 3,
+          provider_filled: 1,
+          empty: 2,
+        },
         {
           coin_id: 'bitcoin',
           total: 2,
           provider_filled: 1,
           empty: 1,
         },
+        {
+          coin_id: 'solana',
+          total: 1,
+          provider_filled: 0,
+          empty: 1,
+        },
       ],
     });
     expect(restartedDiagnosticsResponse.json().data.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'ethereum',
+        interval: '1d',
+        target_template: '<provider>=ethereum:1d:usd',
+        event_counts: {
+          total: 3,
+          provider_filled: 1,
+          empty: 2,
+        },
+        priority: {
+          rank: 1,
+          pressure_score: 3,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_days',
+          totals: {
+            market_chart_days: 1,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 1,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 1,
+            range: 2,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 2,
+          buckets: {
+            intraday: 0,
+            single_day: 2,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'single_day',
+        },
+      }),
       expect.objectContaining({
         coin_id: 'bitcoin',
         interval: '1d',
@@ -1345,8 +1817,309 @@ describe('diagnostics routes', () => {
           provider_filled: 1,
           empty: 1,
         },
+        priority: {
+          rank: 2,
+          pressure_score: 2,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_range',
+          totals: {
+            market_chart_days: 0,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 1,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 0,
+            range: 2,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'single_day',
+          range_requests: 2,
+          buckets: {
+            intraday: 0,
+            single_day: 2,
+            multi_day: 0,
+          },
+          min_span_seconds: 0,
+          max_span_seconds: 0,
+        },
+        coverage_target_hint: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          request_pattern: 'range',
+          range_window: 'single_day',
+        },
+      }),
+      expect.objectContaining({
+        coin_id: 'solana',
+        interval: '1m',
+        target_template: '<provider>=solana:1m:usd',
+        event_counts: {
+          total: 1,
+          provider_filled: 0,
+          empty: 1,
+        },
+        priority: {
+          rank: 3,
+          pressure_score: 1,
+          latest_observed_at: expect.any(String),
+        },
+        route_pressure: {
+          dominant_route: 'market_chart_range',
+          totals: {
+            market_chart_days: 0,
+            market_chart_range: 1,
+            ohlc_days: 0,
+            ohlc_range: 0,
+          },
+        },
+        request_kind_pressure: {
+          dominant_kind: 'range',
+          totals: {
+            days: 0,
+            range: 1,
+          },
+        },
+        range_span_pressure: {
+          dominant_bucket: 'intraday',
+          range_requests: 1,
+          buckets: {
+            intraday: 1,
+            single_day: 0,
+            multi_day: 0,
+          },
+          min_span_seconds: 3_600,
+          max_span_seconds: 3_600,
+        },
+        coverage_target_hint: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          request_pattern: 'range',
+          range_window: 'intraday',
+        },
       }),
     ]);
+    expect(restartedDiagnosticsResponse.json().data.response_source_fallback_alert).toEqual({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      recent_events_total: 6,
+      events_eligible_for_suggestion: 6,
+      suggestions_returned: 3,
+      stale_events_ignored: 0,
+      source_backed_events_suppressed: 0,
+    });
+    expect(restartedDiagnosticsResponse.json().data.response_source_target_suggestion_operator_summary).toEqual({
+      total_suggestions: 3,
+      target_history_counts: {
+        daily_history: 2,
+        intraday_history: 1,
+      },
+      suggested_action_counts: {
+        expand_daily_history: 2,
+        expand_intraday_history: 1,
+      },
+      request_pattern_counts: {
+        days: 0,
+        range: 3,
+        none: 0,
+      },
+      range_window_counts: {
+        intraday: 1,
+        single_day: 2,
+        multi_day: 0,
+        none: 0,
+      },
+    });
+    expect(restartedDiagnosticsResponse.json().data.response_source_target_suggestion_overflow).toEqual({
+      basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+      suggestions_limit: 20,
+      eligible_targets: 3,
+      returned_suggestions: 3,
+      omitted_by_suggestion_cap: 0,
+      target_history_counts: {
+        daily_history: {
+          eligible_targets: 2,
+          returned_suggestions: 2,
+          omitted_by_suggestion_cap: 0,
+        },
+        intraday_history: {
+          eligible_targets: 1,
+          returned_suggestions: 1,
+          omitted_by_suggestion_cap: 0,
+        },
+      },
+    });
+    expect(restartedDiagnosticsResponse.json().data.response_source_target_suggestion_batch_previews).toEqual({
+      provider_placeholder: '<provider>',
+      total_suggestions: 3,
+      cap: {
+        preview_source: 'response_source_target_suggestions',
+        suggestions_returned: 3,
+        suggestions_limit: 20,
+      },
+      groups: {
+        daily_history: {
+          target_history: 'daily_history',
+          suggested_action: 'expand_daily_history',
+          target_count: 2,
+          target_templates: [
+            '<provider>=ethereum:1d:usd',
+            '<provider>=bitcoin:1d:usd',
+          ],
+          market_chart_targets_template: '<provider>=ethereum:1d:usd,<provider>=bitcoin:1d:usd',
+        },
+        intraday_history: {
+          target_history: 'intraday_history',
+          suggested_action: 'expand_intraday_history',
+          target_count: 1,
+          target_templates: ['<provider>=solana:1m:usd'],
+          market_chart_targets_template: '<provider>=solana:1m:usd',
+        },
+      },
+    });
+  });
+
+  it('reports capped market chart suggestion overflow counters through route cache and restart', async () => {
+    await getApp().ready();
+
+    getApp().chartResponseSources.record('market_chart_range', 'empty', {
+      coinId: 'zz-intraday-capped',
+      vsCurrency: 'usd',
+      interval: 'hourly',
+      request: { kind: 'range', from: Date.UTC(2026, 3, 5, 0), to: Date.UTC(2026, 3, 5, 1) },
+    });
+    for (let index = 0; index < 20; index += 1) {
+      getApp().chartResponseSources.record('market_chart_range', 'empty', {
+        coinId: `daily-${index.toString().padStart(2, '0')}`,
+        vsCurrency: 'usd',
+        interval: 'daily',
+        request: { kind: 'range', from: Date.UTC(2026, 3, 5), to: Date.UTC(2026, 3, 5) },
+      });
+    }
+
+    const diagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+    const diagnosticsPayload = diagnosticsResponse.json().data;
+
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    expect(diagnosticsPayload.response_source_target_suggestion_summary).toEqual(expect.objectContaining({
+      unique_eligible_targets: 21,
+      suggestions_returned: 20,
+      suggestions_limit: 20,
+    }));
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow).toEqual({
+      basis: 'eligible_unique_targets_after_stale_and_source_backed_filtering',
+      suggestions_limit: 20,
+      eligible_targets: 21,
+      returned_suggestions: 20,
+      omitted_by_suggestion_cap: 1,
+      target_history_counts: {
+        daily_history: {
+          eligible_targets: 20,
+          returned_suggestions: 20,
+          omitted_by_suggestion_cap: 0,
+        },
+        intraday_history: {
+          eligible_targets: 1,
+          returned_suggestions: 0,
+          omitted_by_suggestion_cap: 1,
+        },
+      },
+    });
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.eligible_targets).toBe(
+      diagnosticsPayload.response_source_target_suggestion_summary.unique_eligible_targets,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.returned_suggestions).toBe(
+      diagnosticsPayload.response_source_target_suggestion_summary.suggestions_returned,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.suggestions_limit).toBe(
+      diagnosticsPayload.response_source_target_suggestion_summary.suggestions_limit,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.omitted_by_suggestion_cap).toBe(
+      diagnosticsPayload.response_source_target_suggestion_summary.unique_eligible_targets
+        - diagnosticsPayload.response_source_target_suggestion_summary.suggestions_returned,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestion_batch_previews).toEqual(expect.objectContaining({
+      total_suggestions: 20,
+      groups: {
+        daily_history: expect.objectContaining({
+          target_count: 20,
+        }),
+        intraday_history: expect.objectContaining({
+          target_count: 0,
+          target_templates: [],
+          market_chart_targets_template: null,
+        }),
+      },
+    }));
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.target_history_counts.daily_history.returned_suggestions).toBe(
+      diagnosticsPayload.response_source_target_suggestion_batch_previews.groups.daily_history.target_count,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestion_overflow.target_history_counts.intraday_history.returned_suggestions).toBe(
+      diagnosticsPayload.response_source_target_suggestion_batch_previews.groups.intraday_history.target_count,
+    );
+    expect(diagnosticsPayload.response_source_target_suggestions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ target_template: '<provider>=zz-intraday-capped:1m:usd' }),
+    ]));
+    expect(diagnosticsResponse.headers.etag).toEqual(expect.any(String));
+
+    const cachedDiagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+      headers: {
+        'if-none-match': diagnosticsResponse.headers.etag,
+      },
+    });
+    expect(cachedDiagnosticsResponse.statusCode).toBe(304);
+    expect(cachedDiagnosticsResponse.headers.etag).toBe(diagnosticsResponse.headers.etag);
+    expect(cachedDiagnosticsResponse.headers['cache-control']).toBe(diagnosticsResponse.headers['cache-control']);
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const restartedDiagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+    const restartedDiagnosticsPayload = restartedDiagnosticsResponse.json().data;
+    expect(restartedDiagnosticsResponse.statusCode).toBe(200);
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow).toEqual(
+      diagnosticsPayload.response_source_target_suggestion_overflow,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow.eligible_targets).toBe(
+      restartedDiagnosticsPayload.response_source_target_suggestion_summary.unique_eligible_targets,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow.returned_suggestions).toBe(
+      restartedDiagnosticsPayload.response_source_target_suggestion_summary.suggestions_returned,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow.suggestions_limit).toBe(
+      restartedDiagnosticsPayload.response_source_target_suggestion_summary.suggestions_limit,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_batch_previews.groups.intraday_history).toEqual(
+      diagnosticsPayload.response_source_target_suggestion_batch_previews.groups.intraday_history,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow.target_history_counts.daily_history.returned_suggestions).toBe(
+      restartedDiagnosticsPayload.response_source_target_suggestion_batch_previews.groups.daily_history.target_count,
+    );
+    expect(restartedDiagnosticsPayload.response_source_target_suggestion_overflow.target_history_counts.intraday_history.returned_suggestions).toBe(
+      restartedDiagnosticsPayload.response_source_target_suggestion_batch_previews.groups.intraday_history.target_count,
+    );
   });
 
   it('returns supply chart provider gap diagnostics for fixture, configured, replay, and live states', async () => {

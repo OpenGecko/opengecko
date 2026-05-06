@@ -9,6 +9,7 @@ import { parseMarketChartTargetConfig, syncMarketCharts } from './market-chart-s
 import { parseOnchainAnalyticsTargetConfig, syncOnchainAnalytics } from './onchain-analytics-sync';
 import { parseOnchainTradeTargetConfig, syncOnchainTrades } from './onchain-trade-sync';
 import {
+  type OptionalProviderJobPartialFailureSample,
   type OptionalProviderJobId,
   type OptionalProviderJobRegistry,
   recordOptionalProviderJobRunFailure,
@@ -22,6 +23,8 @@ type SchedulerLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error'>;
 export type OptionalProviderScheduledJobResult = {
   targetsAttempted: number;
   rowsWritten: number;
+  partialFailureReason?: string | null;
+  partialFailureSamples?: OptionalProviderJobPartialFailureSample[] | null;
 };
 
 export type OptionalProviderScheduledJob = {
@@ -91,7 +94,24 @@ export function createConfiguredOptionalProviderSyncJobs(
           targets,
           providerBaseUrl: env.MARKET_CHART_BASE_URL,
         });
-        return { targetsAttempted: result.targets_attempted, rowsWritten: result.points_written };
+        const firstFailedTarget = result.results.find((targetResult) => targetResult.status === 'failed');
+        return {
+          targetsAttempted: result.targets_attempted,
+          rowsWritten: result.points_written,
+          partialFailureReason: result.targets_failed > 0
+            ? `${result.targets_failed} market chart target(s) failed; first failure: ${firstFailedTarget?.error ?? 'unknown failure'}`
+            : null,
+          partialFailureSamples: result.results
+            .filter((targetResult) => targetResult.status === 'failed')
+            .slice(0, 5)
+            .map((targetResult) => ({
+              provider: targetResult.provider,
+              coin_id: targetResult.coin_id,
+              vs_currency: targetResult.vs_currency,
+              interval: targetResult.interval,
+              error: targetResult.error ?? 'unknown failure',
+            })),
+        };
       },
     },
     {
@@ -178,6 +198,8 @@ export function createOptionalProviderSyncScheduler(options: {
             finishedAt: new Date(),
             targetsAttempted: result.targetsAttempted,
             rowsWritten: result.rowsWritten,
+            partialFailureReason: result.partialFailureReason,
+            partialFailureSamples: result.partialFailureSamples,
           };
           options.registry.recordSuccess(job.id, outcome);
           if (options.database) {

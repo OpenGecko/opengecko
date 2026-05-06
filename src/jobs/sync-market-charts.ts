@@ -37,11 +37,25 @@ export async function runMarketChartSyncJob(env: NodeJS.ProcessEnv = process.env
       targets,
       providerBaseUrl: env.MARKET_CHART_BASE_URL,
     });
+    const firstFailedTarget = result.results.find((targetResult) => targetResult.status === 'failed');
     recordOptionalProviderJobRunSuccess(database, 'market_charts', {
       startedAt,
       finishedAt: new Date(),
       targetsAttempted: result.targets_attempted,
       rowsWritten: result.points_written,
+      partialFailureReason: result.targets_failed > 0
+        ? `${result.targets_failed} market chart target(s) failed; first failure: ${firstFailedTarget?.error ?? 'unknown failure'}`
+        : null,
+      partialFailureSamples: result.results
+        .filter((targetResult) => targetResult.status === 'failed')
+        .slice(0, 5)
+        .map((targetResult) => ({
+          provider: targetResult.provider,
+          coin_id: targetResult.coin_id,
+          vs_currency: targetResult.vs_currency,
+          interval: targetResult.interval,
+          error: targetResult.error ?? 'unknown failure',
+        })),
     });
     logger.info(result, 'market chart sync complete');
   } catch (error) {

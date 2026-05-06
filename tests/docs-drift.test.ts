@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function readRepoFile(path: string) {
@@ -129,15 +129,29 @@ describe('documentation drift guards', () => {
       'tests/fixtures/provider-replay/market-charts/ccxt-binance-bitcoin-adapter-response.json',
     );
     expect(marketChartPresets).toContain(
+      'tests/fixtures/provider-replay/market-charts/ccxt-binance-solana-adapter-response.json',
+    );
+    expect(marketChartPresets).toContain(
       'tests/fixtures/provider-replay/market-charts/intraday-archive-ethereum-adapter-response.json',
     );
+    expect(marketChartPresets).toContain(
+      'tests/fixtures/provider-replay/market-charts/intraday-archive-solana-adapter-response.json',
+    );
+    expect(readme).toContain('retry-only target templates from persisted job state');
 
     const marketChartExample = readme.match(
       /\*\*Market chart preset example:\*\*([\s\S]*?)## Migrating from CoinGecko/,
     )?.[1];
+    const marketChartWorkflow = readFileSync(
+      join(process.cwd(), 'docs/reference/market-chart-diagnostics-workflow.md'),
+      'utf8',
+    );
 
     expect(marketChartExample).toBeDefined();
-    for (const expectedExampleDetail of [
+    expect(marketChartExample).toContain('docs/reference/market-chart-diagnostics-workflow.md');
+    expect(marketChartWorkflow).toContain('Market Chart Diagnostics Workflow');
+
+    for (const expectedReadmeDetail of [
       'MARKET_CHART_BASE_URL',
       'MARKET_CHART_TARGETS',
       'ccxt.binance=bitcoin:1d:usd',
@@ -147,12 +161,17 @@ describe('documentation drift guards', () => {
       'source_backed_configured_targets',
       'status_counts',
       'freshness_counts',
+      'production_freshness_counts',
       'depth_counts',
       'response_source_counts',
       'response_source_recent_events',
       'response_source_recent_event_rollups',
       'response_source_target_suggestion_window',
       'response_source_target_suggestion_summary',
+      'response_source_fallback_alert',
+      'response_source_target_suggestion_operator_summary',
+      'response_source_target_suggestion_overflow',
+      'response_source_target_suggestion_batch_previews',
       'response_source_target_suggestion_exclusions',
       'response_source_target_suggestions',
       'market_chart_days',
@@ -161,16 +180,6 @@ describe('documentation drift guards', () => {
       'canonical',
       'provider_filled',
       'empty',
-      'durable counters',
-      'survive process restarts',
-      'diagnostics-only',
-      '50 most recent',
-      'sanitized route, coin, currency, interval, and days/range request context',
-      'groups fallback pressure by route and by coin',
-      'prioritize source-backed target expansion',
-      'UTC-day-bucketed seven-day cutoff used for suggestions',
-      'stale fallback events were ignored',
-      'reconciles the suggestion pipeline',
       'source_backed_events_suppressed',
       'events_eligible_for_suggestion',
       'unique_eligible_targets',
@@ -178,35 +187,103 @@ describe('documentation drift guards', () => {
       'suggestions_limit',
       'stale_events',
       'source_backed_events',
-      'capped sanitized examples of stale ignored events and source-backed suppressed events',
-      'old fallback pressure from already-solved targets',
       'sample_requests',
-      'up to three sanitized `sample_requests`',
-      'sorted by newest observed fallback event',
-      'representative route/range pressure',
-      '<provider>=coin:interval:vs_currency',
-      'without choosing a provider or writing operator config',
-      'unresolved fallback pressure',
-      'Targets that already have `live_backed` or `replay_backed` source coverage are suppressed from suggestions',
-      'Applying suggested chart targets',
-      '.data.response_source_target_suggestions[0].target_template',
-      'Pick a provider ID from docs/reference/market-chart-provider-presets.json',
-      'ccxt.binance=bitcoin:1d:usd',
-      'jq \'.data.coins[] | select(.coin_id == "bitcoin" and .interval == "1d") | {status, coverage}\'',
-      'Only replace `<provider>` with a provider ID that your adapter supports',
-      'do not treat the suggestion itself as proof of live CoinGecko-level freshness',
-      'short-term fallback signal',
+      '"priority"',
+      '"rank"',
+      '"pressure_score"',
+      '"latest_observed_at"',
+      '"route_pressure"',
+      '"dominant_route"',
+      '"request_kind_pressure"',
+      '"dominant_kind"',
+      '"range_span_pressure"',
+      '"dominant_bucket"',
+      '"coverage_target_hint"',
+      '"target_history"',
+      '"suggested_action"',
+      '"daily_history"',
+      '"intraday_history"',
+      '"suggested_action_counts"',
+      '"request_pattern_counts"',
+      '"range_window_counts"',
+      'omitted_by_suggestion_cap',
+      '"basis": "eligible_unique_targets_after_stale_and_source_backed_filtering"',
+      '"groups"',
+      '"market_chart_targets_template"',
+      '<provider>',
+      '"preview_source": "response_source_target_suggestions"',
       'configured_pending',
       'live_backed',
-      'coverage.freshness=fresh',
       'stale_source_targets',
+      'production_stale_source_targets',
       'shallow_source_targets',
       'OPTIONAL_PROVIDER_SYNC_ENABLED',
       'OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS',
-      'docs/reference/market-chart-targets.json',
       'docs/reference/market-chart-provider-presets.json',
     ]) {
-      expect(marketChartExample).toContain(expectedExampleDetail);
+      expect(marketChartExample).toContain(expectedReadmeDetail);
+    }
+
+    for (const expectedWorkflowDetail of [
+      'diagnostics-only',
+      'must not appear in public `/coins/:id/market_chart*` or `/coins/:id/ohlc*` responses',
+      'response_source_fallback_alert.status',
+      '`clear`: no recent chart/OHLC fallback pressure is visible in the diagnostics window',
+      '`watch`: fallback pressure is stale-only or already source-backed and suppressed from suggestions',
+      '`action_needed`: unresolved recent fallback pressure exists and should be reviewed',
+      'summary.partial_failure > 0',
+      'last_partial_failure_reason',
+      'sanitized `last_partial_failure_samples`',
+      'last_partial_failure_retry_targets_template',
+      'retry-only `MARKET_CHART_TARGETS` batch',
+      'export MARKET_CHART_RETRY_TARGETS=',
+      'MARKET_CHART_TARGETS="$MARKET_CHART_RETRY_TARGETS" bun run market:charts:sync',
+      'successful source rows are not reprocessed unnecessarily',
+      'partial-failure samples exist but the retry template is empty',
+      'did not include enough provider, coin, currency, and interval context',
+      'inspect the samples or provider logs before retrying a broad batch',
+      'gaps.configured_without_source_rows',
+      'gaps.stale_source_targets',
+      'gaps.shallow_source_targets',
+      'coverage.freshness_threshold_seconds=129600',
+      'coverage.depth_threshold_days=30',
+      'coverage.freshness_threshold_seconds=1800',
+      'coverage.depth_threshold_days=1',
+      'first-run minimum SLOs',
+      'coverage.production_freshness_threshold_seconds=7200',
+      'coverage.production_freshness_threshold_seconds=300',
+      'summary.production_freshness_counts',
+      'gaps.production_stale_source_targets',
+      'first-run fresh while production-stale',
+      'source-sync recency',
+      'retry a fresh sync before expanding the target set',
+      'deepen provider history instead of treating the gap as missing provider support',
+      'This keeps partial provider errors, stale source rows, shallow history depth, and missing target coverage from being treated as the same problem',
+      'response_source_target_suggestion_exclusions.stale_events',
+      'response_source_target_suggestion_exclusions.source_backed_events',
+      'response_source_target_suggestions',
+      'response_source_target_suggestion_operator_summary',
+      'mostly `daily_history` or `intraday_history`',
+      'response_source_target_suggestion_batch_previews.groups.daily_history.market_chart_targets_template',
+      'response_source_target_suggestion_batch_previews.groups.intraday_history.market_chart_targets_template',
+      'docs/reference/market-chart-provider-presets.json',
+      'The diagnostics route does not choose providers, write `MARKET_CHART_TARGETS`, or apply targets automatically',
+      'response_source_target_suggestion_overflow',
+      'response_source_target_suggestion_overflow.target_history_counts',
+      'daily_omitted: .daily_history.omitted_by_suggestion_cap',
+      'intraday_omitted: .intraday_history.omitted_by_suggestion_cap',
+      'If `response_source_target_suggestion_overflow.omitted_by_suggestion_cap > 0`',
+      'treat the current batch preview as the first page of remediation work',
+      'prioritize daily-history backfill, intraday-history backfill, or a smaller provider-specific target set',
+      'export MARKET_CHART_TARGET_BATCH=',
+      '${MARKET_CHART_TARGET_BATCH//<provider>/ccxt.binance}',
+      'jq --arg targets "$MARKET_CHART_TARGETS"',
+      '$targets | split(",")',
+      '{coin_id, interval, vs_currency, status, coverage}',
+      'A target is not CoinGecko-fresh until it is `live_backed`',
+      'coverage.freshness=fresh',
+    ]) {
+      expect(marketChartWorkflow).toContain(expectedWorkflowDetail);
     }
   });
 

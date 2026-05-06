@@ -31,12 +31,22 @@ export type OptionalProviderJobSuccess = {
   finishedAt: Date;
   targetsAttempted: number;
   rowsWritten: number;
+  partialFailureReason?: string | null;
+  partialFailureSamples?: OptionalProviderJobPartialFailureSample[] | null;
 };
 
 export type OptionalProviderJobFailure = {
   startedAt: Date;
   finishedAt: Date;
   targetsAttempted: number;
+  error: string;
+};
+
+export type OptionalProviderJobPartialFailureSample = {
+  provider: string;
+  coin_id?: string;
+  vs_currency?: string;
+  interval?: string;
   error: string;
 };
 
@@ -52,6 +62,8 @@ type OptionalProviderJobRunState =
     finishedAt: Date;
     targetsAttempted: number;
     rowsWritten: number;
+    partialFailureReason?: string | null;
+    partialFailureSamples?: OptionalProviderJobPartialFailureSample[] | null;
   }
   | {
     status: 'failed';
@@ -107,9 +119,101 @@ const OPTIONAL_PROVIDER_JOB_DEFINITIONS: OptionalProviderJobDefinition[] = [
     parseTargetCount: (config) => parseSupplyChartTargetConfig(config.supplyChartTargets).length,
   },
 ];
+const PARTIAL_FAILURE_ERROR_MAX_LENGTH = 500;
 
 function durationMs(startedAt: Date, finishedAt: Date) {
   return Math.max(finishedAt.getTime() - startedAt.getTime(), 0);
+}
+
+function sanitizeDiagnosticText(value: string) {
+  const withoutUrlSecrets = value.replace(/https?:\/\/[^\s]+/gi, (rawUrl) => {
+    try {
+      const parsed = new URL(rawUrl);
+      parsed.username = parsed.username ? 'redacted' : '';
+      parsed.password = parsed.password ? 'redacted' : '';
+      parsed.search = parsed.search ? '?redacted' : '';
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return '[url redacted]';
+    }
+  });
+  const sanitized = withoutUrlSecrets.replace(
+    /((?:api[_-]?key|apikey|token|secret|signature|password|pass)=)[^&\s]+/gi,
+    '$1redacted',
+  );
+
+  return sanitized.length > PARTIAL_FAILURE_ERROR_MAX_LENGTH
+    ? `${sanitized.slice(0, PARTIAL_FAILURE_ERROR_MAX_LENGTH - 3)}...`
+    : sanitized;
+}
+
+function serializePartialFailure(
+  reason?: string | null,
+  samples?: OptionalProviderJobPartialFailureSample[] | null,
+) {
+  if (!reason) {
+    return null;
+  }
+
+  return JSON.stringify({
+    kind: 'partial_failure',
+    reason: sanitizeDiagnosticText(reason),
+    samples: samples?.slice(0, 5).map((sample) => ({
+      ...sample,
+      error: sanitizeDiagnosticText(sample.error),
+    })) ?? [],
+  });
+}
+
+function parsePartialFailure(value: string | null) {
+  if (!value) {
+    return {
+      reason: null,
+      samples: [],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as {
+      kind?: string;
+      reason?: unknown;
+      samples?: unknown;
+    };
+
+    if (parsed.kind === 'partial_failure' && typeof parsed.reason === 'string') {
+      const samples = Array.isArray(parsed.samples)
+        ? parsed.samples.filter((sample): sample is OptionalProviderJobPartialFailureSample => {
+          if (!sample || typeof sample !== 'object') {
+            return false;
+          }
+
+          const candidate = sample as Partial<OptionalProviderJobPartialFailureSample>;
+          return typeof candidate.provider === 'string' && typeof candidate.error === 'string';
+        }).slice(0, 5)
+        : [];
+
+      return {
+        reason: parsed.reason,
+        samples,
+      };
+    }
+  } catch {
+    // Older persisted partial successes stored a plain reason string.
+  }
+
+  return {
+    reason: sanitizeDiagnosticText(value),
+    samples: [],
+  };
+}
+
+function buildPartialFailureRetryTargetsTemplate(samples: OptionalProviderJobPartialFailureSample[]) {
+  const retryTargets = samples
+    .filter((sample) => sample.coin_id && sample.interval && sample.vs_currency)
+    .map((sample) => `${sample.provider}=${sample.coin_id}:${sample.interval}:${sample.vs_currency}`);
+
+  return retryTargets.length > 0 ? retryTargets.join(',') : null;
 }
 
 function upsertOptionalProviderJobRun(
@@ -144,12 +248,16 @@ function rowToRunState(row: OptionalProviderJobRunRow): OptionalProviderJobRunSt
   }
 
   if (row.status === 'succeeded') {
+    const partialFailure = parsePartialFailure(row.failureReason);
+
     return {
       status: 'succeeded',
       startedAt: row.startedAt,
       finishedAt: row.finishedAt ?? row.updatedAt,
       targetsAttempted: row.targetsAttempted,
       rowsWritten: row.rowsWritten ?? 0,
+      partialFailureReason: partialFailure.reason,
+      partialFailureSamples: partialFailure.samples,
     };
   }
 
@@ -192,7 +300,7 @@ export function recordOptionalProviderJobRunSuccess(
     finishedAt: result.finishedAt,
     targetsAttempted: result.targetsAttempted,
     rowsWritten: result.rowsWritten,
-    failureReason: null,
+    failureReason: serializePartialFailure(result.partialFailureReason, result.partialFailureSamples),
     updatedAt: result.finishedAt,
   });
 }
@@ -239,9 +347,14 @@ export function createOptionalProviderJobRegistry() {
       });
     },
     recordSuccess(jobId: OptionalProviderJobId, result: OptionalProviderJobSuccess) {
+      const partialFailure = parsePartialFailure(
+        serializePartialFailure(result.partialFailureReason, result.partialFailureSamples),
+      );
       states.set(jobId, {
         status: 'succeeded',
         ...result,
+        partialFailureReason: partialFailure.reason,
+        partialFailureSamples: partialFailure.samples,
       });
     },
     recordFailure(jobId: OptionalProviderJobId, result: OptionalProviderJobFailure) {
@@ -269,6 +382,7 @@ export function buildOptionalProviderJobDiagnostics(
       ?? (configuredTargetCount === 0 ? 'not_configured' : 'configured_pending');
     const startedAt = runState?.startedAt ?? null;
     const finishedAt = runState && runState.status !== 'running' ? runState.finishedAt : null;
+    const partialFailureSamples = runState?.status === 'succeeded' ? runState.partialFailureSamples ?? [] : [];
 
     return {
       id: definition.id,
@@ -283,6 +397,9 @@ export function buildOptionalProviderJobDiagnostics(
       last_targets_attempted: runState?.targetsAttempted ?? null,
       last_rows_written: runState?.status === 'succeeded' ? runState.rowsWritten : null,
       last_failure_reason: runState?.status === 'failed' ? runState.error : null,
+      last_partial_failure_reason: runState?.status === 'succeeded' ? runState.partialFailureReason ?? null : null,
+      last_partial_failure_samples: partialFailureSamples,
+      last_partial_failure_retry_targets_template: buildPartialFailureRetryTargetsTemplate(partialFailureSamples),
     };
   });
 
@@ -295,6 +412,7 @@ export function buildOptionalProviderJobDiagnostics(
       running: jobs.filter((job) => job.status === 'running').length,
       succeeded: jobs.filter((job) => job.status === 'succeeded').length,
       failed: jobs.filter((job) => job.status === 'failed').length,
+      partial_failure: jobs.filter((job) => job.last_partial_failure_reason !== null).length,
     },
     notes: 'Optional provider sync jobs can run as standalone commands or through the optional scheduler; this diagnostics view reports configured target counts and last persisted or in-process run outcomes without exposing provider credentials.',
   };

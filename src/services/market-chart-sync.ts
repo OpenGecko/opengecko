@@ -25,6 +25,17 @@ export type MarketChartSyncOptions = {
   now?: Date;
 };
 
+type MarketChartSyncResult = {
+  provider: string;
+  coin_id: string;
+  vs_currency: string;
+  interval: MarketChartInterval;
+  status: 'synced' | 'no_data' | 'failed';
+  points_fetched: number;
+  points_written: number;
+  error?: string;
+};
+
 function parseSelector(selector: string, entry: string) {
   const [coinPart, intervalPart = '1d', vsCurrencyPart = 'usd'] = selector.split(':', 3);
   const coinId = coinPart?.trim().toLowerCase();
@@ -125,10 +136,26 @@ export function createHttpMarketChartFetcher(
 export async function syncMarketCharts(database: AppDatabase, options: MarketChartSyncOptions) {
   const sourceFetchedAt = options.now ?? new Date();
   const fetcher = options.fetcher ?? createHttpMarketChartFetcher(options.providerBaseUrl);
-  const results = [];
+  const results: MarketChartSyncResult[] = [];
 
   for (const target of options.targets) {
-    const raw = await fetcher(target);
+    let raw: RawMarketChartReplay | null;
+
+    try {
+      raw = await fetcher(target);
+    } catch (error) {
+      results.push({
+        provider: target.provider,
+        coin_id: target.coinId,
+        vs_currency: target.vsCurrency,
+        interval: target.interval,
+        status: 'failed',
+        points_fetched: 0,
+        points_written: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
 
     if (!raw) {
       results.push({
@@ -136,6 +163,7 @@ export async function syncMarketCharts(database: AppDatabase, options: MarketCha
         coin_id: target.coinId,
         vs_currency: target.vsCurrency,
         interval: target.interval,
+        status: 'no_data',
         points_fetched: 0,
         points_written: 0,
       });
@@ -153,13 +181,22 @@ export async function syncMarketCharts(database: AppDatabase, options: MarketCha
       coin_id: ingestion.coin_id,
       vs_currency: ingestion.vs_currency,
       interval: ingestion.interval,
+      status: 'synced',
       points_fetched: raw.points?.length ?? 0,
       points_written: ingestion.points_written,
     });
   }
 
+  const failedResults = results.filter((result) => result.status === 'failed');
+
+  if (options.targets.length > 0 && failedResults.length === options.targets.length) {
+    const firstError = failedResults[0]?.error ?? 'provider target failed';
+    throw new Error(`Market chart sync failed for all ${options.targets.length} target(s): ${firstError}`);
+  }
+
   return {
     targets_attempted: options.targets.length,
+    targets_failed: failedResults.length,
     points_fetched: results.reduce((total, result) => total + result.points_fetched, 0),
     points_written: results.reduce((total, result) => total + result.points_written, 0),
     source_fetched_at: sourceFetchedAt.toISOString(),

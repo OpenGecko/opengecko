@@ -202,6 +202,94 @@ describe('market chart sync', () => {
     }
   });
 
+  it('continues broader target batches after a partial provider failure and fails all-failed batches', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+
+      const targets = parseMarketChartTargetConfig('mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd');
+      const result = await syncMarketCharts(app.db, {
+        targets,
+        now: new Date('2026-05-05T03:00:00.000Z'),
+        fetcher: async (target) => {
+          if (target.coinId === 'bitcoin') {
+            throw new Error('provider timeout for bitcoin');
+          }
+
+          return {
+            provider: target.provider,
+            captured_at: '2026-05-05T03:00:00.000Z',
+            coin_id: target.coinId,
+            vs_currency: target.vsCurrency,
+            interval: target.interval,
+            points: [{
+              timestamp: 1774137600,
+              price: 151.4,
+              open: 150.8,
+              high: 151.9,
+              low: 150.4,
+              close: 151.4,
+            }],
+          };
+        },
+      });
+
+      expect(result).toMatchObject({
+        targets_attempted: 2,
+        targets_failed: 1,
+        points_fetched: 1,
+        points_written: 1,
+        results: [
+          {
+            provider: 'mock.chart',
+            coin_id: 'bitcoin',
+            vs_currency: 'usd',
+            interval: '1d',
+            status: 'failed',
+            points_fetched: 0,
+            points_written: 0,
+            error: 'provider timeout for bitcoin',
+          },
+          {
+            provider: 'mock.chart',
+            coin_id: 'solana',
+            vs_currency: 'usd',
+            interval: '1d',
+            status: 'synced',
+            points_fetched: 1,
+            points_written: 1,
+          },
+        ],
+      });
+      expect(app.db.db.select().from(marketChartSourcePoints)
+        .where(eq(marketChartSourcePoints.coinId, 'solana'))
+        .all()).toEqual([
+        expect.objectContaining({
+          price: 151.4,
+          sourceKind: 'live',
+          sourceProvider: 'mock.chart',
+        }),
+      ]);
+
+      await expect(syncMarketCharts(app.db, {
+        targets: [targets[0]!],
+        now: new Date('2026-05-05T03:01:00.000Z'),
+        fetcher: async () => {
+          throw new Error('provider still unavailable');
+        },
+      })).rejects.toThrow('Market chart sync failed for all 1 target(s): provider still unavailable');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('syncs mocked provider output into live source-attributed rows without changing chart or OHLC shape', async () => {
     const fixture = loadFixture();
     const app = buildApp({
@@ -388,6 +476,79 @@ describe('market chart sync', () => {
         [1774051200 * 1_000, 86000, 87500, 85800, 87000.5],
         [1774137600 * 1_000, 87000.5, 88900, 86650, 88200.75],
       ]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('syncs every fixture-backed market chart preset example through the offline HTTP adapter contract', async () => {
+    const manifest = loadPresetManifest();
+    const fixtureBackedExamples = manifest.presets.flatMap((preset) =>
+      preset.request_examples
+        .filter((example) => example.response_fixture)
+        .map((example) => ({
+          provider: preset.provider,
+          example,
+          fixture: loadRequestExampleFixture(example),
+        })));
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    expect(fixtureBackedExamples.map(({ example }) => example.target).sort()).toEqual([
+      'ccxt.binance=bitcoin:1d:usd',
+      'ccxt.binance=solana:1d:usd',
+      'intraday.archive=ethereum:1m:usd',
+      'intraday.archive=solana:1m:usd',
+    ]);
+
+    try {
+      await app.ready();
+
+      for (const { provider, example, fixture } of fixtureBackedExamples) {
+        const [target] = parseMarketChartTargetConfig(example.target);
+        const fetchImpl = vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 }));
+        const fetcher = createHttpMarketChartFetcher('https://charts.example', fetchImpl as unknown as typeof fetch);
+
+        const result = await syncMarketCharts(app.db, {
+          targets: [target!],
+          fetcher,
+          now: new Date(fixture.captured_at ?? '2026-05-05T02:30:00.000Z'),
+        });
+
+        expect(fetchImpl).toHaveBeenCalledWith(
+          `https://charts.example${example.path}`,
+          expect.objectContaining({
+            headers: { accept: 'application/json' },
+          }),
+        );
+        expect(result).toMatchObject({
+          targets_attempted: 1,
+          points_fetched: fixture.points.length,
+          points_written: fixture.points.length,
+          results: [
+            expect.objectContaining({
+              provider,
+              coin_id: target!.coinId,
+              vs_currency: target!.vsCurrency,
+              interval: target!.interval,
+            }),
+          ],
+        });
+
+        const rows = app.db.db.select().from(marketChartSourcePoints).all().filter((row) =>
+          row.sourceProvider === provider
+          && row.coinId === target!.coinId
+          && row.vsCurrency === target!.vsCurrency
+          && row.interval === target!.interval);
+
+        expect(rows).toHaveLength(fixture.points.length);
+        expect(rows.every((row) => row.sourceKind === 'live')).toBe(true);
+      }
     } finally {
       await app.close();
     }

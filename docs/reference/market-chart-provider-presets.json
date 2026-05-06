@@ -20,12 +20,17 @@
       "id": "ccxt.binance.daily",
       "provider": "ccxt.binance",
       "description": "Daily OHLCV-backed chart coverage using a Binance-backed adapter. Useful for high-liquidity assets where market-cap fields may remain null unless the adapter enriches them.",
-      "market_chart_targets": "ccxt.binance=bitcoin:1d:usd,ccxt.binance=ethereum:1d:usd,ccxt.binance=solana:1d:usd,ccxt.binance=dogecoin:1d:usd",
+      "market_chart_targets": "ccxt.binance=bitcoin:1d:usd,ccxt.binance=ethereum:1d:usd,ccxt.binance=solana:1d:usd,ccxt.binance=ripple:1d:usd,ccxt.binance=dogecoin:1d:usd,ccxt.binance=usd-coin:1d:usd,ccxt.binance=cardano:1d:usd,ccxt.binance=chainlink:1d:usd",
       "request_examples": [
         {
           "target": "ccxt.binance=bitcoin:1d:usd",
           "path": "/providers/ccxt.binance/coins/bitcoin/market_chart?vs_currency=usd&interval=1d",
           "response_fixture": "tests/fixtures/provider-replay/market-charts/ccxt-binance-bitcoin-adapter-response.json"
+        },
+        {
+          "target": "ccxt.binance=solana:1d:usd",
+          "path": "/providers/ccxt.binance/coins/solana/market_chart?vs_currency=usd&interval=1d",
+          "response_fixture": "tests/fixtures/provider-replay/market-charts/ccxt-binance-solana-adapter-response.json"
         }
       ],
       "diagnostics": [
@@ -51,8 +56,8 @@
     {
       "id": "intraday.archive",
       "provider": "intraday.archive",
-      "description": "Minute-level chart coverage from an operator-managed historical archive. Start with the highest-priority assets before expanding long-tail intraday coverage.",
-      "market_chart_targets": "intraday.archive=bitcoin:1m:usd,intraday.archive=ethereum:1m:usd,intraday.archive=solana:1m:usd",
+      "description": "Minute-level chart coverage from an operator-managed historical archive. Covers the seeded chart coins as a bounded starter batch before expanding long-tail intraday coverage.",
+      "market_chart_targets": "intraday.archive=bitcoin:1m:usd,intraday.archive=ethereum:1m:usd,intraday.archive=solana:1m:usd,intraday.archive=ripple:1m:usd,intraday.archive=dogecoin:1m:usd,intraday.archive=usd-coin:1m:usd,intraday.archive=cardano:1m:usd,intraday.archive=chainlink:1m:usd",
       "request_examples": [
         {
           "target": "intraday.archive=bitcoin:1m:usd",
@@ -62,6 +67,11 @@
           "target": "intraday.archive=ethereum:1m:usd",
           "path": "/providers/intraday.archive/coins/ethereum/market_chart?vs_currency=usd&interval=1m",
           "response_fixture": "tests/fixtures/provider-replay/market-charts/intraday-archive-ethereum-adapter-response.json"
+        },
+        {
+          "target": "intraday.archive=solana:1m:usd",
+          "path": "/providers/intraday.archive/coins/solana/market_chart?vs_currency=usd&interval=1m",
+          "response_fixture": "tests/fixtures/provider-replay/market-charts/intraday-archive-solana-adapter-response.json"
         }
       ],
       "diagnostics": [

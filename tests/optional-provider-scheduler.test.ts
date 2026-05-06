@@ -188,8 +188,104 @@ describe('optional provider sync scheduler', () => {
             last_targets_attempted: 1,
             last_rows_written: 4,
             last_failure_reason: null,
+            last_partial_failure_reason: null,
+            last_partial_failure_samples: [],
+            last_partial_failure_retry_targets_template: null,
           }),
         ]));
+      } finally {
+        await app.close();
+      }
+    } finally {
+      try {
+        database.client.close();
+      } catch {
+        // The database may already be closed before the restart-level diagnostics check.
+      }
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists scheduler partial failure outcomes for diagnostics after app restart', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-scheduler-jobs-'));
+    const databaseUrl = join(tempDir, 'jobs.db');
+    const database = createDatabase(databaseUrl);
+
+    try {
+      initializeDatabase(database);
+      const logger = createLogger();
+      const registry = createOptionalProviderJobRegistry();
+      const scheduler = createOptionalProviderSyncScheduler({
+        enabled: true,
+        intervalSeconds: 60,
+        jobs: [{
+          id: 'market_charts',
+          configuredTargetCount: () => 2,
+          run: vi.fn().mockResolvedValue({
+            targetsAttempted: 2,
+            rowsWritten: 1,
+            partialFailureReason: '1 market chart target(s) failed; first failure: provider timeout for bitcoin',
+            partialFailureSamples: [{
+              provider: 'mock.chart',
+              coin_id: 'bitcoin',
+              vs_currency: 'usd',
+              interval: '1d',
+              error: 'provider timeout for bitcoin',
+            }],
+          }),
+        }],
+        registry,
+        logger,
+        database,
+      });
+
+      await scheduler.runOnce();
+      database.client.close();
+
+      const app = buildApp({
+        config: {
+          databaseUrl,
+          marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+          logLevel: 'silent',
+        },
+        startBackgroundJobs: false,
+      });
+
+      try {
+        const response = await app.inject({
+          method: 'GET',
+          url: '/diagnostics/jobs',
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json().data).toMatchObject({
+          summary: {
+            succeeded: 1,
+            failed: 0,
+            partial_failure: 1,
+          },
+          jobs: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'market_charts',
+              status: 'succeeded',
+              configured_target_count: 2,
+              last_targets_attempted: 2,
+              last_rows_written: 1,
+              last_failure_reason: null,
+              last_partial_failure_reason: '1 market chart target(s) failed; first failure: provider timeout for bitcoin',
+              last_partial_failure_samples: [
+                {
+                  provider: 'mock.chart',
+                  coin_id: 'bitcoin',
+                  vs_currency: 'usd',
+                  interval: '1d',
+                  error: 'provider timeout for bitcoin',
+                },
+              ],
+              last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+            }),
+          ]),
+        });
       } finally {
         await app.close();
       }
