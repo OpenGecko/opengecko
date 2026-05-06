@@ -289,7 +289,6 @@ Once OpenGecko Web exists, the following docs in this repository must be updated
 
 - `CLAUDE.md`: add a "Reference UI" entry to the project direction section, mirroring the Assets entry. State that UI scope follows API parity, not the other way around.
 - `docs/plans/2026-03-20-opengecko-coingecko-compatible-api-prd.md`: add a section noting that a reference UI exists and is the canonical contract dogfood surface.
-- `docs/plans/2026-03-20-opengecko-engineering-execution-plan.md`: add the OpenAPI spec publication requirement and the downstream-CI hook for the UI parity suite.
 - `docs/status/implementation-tracker.md`: add a new row tracking UI phase status alongside API phase status.
 - `README.md`: add a "Try the demo" link and a screenshot.
 

@@ -185,7 +185,7 @@ git commit -m "test: prove chart endpoints prefer canonical candles"
 
 **Files:**
 - Modify: `docs/status/implementation-tracker.md`
-- Modify: `docs/plans/2026-03-29-data-fidelity-uplift-plan.md`
+- Modify: `docs/plans/2026-03-31-phase4-chart-history-implementation.md`
 
 **Step 1: Write the failing check**
 
@@ -198,7 +198,7 @@ Create a short checklist of statements that must become true:
 
 Read:
 ```bash
-grep -n "top-100\|synthetic\|Phase 4" docs/status/implementation-tracker.md docs/plans/2026-03-29-data-fidelity-uplift-plan.md
+grep -n "top-100\|synthetic\|Phase 4" docs/status/implementation-tracker.md docs/plans/2026-03-31-phase4-chart-history-implementation.md
 ```
 
 Expected: docs still describe the older narrower policy.
@@ -217,7 +217,7 @@ Run the same grep/read check and confirm wording is aligned.
 **Step 5: Commit**
 
 ```bash
-git add docs/status/implementation-tracker.md docs/plans/2026-03-29-data-fidelity-uplift-plan.md
+git add docs/status/implementation-tracker.md docs/plans/2026-03-31-phase4-chart-history-implementation.md
 git commit -m "docs: update chart history coverage after phase 4a"
 ```
 

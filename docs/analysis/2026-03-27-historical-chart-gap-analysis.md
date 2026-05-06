@@ -96,8 +96,8 @@ These tests need one of:
 
 ### What's Planned (from docs)
 - Per `implementation-tracker.md`: "long-range retention, rolling repair, and explicit recovery-after-gap policies remain open"
-- The worker plan (`2026-03-23-top100-priority-ohlcv-worker-plan.md`) describes the current architecture but does not include interior gap detection/repair.
-- The compatibility gap closure plan acknowledges chart/OHLC behavior is "partial" — series come from "current seeded historical window" rather than fully live/backfilled sources.
+- The current chart-history plan in `docs/plans/2026-03-31-phase4-chart-history-implementation.md` describes the worker architecture and the remaining active-coin coverage gap, but does not include interior gap detection/repair.
+- The implementation tracker acknowledges chart/OHLC behavior is still partial — series come from the current seeded historical window rather than fully live/backfilled sources.
 
 ### Key Gaps
 1. **chartPoints ↔ ohlcvCandles disconnect:** Global market cap chart reads from `chartPoints` which is seeded-only. Should read from `ohlcvCandles` or be populated by the worker.

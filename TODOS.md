@@ -4,7 +4,7 @@
 
 ### Add plan/tracker drift guard tests
 
-**What:** Add automated tests that fail when `docs/plans/2026-03-29-data-fidelity-uplift-plan.md` and `docs/status/implementation-tracker.md` claim states that contradict runtime behavior.
+**What:** Add automated tests that fail when `docs/status/implementation-tracker.md` and `docs/status/compatibility-audit.md` claim states that contradict runtime behavior.
 
 **Why:** Prevent planning drift and wasted implementation cycles caused by stale documentation.
 

@@ -98,7 +98,7 @@ The system has 3 live data sources: **CCXT** (8 CEX, ticker/OHLCV/exchange metad
 - **Derivatives data source**: Should we implement live CCXT derivatives fetch (not currently in CCXT provider), or accept derivatives as a lower-priority seeded family?
 - **Onchain holder/trader data**: No affordable on-chain data provider exists for historical holder/trader snapshots. Should these endpoints remain fixture-only until a cost-effective source is found?
 - **Treasury live ingestion**: Is there a real-world use case that requires live Strategy/Spot ETF or El Salvador BTC disclosures, or is the current 2-entity seeded fixture sufficient for development?
-- **Chart history depth**: Should the system prioritize deeper OHLCV backfill (365 days for all coins) vs keeping top-100-first policy and accepting shallow history for most coins?
+- **Chart history depth**: Should the system prioritize deeper OHLCV backfill (five-year default for generated targets) vs keeping top-100-first policy and accepting shallow history for most coins?
 
 ## Key Gaps
 

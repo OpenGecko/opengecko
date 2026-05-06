@@ -6,9 +6,8 @@
 > **Status**: proposal — not yet executed
 > **Companion docs**:
 >
-> - `docs/plans/2026-03-29-data-fidelity-uplift-plan.md`
-> - `docs/plans/2026-03-23-top100-priority-ohlcv-worker-plan.md`
 > - `docs/status/implementation-tracker.md`
+> - `docs/plans/2026-03-31-phase4-chart-history-implementation.md`
 
 ## 1. Problem Statement
 
