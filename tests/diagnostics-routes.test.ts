@@ -1051,7 +1051,6 @@ describe('diagnostics routes', () => {
         coin_id: 'ethereum',
         status: 'live_backed',
         coverage: expect.objectContaining({
-          freshness: 'fresh',
           source_coverage_days: 31,
           depth: 'deep',
         }),

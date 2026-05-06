@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import * as defillamaProvider from '../src/providers/defillama';
+import * as sqdProvider from '../src/providers/sqd';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn().mockResolvedValue([
@@ -419,6 +421,9 @@ describe('HTTP cache semantics', () => {
     const app = buildApp({
       config: {
         databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1m:usd',
+        optionalProviderSyncEnabled: true,
+        optionalProviderSyncIntervalSeconds: 900,
         logLevel: 'silent',
       },
       startBackgroundJobs: false,
@@ -628,6 +633,14 @@ describe('HTTP cache semantics', () => {
                 id: 'market_charts',
                 status: 'succeeded',
                 last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+                production_freshness_cadence: {
+                  scheduler_enabled: true,
+                  scheduler_interval_seconds: 900,
+                  target_intervals: ['1d', '1m'],
+                  strictest_production_freshness_seconds: 300,
+                  status: 'interval_slower_than_production_freshness',
+                  recommendation: expect.stringContaining('OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS to 300 or less'),
+                },
               }),
             ]),
             summary: expect.objectContaining({
@@ -847,11 +860,14 @@ describe('HTTP cache semantics', () => {
         app,
         '/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=daily',
         'public, max-age=60, stale-while-revalidate=60',
-        (body) => expect(body).toMatchObject({
-          prices: expect.any(Array),
-          market_caps: expect.any(Array),
-          total_volumes: expect.any(Array),
-        }),
+        (body) => {
+          expect(body).toMatchObject({
+            prices: expect.any(Array),
+            market_caps: expect.any(Array),
+            total_volumes: expect.any(Array),
+          });
+          expect(JSON.stringify(body)).not.toContain('production_freshness_cadence');
+        },
       );
 
       await expectCacheableEndpoint(
@@ -869,11 +885,14 @@ describe('HTTP cache semantics', () => {
         app,
         '/coins/bitcoin/ohlc?vs_currency=usd&days=7&interval=daily',
         'public, max-age=60, stale-while-revalidate=60',
-        (body) => expect(body).toEqual(expect.arrayContaining([
-          expect.arrayContaining([
-            expect.any(Number),
-          ]),
-        ])),
+        (body) => {
+          expect(body).toEqual(expect.arrayContaining([
+            expect.arrayContaining([
+              expect.any(Number),
+            ]),
+          ]));
+          expect(JSON.stringify(body)).not.toContain('production_freshness_cadence');
+        },
       );
 
       await expectCacheableEndpoint(
@@ -938,6 +957,12 @@ describe('HTTP cache semantics', () => {
   });
 
   it('adds budget-limited cache headers and supports 304 responses for representative onchain routes', async () => {
+    vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaDiscoveredPools').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaTokens').mockResolvedValue(null);
+    vi.spyOn(sqdProvider, 'fetchEthereumPoolSwapLogs').mockResolvedValue(null);
+
     const app = buildApp({
       config: {
         databaseUrl: ':memory:',
