@@ -8,6 +8,7 @@ import { sendCacheableJson } from '../http/cache';
 import { resolveCanonicalPlatform } from '../lib/platform-id';
 import { buildDerivativesProviderDiagnostics } from '../services/derivatives-venues';
 import { buildCoinHistoryProviderDiagnostics } from '../services/coin-history-diagnostics';
+import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import { buildCoverageMatrix } from '../services/coverage-matrix';
 import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
 import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
@@ -59,6 +60,7 @@ export function registerDiagnosticsRoutes(
     targets: string;
   },
   optionalProviderJobs: OptionalProviderJobRegistry,
+  chartResponseSources: ChartResponseSourceDiagnostics,
 ) {
   const stableDiagnosticsCachePolicy = {
     maxAgeSeconds: 300,
@@ -157,7 +159,13 @@ export function registerDiagnosticsRoutes(
 
   app.get('/diagnostics/market_charts', async (request, reply) => {
     return sendCacheableJson(request, reply, {
-      data: buildMarketChartProviderDiagnostics(database, marketCharts.targets),
+      data: buildMarketChartProviderDiagnostics(
+        database,
+        marketCharts.targets,
+        new Date(),
+        chartResponseSources.snapshot(),
+        chartResponseSources.recentEvents(),
+      ),
     }, dynamicDiagnosticsCachePolicy);
   });
 

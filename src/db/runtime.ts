@@ -9,6 +9,8 @@ import type { Database as BunDatabase } from 'bun:sqlite';
 import {
   assetPlatforms,
   categories,
+  chartResponseSourceCounters,
+  chartResponseSourceEvents,
   chartPoints,
   coinHistorySnapshots,
   coins,
@@ -41,6 +43,8 @@ import {
 const schema = {
   assetPlatforms,
   categories,
+  chartResponseSourceCounters,
+  chartResponseSourceEvents,
   chartPoints,
   coinHistorySnapshots,
   coins,

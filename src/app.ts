@@ -4,6 +4,7 @@ import { mergeConfig, type AppConfig } from './config/env';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData } from './db/client';
 import { closeExchangePool } from './providers/ccxt';
 import { rebuildPersistentSqliteDatabase, resolveBootstrapSnapshotAccessMode } from './services/bootstrap';
+import { createChartResponseSourceDiagnostics, type ChartResponseSourceDiagnostics } from './services/chart-response-source-diagnostics';
 import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
@@ -25,6 +26,7 @@ declare module 'fastify' {
     marketRuntime: MarketRuntime | null;
     metrics: MetricsRegistry;
     optionalProviderJobs: OptionalProviderJobRegistry;
+    chartResponseSources: ChartResponseSourceDiagnostics;
     db: ReturnType<typeof createDatabase>;
     appConfig: AppConfig;
     marketFreshnessThresholdSeconds: number;
@@ -70,6 +72,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const metrics = createMetricsRegistry();
   const optionalProviderJobs = createOptionalProviderJobRegistry();
+  const chartResponseSources = createChartResponseSourceDiagnostics(database);
   const runtime = shouldStartBackgroundJobs
     ? createMarketRuntime(app, database, config, app.log, marketDataRuntimeState, metrics, {}, options.startupProgress, optionalProviderJobs)
     : null;
@@ -84,6 +87,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     marketDataRuntimeState,
     metrics,
     optionalProviderJobs,
+    chartResponseSources,
   });
 
   if (runtime) {
@@ -117,6 +121,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.decorate('marketRuntime', runtime);
   app.decorate('metrics', metrics);
   app.decorate('optionalProviderJobs', optionalProviderJobs);
+  app.decorate('chartResponseSources', chartResponseSources);
   app.decorate('db', database);
   app.decorate('appConfig', config);
   app.decorate('marketFreshnessThresholdSeconds', config.marketFreshnessThresholdSeconds);

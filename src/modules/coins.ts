@@ -6,6 +6,7 @@ import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt, parsePrecision } from '../http/params';
 import { getConversionRate } from '../lib/conversion';
+import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import {
@@ -17,12 +18,20 @@ import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows,
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
   buildChartPayload,
+  fetchProviderChartRowsForDays,
+  fetchProviderChartRowsForRange,
   fetchProviderOhlcRowsForDays,
+  fetchProviderOhlcRowsForRange,
   getChartRowsForDays,
   getChartRowsForRange,
-  getOhlcRowsForDays,
-  getOhlcRowsForRange,
+  getCanonicalChartRowsForDays,
+  getCanonicalChartRowsForRange,
+  getCanonicalOhlcRowsForDays,
+  getCanonicalOhlcRowsForRange,
+  getSourceBackedChartRowsForDays,
+  getSourceBackedChartRowsForRange,
   getSourceBackedOhlcRowsForDays,
+  getSourceBackedOhlcRowsForRange,
   parseChartRange,
   parseExplicitRange,
 } from './coins/charts';
@@ -222,6 +231,7 @@ export function registerCoinRoutes(
   database: AppDatabase,
   marketFreshnessThresholdSeconds: number,
   runtimeState: MarketDataRuntimeState,
+  chartResponseSources: ChartResponseSourceDiagnostics,
 ) {
   const coinMarketsCache = new Map<string, CoinMarketsCacheEntry>();
 
@@ -453,7 +463,31 @@ export function registerCoinRoutes(
     const query = coinChartQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     const vsCurrency = query.vs_currency.toLowerCase();
-    const rows = getChartRowsForDays(database, params.id, query.days, query.interval);
+    const sourceRows = getSourceBackedChartRowsForDays(database, params.id, query.days, query.interval);
+    const canonicalRows = sourceRows.length > 0
+      ? []
+      : getCanonicalChartRowsForDays(database, params.id, query.days, query.interval);
+    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
+      ? null
+      : await fetchProviderChartRowsForDays(database, params.id, query.days, query.interval);
+    const rows = sourceRows.length > 0
+      ? sourceRows
+      : canonicalRows.length > 0
+        ? canonicalRows
+        : providerRows ?? [];
+    const responseSource = sourceRows.length > 0
+      ? 'source_backed'
+      : canonicalRows.length > 0
+        ? 'canonical'
+        : providerRows && providerRows.length > 0
+          ? 'provider_filled'
+          : 'empty';
+    chartResponseSources.record('market_chart_days', responseSource, {
+      coinId: params.id,
+      vsCurrency,
+      interval: query.interval ?? null,
+      request: { kind: 'days', days: query.days },
+    });
 
     return sendCacheableJson(
       request,
@@ -468,7 +502,32 @@ export function registerCoinRoutes(
     const query = coinChartRangeQuerySchema.parse(request.query);
     getRequiredCoin(database, params.id);
     const vsCurrency = query.vs_currency.toLowerCase();
-    const rows = getChartRowsForRange(database, params.id, parseExplicitRange(query), query.interval);
+    const range = parseExplicitRange(query);
+    const sourceRows = getSourceBackedChartRowsForRange(database, params.id, range, query.interval);
+    const canonicalRows = sourceRows.length > 0
+      ? []
+      : getCanonicalChartRowsForRange(database, params.id, range, query.interval);
+    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
+      ? null
+      : await fetchProviderChartRowsForRange(database, params.id, range, query.interval);
+    const rows = sourceRows.length > 0
+      ? sourceRows
+      : canonicalRows.length > 0
+        ? canonicalRows
+        : providerRows ?? [];
+    const responseSource = sourceRows.length > 0
+      ? 'source_backed'
+      : canonicalRows.length > 0
+        ? 'canonical'
+        : providerRows && providerRows.length > 0
+          ? 'provider_filled'
+          : 'empty';
+    chartResponseSources.record('market_chart_range', responseSource, {
+      coinId: params.id,
+      vsCurrency,
+      interval: query.interval ?? null,
+      request: { kind: 'range', from: range.from, to: range.to },
+    });
 
     return sendCacheableJson(
       request,
@@ -486,10 +545,28 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
     const sourceRows = getSourceBackedOhlcRowsForDays(database, params.id, query.days, query.interval);
+    const providerRows = sourceRows.length > 0
+      ? null
+      : await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval);
+    const canonicalRows = sourceRows.length > 0 || providerRows
+      ? []
+      : getCanonicalOhlcRowsForDays(database, params.id, query.days, query.interval);
     const rows = sourceRows.length > 0
       ? sourceRows
-      : await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval)
-        ?? getOhlcRowsForDays(database, params.id, query.days, query.interval);
+      : providerRows ?? canonicalRows;
+    const responseSource = sourceRows.length > 0
+      ? 'source_backed'
+      : providerRows && providerRows.length > 0
+        ? 'provider_filled'
+        : canonicalRows.length > 0
+          ? 'canonical'
+          : 'empty';
+    chartResponseSources.record('ohlc_days', responseSource, {
+      coinId: params.id,
+      vsCurrency,
+      interval: query.interval ?? null,
+      request: { kind: 'days', days: query.days },
+    });
 
     const payload = rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);
@@ -510,7 +587,32 @@ export function registerCoinRoutes(
     const precision = parsePrecision(query.precision);
     const vsCurrency = query.vs_currency.toLowerCase();
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
-    const rows = getOhlcRowsForRange(database, params.id, parseChartRange(query), query.interval);
+    const range = parseChartRange(query);
+    const sourceRows = getSourceBackedOhlcRowsForRange(database, params.id, range, query.interval);
+    const canonicalRows = sourceRows.length > 0
+      ? []
+      : getCanonicalOhlcRowsForRange(database, params.id, range, query.interval);
+    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
+      ? null
+      : await fetchProviderOhlcRowsForRange(database, params.id, range, query.interval);
+    const rows = sourceRows.length > 0
+      ? sourceRows
+      : canonicalRows.length > 0
+        ? canonicalRows
+        : providerRows ?? [];
+    const responseSource = sourceRows.length > 0
+      ? 'source_backed'
+      : canonicalRows.length > 0
+        ? 'canonical'
+        : providerRows && providerRows.length > 0
+          ? 'provider_filled'
+          : 'empty';
+    chartResponseSources.record('ohlc_range', responseSource, {
+      coinId: params.id,
+      vsCurrency,
+      interval: query.interval ?? null,
+      request: { kind: 'range', from: range.from, to: range.to },
+    });
 
     const payload = rows.map((row) => {
       const open = toNumberOrNull(row.open * rate, precision);

@@ -1,0 +1,29 @@
+{
+  "provider": "ccxt.binance",
+  "captured_at": "2026-05-05T01:30:00.000Z",
+  "coin_id": "bitcoin",
+  "vs_currency": "usd",
+  "interval": "1d",
+  "points": [
+    {
+      "timestamp": "1774051200",
+      "price": "87000.5",
+      "market_cap": null,
+      "total_volume": "34500000000",
+      "open": "86000",
+      "high": "87500",
+      "low": "85800",
+      "close": "87000.5"
+    },
+    {
+      "timestamp": "1774137600",
+      "price": "88200.75",
+      "market_cap": null,
+      "total_volume": "35200000000",
+      "open": "87000.5",
+      "high": "88900",
+      "low": "86650",
+      "close": "88200.75"
+    }
+  ]
+}

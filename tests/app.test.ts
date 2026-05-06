@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { buildApp, getDatabaseStartupLogContext } from '../src/app';
-import { coins, marketSnapshots } from '../src/db/schema';
+import { chartPoints, coins, marketChartSourcePoints, marketSnapshots, ohlcvCandles } from '../src/db/schema';
 import type { MetricsRegistry } from '../src/services/metrics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import * as candleStore from '../src/services/candle-store';
@@ -7523,6 +7523,99 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('fills empty daily market chart day windows from provider ohlcv close rows', async () => {
+    await getApp().ready();
+    getApp().db.db.delete(chartPoints).where(eq(chartPoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
+
+    const timestamp = currentDailyBucket();
+    const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp,
+        open: 94_000,
+        high: 96_000,
+        low: 93_500,
+        close: 95_500,
+        volume: 3_456,
+        raw: [timestamp, 94_000, 96_000, 93_500, 95_500, 3_456],
+      },
+    ]);
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=daily',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      prices: [[timestamp, 95_500]],
+      market_caps: [[timestamp, null]],
+      total_volumes: [[timestamp, 3_456]],
+    });
+    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', expect.any(Number), undefined);
+    expect(getApp().db.db.select().from(ohlcvCandles)
+      .where(eq(ohlcvCandles.coinId, 'bitcoin'))
+      .all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        interval: '1d',
+        timestamp: new Date(timestamp),
+        close: 95_500,
+        totalVolume: 3_456,
+      }),
+    ]));
+  });
+
+  it('fills empty daily market chart ranges from provider ohlcv close rows and keeps chart shape stable', async () => {
+    await getApp().ready();
+    getApp().db.db.delete(chartPoints).where(eq(chartPoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
+
+    const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: 1775088000000,
+        open: 92_000,
+        high: 94_000,
+        low: 91_500,
+        close: 93_500,
+        volume: 2_345,
+        raw: [1775088000000, 92_000, 94_000, 91_500, 93_500, 2_345],
+      },
+    ]);
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1775088000&to=1775088000&interval=daily',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      prices: [[1775088000000, 93_500]],
+      market_caps: [[1775088000000, null]],
+      total_volumes: [[1775088000000, 2_345]],
+    });
+    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', 1775088000000, 1);
+    expect(getApp().db.db.select().from(ohlcvCandles)
+      .where(eq(ohlcvCandles.coinId, 'bitcoin'))
+      .all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        interval: '1d',
+        timestamp: new Date(1775088000000),
+        close: 93_500,
+        totalVolume: 2_345,
+      }),
+    ]));
+  });
+
   it('returns ranged coin ohlc tuples in ascending chronological order', async () => {
     const response = await getApp().inject({
       method: 'GET',
@@ -7538,6 +7631,51 @@ describe('OpenGecko app scaffold', () => {
       expect(typeof tuple[0]).toBe('number');
       expect(tuple.slice(1).every((value: unknown) => typeof value === 'number' && Number.isFinite(value))).toBe(true);
     }
+  });
+
+  it('fills empty daily ranged coin ohlc responses from the provider fallback and persists candles', async () => {
+    await getApp().ready();
+    getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
+
+    const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: 1775001600000,
+        open: 91_000,
+        high: 92_500,
+        low: 90_250,
+        close: 92_000,
+        volume: 1_234,
+        raw: [1775001600000, 91_000, 92_500, 90_250, 92_000, 1_234],
+      },
+    ]);
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1775001600&to=1775001600&interval=daily',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      [1775001600000, 91_000, 92_500, 90_250, 92_000],
+    ]);
+    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', 1775001600000, 1);
+    expect(getApp().db.db.select().from(ohlcvCandles)
+      .where(eq(ohlcvCandles.coinId, 'bitcoin'))
+      .all()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        interval: '1d',
+        timestamp: new Date(1775001600000),
+        open: 91_000,
+        high: 92_500,
+        low: 90_250,
+        close: 92_000,
+        volume: 1_234,
+      }),
+    ]));
   });
 
   it('supports ranged coin ohlc interval semantics with explicit daily and empty hourly responses', async () => {

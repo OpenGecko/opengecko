@@ -180,6 +180,43 @@ export const optionalProviderJobRuns = sqliteTable('optional_provider_job_runs',
   statusUpdatedAtIdx: index('optional_provider_job_runs_status_updated_at_idx').on(table.status, table.updatedAt),
 }));
 
+export const chartResponseSourceCounters = sqliteTable(
+  'chart_response_source_counts',
+  {
+    route: text('route', { enum: ['market_chart_days', 'market_chart_range', 'ohlc_days', 'ohlc_range'] }).notNull(),
+    source: text('source', { enum: ['source_backed', 'canonical', 'provider_filled', 'empty'] }).notNull(),
+    count: integer('count').notNull().default(0),
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.route, table.source] }),
+    updatedAtIdx: index('chart_response_source_counts_updated_at_idx').on(table.updatedAt),
+  }),
+);
+
+export const chartResponseSourceEvents = sqliteTable(
+  'chart_response_source_events',
+  {
+    id: text('id').primaryKey(),
+    route: text('route', { enum: ['market_chart_days', 'market_chart_range', 'ohlc_days', 'ohlc_range'] }).notNull(),
+    source: text('source', { enum: ['provider_filled', 'empty'] }).notNull(),
+    coinId: text('coin_id').notNull(),
+    vsCurrency: text('vs_currency').notNull(),
+    interval: text('interval'),
+    requestKind: text('request_kind', { enum: ['days', 'range'] }).notNull(),
+    days: text('days'),
+    fromAt: integer('from_at', { mode: 'timestamp_ms' }),
+    toAt: integer('to_at', { mode: 'timestamp_ms' }),
+    observedAt: integer('observed_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    routeSourceObservedAtIdx: index('chart_response_source_events_route_source_observed_at_idx').on(table.route, table.source, table.observedAt),
+    observedAtIdx: index('chart_response_source_events_observed_at_idx').on(table.observedAt),
+  }),
+);
+
 export const supplyChartPoints = sqliteTable(
   'supply_chart_points',
   {
@@ -650,6 +687,8 @@ export type CategoryRow = typeof categories.$inferSelect;
 export type ChartPointRow = typeof chartPoints.$inferSelect;
 export type MarketChartSourcePointRow = typeof marketChartSourcePoints.$inferSelect;
 export type OptionalProviderJobRunRow = typeof optionalProviderJobRuns.$inferSelect;
+export type ChartResponseSourceCounterRow = typeof chartResponseSourceCounters.$inferSelect;
+export type ChartResponseSourceEventRow = typeof chartResponseSourceEvents.$inferSelect;
 export type SupplyChartPointRow = typeof supplyChartPoints.$inferSelect;
 export type QuoteSnapshotRow = typeof quoteSnapshots.$inferSelect;
 export type OhlcvCandleRow = typeof ohlcvCandles.$inferSelect;

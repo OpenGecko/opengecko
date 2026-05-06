@@ -1,0 +1,78 @@
+{
+  "name": "opengecko-market-chart-provider-presets",
+  "description": "Provider-specific MARKET_CHART_TARGETS examples for source-backed chart and OHLC coverage. These examples describe adapter IDs and request paths only; operators must provide their own MARKET_CHART_BASE_URL and credentials outside OpenGecko.",
+  "adapter_contract": {
+    "base_url_env": "MARKET_CHART_BASE_URL",
+    "target_env": "MARKET_CHART_TARGETS",
+    "request_path_template": "/providers/{provider}/coins/{coin_id}/market_chart?vs_currency={vs_currency}&interval={interval}",
+    "example_response_fixture": "tests/fixtures/provider-replay/market-charts/ccxt-binance-bitcoin-adapter-response.json",
+    "required_response_shape": {
+      "provider": "string optional; defaults to target provider",
+      "captured_at": "RFC3339 timestamp optional; defaults to sync time",
+      "coin_id": "string optional; defaults to target coin",
+      "vs_currency": "string optional; defaults to target currency",
+      "interval": "1d or 1m optional; defaults to target interval",
+      "points": "non-empty array of timestamp and price rows; market_cap, total_volume, open, high, low, close are optional"
+    }
+  },
+  "presets": [
+    {
+      "id": "ccxt.binance.daily",
+      "provider": "ccxt.binance",
+      "description": "Daily OHLCV-backed chart coverage using a Binance-backed adapter. Useful for high-liquidity assets where market-cap fields may remain null unless the adapter enriches them.",
+      "market_chart_targets": "ccxt.binance=bitcoin:1d:usd,ccxt.binance=ethereum:1d:usd,ccxt.binance=solana:1d:usd,ccxt.binance=dogecoin:1d:usd",
+      "request_examples": [
+        {
+          "target": "ccxt.binance=bitcoin:1d:usd",
+          "path": "/providers/ccxt.binance/coins/bitcoin/market_chart?vs_currency=usd&interval=1d",
+          "response_fixture": "tests/fixtures/provider-replay/market-charts/ccxt-binance-bitcoin-adapter-response.json"
+        }
+      ],
+      "diagnostics": [
+        "GET /diagnostics/market_charts should move configured targets from configured_pending to live_backed after rows are ingested and should report whether the source rows are fresh or shallow.",
+        "GET /diagnostics/ohlcv_sync remains the canonical worker-depth view for CCXT-generated canonical candles."
+      ]
+    },
+    {
+      "id": "ccxt.coinbase.daily",
+      "provider": "ccxt.coinbase",
+      "description": "Daily OHLCV-backed chart coverage using a Coinbase-backed adapter. Use as a second provider when Binance coverage is unavailable or for cross-provider spot checks.",
+      "market_chart_targets": "ccxt.coinbase=bitcoin:1d:usd,ccxt.coinbase=ethereum:1d:usd,ccxt.coinbase=chainlink:1d:usd",
+      "request_examples": [
+        {
+          "target": "ccxt.coinbase=ethereum:1d:usd",
+          "path": "/providers/ccxt.coinbase/coins/ethereum/market_chart?vs_currency=usd&interval=1d"
+        }
+      ],
+      "diagnostics": [
+        "Use /diagnostics/market_charts to compare source providers, freshness status, depth status, and latest source timestamps before claiming live chart freshness."
+      ]
+    },
+    {
+      "id": "intraday.archive",
+      "provider": "intraday.archive",
+      "description": "Minute-level chart coverage from an operator-managed historical archive. Start with the highest-priority assets before expanding long-tail intraday coverage.",
+      "market_chart_targets": "intraday.archive=bitcoin:1m:usd,intraday.archive=ethereum:1m:usd,intraday.archive=solana:1m:usd",
+      "request_examples": [
+        {
+          "target": "intraday.archive=bitcoin:1m:usd",
+          "path": "/providers/intraday.archive/coins/bitcoin/market_chart?vs_currency=usd&interval=1m"
+        },
+        {
+          "target": "intraday.archive=ethereum:1m:usd",
+          "path": "/providers/intraday.archive/coins/ethereum/market_chart?vs_currency=usd&interval=1m",
+          "response_fixture": "tests/fixtures/provider-replay/market-charts/intraday-archive-ethereum-adapter-response.json"
+        }
+      ],
+      "diagnostics": [
+        "Use /diagnostics/market_charts to verify 1m source rows are fresh enough and deep enough before relying on hourly or intraday chart responses."
+      ]
+    }
+  ],
+  "operator_notes": [
+    "Concatenate preset MARKET_CHART_TARGETS strings with commas when enabling more than one provider.",
+    "Keep provider credentials in the adapter service, not in OpenGecko target strings.",
+    "Run bun run market:charts:sync first, inspect GET /diagnostics/market_charts, then enable OPTIONAL_PROVIDER_SYNC_ENABLED only after standalone sync succeeds.",
+    "Use the documented response_fixture entries as offline adapter contracts for daily and intraday parser checks."
+  ]
+}

@@ -21,6 +21,7 @@ export function registerAppRoutes(app: FastifyInstance, {
   marketDataRuntimeState,
   metrics,
   optionalProviderJobs,
+  chartResponseSources,
 }: AppRouteDependencies) {
   registerErrorHandler(app);
   registerTransportControls(app, {
@@ -58,10 +59,11 @@ export function registerAppRoutes(app: FastifyInstance, {
       targets: config.supplyChartTargets,
     },
     optionalProviderJobs,
+    chartResponseSources,
   );
   registerSimpleRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerAssetPlatformRoutes(app, database);
-  registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
+  registerCoinRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState, chartResponseSources);
   registerExchangeRoutes(app, database, config.marketFreshnessThresholdSeconds, marketDataRuntimeState);
   registerDerivativeRoutes(app, database);
   registerTreasuryRoutes(app, database);

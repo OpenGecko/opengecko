@@ -1,8 +1,8 @@
 {
   "name": "opengecko-top-market-chart-targets",
-  "description": "Starter MARKET_CHART_TARGETS manifest for source-backed chart and OHLC sync coverage. These targets are configuration hints only; diagnostics must show live_backed or replay_backed rows before freshness claims are made.",
+  "description": "Starter MARKET_CHART_TARGETS manifest for source-backed chart and OHLC sync coverage. Daily targets cover every seeded chart coin; intraday targets cover the highest-priority assets first. These targets are configuration hints only; diagnostics must show live_backed or replay_backed rows before freshness claims are made.",
   "env": {
-    "MARKET_CHART_TARGETS": "custom=bitcoin:1d:usd,custom=bitcoin:1m:usd,custom=ethereum:1d:usd,custom=solana:1d:usd,custom=ripple:1d:usd,custom=dogecoin:1d:usd,custom=usd-coin:1d:usd"
+    "MARKET_CHART_TARGETS": "custom=bitcoin:1d:usd,custom=ethereum:1d:usd,custom=solana:1d:usd,custom=ripple:1d:usd,custom=dogecoin:1d:usd,custom=usd-coin:1d:usd,custom=cardano:1d:usd,custom=chainlink:1d:usd,custom=bitcoin:1m:usd,custom=ethereum:1m:usd,custom=solana:1m:usd"
   },
   "targets": [
     {
@@ -11,13 +11,6 @@
       "interval": "1d",
       "vs_currency": "usd",
       "reason": "Highest-priority daily market chart and OHLC compatibility target."
-    },
-    {
-      "provider": "custom",
-      "coin_id": "bitcoin",
-      "interval": "1m",
-      "vs_currency": "usd",
-      "reason": "Highest-priority intraday market chart coverage target."
     },
     {
       "provider": "custom",
@@ -53,11 +46,48 @@
       "interval": "1d",
       "vs_currency": "usd",
       "reason": "Stablecoin daily chart coverage target."
+    },
+    {
+      "provider": "custom",
+      "coin_id": "cardano",
+      "interval": "1d",
+      "vs_currency": "usd",
+      "reason": "Seeded market-chart daily coverage target."
+    },
+    {
+      "provider": "custom",
+      "coin_id": "chainlink",
+      "interval": "1d",
+      "vs_currency": "usd",
+      "reason": "Seeded market-chart daily coverage target."
+    },
+    {
+      "provider": "custom",
+      "coin_id": "bitcoin",
+      "interval": "1m",
+      "vs_currency": "usd",
+      "reason": "Highest-priority intraday market chart coverage target."
+    },
+    {
+      "provider": "custom",
+      "coin_id": "ethereum",
+      "interval": "1m",
+      "vs_currency": "usd",
+      "reason": "Core smart-contract asset intraday chart coverage target."
+    },
+    {
+      "provider": "custom",
+      "coin_id": "solana",
+      "interval": "1m",
+      "vs_currency": "usd",
+      "reason": "Core L1 intraday chart coverage target."
     }
   ],
   "operator_notes": [
     "Set MARKET_CHART_BASE_URL to the provider adapter base URL before running bun run market:charts:sync.",
+    "Use the daily targets first for broad historical chart/OHLC coverage, then add more 1m targets once provider and database capacity are proven.",
     "Run GET /diagnostics/market_charts after sync; configured_pending means the target is configured but has no source rows yet.",
-    "Do not advertise live market chart freshness until diagnostics report live_backed rows for the target."
+    "Do not advertise live market chart freshness until diagnostics report live_backed rows with fresh coverage for the target.",
+    "Use stale_source_targets and shallow_source_targets to decide whether a configured provider needs a fresh sync or deeper historical backfill."
   ]
 }

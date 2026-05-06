@@ -41,12 +41,20 @@ export function parseExplicitRange(query: { from: string; to: string }) {
 }
 
 export function getChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
-  const sourceRows = readMarketChartSourceRowsForDays(database, coinId, 'usd', days, interval);
+  const sourceRows = getSourceBackedChartRowsForDays(database, coinId, days, interval);
 
   if (sourceRows.length > 0) {
     return sourceRows;
   }
 
+  return getCanonicalChartRowsForDays(database, coinId, days, interval);
+}
+
+export function getSourceBackedChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  return readMarketChartSourceRowsForDays(database, coinId, 'usd', days, interval);
+}
+
+export function getCanonicalChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = candleInterval === '1d'
     ? getChartSeries(database, coinId, 'usd')
@@ -85,13 +93,32 @@ export function getChartRowsForDays(database: AppDatabase, coinId: string, days:
   return downsampleTimeSeries(filteredRows, getGranularityMs(dayCount * 24 * 60 * 60 * 1000, interval));
 }
 
+export async function fetchProviderChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
+  const ohlcRows = await fetchProviderOhlcRowsForDays(database, coinId, days, interval);
+
+  return ohlcRows?.map((row) => ({
+    timestamp: row.timestamp,
+    price: row.close,
+    marketCap: row.marketCap,
+    totalVolume: row.totalVolume,
+  })) ?? null;
+}
+
 export function getChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
-  const sourceRows = readMarketChartSourceRowsForRange(database, coinId, 'usd', range, interval);
+  const sourceRows = getSourceBackedChartRowsForRange(database, coinId, range, interval);
 
   if (sourceRows.length > 0) {
     return sourceRows;
   }
 
+  return getCanonicalChartRowsForRange(database, coinId, range, interval);
+}
+
+export function getSourceBackedChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  return readMarketChartSourceRowsForRange(database, coinId, 'usd', range, interval);
+}
+
+export function getCanonicalChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = candleInterval === '1d'
     ? getChartSeries(database, coinId, 'usd', range)
@@ -105,13 +132,28 @@ export function getChartRowsForRange(database: AppDatabase, coinId: string, rang
   return downsampleTimeSeries(rows, getGranularityMs(getRangeDurationMs(range), interval));
 }
 
+export async function fetchProviderChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  const ohlcRows = await fetchProviderOhlcRowsForRange(database, coinId, range, interval);
+
+  return ohlcRows?.map((row) => ({
+    timestamp: row.timestamp,
+    price: row.close,
+    marketCap: row.marketCap,
+    totalVolume: row.totalVolume,
+  })) ?? null;
+}
+
 export function getOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
-  const sourceRows = readMarketChartSourceOhlcRowsForDays(database, coinId, 'usd', days, interval);
+  const sourceRows = getSourceBackedOhlcRowsForDays(database, coinId, days, interval);
 
   if (sourceRows.length > 0) {
     return sourceRows;
   }
 
+  return getCanonicalOhlcRowsForDays(database, coinId, days, interval);
+}
+
+export function getCanonicalOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
   const rows = getCanonicalCandles(database, coinId, 'usd', candleInterval);
 
@@ -150,6 +192,24 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
     return null;
   }
 
+  return fetchProviderOhlcRows(database, coinId, Date.now() - dayCount * DAY_MS);
+}
+
+export async function fetchProviderOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  if (parseChartInterval(interval) === 'hourly') {
+    return null;
+  }
+
+  const candles = await fetchProviderOhlcRows(database, coinId, range.from, Math.ceil((range.to - range.from) / DAY_MS) + 1);
+
+  return candles?.filter((row) => {
+    const timestamp = row.timestamp.getTime();
+
+    return timestamp >= range.from && timestamp <= range.to;
+  }) ?? null;
+}
+
+async function fetchProviderOhlcRows(database: AppDatabase, coinId: string, since: number, limit?: number) {
   const ticker = database.db
     .select()
     .from(coinTickers)
@@ -166,7 +226,8 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
     ticker.exchangeId,
     ticker.marketName,
     '1d',
-    Date.now() - dayCount * DAY_MS,
+    since,
+    limit,
   ).catch(() => null);
 
   if (!candles || candles.length === 0) {
@@ -206,12 +267,20 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
 }
 
 export function getOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
-  const sourceRows = readMarketChartSourceOhlcRowsForRange(database, coinId, 'usd', range, interval);
+  const sourceRows = getSourceBackedOhlcRowsForRange(database, coinId, range, interval);
 
   if (sourceRows.length > 0) {
     return sourceRows;
   }
 
+  return getCanonicalOhlcRowsForRange(database, coinId, range, interval);
+}
+
+export function getSourceBackedOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
+  return readMarketChartSourceOhlcRowsForRange(database, coinId, 'usd', range, interval);
+}
+
+export function getCanonicalOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
 
   return getCanonicalCandles(database, coinId, 'usd', candleInterval, range);

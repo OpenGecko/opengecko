@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AppConfig } from '../config/env';
 import type { createDatabase } from '../db/client';
+import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import type { MarketRuntime } from '../services/market-runtime';
 import { createMarketDataRuntimeState, type MarketDataRuntimeState } from '../services/market-runtime-state';
 import type { MetricsRegistry } from '../services/metrics';
@@ -34,6 +35,7 @@ export type AppRouteDependencies = {
   marketDataRuntimeState: MarketDataRuntimeState;
   metrics: MetricsRegistry;
   optionalProviderJobs: OptionalProviderJobRegistry;
+  chartResponseSources: ChartResponseSourceDiagnostics;
 };
 
 export type BuildAppContext = {
@@ -43,6 +45,7 @@ export type BuildAppContext = {
   marketDataRuntimeState: AppLifecycleState;
   metrics: MetricsRegistry;
   optionalProviderJobs: OptionalProviderJobRegistry;
+  chartResponseSources: ChartResponseSourceDiagnostics;
   runtime: MarketRuntime | null;
   bootstrapSnapshotAccessMode: 'disabled' | 'seeded_bootstrap';
   bootstrapOnlyValidationRuntime: boolean;

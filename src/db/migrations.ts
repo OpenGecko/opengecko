@@ -7,6 +7,8 @@ import type { AppDatabase } from './runtime';
 import {
   assetPlatforms,
   categories,
+  chartResponseSourceCounters,
+  chartResponseSourceEvents,
   chartPoints,
   coinHistorySnapshots,
   coins,
@@ -38,6 +40,8 @@ const TARGETED_RUNTIME_INDEX_MIGRATION_CREATED_AT = 1774800000000;
 type AppSchema = {
   assetPlatforms: typeof assetPlatforms;
   categories: typeof categories;
+  chartResponseSourceCounters: typeof chartResponseSourceCounters;
+  chartResponseSourceEvents: typeof chartResponseSourceEvents;
   chartPoints: typeof chartPoints;
   coinHistorySnapshots: typeof coinHistorySnapshots;
   coins: typeof coins;

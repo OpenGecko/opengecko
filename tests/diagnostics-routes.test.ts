@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { chartPoints, marketChartSourcePoints, ohlcvCandles } from '../src/db/schema';
 import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
@@ -24,6 +26,7 @@ import {
   ingestMarketChartReplay,
   type RawMarketChartReplay,
 } from '../src/services/market-chart-ingestion';
+import { buildMarketChartProviderDiagnostics } from '../src/services/market-chart-diagnostics';
 import { syncMarketCharts } from '../src/services/market-chart-sync';
 import {
   ingestOnchainAnalyticsReplay,
@@ -916,8 +919,39 @@ describe('diagnostics routes', () => {
           status: 'configured_pending',
           configured_provider: 'mock.chart',
           latest_source_fetched_at: null,
+          coverage: {
+            oldest_point_at: null,
+            newest_point_at: null,
+            source_age_seconds: null,
+            freshness_threshold_seconds: 129600,
+            freshness: 'unknown',
+            source_coverage_days: 0,
+            depth_threshold_days: 30,
+            depth: 'empty',
+          },
         }),
       ]),
+      summary: {
+        configured_targets: 1,
+        source_backed_configured_targets: 0,
+        status_counts: {
+          configured_pending: 1,
+          live_backed: 0,
+          replay_backed: 0,
+          fallback_only: 0,
+          missing: 0,
+        },
+        freshness_counts: {
+          fresh: 0,
+          stale: 0,
+          unknown: 1,
+        },
+        depth_counts: {
+          deep: 0,
+          shallow: 0,
+          empty: 1,
+        },
+      },
       gaps: expect.objectContaining({
         configured_without_source_rows: ['bitcoin:usd:1d'],
       }),
@@ -941,6 +975,13 @@ describe('diagnostics routes', () => {
         source_providers: ['market-chart-replay'],
         row_counts: { total: 3, live: 0, replay: 3 },
         latest_source_fetched_at: '2026-05-05T01:00:00.000Z',
+        coverage: expect.objectContaining({
+          oldest_point_at: '2026-03-18T00:00:00.000Z',
+          newest_point_at: '2026-03-20T00:00:00.000Z',
+          source_coverage_days: 3,
+          depth_threshold_days: 30,
+          depth: 'shallow',
+        }),
       }),
     ]));
 
@@ -953,6 +994,26 @@ describe('diagnostics routes', () => {
       }],
       now: new Date('2026-05-05T01:12:00.000Z'),
       fetcher: async () => fixture,
+    });
+    await syncMarketCharts(getApp().db, {
+      targets: [{
+        provider: 'mock.chart',
+        coinId: 'ethereum',
+        vsCurrency: 'usd',
+        interval: '1d',
+      }],
+      now: new Date('2026-05-05T01:18:00.000Z'),
+      fetcher: async () => ({
+        provider: 'mock.chart',
+        captured_at: '2026-05-05T01:18:00.000Z',
+        coin_id: 'ethereum',
+        vs_currency: 'usd',
+        interval: '1d',
+        points: [
+          { timestamp: 1771459200, price: 2700 },
+          { timestamp: 1774051200, price: 2850 },
+        ],
+      }),
     });
 
     const liveResponse = await getApp().inject({
@@ -970,8 +1031,322 @@ describe('diagnostics routes', () => {
         source_providers: ['market-chart-replay', 'mock.chart'],
         row_counts: { total: 6, live: 3, replay: 3 },
         latest_source_fetched_at: '2026-05-05T01:12:00.000Z',
+        coverage: expect.objectContaining({
+          freshness_threshold_seconds: 129600,
+          source_coverage_days: 3,
+          depth_threshold_days: 30,
+          depth: 'shallow',
+        }),
       }),
     ]));
+    expect(liveResponse.json().data.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: 'ethereum',
+        status: 'live_backed',
+        coverage: expect.objectContaining({
+          freshness: 'fresh',
+          source_coverage_days: 31,
+          depth: 'deep',
+        }),
+      }),
+    ]));
+
+    const freshDiagnostics = buildMarketChartProviderDiagnostics(
+      getApp().db,
+      'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1d:usd',
+      new Date('2026-05-05T01:20:00.000Z'),
+    );
+    expect(freshDiagnostics.summary).toEqual({
+      configured_targets: 2,
+      source_backed_configured_targets: 2,
+      status_counts: {
+        configured_pending: 0,
+        live_backed: 2,
+        replay_backed: 0,
+        fallback_only: 0,
+        missing: 0,
+      },
+      freshness_counts: {
+        fresh: 2,
+        stale: 0,
+        unknown: 0,
+      },
+      depth_counts: {
+        deep: 1,
+        shallow: 1,
+        empty: 0,
+      },
+    });
+    expect(freshDiagnostics.gaps.shallow_source_targets).toContain('bitcoin:usd:1d');
+    expect(freshDiagnostics.gaps.shallow_source_targets).not.toContain('ethereum:usd:1d');
+
+    const staleDiagnostics = buildMarketChartProviderDiagnostics(
+      getApp().db,
+      'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1d:usd',
+      new Date('2026-05-07T14:00:00.000Z'),
+    );
+    expect(staleDiagnostics.coins).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        coverage: expect.objectContaining({
+          freshness: 'stale',
+        }),
+      }),
+    ]));
+    expect(staleDiagnostics.gaps.stale_source_targets).toEqual(expect.arrayContaining([
+      'bitcoin:usd:1d',
+      'ethereum:usd:1d',
+    ]));
+    expect(staleDiagnostics.summary.freshness_counts).toMatchObject({
+      fresh: 0,
+      stale: 2,
+      unknown: 0,
+    });
+  });
+
+  it('reports public chart and ohlc response source counters without changing route payloads', async () => {
+    await getApp().ready();
+
+    const canonicalChartResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=daily',
+    });
+    expect(canonicalChartResponse.statusCode).toBe(200);
+    const canonicalChartPayload = canonicalChartResponse.json();
+    expect(canonicalChartPayload).toMatchObject({
+      prices: expect.any(Array),
+      market_caps: expect.any(Array),
+      total_volumes: expect.any(Array),
+    });
+    expect(canonicalChartPayload).not.toHaveProperty('response_source_counts');
+
+    const fixture = loadMarketChartFixture();
+    ingestMarketChartReplay(getApp().db, fixture);
+    const sourceChartResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1773792000&to=1773964800',
+    });
+    expect(sourceChartResponse.statusCode).toBe(200);
+    const sourceChartPayload = sourceChartResponse.json();
+    expect(sourceChartPayload).toMatchObject({
+      prices: expect.any(Array),
+      market_caps: expect.any(Array),
+      total_volumes: expect.any(Array),
+    });
+    expect(sourceChartPayload).not.toHaveProperty('response_source_counts');
+
+    getApp().db.db.delete(chartPoints).where(eq(chartPoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
+    getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
+    const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
+    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: 1775001600000,
+        open: 91_000,
+        high: 92_500,
+        low: 90_250,
+        close: 92_000,
+        volume: 1_234,
+        raw: [1775001600000, 91_000, 92_500, 90_250, 92_000, 1_234],
+      },
+    ]);
+    const providerOhlcResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1775001600&to=1775001600&interval=daily',
+    });
+    expect(providerOhlcResponse.statusCode).toBe(200);
+    const providerOhlcPayload = providerOhlcResponse.json();
+    expect(providerOhlcPayload).toEqual([
+      [1775001600000, 91_000, 92_500, 90_250, 92_000],
+    ]);
+    expect(providerOhlcPayload).not.toHaveProperty('response_source_counts');
+
+    const emptyChartResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1775088000&to=1775088000&interval=daily',
+    });
+    expect(emptyChartResponse.statusCode).toBe(200);
+    const emptyChartPayload = emptyChartResponse.json();
+    expect(emptyChartPayload).toEqual({
+      prices: [],
+      market_caps: [],
+      total_volumes: [],
+    });
+    expect(emptyChartPayload).not.toHaveProperty('response_source_recent_events');
+
+    const diagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    expect(diagnosticsResponse.json().data.response_source_counts).toMatchObject({
+      market_chart_days: {
+        canonical: 1,
+        source_backed: 0,
+        provider_filled: 0,
+        empty: 0,
+      },
+      market_chart_range: {
+        source_backed: 1,
+        canonical: 0,
+        provider_filled: 0,
+        empty: 1,
+      },
+      ohlc_range: {
+        provider_filled: 1,
+        source_backed: 0,
+        canonical: 0,
+        empty: 0,
+      },
+    });
+    expect(diagnosticsResponse.json().data.response_source_recent_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        route: 'ohlc_range',
+        source: 'provider_filled',
+        coin_id: 'bitcoin',
+        vs_currency: 'usd',
+        interval: 'daily',
+        request: {
+          kind: 'range',
+          days: null,
+          from: '2026-04-01T00:00:00.000Z',
+          to: '2026-04-01T00:00:00.000Z',
+        },
+      }),
+      expect.objectContaining({
+        route: 'market_chart_range',
+        source: 'empty',
+        coin_id: 'bitcoin',
+        vs_currency: 'usd',
+        interval: 'daily',
+        request: {
+          kind: 'range',
+          days: null,
+          from: '2026-04-02T00:00:00.000Z',
+          to: '2026-04-02T00:00:00.000Z',
+        },
+      }),
+    ]));
+    expect(diagnosticsResponse.json().data.response_source_recent_events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'canonical' }),
+      expect.objectContaining({ source: 'source_backed' }),
+    ]));
+    expect(diagnosticsResponse.json().data.response_source_recent_event_rollups).toMatchObject({
+      total_events: 2,
+      by_route: {
+        market_chart_range: {
+          provider_filled: 0,
+          empty: 1,
+        },
+        ohlc_range: {
+          provider_filled: 1,
+          empty: 0,
+        },
+      },
+      by_coin: [
+        {
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          total: 2,
+          provider_filled: 1,
+          empty: 1,
+          routes: {
+            market_chart_range: {
+              provider_filled: 0,
+              empty: 1,
+            },
+            ohlc_range: {
+              provider_filled: 1,
+              empty: 0,
+            },
+          },
+        },
+      ],
+    });
+    expect(diagnosticsResponse.json().data.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        vs_currency: 'usd',
+        interval: '1d',
+        target_template: '<provider>=bitcoin:1d:usd',
+        reason: 'recent provider-filled or empty public chart/OHLC fallback events',
+        event_counts: {
+          total: 2,
+          provider_filled: 1,
+          empty: 1,
+        },
+        routes: expect.objectContaining({
+          market_chart_range: {
+            provider_filled: 0,
+            empty: 1,
+          },
+          ohlc_range: {
+            provider_filled: 1,
+            empty: 0,
+          },
+        }),
+      }),
+    ]);
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance', 'coinbase', 'kraken', 'okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const restartedDiagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/market_charts',
+    });
+    expect(restartedDiagnosticsResponse.statusCode).toBe(200);
+    expect(restartedDiagnosticsResponse.json().data.response_source_counts).toMatchObject({
+      market_chart_days: {
+        canonical: 1,
+      },
+      market_chart_range: {
+        source_backed: 1,
+        empty: 1,
+      },
+      ohlc_range: {
+        provider_filled: 1,
+      },
+    });
+    expect(restartedDiagnosticsResponse.json().data.response_source_recent_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: 'ohlc_range', source: 'provider_filled', coin_id: 'bitcoin' }),
+      expect.objectContaining({ route: 'market_chart_range', source: 'empty', coin_id: 'bitcoin' }),
+    ]));
+    expect(restartedDiagnosticsResponse.json().data.response_source_recent_event_rollups).toMatchObject({
+      total_events: 2,
+      by_coin: [
+        {
+          coin_id: 'bitcoin',
+          total: 2,
+          provider_filled: 1,
+          empty: 1,
+        },
+      ],
+    });
+    expect(restartedDiagnosticsResponse.json().data.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        interval: '1d',
+        target_template: '<provider>=bitcoin:1d:usd',
+        event_counts: {
+          total: 2,
+          provider_filled: 1,
+          empty: 1,
+        },
+      }),
+    ]);
   });
 
   it('returns supply chart provider gap diagnostics for fixture, configured, replay, and live states', async () => {
