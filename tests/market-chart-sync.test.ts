@@ -65,6 +65,14 @@ function loadRequestExampleFixture(example: { response_fixture?: string }) {
   )) as RawMarketChartReplay;
 }
 
+function pointNumber(value: unknown) {
+  return value === null || value === undefined ? null : Number(value);
+}
+
+function pointTimestampSeconds(point: RawMarketChartReplay['points'][number]) {
+  return Number(point.timestamp);
+}
+
 describe('market chart sync', () => {
   it('parses optional provider coin/interval/currency mappings from environment syntax', () => {
     expect(parseMarketChartTargetConfig(undefined)).toEqual([]);
@@ -548,6 +556,35 @@ describe('market chart sync', () => {
 
         expect(rows).toHaveLength(fixture.points.length);
         expect(rows.every((row) => row.sourceKind === 'live')).toBe(true);
+
+        const firstPoint = fixture.points[0]!;
+        const timestampSeconds = pointTimestampSeconds(firstPoint);
+        const intervalQuery = target!.interval === '1m' ? '&interval=hourly' : '';
+        const chartResponse = await app.inject({
+          method: 'GET',
+          url: `/coins/${target!.coinId}/market_chart/range?vs_currency=${target!.vsCurrency}&from=${timestampSeconds}&to=${timestampSeconds}${intervalQuery}`,
+        });
+        const ohlcResponse = await app.inject({
+          method: 'GET',
+          url: `/coins/${target!.coinId}/ohlc/range?vs_currency=${target!.vsCurrency}&from=${timestampSeconds}&to=${timestampSeconds}${intervalQuery}`,
+        });
+
+        expect(chartResponse.statusCode).toBe(200);
+        expect(chartResponse.json()).toEqual({
+          prices: [[timestampSeconds * 1_000, pointNumber(firstPoint.price)]],
+          market_caps: [[timestampSeconds * 1_000, pointNumber(firstPoint.market_cap)]],
+          total_volumes: [[timestampSeconds * 1_000, pointNumber(firstPoint.total_volume)]],
+        });
+        expect(ohlcResponse.statusCode).toBe(200);
+        expect(ohlcResponse.json()).toEqual([
+          [
+            timestampSeconds * 1_000,
+            pointNumber(firstPoint.open),
+            pointNumber(firstPoint.high),
+            pointNumber(firstPoint.low),
+            pointNumber(firstPoint.close),
+          ],
+        ]);
       }
     } finally {
       await app.close();

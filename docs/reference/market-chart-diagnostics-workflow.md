@@ -53,6 +53,12 @@ These are first-run minimum SLOs. For production CoinGecko-style operation, also
 
 Use `summary.production_freshness_counts` for the rollout-level view and `gaps.production_stale_source_targets` for the retry list. A target can be first-run fresh while production-stale; treat that as a sync-frequency or provider-latency problem, not as missing historical depth.
 
+When `gaps.production_stale_source_targets` is non-empty, check `GET /diagnostics/jobs` for the `market_charts.production_freshness_cadence` advisory:
+
+- `scheduler_disabled`: run `bun run market:charts:sync` manually or enable `OPTIONAL_PROVIDER_SYNC_ENABLED=true` before blaming provider latency.
+- `interval_slower_than_production_freshness`: lower `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS` to the reported `strictest_production_freshness_seconds` or less before making production freshness claims.
+- `cadence_within_production_freshness`: inspect partial failures, adapter source timestamps, and provider latency before adding targets.
+
 If a target is `live_backed` but `coverage.freshness=stale`, retry a fresh sync before expanding the target set. If it is `live_backed` but `coverage.depth=shallow`, keep the target and deepen provider history instead of treating the gap as missing provider support.
 
 ## Plan Batches

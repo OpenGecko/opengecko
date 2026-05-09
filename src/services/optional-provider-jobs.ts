@@ -120,6 +120,8 @@ const OPTIONAL_PROVIDER_JOB_DEFINITIONS: OptionalProviderJobDefinition[] = [
   },
 ];
 const PARTIAL_FAILURE_ERROR_MAX_LENGTH = 500;
+const MARKET_CHART_DAILY_PRODUCTION_FRESHNESS_SECONDS = 2 * 60 * 60;
+const MARKET_CHART_INTRADAY_PRODUCTION_FRESHNESS_SECONDS = 5 * 60;
 
 function durationMs(startedAt: Date, finishedAt: Date) {
   return Math.max(finishedAt.getTime() - startedAt.getTime(), 0);
@@ -214,6 +216,59 @@ function buildPartialFailureRetryTargetsTemplate(samples: OptionalProviderJobPar
     .map((sample) => `${sample.provider}=${sample.coin_id}:${sample.interval}:${sample.vs_currency}`);
 
   return retryTargets.length > 0 ? retryTargets.join(',') : null;
+}
+
+function buildMarketChartProductionFreshnessCadence(config: AppConfig) {
+  const targets = parseMarketChartTargetConfig(config.marketChartTargets);
+  const targetIntervals = [...new Set(targets.map((target) => target.interval))].sort();
+  const strictestProductionFreshnessSeconds = targetIntervals.length === 0
+    ? null
+    : Math.min(...targetIntervals.map((interval) =>
+      interval === '1m'
+        ? MARKET_CHART_INTRADAY_PRODUCTION_FRESHNESS_SECONDS
+        : MARKET_CHART_DAILY_PRODUCTION_FRESHNESS_SECONDS));
+
+  if (strictestProductionFreshnessSeconds === null) {
+    return {
+      scheduler_enabled: config.optionalProviderSyncEnabled,
+      scheduler_interval_seconds: config.optionalProviderSyncIntervalSeconds,
+      target_intervals: targetIntervals,
+      strictest_production_freshness_seconds: null,
+      status: 'not_configured',
+      recommendation: 'Configure MARKET_CHART_TARGETS before using scheduler cadence to remediate production freshness.',
+    };
+  }
+
+  if (!config.optionalProviderSyncEnabled) {
+    return {
+      scheduler_enabled: false,
+      scheduler_interval_seconds: config.optionalProviderSyncIntervalSeconds,
+      target_intervals: targetIntervals,
+      strictest_production_freshness_seconds: strictestProductionFreshnessSeconds,
+      status: 'scheduler_disabled',
+      recommendation: 'Run bun run market:charts:sync manually or enable OPTIONAL_PROVIDER_SYNC_ENABLED before treating production-stale rows as provider latency.',
+    };
+  }
+
+  if (config.optionalProviderSyncIntervalSeconds > strictestProductionFreshnessSeconds) {
+    return {
+      scheduler_enabled: true,
+      scheduler_interval_seconds: config.optionalProviderSyncIntervalSeconds,
+      target_intervals: targetIntervals,
+      strictest_production_freshness_seconds: strictestProductionFreshnessSeconds,
+      status: 'interval_slower_than_production_freshness',
+      recommendation: `Set OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS to ${strictestProductionFreshnessSeconds} or less before claiming production freshness for the configured market chart intervals.`,
+    };
+  }
+
+  return {
+    scheduler_enabled: true,
+    scheduler_interval_seconds: config.optionalProviderSyncIntervalSeconds,
+    target_intervals: targetIntervals,
+    strictest_production_freshness_seconds: strictestProductionFreshnessSeconds,
+    status: 'cadence_within_production_freshness',
+    recommendation: 'If rows remain production-stale at this cadence, inspect partial failures, provider latency, and adapter freshness before adding more targets.',
+  };
 }
 
 function upsertOptionalProviderJobRun(
@@ -400,6 +455,9 @@ export function buildOptionalProviderJobDiagnostics(
       last_partial_failure_reason: runState?.status === 'succeeded' ? runState.partialFailureReason ?? null : null,
       last_partial_failure_samples: partialFailureSamples,
       last_partial_failure_retry_targets_template: buildPartialFailureRetryTargetsTemplate(partialFailureSamples),
+      production_freshness_cadence: definition.id === 'market_charts'
+        ? buildMarketChartProductionFreshnessCadence(config)
+        : null,
     };
   });
 

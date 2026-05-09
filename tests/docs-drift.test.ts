@@ -138,6 +138,7 @@ describe('documentation drift guards', () => {
       'tests/fixtures/provider-replay/market-charts/intraday-archive-solana-adapter-response.json',
     );
     expect(readme).toContain('retry-only target templates from persisted job state');
+    expect(readme).toContain('production_freshness_cadence');
 
     const marketChartExample = readme.match(
       /\*\*Market chart preset example:\*\*([\s\S]*?)## Migrating from CoinGecko/,
@@ -255,6 +256,13 @@ describe('documentation drift guards', () => {
       'summary.production_freshness_counts',
       'gaps.production_stale_source_targets',
       'first-run fresh while production-stale',
+      'market_charts.production_freshness_cadence',
+      '`scheduler_disabled`',
+      '`interval_slower_than_production_freshness`',
+      '`cadence_within_production_freshness`',
+      'strictest_production_freshness_seconds',
+      'OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS',
+      'provider latency',
       'source-sync recency',
       'retry a fresh sync before expanding the target set',
       'deepen provider history instead of treating the gap as missing provider support',

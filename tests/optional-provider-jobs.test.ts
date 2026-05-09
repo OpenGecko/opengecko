@@ -57,6 +57,13 @@ describe('optional provider job diagnostics', () => {
             target_env: 'MARKET_CHART_TARGETS',
             provider_base_url_env: 'MARKET_CHART_BASE_URL',
             configured_target_count: 0,
+            production_freshness_cadence: expect.objectContaining({
+              scheduler_enabled: false,
+              scheduler_interval_seconds: 900,
+              target_intervals: [],
+              strictest_production_freshness_seconds: null,
+              status: 'not_configured',
+            }),
           }),
         ]),
       });
@@ -87,6 +94,13 @@ describe('optional provider job diagnostics', () => {
           id: 'market_charts',
           status: 'configured_pending',
           configured_target_count: 2,
+          production_freshness_cadence: expect.objectContaining({
+            scheduler_enabled: false,
+            scheduler_interval_seconds: 900,
+            target_intervals: ['1d'],
+            strictest_production_freshness_seconds: 7200,
+            status: 'scheduler_disabled',
+          }),
           last_started_at: null,
           last_rows_written: null,
           last_failure_reason: null,
@@ -126,11 +140,86 @@ describe('optional provider job diagnostics', () => {
             last_partial_failure_reason: null,
             last_partial_failure_samples: [],
             last_partial_failure_retry_targets_template: null,
+            production_freshness_cadence: expect.objectContaining({
+              status: 'scheduler_disabled',
+            }),
           }),
         ]),
       });
     } finally {
       await app.close();
+    }
+  });
+
+  it('reports market chart production freshness cadence remediation from scheduler config', async () => {
+    const slowIntradayApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=ethereum:1m:usd',
+        optionalProviderSyncEnabled: true,
+        optionalProviderSyncIntervalSeconds: 900,
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const response = await slowIntradayApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'market_charts',
+          production_freshness_cadence: {
+            scheduler_enabled: true,
+            scheduler_interval_seconds: 900,
+            target_intervals: ['1d', '1m'],
+            strictest_production_freshness_seconds: 300,
+            status: 'interval_slower_than_production_freshness',
+            recommendation: expect.stringContaining('OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS to 300 or less'),
+          },
+        }),
+      ]));
+    } finally {
+      await slowIntradayApp.close();
+    }
+
+    const fastIntradayApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=ethereum:1m:usd',
+        optionalProviderSyncEnabled: true,
+        optionalProviderSyncIntervalSeconds: 120,
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const response = await fastIntradayApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'market_charts',
+          production_freshness_cadence: {
+            scheduler_enabled: true,
+            scheduler_interval_seconds: 120,
+            target_intervals: ['1m'],
+            strictest_production_freshness_seconds: 300,
+            status: 'cadence_within_production_freshness',
+            recommendation: expect.stringContaining('provider latency'),
+          },
+        }),
+      ]));
+    } finally {
+      await fastIntradayApp.close();
     }
   });
 
