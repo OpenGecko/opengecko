@@ -2,9 +2,21 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
+import { buildCoverageMatrix, type DataOwnershipClass } from '../src/services/coverage-matrix';
+
 function readRepoFile(path: string) {
   return readFileSync(resolve(process.cwd(), path), 'utf8');
 }
+
+const coverageOwnershipClasses: DataOwnershipClass[] = [
+  'live',
+  'hybrid',
+  'seeded',
+  'synthetic',
+  'fixture',
+  'unavailable',
+];
 
 const intentionallyUndocumentedPublicRoutes = new Set([
   '/health',
@@ -56,6 +68,61 @@ function extractCompatibilityAuditImplementedRoutes() {
   );
 }
 
+function buildDocsCoverageMatrixEntries() {
+  const database = createDatabase(':memory:');
+
+  try {
+    migrateDatabase(database);
+    seedStaticReferenceData(database, { includeSeededExchanges: true });
+
+    return buildCoverageMatrix(database, new Date('2026-05-12T00:00:00.000Z')).entries;
+  } finally {
+    database.client.close();
+  }
+}
+
+function calculateCoverageOwnershipSummary(entries: ReturnType<typeof buildDocsCoverageMatrixEntries>) {
+  const total = entries.length;
+  const counts = new Map<string, number>();
+
+  for (const ownershipClass of coverageOwnershipClasses) {
+    counts.set(ownershipClass, entries.filter((entry) => entry.ownership_class === ownershipClass).length);
+  }
+
+  counts.set(
+    'live_or_hybrid',
+    entries.filter((entry) => ['live', 'hybrid'].includes(entry.ownership_class)).length,
+  );
+
+  return [...counts.entries()].map(([ownershipClass, count]) => ({
+    ownershipClass,
+    count,
+    total,
+    percentage: total === 0 ? 0 : Math.round((count / total) * 100),
+  }));
+}
+
+function extractTrackerCoverageOwnershipSummary(tracker: string) {
+  return new Map(
+    [...tracker.matchAll(/^\| `([^`]+)` \| (\d+) \/ (\d+) \| (\d+)% \|$/gm)]
+      .map((match) => [
+        match[1],
+        {
+          count: Number(match[2]),
+          total: Number(match[3]),
+          percentage: Number(match[4]),
+        },
+      ]),
+  );
+}
+
+function extractTrackerFamilyOwnershipClaims(tracker: string) {
+  return new Map(
+    [...tracker.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| \d+ \|$/gm)]
+      .map((match) => [match[1], match[2]]),
+  );
+}
+
 describe('documentation drift guards', () => {
   it('keeps the README endpoint table aligned with registered CoinGecko-compatible GET routes', () => {
     expect(extractReadmeApiCoverageGetRoutes()).toEqual(extractRegisteredCoinGeckoGetRoutes());
@@ -85,12 +152,52 @@ describe('documentation drift guards', () => {
     const guide = readRepoFile('docs/plans/2026-05-05-opengecko-improvement-guide.md');
     const tracker = readRepoFile('docs/status/implementation-tracker.md');
 
-    expect(tracker).toMatch(/Live \/ automated source-backed\b\**\s*\(~86%\)/);
+    expect(tracker).toContain('/diagnostics/coverage_matrix');
     expect(guide).toContain('Live data coverage');
     expect(guide).toContain('fixture-backed');
 
     for (const fixtureSurface of ['derivatives', 'treasury', 'onchain analytics', 'supply charts']) {
       expect(guide).toContain(fixtureSurface);
+    }
+  });
+
+  it('keeps implementation tracker coverage percentages derived from the coverage matrix builder', () => {
+    const tracker = readRepoFile('docs/status/implementation-tracker.md');
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const trackerSummary = extractTrackerCoverageOwnershipSummary(tracker);
+    const trackerFamilyClaims = Object.fromEntries(extractTrackerFamilyOwnershipClaims(tracker));
+
+    expect(tracker).toContain('/diagnostics/coverage_matrix');
+    expect(tracker).toContain('src/services/coverage-matrix.ts');
+
+    for (const expected of calculateCoverageOwnershipSummary(matrixEntries)) {
+      const actual = trackerSummary.get(expected.ownershipClass);
+
+      expect(actual).toBeDefined();
+      expect(actual?.count).toBe(expected.count);
+      expect(actual?.total).toBe(expected.total);
+      expect(Math.abs((actual?.percentage ?? Number.NaN) - expected.percentage)).toBeLessThanOrEqual(1);
+    }
+
+    expect(trackerFamilyClaims).toEqual(Object.fromEntries(
+      matrixEntries.map((entry) => [entry.family, entry.ownership_class]),
+    ));
+  });
+
+  it('prevents tracker family live claims from contradicting the coverage matrix', () => {
+    const trackerFamilyClaims = extractTrackerFamilyOwnershipClaims(
+      readRepoFile('docs/status/implementation-tracker.md'),
+    );
+    const matrixOwnershipByFamily = new Map(
+      buildDocsCoverageMatrixEntries().map((entry) => [entry.family, entry.ownership_class]),
+    );
+
+    for (const [family, claimedOwnership] of trackerFamilyClaims) {
+      expect(matrixOwnershipByFamily.get(family)).toBeDefined();
+
+      if (claimedOwnership === 'live') {
+        expect(matrixOwnershipByFamily.get(family)).toBe('live');
+      }
     }
   });
 
