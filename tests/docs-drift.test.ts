@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -6,7 +6,71 @@ function readRepoFile(path: string) {
   return readFileSync(resolve(process.cwd(), path), 'utf8');
 }
 
+const intentionallyUndocumentedPublicRoutes = new Set([
+  '/health',
+  '/metrics',
+]);
+
+function normalizeRouteTemplate(route: string) {
+  return route
+    .replace(/:[A-Za-z0-9_]+/g, '{param}')
+    .replace(/\{[^}]+}/g, '{param}');
+}
+
+function uniqueSorted(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function extractRegisteredCoinGeckoGetRoutes() {
+  const modulesDir = resolve(process.cwd(), 'src/modules');
+  const registeredRoutes = readdirSync(modulesDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+    .flatMap((entry) => {
+      const source = readFileSync(resolve(modulesDir, entry.name), 'utf8');
+      return [...source.matchAll(/app\.get\(\s*['`]([^'`]+)['`]/g)].map((match) => match[1]);
+    })
+    .filter((route) => !route.startsWith('/diagnostics/'))
+    .filter((route) => !intentionallyUndocumentedPublicRoutes.has(route))
+    .map(normalizeRouteTemplate);
+
+  return uniqueSorted(registeredRoutes);
+}
+
+function extractReadmeApiCoverageGetRoutes() {
+  const readme = readRepoFile('README.md');
+  const apiCoverage = readme.match(/## API Coverage([\s\S]*?)## Configuration/)?.[1];
+  expect(apiCoverage).toBeDefined();
+
+  return uniqueSorted(
+    [...apiCoverage!.matchAll(/`GET ([^`]+)`/g)]
+      .map((match) => normalizeRouteTemplate(match[1])),
+  );
+}
+
+function extractCompatibilityAuditImplementedRoutes() {
+  const audit = readRepoFile('docs/status/compatibility-audit.md');
+
+  return uniqueSorted(
+    [...audit.matchAll(/^\| `([^`]+)` \| (?!NFT \(removed\))[^|]+ \| implemented \|/gm)]
+      .map((match) => normalizeRouteTemplate(match[1])),
+  );
+}
+
 describe('documentation drift guards', () => {
+  it('keeps the README endpoint table aligned with registered CoinGecko-compatible GET routes', () => {
+    expect(extractReadmeApiCoverageGetRoutes()).toEqual(extractRegisteredCoinGeckoGetRoutes());
+  });
+
+  it('keeps the compatibility audit active endpoint count aligned with registered routes', () => {
+    const audit = readRepoFile('docs/status/compatibility-audit.md');
+    const auditCoverage = audit.match(/Active non-NFT parity:\s*(\d+)\s*\/\s*(\d+)/);
+    const registeredRoutes = extractRegisteredCoinGeckoGetRoutes();
+
+    expect(auditCoverage).toBeDefined();
+    expect(auditCoverage?.slice(1, 3).map(Number)).toEqual([registeredRoutes.length, registeredRoutes.length]);
+    expect(extractCompatibilityAuditImplementedRoutes()).toEqual(registeredRoutes);
+  });
+
   it('keeps the improvement guide route-coverage claim aligned with the compatibility audit', () => {
     const guide = readRepoFile('docs/plans/2026-05-05-opengecko-improvement-guide.md');
     const audit = readRepoFile('docs/status/compatibility-audit.md');

@@ -142,7 +142,11 @@ Fast price lookups and foundational endpoints.
 | `GET /asset_platforms` | List of all supported asset platforms (chains) |
 | `GET /exchange_rates` | BTC-to-fiat and BTC-to-crypto conversion rates |
 | `GET /search` | Full-text search across coins, exchanges, and categories |
+| `GET /search/trending` | Trending coins, categories, and NFT-compatible groups |
 | `GET /global` | Global market overview (total cap, volume, dominance) |
+| `GET /global/decentralized_finance_defi` | DeFi market aggregate overview |
+| `GET /global/market_cap_chart` | Global market cap history |
+| `GET /token_lists/{asset_platform_id}/all.json` | Token-list payload for a supported asset platform |
 
 ### Coins & Markets
 
@@ -151,13 +155,20 @@ Coin listings, market data, historical charts, and contract resolution.
 | Endpoint | Description |
 |---|---|
 | `GET /coins/list` | Full list of all supported coins with platform mappings |
+| `GET /coins/list/new` | Newly discovered or activated coin listings |
 | `GET /coins/markets` | Market data for coins (price, cap, volume, ATH/ATL, sparklines) |
+| `GET /coins/top_gainers_losers` | Top gaining and losing coins over the requested duration |
 | `GET /coins/{id}` | Detailed coin info — metadata, links, community data, market data |
 | `GET /coins/{id}/history` | Point-in-time snapshot of a coin on a specific date |
 | `GET /coins/{id}/market_chart` | Historical prices, market caps, and volumes |
 | `GET /coins/{id}/market_chart/range` | Historical chart data for a specific time range |
 | `GET /coins/{id}/ohlc` | OHLC candlestick data |
+| `GET /coins/{id}/ohlc/range` | OHLC candlestick data over an explicit time range |
 | `GET /coins/{id}/tickers` | Ticker data from exchanges and DEXs |
+| `GET /coins/{id}/circulating_supply_chart` | Circulating supply series |
+| `GET /coins/{id}/circulating_supply_chart/range` | Circulating supply series over an explicit time range |
+| `GET /coins/{id}/total_supply_chart` | Total supply series |
+| `GET /coins/{id}/total_supply_chart/range` | Total supply series over an explicit time range |
 | `GET /coins/categories` | Coin categories ranked by market cap |
 | `GET /coins/categories/list` | List of all coin categories |
 | `GET /coins/{platform_id}/contract/{contract_address}` | Coin detail resolved by chain and contract address |
@@ -175,8 +186,10 @@ Exchange listings, volumes, and derivatives venues.
 | `GET /exchanges/{id}` | Detailed exchange info with top tickers |
 | `GET /exchanges/{id}/tickers` | All tickers for a specific exchange |
 | `GET /exchanges/{id}/volume_chart` | Exchange 24h volume history in BTC |
+| `GET /exchanges/{id}/volume_chart/range` | Exchange volume history for an explicit time range |
 | `GET /derivatives/exchanges/list` | List of derivatives exchanges |
 | `GET /derivatives/exchanges` | Derivatives exchange data with OI and funding |
+| `GET /derivatives/exchanges/{id}` | Detailed derivatives exchange data |
 | `GET /derivatives` | All derivatives contracts with funding, spread, and expiry |
 
 ### Public Treasury
@@ -200,15 +213,34 @@ DEX pools, tokens, trades, and OHLCV on supported networks. **Expanding.**
 | `GET /onchain/networks` | List of supported networks |
 | `GET /onchain/networks/{network}/dexes` | List of DEXs on a specific network |
 | `GET /onchain/networks/{network}/pools` | Pool listings for a specific network |
+| `GET /onchain/networks/{network}/dexes/{dex}/pools` | DEX-scoped pool listings |
+| `GET /onchain/networks/{network}/new_pools` | Recently discovered pools for a network |
+| `GET /onchain/networks/new_pools` | Recently discovered pools across networks |
+| `GET /onchain/networks/{network}/trending_pools` | Trending pools for a network |
 | `GET /onchain/networks/{network}/pools/{address}` | Pool detail with optional related resources |
+| `GET /onchain/networks/{network}/pools/multi/{addresses}` | Multi-pool lookup on a network |
+| `GET /onchain/networks/{network}/pools/{pool_address}/info` | Pool constituent token metadata |
 | `GET /onchain/networks/{network}/tokens/{address}` | Token market/detail view on a network |
+| `GET /onchain/networks/{network}/tokens/{token_address}/pools` | Pools for a token on a network |
+| `GET /onchain/networks/{network}/tokens/multi/{addresses}` | Multi-token lookup on a network |
+| `GET /onchain/networks/{network}/tokens/{token_address}/info` | Token metadata on a network |
+| `GET /onchain/networks/{network}/tokens/{token_address}/top_holders` | Token holder leaderboard |
+| `GET /onchain/networks/{network}/tokens/{token_address}/top_traders` | Token trader leaderboard |
+| `GET /onchain/networks/{network}/tokens/{token_address}/holders_chart` | Token holder-count history |
+| `GET /onchain/networks/{network}/tokens/{token_address}/ohlcv/{timeframe}` | Token OHLCV series aggregated from pools |
+| `GET /onchain/networks/{network}/tokens/{token_address}/trades` | Token trade feed aggregated from pools |
 | `GET /onchain/networks/{network}/pools/{pool_address}/trades` | Pool trade feed |
 | `GET /onchain/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}` | Pool OHLCV series |
+| `GET /onchain/simple/networks/{network}/token_price/{addresses}` | Simple token price lookup on a network |
 | `GET /onchain/networks/trending_pools` | Global trending pool feed |
 | `GET /onchain/search/pools` | Pool search |
+| `GET /onchain/pools/megafilter` | Pool screener with filters |
+| `GET /onchain/pools/trending_search` | Trending pool search feed |
+| `GET /onchain/tokens/info_recently_updated` | Recently updated token metadata feed |
 | `GET /onchain/categories` | Onchain category listings |
+| `GET /onchain/categories/{category_id}/pools` | Category-scoped pool listings |
 
-This README intentionally lists representative onchain routes rather than the full family. For detailed compatibility status and known gaps, see `docs/status/implementation-tracker.md`, `docs/status/compatibility-audit.md`, and `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md`.
+The API coverage table is guarded by `tests/docs-drift.test.ts` against the registered CoinGecko-compatible GET route surface. For detailed compatibility status and known gaps, see `docs/status/implementation-tracker.md`, `docs/status/compatibility-audit.md`, and `docs/plans/2026-03-20-opengecko-endpoint-parity-matrix.md`.
 
 ## Configuration
 
