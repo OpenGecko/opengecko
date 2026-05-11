@@ -41,6 +41,7 @@ const envSchema = z.object({
   ONCHAIN_ANALYTICS_TARGETS: z.string().default(''),
   ONCHAIN_TRADE_TARGETS: z.string().default(''),
   SUPPLY_CHART_TARGETS: z.string().default(''),
+  TREASURY_DISCLOSURE_REPLAY_PATH: z.string().default(''),
   OPTIONAL_PROVIDER_SYNC_ENABLED: z.boolean().default(false),
   OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS: z.coerce.number().int().positive().default(900),
   MARKET_FRESHNESS_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_FRESHNESS_THRESHOLD_SECONDS),
@@ -101,6 +102,7 @@ export type AppConfig = {
   onchainAnalyticsTargets: string;
   onchainTradeTargets: string;
   supplyChartTargets: string;
+  treasuryDisclosureReplayPath: string;
   optionalProviderSyncEnabled: boolean;
   optionalProviderSyncIntervalSeconds: number;
   marketFreshnessThresholdSeconds: number;
@@ -269,6 +271,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     onchainAnalyticsTargets: env.ONCHAIN_ANALYTICS_TARGETS,
     onchainTradeTargets: env.ONCHAIN_TRADE_TARGETS,
     supplyChartTargets: env.SUPPLY_CHART_TARGETS,
+    treasuryDisclosureReplayPath: env.TREASURY_DISCLOSURE_REPLAY_PATH,
     optionalProviderSyncEnabled: env.OPTIONAL_PROVIDER_SYNC_ENABLED,
     optionalProviderSyncIntervalSeconds: env.OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS,
     marketFreshnessThresholdSeconds: env.MARKET_FRESHNESS_THRESHOLD_SECONDS,

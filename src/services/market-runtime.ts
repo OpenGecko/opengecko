@@ -81,6 +81,7 @@ type RuntimeConfig = Pick<AppConfig,
   | 'onchainAnalyticsTargets'
   | 'onchainTradeTargets'
   | 'supplyChartTargets'
+  | 'treasuryDisclosureReplayPath'
 >;
 
 function formatRfc3339Timestamp() {

@@ -11,6 +11,7 @@ import {
   normalizeTreasuryDisclosureReplay,
   type RawTreasuryDisclosureReplay,
 } from '../src/services/treasury-disclosure-normalizer';
+import { runTreasurySweep } from '../src/services/treasury-sweep';
 
 function loadFixture() {
   return JSON.parse(readFileSync(
@@ -20,6 +21,163 @@ function loadFixture() {
 }
 
 describe('treasury provider replay fixtures', () => {
+  it('runs treasury sweep against a configured replay file and advances endpoint freshness metadata', async () => {
+    const replayPath = join(process.cwd(), 'tests/fixtures/provider-replay/treasury/strategy-bitcoin-disclosure.json');
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+        treasuryDisclosureReplayPath: replayPath,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+
+    try {
+      await app.ready();
+
+      const beforeResponse = await app.inject({
+        method: 'GET',
+        url: '/companies/public_treasury/bitcoin?order=holdings_desc',
+      });
+      expect(beforeResponse.statusCode).toBe(200);
+      expect(beforeResponse.json().meta).toMatchObject({
+        fixture: true,
+        source: 'fixture',
+        source_documents_count: 0,
+      });
+
+      expect(runTreasurySweep(app.db, { replayPath })).toMatchObject({
+        targetsProcessed: 1,
+        rowsWritten: 4,
+        sourceDocuments: 1,
+      });
+
+      await app.scheduler?.runNow('treasury-sweep');
+
+      const byCoinResponse = await app.inject({
+        method: 'GET',
+        url: '/companies/public_treasury/bitcoin?order=holdings_desc',
+      });
+      const jobsResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+
+      expect(byCoinResponse.statusCode).toBe(200);
+      expect(byCoinResponse.json()).toMatchObject({
+        data: {
+          coin_id: 'bitcoin',
+          companies: expect.arrayContaining([
+            expect.objectContaining({
+              entity_id: 'strategy',
+              total_holdings: 650000,
+              reported_at: '2026-05-05T00:00:00.000Z',
+            }),
+          ]),
+        },
+        meta: {
+          fixture: false,
+          source: 'disclosure_replay',
+          updated_at: '2026-05-05T00:00:00.000Z',
+          source_documents_count: 1,
+          live_rows_count: 1,
+          fallback_rows_count: 0,
+        },
+      });
+      expect(jobsResponse.statusCode).toBe(200);
+      expect(jobsResponse.json().data.jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'treasury-sweep',
+          last_error: null,
+          rows_written: expect.any(Number),
+        }),
+      ]));
+      const treasuryJob = jobsResponse.json().data.jobs.find((job: { name: string }) => job.name === 'treasury-sweep');
+      expect(treasuryJob.rows_written).toBeGreaterThan(0);
+      expect(treasuryJob.last_success_at).toEqual(expect.any(String));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps fixture fallback explicit when treasury sweep has no configured replay source', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+      expect(runTreasurySweep(app.db)).toMatchObject({
+        targetsProcessed: 2,
+        rowsWritten: 0,
+        sourceDocuments: 0,
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/public_treasury/strategy',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().meta).toMatchObject({
+        fixture: true,
+        source: 'fixture',
+        source_documents_count: 0,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('records treasury sweep failures without replacing fixture fallback data', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+        treasuryDisclosureReplayPath: join(process.cwd(), 'tests/fixtures/provider-replay/treasury/missing.json'),
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+
+    try {
+      await app.ready();
+      await app.scheduler?.runNow('treasury-sweep');
+
+      const detailResponse = await app.inject({
+        method: 'GET',
+        url: '/public_treasury/strategy',
+      });
+      const jobsResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const treasuryJob = jobsResponse.json().data.jobs.find((job: { name: string }) => job.name === 'treasury-sweep');
+
+      expect(detailResponse.statusCode).toBe(200);
+      expect(detailResponse.json().meta).toMatchObject({
+        fixture: true,
+        source: 'fixture',
+        source_documents_count: 0,
+      });
+      expect(treasuryJob).toMatchObject({
+        name: 'treasury-sweep',
+        last_success_at: null,
+        error_count: 1,
+        rows_written: null,
+      });
+      expect(treasuryJob.last_error).toContain('ENOENT');
+      expect(treasuryJob.last_error).not.toContain(process.cwd());
+    } finally {
+      await app.close();
+    }
+  });
+
   it('normalizes source disclosure rows into public treasury responses', async () => {
     const fixture = loadFixture();
     const normalized = normalizeTreasuryDisclosureReplay(fixture);

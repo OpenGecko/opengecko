@@ -15,6 +15,7 @@ type Tier23SchedulerConfig = Pick<AppConfig,
   | 'supplyAggregatorDisabled'
   | 'treasurySweepIntervalSeconds'
   | 'treasurySweepDisabled'
+  | 'treasuryDisclosureReplayPath'
 >;
 
 export function registerTier23SchedulerJobs(
@@ -68,7 +69,9 @@ export function registerTier23SchedulerJobs(
         return { targetsProcessed: 0, rowsWritten: 0 };
       }
 
-      const result = runTreasurySweep(database);
+      const result = runTreasurySweep(database, {
+        replayPath: config.treasuryDisclosureReplayPath,
+      });
       const retention = enforceSnapshotRetention(database);
 
       return {
