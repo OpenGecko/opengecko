@@ -11,7 +11,7 @@ export const INITIAL_STARTUP_STEPS = [
   { id: 'start_http_listener', label: 'Start HTTP listener' },
 ] as const;
 
-export const OPENGECKO_RELEASE_VERSION = '0.9.0';
+export const OPENGECKO_RELEASE_VERSION = '0.9.1';
 
 export type StartupStepId = typeof INITIAL_STARTUP_STEPS[number]['id'];
 

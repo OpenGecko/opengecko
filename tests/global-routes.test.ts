@@ -206,4 +206,51 @@ describe('global routes', () => {
       error: 'invalid_parameter',
     });
   });
+
+  it('keeps category list CoinGecko-compatible as a bare category_id/name array', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/categories/list',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+    expect(body[0]).toEqual({
+      category_id: expect.any(String),
+      name: expect.any(String),
+    });
+    expect(body[0].category_id).not.toBe('');
+    expect(body[0].name).not.toBe('');
+  });
+
+  it('exposes top mover freshness metadata without changing the paired arrays contract', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/coins/top_gainers_losers?vs_currency=usd&duration=24h&top_coins=100&price_change_percentage=24h',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(Array.isArray(body.top_gainers)).toBe(true);
+    expect(Array.isArray(body.top_losers)).toBe(true);
+    expect(body.meta).toMatchObject({
+      fixture: expect.any(Boolean),
+      source: 'market_snapshots',
+      snapshot_source: expect.stringMatching(/^(live|mixed|fixture|empty)$/),
+      fallback: expect.any(Boolean),
+      live_snapshot_count: expect.any(Number),
+      fallback_snapshot_count: expect.any(Number),
+      candidate_count: expect.any(Number),
+      mover_count: body.top_gainers.length + body.top_losers.length,
+      top_coins: 100,
+      duration: '24h',
+      price_change_percentage: expect.arrayContaining(['24h']),
+    });
+    expect(body.meta.fixture).toBe(body.meta.snapshot_source !== 'live');
+    expect(body.meta.fallback).toBe(body.meta.fixture);
+    expect(body.meta.live_snapshot_count + body.meta.fallback_snapshot_count).toBe(body.meta.candidate_count);
+    expect(body.meta.updated_at === null || typeof body.meta.updated_at === 'string').toBe(true);
+  });
 });

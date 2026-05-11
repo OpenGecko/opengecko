@@ -457,21 +457,14 @@
       ]
     ]
   },
-  "categoriesList": {
-    "data": [
-      {
-        "category_id": "smart-contract-platform"
-      },
-      {
-        "category_id": "stablecoins"
-      }
-    ],
-    "meta": {
-      "fixture": true,
-      "category_count": 2,
-      "note": "Categories data is seeded fixture (2 categories)"
+  "categoriesList": [
+    {
+      "category_id": "smart-contract-platform"
+    },
+    {
+      "category_id": "stablecoins"
     }
-  },
+  ],
   "treasuryEntities": [
     {
       "id": "el-salvador",

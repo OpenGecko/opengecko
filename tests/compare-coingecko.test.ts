@@ -536,19 +536,15 @@ describe('CoinGecko API compatibility', () => {
 
       const listBody = listResponse.json();
       const categoriesBody = categoriesResponse.json();
-      expect(Array.isArray(listBody)).toBe(false);
-      expect(listBody).toHaveProperty('data');
-      expect(listBody).toHaveProperty('meta');
-      expect(Array.isArray(listBody.data)).toBe(true);
-      expect(listBody.meta).toMatchObject({ fixture: true });
+      expect(Array.isArray(listBody)).toBe(true);
       expect(Array.isArray(categoriesBody)).toBe(false);
       expect(categoriesBody).toHaveProperty('data');
       expect(categoriesBody).toHaveProperty('meta');
       expect(Array.isArray(categoriesBody.data)).toBe(true);
       expect(categoriesBody.meta).toMatchObject({ fixture: true });
 
-      if (listBody.data.length > 0) {
-        expectObjectFields(listBody.data[0], ['category_id', 'name']);
+      if (listBody.length > 0) {
+        expectObjectFields(listBody[0], ['category_id', 'name']);
       }
 
       if (categoriesBody.data.length > 0) {

@@ -51,6 +51,7 @@ import {
   parseMarketRowsRequest,
   type CoinMarketsCacheEntry,
 } from './coins/market-data';
+import { getSnapshotOwnership } from '../services/market-snapshots';
 import {
   buildNewListingRow,
   parseChartInterval,
@@ -215,6 +216,50 @@ function buildFixtureAwareMeta(options: {
     source: options.fixture ? 'fixture' : 'live',
     updated_at: options.updatedAt?.toISOString() ?? null,
     note: options.fixture ? options.fixtureNote : options.liveNote,
+  };
+}
+
+function buildMoverMeta(options: {
+  rankedUniverse: Array<{ snapshot: ReturnType<typeof getUsableSnapshot> }>;
+  durationDays: number;
+  requestedWindows: string[];
+  topCoinsLimit: number;
+  moverCount: number;
+}) {
+  const snapshots = options.rankedUniverse
+    .map((entry) => entry.snapshot)
+    .filter((snapshot): snapshot is NonNullable<typeof snapshot> => snapshot !== null);
+  const liveSnapshotCount = snapshots.filter((snapshot) => getSnapshotOwnership(snapshot) === 'live').length;
+  const fallbackSnapshotCount = options.rankedUniverse.length - liveSnapshotCount;
+  const missingSnapshotCount = options.rankedUniverse.length - snapshots.length;
+  const updatedAt = snapshots.reduce<Date | null>((latest, snapshot) =>
+    latest === null || snapshot.lastUpdated.getTime() > latest.getTime() ? snapshot.lastUpdated : latest, null);
+  const snapshotSource = options.rankedUniverse.length === 0
+    ? 'empty'
+    : liveSnapshotCount === options.rankedUniverse.length
+      ? 'live'
+      : liveSnapshotCount > 0
+        ? 'mixed'
+        : 'fixture';
+  const fixture = snapshotSource !== 'live';
+
+  return {
+    fixture,
+    source: 'market_snapshots',
+    snapshot_source: snapshotSource,
+    fallback: fixture,
+    live_snapshot_count: liveSnapshotCount,
+    fallback_snapshot_count: fallbackSnapshotCount,
+    missing_snapshot_count: missingSnapshotCount,
+    candidate_count: options.rankedUniverse.length,
+    mover_count: options.moverCount,
+    top_coins: options.topCoinsLimit,
+    duration: options.durationDays === 1 ? '24h' : `${options.durationDays}d`,
+    price_change_percentage: options.requestedWindows,
+    updated_at: updatedAt?.toISOString() ?? null,
+    note: fixture
+      ? 'Top gainers/losers are computed from current market snapshots with fixture or fallback snapshot rows explicitly marked.'
+      : 'Top gainers/losers are computed from current live market snapshots.',
   };
 }
 
@@ -405,6 +450,13 @@ export function registerCoinRoutes(
     return sendCacheableJson(request, reply, {
       top_gainers: topGainers,
       top_losers: topLosers,
+      meta: buildMoverMeta({
+        rankedUniverse,
+        durationDays: duration.days,
+        requestedWindows,
+        topCoinsLimit,
+        moverCount: topGainers.length + topLosers.length,
+      }),
     }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
@@ -736,23 +788,11 @@ export function registerCoinRoutes(
 
   app.get('/coins/categories/list', async (request, reply) => {
     const categories = getCategories(database);
-    const fixture = !categoriesAreLiveAggregated(categories);
 
-    return sendCacheableJson(request, reply, {
-      data: categories.map((category) => ({
+    return sendCacheableJson(request, reply, categories.map((category) => ({
         category_id: category.id,
         name: category.name,
-      })),
-      meta: buildFixtureAwareMeta({
-        fixture,
-        countKey: 'category_count',
-        count: categories.length,
-        updatedAt: categories.reduce<Date | null>((latest, category) =>
-          latest === null || category.updatedAt.getTime() > latest.getTime() ? category.updatedAt : latest, null),
-        fixtureNote: `Categories data is seeded fixture (${categories.length} categories)`,
-        liveNote: 'Categories taxonomy includes scheduler-refreshed aggregate inputs',
-      }),
-    }, {
+      })), {
       maxAgeSeconds: 3_600,
       staleWhileRevalidateSeconds: 3_600,
     });

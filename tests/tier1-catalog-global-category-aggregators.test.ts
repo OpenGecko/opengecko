@@ -196,8 +196,7 @@ describe('Tier 1 catalog/global/category aggregators', () => {
     ]));
 
     expect(categoryListResponse.statusCode).toBe(200);
-    expect(categoryListResponse.json().meta.fixture).toBe(false);
-    expect(categoryListResponse.json().data).toEqual(expect.arrayContaining([
+    expect(categoryListResponse.json()).toEqual(expect.arrayContaining([
       { category_id: 'layer-1', name: 'Layer 1' },
       { category_id: 'stablecoins', name: 'Stablecoins' },
     ]));

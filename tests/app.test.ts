@@ -7152,6 +7152,18 @@ describe('OpenGecko app scaffold', () => {
     expect(body.top_gainers[0].price_change_percentage_24h).toBe(5);
     expect(body.top_gainers[0].market_cap_rank === null || typeof body.top_gainers[0].market_cap_rank === 'number').toBe(true);
     expect(body.top_gainers.map((row: { price_change_percentage_24h: number | null }) => row.price_change_percentage_24h)).toEqual([5, 4, 3.5, 3, 2.56, 2, 1.8, 0.01]);
+    expect(body.meta).toMatchObject({
+      fixture: expect.any(Boolean),
+      source: 'market_snapshots',
+      snapshot_source: expect.stringMatching(/^(live|mixed|fixture|empty)$/),
+      fallback: expect.any(Boolean),
+      candidate_count: expect.any(Number),
+      mover_count: body.top_gainers.length + body.top_losers.length,
+      duration: '24h',
+      price_change_percentage: expect.arrayContaining(['24h']),
+    });
+    expect(body.meta.fixture).toBe(body.meta.snapshot_source !== 'live');
+    expect(body.meta.fallback).toBe(body.meta.fixture);
   });
 
   it('supports mover duration, tolerates trailing-empty mover windows, and validates invalid mover params explicitly', async () => {
@@ -8054,6 +8066,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(categoriesListResponse.statusCode).toBe(200);
     expect(categoriesListResponse.json()).toMatchObject(contractFixtures.categoriesList);
+    expect(Array.isArray(categoriesListResponse.json())).toBe(true);
 
     expect(categoriesResponse.statusCode).toBe(200);
     expect(categoriesResponse.json().data[0]).toMatchObject({
