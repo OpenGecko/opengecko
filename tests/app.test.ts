@@ -3974,9 +3974,11 @@ describe('OpenGecko app scaffold', () => {
 
     expect(poolTradesResponse.statusCode).toBe(200);
     expect(poolTradesResponse.json().meta).toEqual({
+      fixture: false,
       network: 'eth',
       pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       source: 'live',
+      updated_at: expect.any(String),
     });
     expect(poolTradesResponse.json().data).toEqual(
       expect.arrayContaining([
@@ -4023,9 +4025,11 @@ describe('OpenGecko app scaffold', () => {
 
     expect(tokenTradesResponse.statusCode).toBe(200);
     expect(tokenTradesResponse.json().meta).toEqual({
+      fixture: false,
       network: 'eth',
       token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
       source: 'live',
+      updated_at: expect.any(String),
     });
     expect(tokenTradesResponse.json().data).toEqual(
       expect.arrayContaining([
