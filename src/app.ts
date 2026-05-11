@@ -5,10 +5,15 @@ import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenc
 import { closeExchangePool } from './providers/ccxt';
 import { rebuildPersistentSqliteDatabase, resolveBootstrapSnapshotAccessMode } from './services/bootstrap';
 import { createChartResponseSourceDiagnostics, type ChartResponseSourceDiagnostics } from './services/chart-response-source-diagnostics';
-import { createMarketRuntime, type MarketRuntime } from './services/market-runtime';
+import {
+  createMarketRuntime,
+  createMarketRuntimeDiagnosticsScheduler,
+  type MarketRuntime,
+} from './services/market-runtime';
 import { createMarketDataRuntimeState } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
 import { createOptionalProviderJobRegistry, type OptionalProviderJobRegistry } from './services/optional-provider-jobs';
+import type { UnifiedScheduler } from './services/job-scheduler';
 import type { ResponseCache } from './services/response-cache';
 import { createFastifyApp } from './app/fastify';
 import { registerAppRoutes } from './app/routes';
@@ -24,6 +29,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     marketDataRuntimeState: AppLifecycleState;
     marketRuntime: MarketRuntime | null;
+    scheduler: UnifiedScheduler | null;
     metrics: MetricsRegistry;
     optionalProviderJobs: OptionalProviderJobRegistry;
     chartResponseSources: ChartResponseSourceDiagnostics;
@@ -76,6 +82,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const runtime = shouldStartBackgroundJobs
     ? createMarketRuntime(app, database, config, app.log, marketDataRuntimeState, metrics, {}, options.startupProgress, optionalProviderJobs)
     : null;
+  const scheduler = runtime?.scheduler
+    ?? (options.exposeSchedulerDiagnostics
+      ? createMarketRuntimeDiagnosticsScheduler(config, app.log, metrics)
+      : null);
 
   migrateDatabase(database);
   canonicalizePersistedCoinNames(database);
@@ -119,6 +129,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate('marketDataRuntimeState', marketDataRuntimeState);
   app.decorate('marketRuntime', runtime);
+  app.decorate('scheduler', scheduler);
   app.decorate('metrics', metrics);
   app.decorate('optionalProviderJobs', optionalProviderJobs);
   app.decorate('chartResponseSources', chartResponseSources);

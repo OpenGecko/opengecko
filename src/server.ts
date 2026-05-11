@@ -23,6 +23,7 @@ async function start() {
     app = buildApp({
       config,
       startBackgroundJobs: !validationBootstrapOnlyMode,
+      exposeSchedulerDiagnostics: validationBootstrapOnlyMode,
       pluginTimeout: 0,
       startupPluginTimeout: 110_000,
       startupProgress,

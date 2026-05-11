@@ -4,6 +4,9 @@ import type { Logger } from 'pino';
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { refreshCurrencyApiRatesOnce } from './currency-rates';
+import { runInitialMarketSync } from './initial-sync';
+import { createUnifiedScheduler, type UnifiedScheduler } from './job-scheduler';
+import { runMarketRefreshOnce } from './market-refresh';
 import {
   bumpMarketDataRevision,
   completeInitialMarketSync,
@@ -15,8 +18,6 @@ import {
   recordMarketRefreshSuccess,
   type MarketDataRuntimeState,
 } from './market-runtime-state';
-import { runInitialMarketSync } from './initial-sync';
-import { runMarketRefreshOnce } from './market-refresh';
 import type { MetricsRegistry } from './metrics';
 import { createOhlcvRuntime } from './ohlcv-runtime';
 import {
@@ -32,8 +33,32 @@ import { runStartupPrewarm } from './startup-prewarm';
 import type { StartupProgressReporter } from './startup-progress';
 
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
-
 type JobRunner = () => Promise<void>;
+type RuntimeConfig = Pick<AppConfig,
+  | 'ccxtExchanges'
+  | 'currencyRefreshIntervalSeconds'
+  | 'marketRefreshIntervalSeconds'
+  | 'searchRebuildIntervalSeconds'
+  | 'ohlcvRefreshIntervalSeconds'
+  | 'marketFreshnessThresholdSeconds'
+  | 'providerFanoutConcurrency'
+  | 'startupPrewarmBudgetMs'
+  | 'disableRemoteCurrencyRefresh'
+  | 'schedulerDisabled'
+  | 'marketRefreshDisabled'
+  | 'currencyRatesDisabled'
+  | 'searchRebuildDisabled'
+  | 'ohlcvTickDisabled'
+  | 'cacheEvictionDisabled'
+  | 'optionalProviderSyncEnabled'
+  | 'optionalProviderSyncIntervalSeconds'
+  | 'coinHistoryTargets'
+  | 'exchangeVolumeTargets'
+  | 'marketChartTargets'
+  | 'onchainAnalyticsTargets'
+  | 'onchainTradeTargets'
+  | 'supplyChartTargets'
+>;
 
 function formatRfc3339Timestamp() {
   return new Date().toISOString().replace('.000Z', 'Z');
@@ -43,52 +68,73 @@ function shouldDeferListenerBoundRefreshAfterBootstrap(state: MarketDataRuntimeS
   return !state.initialSyncCompletedWithoutUsableLiveSnapshots && !state.allowStaleLiveService;
 }
 
-function createSerializedJob(name: string, logger: RuntimeLogger, state: MarketDataRuntimeState, runner: JobRunner) {
-  let inFlight: Promise<void> | null = null;
-
-  return {
-    run: async () => {
-      if (inFlight) {
-        logger.warn({ timestamp: formatRfc3339Timestamp() }, `background job skipped because the previous run is still active job=${name}`);
-        return inFlight;
-      }
-
-      inFlight = (async () => {
-        try {
-          await runner();
-          if (name === 'market_refresh') {
-            recordMarketRefreshSuccess(state);
-          }
-          logger.info({ timestamp: formatRfc3339Timestamp() }, `background job completed job=${name}`);
-        } catch (error) {
-          if (name === 'market_refresh') {
-            recordMarketRefreshFailure(state, error instanceof Error ? error.message : String(error));
-          }
-          const errorInfo = error instanceof Error
-            ? { message: error.message, stack: error.stack, name: error.name }
-            : { message: String(error) };
-          logger.error({ job: name, ...errorInfo }, 'background job failed');
-        } finally {
-          inFlight = null;
-        }
-      })();
-
-      return inFlight;
-    },
-    waitForIdle: async () => {
-      if (inFlight) {
-        await inFlight;
-      }
-    },
-  };
-}
-
 export type MarketRuntime = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
   whenReady: () => Promise<void>;
   markListenerBound: () => void;
+  scheduler: UnifiedScheduler;
 };
+
+export function createMarketRuntimeDiagnosticsScheduler(
+  config: Pick<RuntimeConfig,
+    | 'currencyRefreshIntervalSeconds'
+    | 'marketRefreshIntervalSeconds'
+    | 'searchRebuildIntervalSeconds'
+    | 'ohlcvRefreshIntervalSeconds'
+    | 'schedulerDisabled'
+    | 'marketRefreshDisabled'
+    | 'currencyRatesDisabled'
+    | 'disableRemoteCurrencyRefresh'
+    | 'searchRebuildDisabled'
+    | 'ohlcvTickDisabled'
+    | 'cacheEvictionDisabled'
+  >,
+  logger: RuntimeLogger,
+  metrics: MetricsRegistry,
+) {
+  const scheduler = createUnifiedScheduler({
+    logger,
+    metrics,
+    disabled: config.schedulerDisabled ?? false,
+  });
+  const jobs = [
+    {
+      name: 'currency-rates',
+      intervalSeconds: config.currencyRefreshIntervalSeconds,
+      disabled: Boolean(config.currencyRatesDisabled || config.disableRemoteCurrencyRefresh),
+    },
+    {
+      name: 'market-refresh',
+      intervalSeconds: config.marketRefreshIntervalSeconds,
+      disabled: Boolean(config.marketRefreshDisabled),
+    },
+    {
+      name: 'search-rebuild',
+      intervalSeconds: config.searchRebuildIntervalSeconds,
+      disabled: Boolean(config.searchRebuildDisabled),
+    },
+    {
+      name: 'ohlcv-tick',
+      intervalSeconds: config.ohlcvRefreshIntervalSeconds ?? 60,
+      disabled: Boolean(config.ohlcvTickDisabled),
+    },
+    {
+      name: 'cache-eviction',
+      intervalSeconds: 60,
+      disabled: Boolean(config.cacheEvictionDisabled),
+    },
+  ];
+
+  for (const job of jobs) {
+    scheduler.register({
+      ...job,
+      run: async () => undefined,
+    });
+  }
+
+  return scheduler;
+}
 
 type MarketRuntimeOverrides = {
   runInitialMarketSync?: (database: AppDatabase, config: Pick<AppConfig, 'ccxtExchanges' | 'marketFreshnessThresholdSeconds'>, logger?: Logger) => Promise<unknown>;
@@ -97,6 +143,7 @@ type MarketRuntimeOverrides = {
   runSearchRebuildOnce?: JobRunner;
   startOhlcvRuntime?: JobRunner;
   stopOhlcvRuntime?: JobRunner;
+  runOhlcvTickOnce?: JobRunner;
 };
 
 export function createMarketRuntime(
@@ -107,7 +154,7 @@ export function createMarketRuntime(
     };
   },
   database: AppDatabase,
-  config: Pick<AppConfig, 'ccxtExchanges' | 'currencyRefreshIntervalSeconds' | 'marketRefreshIntervalSeconds' | 'searchRebuildIntervalSeconds' | 'marketFreshnessThresholdSeconds' | 'providerFanoutConcurrency' | 'startupPrewarmBudgetMs' | 'disableRemoteCurrencyRefresh' | 'optionalProviderSyncEnabled' | 'optionalProviderSyncIntervalSeconds' | 'coinHistoryTargets' | 'exchangeVolumeTargets' | 'marketChartTargets' | 'onchainAnalyticsTargets' | 'onchainTradeTargets' | 'supplyChartTargets'>,
+  config: RuntimeConfig,
   logger: RuntimeLogger,
   state: MarketDataRuntimeState,
   metrics: MetricsRegistry,
@@ -115,16 +162,15 @@ export function createMarketRuntime(
   startupProgress?: StartupProgressReporter,
   optionalProviderJobs: OptionalProviderJobRegistry = createOptionalProviderJobRegistry(),
 ): MarketRuntime {
-  let currencyTimer: NodeJS.Timeout | null = null;
-  let marketTimer: NodeJS.Timeout | null = null;
-  let searchTimer: NodeJS.Timeout | null = null;
-  let cacheEvictionTimer: NodeJS.Timeout | null = null;
   let listenerBoundDeferredMarketRefreshPending = false;
   let startupTask: Promise<void> | null = null;
   let readinessTask: Promise<void> | null = null;
   let startupSettled = true;
   let stopRequested = false;
-  const ohlcvRuntime = createOhlcvRuntime(database, { ccxtExchanges: config.ccxtExchanges }, logger);
+  const ohlcvRuntime = createOhlcvRuntime(database, {
+    ccxtExchanges: config.ccxtExchanges,
+    ohlcvRefreshIntervalSeconds: config.ohlcvRefreshIntervalSeconds,
+  }, logger);
   const optionalProviderScheduler = createOptionalProviderSyncScheduler({
     enabled: config.optionalProviderSyncEnabled,
     intervalSeconds: config.optionalProviderSyncIntervalSeconds,
@@ -133,6 +179,12 @@ export function createMarketRuntime(
     logger,
     database,
   });
+  const scheduler = createUnifiedScheduler({
+    logger,
+    metrics,
+    disabled: config.schedulerDisabled ?? false,
+  });
+  const ohlcvRefreshIntervalSeconds = config.ohlcvRefreshIntervalSeconds ?? 60;
 
   async function enableResidualStaleDataIfAvailable() {
     const queryDb = (database as Partial<AppDatabase>).db;
@@ -159,21 +211,56 @@ export function createMarketRuntime(
     }
   }
 
-  const runCurrencyJob = createSerializedJob('currency_refresh', logger, state, async () => {
-    if ('disableRemoteCurrencyRefresh' in config && config.disableRemoteCurrencyRefresh) {
-      return;
-    }
-
-    await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
+  scheduler.register({
+    name: 'currency-rates',
+    intervalSeconds: config.currencyRefreshIntervalSeconds,
+    disabled: Boolean(config.currencyRatesDisabled || config.disableRemoteCurrencyRefresh),
+    run: async () => {
+      await (overrides.runCurrencyRefreshOnce ?? (() => refreshCurrencyApiRatesOnce()))();
+    },
   });
-  const runMarketJob = createSerializedJob('market_refresh', logger, state, async () => {
-    await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config, undefined, state, metrics)))();
+  scheduler.register({
+    name: 'market-refresh',
+    intervalSeconds: config.marketRefreshIntervalSeconds,
+    disabled: Boolean(config.marketRefreshDisabled),
+    run: async () => {
+      try {
+        await (overrides.runMarketRefreshOnce ?? (() => runMarketRefreshOnce(database, config, undefined, state, metrics)))();
+        recordMarketRefreshSuccess(state);
+      } catch (error) {
+        recordMarketRefreshFailure(state, error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    },
   });
-  const runSearchJob = createSerializedJob('search_rebuild', logger, state, async () => {
-    await (overrides.runSearchRebuildOnce ?? (() => runSearchRebuildOnce(database)))();
+  scheduler.register({
+    name: 'search-rebuild',
+    intervalSeconds: config.searchRebuildIntervalSeconds,
+    disabled: Boolean(config.searchRebuildDisabled),
+    run: async () => {
+      await (overrides.runSearchRebuildOnce ?? (() => runSearchRebuildOnce(database)))();
+    },
+  });
+  scheduler.register({
+    name: 'ohlcv-tick',
+    intervalSeconds: ohlcvRefreshIntervalSeconds,
+    disabled: Boolean(config.ohlcvTickDisabled || overrides.startOhlcvRuntime),
+    runImmediately: true,
+    run: async () => {
+      await (overrides.runOhlcvTickOnce ?? (() => ohlcvRuntime.tick()))();
+    },
+  });
+  scheduler.register({
+    name: 'cache-eviction',
+    intervalSeconds: 60,
+    disabled: Boolean(config.cacheEvictionDisabled),
+    run: async () => {
+      app.simplePriceCache?.deleteExpired();
+    },
   });
 
   return {
+    scheduler,
     async start() {
       if (startupTask) {
         return;
@@ -221,8 +308,9 @@ export function createMarketRuntime(
           await initialSync();
           startupProgress?.complete('build_market_snapshots');
           startupProgress?.begin('start_ohlcv_worker');
-          // Start OHLCV runtime without awaiting — it runs independently
-          void (overrides.startOhlcvRuntime ?? (() => ohlcvRuntime.start()))();
+          if (overrides.startOhlcvRuntime) {
+            void overrides.startOhlcvRuntime();
+          }
           startupProgress?.complete('start_ohlcv_worker');
           completeInitialMarketSync(state);
 
@@ -256,30 +344,15 @@ export function createMarketRuntime(
           return;
         }
 
-        await runCurrencyJob.run();
+        await scheduler.runNow('currency-rates');
         listenerBoundDeferredMarketRefreshPending = shouldDeferListenerBoundRefreshAfterBootstrap(state);
 
         if (stopRequested) {
           return;
         }
 
-        currencyTimer = setInterval(() => {
-          void runCurrencyJob.run();
-        }, config.currencyRefreshIntervalSeconds * 1000);
-        marketTimer = setInterval(() => {
-          void runMarketJob.run();
-        }, config.marketRefreshIntervalSeconds * 1000);
-        searchTimer = setInterval(() => {
-          void runSearchJob.run();
-        }, config.searchRebuildIntervalSeconds * 1000);
+        scheduler.start();
         optionalProviderScheduler.start();
-
-        const simplePriceCache = app.simplePriceCache;
-        if (simplePriceCache) {
-          cacheEvictionTimer = setInterval(() => {
-            simplePriceCache.deleteExpired();
-          }, 60_000);
-        }
       })();
 
       void startupTask.finally(() => {
@@ -302,7 +375,7 @@ export function createMarketRuntime(
         listenerBoundDeferredMarketRefreshPending = false;
         queueMicrotask(() => {
           if (!stopRequested) {
-            void runMarketJob.run();
+            void scheduler.runNow('market-refresh');
           }
         });
       }
@@ -310,26 +383,7 @@ export function createMarketRuntime(
     async stop() {
       stopRequested = true;
       markMarketRuntimeListenerStopped(state);
-
-      if (currencyTimer) {
-        clearInterval(currencyTimer);
-        currencyTimer = null;
-      }
-
-      if (marketTimer) {
-        clearInterval(marketTimer);
-        marketTimer = null;
-      }
-
-      if (searchTimer) {
-        clearInterval(searchTimer);
-        searchTimer = null;
-      }
-
-      if (cacheEvictionTimer) {
-        clearInterval(cacheEvictionTimer);
-        cacheEvictionTimer = null;
-      }
+      await scheduler.stop();
       await optionalProviderScheduler.stop();
 
       if (startupTask && startupSettled) {
@@ -337,8 +391,7 @@ export function createMarketRuntime(
         startupTask = null;
       }
 
-      await Promise.all([runCurrencyJob.waitForIdle(), runMarketJob.waitForIdle(), runSearchJob.waitForIdle()]);
-      await (overrides.stopOhlcvRuntime ?? (() => ohlcvRuntime.stop()))();
+      await (overrides.stopOhlcvRuntime ?? (() => Promise.resolve()))();
 
       if (startupSettled) {
         startupTask = null;

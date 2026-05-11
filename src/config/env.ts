@@ -36,6 +36,13 @@ const envSchema = z.object({
   MARKET_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_MARKET_REFRESH_INTERVAL_SECONDS),
   CURRENCY_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CURRENCY_REFRESH_INTERVAL_SECONDS),
   SEARCH_REBUILD_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS),
+  OHLCV_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  SCHEDULER_DISABLED: z.boolean().default(false),
+  MARKET_REFRESH_DISABLED: z.boolean().default(false),
+  CURRENCY_RATES_DISABLED: z.boolean().default(false),
+  SEARCH_REBUILD_DISABLED: z.boolean().default(false),
+  OHLCV_TICK_DISABLED: z.boolean().default(false),
+  CACHE_EVICTION_DISABLED: z.boolean().default(false),
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   OHLCV_TARGET_HISTORY_DAYS: z.coerce.number().int().positive().default(DEFAULT_OHLCV_TARGET_HISTORY_DAYS),
@@ -69,6 +76,13 @@ export type AppConfig = {
   marketRefreshIntervalSeconds: number;
   currencyRefreshIntervalSeconds: number;
   searchRebuildIntervalSeconds: number;
+  ohlcvRefreshIntervalSeconds: number;
+  schedulerDisabled: boolean;
+  marketRefreshDisabled: boolean;
+  currencyRatesDisabled: boolean;
+  searchRebuildDisabled: boolean;
+  ohlcvTickDisabled: boolean;
+  cacheEvictionDisabled: boolean;
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
   ohlcvTargetHistoryDays: number;
@@ -210,6 +224,13 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     marketRefreshIntervalSeconds: env.MARKET_REFRESH_INTERVAL_SECONDS,
     currencyRefreshIntervalSeconds: env.CURRENCY_REFRESH_INTERVAL_SECONDS,
     searchRebuildIntervalSeconds: env.SEARCH_REBUILD_INTERVAL_SECONDS,
+    ohlcvRefreshIntervalSeconds: env.OHLCV_REFRESH_INTERVAL_SECONDS,
+    schedulerDisabled: env.SCHEDULER_DISABLED,
+    marketRefreshDisabled: env.MARKET_REFRESH_DISABLED,
+    currencyRatesDisabled: env.CURRENCY_RATES_DISABLED,
+    searchRebuildDisabled: env.SEARCH_REBUILD_DISABLED,
+    ohlcvTickDisabled: env.OHLCV_TICK_DISABLED,
+    cacheEvictionDisabled: env.CACHE_EVICTION_DISABLED,
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     ohlcvTargetHistoryDays: env.OHLCV_TARGET_HISTORY_DAYS,

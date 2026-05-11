@@ -12,6 +12,7 @@ import type { StartupProgressReporter } from '../services/startup-progress';
 export type BuildAppOptions = {
   config?: Partial<AppConfig>;
   startBackgroundJobs?: boolean;
+  exposeSchedulerDiagnostics?: boolean;
   pluginTimeout?: number;
   startupPluginTimeout?: number;
   startupProgress?: StartupProgressReporter;

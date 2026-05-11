@@ -428,7 +428,7 @@ describe('market runtime', () => {
       expect.objectContaining({
         timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
       }),
-      'background job skipped because the previous run is still active job=currency_refresh',
+      'background job skipped because the previous run is still active job=currency-rates',
     );
 
     releaseCurrencyJob();
@@ -455,7 +455,7 @@ describe('market runtime', () => {
         expect.objectContaining({
           timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
         }),
-        'background job completed job=currency_refresh',
+        'background job completed job=currency-rates',
       );
     });
     expect(runMarketRefreshOnce).toHaveBeenCalledTimes(0);
@@ -470,7 +470,7 @@ describe('market runtime', () => {
         expect.objectContaining({
           timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
         }),
-        'background job completed job=market_refresh',
+        'background job completed job=market-refresh',
       );
     });
 
@@ -523,7 +523,7 @@ describe('market runtime', () => {
       expect.objectContaining({
         timestamp: expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/),
       }),
-      'background job skipped because the previous run is still active job=market_refresh',
+      'background job skipped because the previous run is still active job=market-refresh',
     );
 
     releaseMarketJob();

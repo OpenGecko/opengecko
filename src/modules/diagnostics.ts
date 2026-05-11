@@ -188,8 +188,19 @@ export function registerDiagnosticsRoutes(
   });
 
   app.get('/diagnostics/jobs', async (request, reply) => {
+    const optionalProviderDiagnostics = buildOptionalProviderJobDiagnostics(app.appConfig, optionalProviderJobs, database);
+    const schedulerJobs = app.scheduler?.diagnostics() ?? [];
+
     return sendCacheableJson(request, reply, {
-      data: buildOptionalProviderJobDiagnostics(app.appConfig, optionalProviderJobs, database),
+      data: app.scheduler ? {
+        scheduler: {
+          enabled: !app.appConfig.schedulerDisabled,
+          started: app.scheduler?.isStarted() ?? false,
+          job_count: schedulerJobs.length,
+        },
+        jobs: schedulerJobs,
+        optional_provider_jobs: optionalProviderDiagnostics,
+      } : optionalProviderDiagnostics,
     }, dynamicDiagnosticsCachePolicy);
   });
 

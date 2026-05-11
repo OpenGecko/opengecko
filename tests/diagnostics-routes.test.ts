@@ -159,6 +159,62 @@ describe('diagnostics routes', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it('returns in-memory scheduler diagnostics for background runtime jobs', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'scheduler.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: true,
+    });
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/jobs',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      scheduler: {
+        enabled: true,
+        job_count: 5,
+      },
+      jobs: expect.arrayContaining([
+        expect.objectContaining({
+          name: 'market-refresh',
+          interval_seconds: 60,
+          last_run_at: null,
+          last_success_at: null,
+          last_duration_ms: null,
+          last_error: null,
+          error_count: 0,
+          lag_seconds: null,
+        }),
+        expect.objectContaining({
+          name: 'currency-rates',
+          interval_seconds: 300,
+          disabled: true,
+        }),
+        expect.objectContaining({
+          name: 'search-rebuild',
+          interval_seconds: 900,
+        }),
+        expect.objectContaining({
+          name: 'ohlcv-tick',
+          interval_seconds: 60,
+        }),
+        expect.objectContaining({
+          name: 'cache-eviction',
+          interval_seconds: 60,
+        }),
+      ]),
+    });
+  });
+
   it('returns chain coverage diagnostics', async () => {
     await getApp().ready();
     const response = await getApp().inject({
