@@ -13,7 +13,7 @@ import {
   runDefillamaTokenSweep,
   runSubsquidTradeSweep,
 } from './tier1-onchain-sweepers';
-import { selectTier1Targets } from './tier1-target-selection';
+import { selectTier1TargetsForJob } from './tier1-target-selection';
 
 export const TIER1_SCHEDULER_JOB_NAMES = [
   'defillama-pool-sweep',
@@ -61,15 +61,17 @@ export function registerTier1SchedulerJobs(
   config: Tier1SchedulerConfig,
 ) {
   const tier1Logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info', pretty: false }).child({ operation: 'tier1_scheduler' });
-  let targetSelectionCycleIndex = 0;
-  const selectRankedTargets = () => {
+  const targetSelectionCycleIndexesByJobName = new Map<string, number>();
+  const selectRankedTargets = (jobName: string) => {
     if (!database) {
       return { targets: [] };
     }
 
-    const selection = selectTier1Targets(readRankedCoinUniverse(database), targetSelectionCycleIndex);
-    targetSelectionCycleIndex += 1;
-    return selection;
+    return selectTier1TargetsForJob(
+      targetSelectionCycleIndexesByJobName,
+      jobName,
+      readRankedCoinUniverse(database),
+    );
   };
 
   scheduler.register({
@@ -80,7 +82,7 @@ export function registerTier1SchedulerJobs(
       if (!database) {
         return { targetsProcessed: 0 };
       }
-      return runDefillamaPoolSweep(database, { targets: selectRankedTargets().targets });
+      return runDefillamaPoolSweep(database, { targets: selectRankedTargets('defillama-pool-sweep').targets });
     },
   });
   scheduler.register({
@@ -91,7 +93,7 @@ export function registerTier1SchedulerJobs(
       if (!database) {
         return { targetsProcessed: 0 };
       }
-      return runDefillamaTokenSweep(database, { targets: selectRankedTargets().targets });
+      return runDefillamaTokenSweep(database, { targets: selectRankedTargets('defillama-token-sweep').targets });
     },
   });
   scheduler.register({
@@ -102,7 +104,7 @@ export function registerTier1SchedulerJobs(
       if (!database) {
         return { targetsProcessed: 0 };
       }
-      return runSubsquidTradeSweep(database, { targets: selectRankedTargets().targets });
+      return runSubsquidTradeSweep(database, { targets: selectRankedTargets('subsquid-trade-sweep').targets });
     },
   });
   scheduler.register({

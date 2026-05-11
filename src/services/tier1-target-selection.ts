@@ -106,3 +106,16 @@ export function selectTier1Targets(
     },
   };
 }
+
+export function selectTier1TargetsForJob(
+  cycleIndexesByJobName: Map<string, number>,
+  jobName: string,
+  universe: Tier1TargetCandidate[],
+  policy: Tier1TargetSelectionPolicy = DEFAULT_TIER1_TARGET_SELECTION_POLICY,
+): Tier1TargetSelection {
+  const cycleIndex = cycleIndexesByJobName.get(jobName) ?? 0;
+  const selection = selectTier1Targets(universe, cycleIndex, policy);
+  cycleIndexesByJobName.set(jobName, cycleIndex + 1);
+
+  return selection;
+}

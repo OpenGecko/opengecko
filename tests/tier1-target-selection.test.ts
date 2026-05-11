@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_TIER1_TARGET_SELECTION_POLICY,
   selectTier1Targets,
+  selectTier1TargetsForJob,
 } from '../src/services/tier1-target-selection';
 
 function rankedUniverse(size: number) {
@@ -60,5 +61,56 @@ describe('Tier 1 target selection', () => {
     expect(ordinaryCycle.targets.length).toBe(150);
     expect(ordinaryCycle.diagnostics.long_tail_selected).toBe(0);
     expect(ordinaryCycle.targets.some((target) => target.tier === 'long_tail')).toBe(false);
+  });
+
+  it('tracks mid-tier rotation independently for differently cadenced jobs', () => {
+    const universe = rankedUniverse(1_050);
+    const policy = {
+      ...DEFAULT_TIER1_TARGET_SELECTION_POLICY,
+      midSliceSize: 180,
+      longTailSliceSize: 0,
+      maxTargetsPerCycle: 280,
+    };
+    const cycleIndexesByJobName = new Map<string, number>();
+    const observedSlowJobMidTargets = new Set<string>();
+
+    const recordSlowJobRun = () => {
+      const selection = selectTier1TargetsForJob(
+        cycleIndexesByJobName,
+        'defillama-token-sweep',
+        universe,
+        policy,
+      );
+
+      expect(selection.targets.slice(0, 100).map((target) => target.id)).toEqual(
+        universe.slice(0, 100).map((target) => target.id),
+      );
+      expect(selection.targets.length).toBeLessThanOrEqual(policy.maxTargetsPerCycle);
+
+      for (const target of selection.targets.filter((candidate) => candidate.tier === 'mid')) {
+        observedSlowJobMidTargets.add(target.id);
+      }
+    };
+
+    for (let slowRun = 0; slowRun < 5; slowRun += 1) {
+      recordSlowJobRun();
+
+      for (let fastRun = 0; fastRun < 4; fastRun += 1) {
+        const fastSelection = selectTier1TargetsForJob(
+          cycleIndexesByJobName,
+          'subsquid-trade-sweep',
+          universe,
+          policy,
+        );
+
+        expect(fastSelection.targets.length).toBeLessThanOrEqual(policy.maxTargetsPerCycle);
+      }
+    }
+
+    expect(observedSlowJobMidTargets.size).toBe(900);
+    expect(observedSlowJobMidTargets.has('coin-0101')).toBe(true);
+    expect(observedSlowJobMidTargets.has('coin-1000')).toBe(true);
+    expect(cycleIndexesByJobName.get('defillama-token-sweep')).toBe(5);
+    expect(cycleIndexesByJobName.get('subsquid-trade-sweep')).toBe(20);
   });
 });
