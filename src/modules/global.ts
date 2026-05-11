@@ -110,8 +110,17 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
     .flat();
 
   if (canonicalRows.length > 0) {
+    const canonicalTimestamps = new Set(canonicalRows.map((row) => row.timestamp.getTime()));
+    const nonCanonicalRows = database.db
+      .select()
+      .from(chartPoints)
+      .orderBy(asc(chartPoints.timestamp))
+      .all()
+      .filter((row) => !canonicalTimestamps.has(row.timestamp.getTime()));
+    const aggregateRows = [...canonicalRows, ...nonCanonicalRows].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
+
     if (days === 'max') {
-      return canonicalRows;
+      return aggregateRows;
     }
 
     const parsedDays = Number(days);
@@ -120,12 +129,12 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
       throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
     }
 
-    const latestTimestamp = canonicalRows.at(-1)?.timestamp.getTime();
+    const latestTimestamp = aggregateRows.at(-1)?.timestamp.getTime();
     const cutoffMs = latestTimestamp === undefined
       ? Date.now() - parsedDays * 24 * 60 * 60 * 1000
       : latestTimestamp - parsedDays * 24 * 60 * 60 * 1000;
 
-    return canonicalRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
+    return aggregateRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
   }
 
   const allRows = database.db

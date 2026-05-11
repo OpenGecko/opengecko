@@ -195,6 +195,26 @@ function sortCategories(
   }
 }
 
+const SEEDED_CATEGORY_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
+
+function categoriesAreLiveAggregated(rows: ReturnType<typeof getCategories>) {
+  return rows.some((category) => category.updatedAt.getTime() > SEEDED_CATEGORY_TIMESTAMP_MS);
+}
+
+function buildCategoryTopCoinFields(database: AppDatabase, topCoinIds: string[]) {
+  const coinById = new Map(getCoins(database, { status: 'all' }).map((coin) => [coin.id, coin]));
+  const topCoinImages = topCoinIds.map((coinId) => {
+    const coin = coinById.get(coinId);
+
+    return coin?.imageSmallUrl ?? coin?.imageThumbUrl ?? coin?.imageLargeUrl ?? coinId;
+  });
+
+  return {
+    top_3_coins: topCoinImages,
+    top_3_coins_id: topCoinIds,
+  };
+}
+
 function buildSupplyChartResponse(
   coinId: string,
   supplyType: SupplyType,
@@ -688,6 +708,7 @@ export function registerCoinRoutes(
 
   app.get('/coins/categories/list', async (request, reply) => {
     const categories = getCategories(database);
+    const fixture = !categoriesAreLiveAggregated(categories);
 
     return sendCacheableJson(request, reply, {
       data: categories.map((category) => ({
@@ -695,9 +716,11 @@ export function registerCoinRoutes(
         name: category.name,
       })),
       meta: {
-        fixture: true,
+        fixture,
         category_count: categories.length,
-        note: 'Categories data is seeded fixture (2 categories)',
+        note: fixture
+          ? `Categories data is seeded fixture (${categories.length} categories)`
+          : 'Categories taxonomy includes scheduler-refreshed aggregate inputs',
       },
     }, {
       maxAgeSeconds: 3_600,
@@ -708,22 +731,29 @@ export function registerCoinRoutes(
   app.get('/coins/categories', async (request, reply) => {
     const query = categoriesQuerySchema.parse(request.query);
     const sorted = sortCategories(getCategories(database), query.order);
+    const fixture = !categoriesAreLiveAggregated(sorted);
 
     return sendCacheableJson(request, reply, {
-      data: sorted.map((category) => ({
-        id: category.id,
-        name: category.name,
-        market_cap: category.marketCap,
-        market_cap_change_24h: category.marketCapChange24h,
-        content: category.content,
-        top_3_coins: parseJsonArray<string>(category.top3CoinsJson),
-        volume_24h: category.volume24h,
-        updated_at: category.updatedAt.toISOString(),
-      })),
+      data: sorted.map((category) => {
+        const topCoinIds = parseJsonArray<string>(category.top3CoinsJson);
+
+        return {
+          id: category.id,
+          name: category.name,
+          market_cap: category.marketCap,
+          market_cap_change_24h: category.marketCapChange24h,
+          content: category.content,
+          ...buildCategoryTopCoinFields(database, topCoinIds),
+          volume_24h: category.volume24h,
+          updated_at: category.updatedAt.toISOString(),
+        };
+      }),
       meta: {
-        fixture: true,
+        fixture,
         category_count: sorted.length,
-        note: 'Categories data is seeded fixture (2 categories)',
+        note: fixture
+          ? `Categories data is seeded fixture (${sorted.length} categories)`
+          : 'Category metrics are computed from persisted market snapshots',
       },
     }, {
       maxAgeSeconds: 300,

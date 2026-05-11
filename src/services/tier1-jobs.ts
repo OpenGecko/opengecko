@@ -1,6 +1,13 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
+import { createLogger } from '../lib/logger';
 import type { UnifiedScheduler } from './job-scheduler';
+import {
+  runCategoryAggregator,
+  runCoinCatalogRescan,
+  runExchangeMetadataRescan,
+  runGlobalAggregator,
+} from './tier1-catalog-aggregators';
 import {
   runDefillamaPoolSweep,
   runDefillamaTokenSweep,
@@ -20,6 +27,7 @@ export const TIER1_SCHEDULER_JOB_NAMES = [
 
 type Tier1SchedulerConfig = Pick<AppConfig,
   | 'ccxtExchanges'
+  | 'providerFanoutConcurrency'
   | 'defillamaPoolSweepIntervalSeconds'
   | 'defillamaTokenSweepIntervalSeconds'
   | 'subsquidTradeSweepIntervalSeconds'
@@ -52,6 +60,7 @@ export function registerTier1SchedulerJobs(
   database: AppDatabase | null,
   config: Tier1SchedulerConfig,
 ) {
+  const tier1Logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info', pretty: false }).child({ operation: 'tier1_scheduler' });
   let targetSelectionCycleIndex = 0;
   const selectRankedTargets = () => {
     if (!database) {
@@ -100,24 +109,44 @@ export function registerTier1SchedulerJobs(
     name: 'coin-catalog-rescan',
     intervalSeconds: config.coinCatalogRescanIntervalSeconds,
     disabled: Boolean(config.coinCatalogRescanDisabled),
-    run: async () => ({ targetsProcessed: config.ccxtExchanges.length }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runCoinCatalogRescan(database, config.ccxtExchanges, tier1Logger, config.providerFanoutConcurrency);
+    },
   });
   scheduler.register({
     name: 'exchange-metadata-rescan',
     intervalSeconds: config.exchangeMetadataRescanIntervalSeconds,
     disabled: Boolean(config.exchangeMetadataRescanDisabled),
-    run: async () => ({ targetsProcessed: config.ccxtExchanges.length }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runExchangeMetadataRescan(database, config.ccxtExchanges, tier1Logger, config.providerFanoutConcurrency);
+    },
   });
   scheduler.register({
     name: 'global-aggregator',
     intervalSeconds: config.globalAggregatorIntervalSeconds,
     disabled: Boolean(config.globalAggregatorDisabled),
-    run: async () => ({ targetsProcessed: 1 }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runGlobalAggregator(database);
+    },
   });
   scheduler.register({
     name: 'category-aggregator',
     intervalSeconds: config.categoryAggregatorIntervalSeconds,
     disabled: Boolean(config.categoryAggregatorDisabled),
-    run: async () => ({ targetsProcessed: 1 }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runCategoryAggregator(database);
+    },
   });
 }

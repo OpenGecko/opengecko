@@ -389,6 +389,7 @@ export function createMarketRuntime(
     async stop() {
       stopRequested = true;
       markMarketRuntimeListenerStopped(state);
+      await (overrides.stopOhlcvRuntime ?? (() => Promise.resolve()))();
       await scheduler.stop();
       await optionalProviderScheduler.stop();
 
@@ -396,8 +397,6 @@ export function createMarketRuntime(
         await startupTask;
         startupTask = null;
       }
-
-      await (overrides.stopOhlcvRuntime ?? (() => Promise.resolve()))();
 
       if (startupSettled) {
         startupTask = null;
