@@ -181,7 +181,7 @@ describe('diagnostics routes', () => {
     expect(response.json().data).toMatchObject({
       scheduler: {
         enabled: true,
-        job_count: 5,
+        job_count: 12,
       },
       jobs: expect.arrayContaining([
         expect.objectContaining({
@@ -211,7 +211,96 @@ describe('diagnostics routes', () => {
           name: 'cache-eviction',
           interval_seconds: 60,
         }),
+        expect.objectContaining({
+          name: 'defillama-pool-sweep',
+          interval_seconds: 300,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'defillama-token-sweep',
+          interval_seconds: 600,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'subsquid-trade-sweep',
+          interval_seconds: 60,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'coin-catalog-rescan',
+          interval_seconds: 3600,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'exchange-metadata-rescan',
+          interval_seconds: 21600,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'global-aggregator',
+          interval_seconds: 60,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'category-aggregator',
+          interval_seconds: 900,
+          disabled: false,
+        }),
       ]),
+    });
+  });
+
+  it('honors Tier 1 disable flags without disabling unrelated jobs', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'scheduler-disabled-tier1.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+        defillamaPoolSweepDisabled: true,
+        defillamaTokenSweepDisabled: true,
+        subsquidTradeSweepDisabled: true,
+        coinCatalogRescanDisabled: true,
+        exchangeMetadataRescanDisabled: true,
+        globalAggregatorDisabled: true,
+        categoryAggregatorDisabled: true,
+      },
+      startBackgroundJobs: true,
+    });
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/jobs',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const jobs = response.json().data.jobs as Array<{
+      name: string;
+      disabled: boolean;
+      run_count: number;
+      last_run_at: string | null;
+      last_success_at: string | null;
+    }>;
+    for (const jobName of [
+      'defillama-pool-sweep',
+      'defillama-token-sweep',
+      'subsquid-trade-sweep',
+      'coin-catalog-rescan',
+      'exchange-metadata-rescan',
+      'global-aggregator',
+      'category-aggregator',
+    ]) {
+      expect(jobs.find((job) => job.name === jobName)).toMatchObject({
+        disabled: true,
+        run_count: 0,
+        last_run_at: null,
+        last_success_at: null,
+      });
+    }
+    expect(jobs.find((job) => job.name === 'market-refresh')).toMatchObject({
+      disabled: false,
     });
   });
 

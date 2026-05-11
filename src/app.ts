@@ -84,7 +84,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     : null;
   const scheduler = runtime?.scheduler
     ?? (options.exposeSchedulerDiagnostics
-      ? createMarketRuntimeDiagnosticsScheduler(config, app.log, metrics)
+      ? createMarketRuntimeDiagnosticsScheduler(config, app.log, metrics, database)
       : null);
 
   migrateDatabase(database);

@@ -31,6 +31,7 @@ import {
 import { runSearchRebuildOnce } from './search-rebuild';
 import { runStartupPrewarm } from './startup-prewarm';
 import type { StartupProgressReporter } from './startup-progress';
+import { registerTier1SchedulerJobs } from './tier1-jobs';
 
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
 type JobRunner = () => Promise<void>;
@@ -40,6 +41,13 @@ type RuntimeConfig = Pick<AppConfig,
   | 'marketRefreshIntervalSeconds'
   | 'searchRebuildIntervalSeconds'
   | 'ohlcvRefreshIntervalSeconds'
+  | 'defillamaPoolSweepIntervalSeconds'
+  | 'defillamaTokenSweepIntervalSeconds'
+  | 'subsquidTradeSweepIntervalSeconds'
+  | 'coinCatalogRescanIntervalSeconds'
+  | 'exchangeMetadataRescanIntervalSeconds'
+  | 'globalAggregatorIntervalSeconds'
+  | 'categoryAggregatorIntervalSeconds'
   | 'marketFreshnessThresholdSeconds'
   | 'providerFanoutConcurrency'
   | 'startupPrewarmBudgetMs'
@@ -50,6 +58,13 @@ type RuntimeConfig = Pick<AppConfig,
   | 'searchRebuildDisabled'
   | 'ohlcvTickDisabled'
   | 'cacheEvictionDisabled'
+  | 'defillamaPoolSweepDisabled'
+  | 'defillamaTokenSweepDisabled'
+  | 'subsquidTradeSweepDisabled'
+  | 'coinCatalogRescanDisabled'
+  | 'exchangeMetadataRescanDisabled'
+  | 'globalAggregatorDisabled'
+  | 'categoryAggregatorDisabled'
   | 'optionalProviderSyncEnabled'
   | 'optionalProviderSyncIntervalSeconds'
   | 'coinHistoryTargets'
@@ -77,21 +92,10 @@ export type MarketRuntime = {
 };
 
 export function createMarketRuntimeDiagnosticsScheduler(
-  config: Pick<RuntimeConfig,
-    | 'currencyRefreshIntervalSeconds'
-    | 'marketRefreshIntervalSeconds'
-    | 'searchRebuildIntervalSeconds'
-    | 'ohlcvRefreshIntervalSeconds'
-    | 'schedulerDisabled'
-    | 'marketRefreshDisabled'
-    | 'currencyRatesDisabled'
-    | 'disableRemoteCurrencyRefresh'
-    | 'searchRebuildDisabled'
-    | 'ohlcvTickDisabled'
-    | 'cacheEvictionDisabled'
-  >,
+  config: RuntimeConfig,
   logger: RuntimeLogger,
   metrics: MetricsRegistry,
+  database: AppDatabase | null = null,
 ) {
   const scheduler = createUnifiedScheduler({
     logger,
@@ -132,6 +136,7 @@ export function createMarketRuntimeDiagnosticsScheduler(
       run: async () => undefined,
     });
   }
+  registerTier1SchedulerJobs(scheduler, database, config);
 
   return scheduler;
 }
@@ -258,6 +263,7 @@ export function createMarketRuntime(
       app.simplePriceCache?.deleteExpired();
     },
   });
+  registerTier1SchedulerJobs(scheduler, database, config);
 
   return {
     scheduler,

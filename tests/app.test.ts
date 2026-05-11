@@ -6341,7 +6341,7 @@ describe('OpenGecko app scaffold', () => {
       expect(initialDiagnostics.json().data.scheduler).toMatchObject({
         enabled: true,
         started: true,
-        job_count: 5,
+        job_count: 12,
       });
 
       await expect.poll(async () => {
@@ -6462,7 +6462,7 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnostics.json().data.scheduler).toMatchObject({
         enabled: false,
         started: false,
-        job_count: 5,
+        job_count: 12,
       });
       for (const job of diagnostics.json().data.jobs) {
         expect(job).toMatchObject({
