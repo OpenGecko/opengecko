@@ -1242,20 +1242,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const liveFetchedAt = new Date();
-    const liveTradeGroups = await Promise.all(tokenPools.map(async (pool) =>
-      (await fetchLivePoolTrades(pool))?.map((trade) => ({
-        ...trade,
-        sourceFetchedAt: liveFetchedAt,
-      })) ?? null));
-    const liveTrades = liveTradeGroups.flatMap((group) => group ?? []);
     const poolAddresses = new Set(tokenPools.map((pool) => pool.address));
-    const sourceTrades = liveTrades.length > 0 ? liveTrades : readOnchainTokenTrades(database, params.network, tokenAddress);
-    const tradeSource = liveTrades.length > 0
-      ? 'live'
-      : sourceTrades.length > 0
-        ? sourceTrades[0]?.source ?? 'replay'
-        : 'fixture';
+    const sourceTrades = readOnchainTokenTrades(database, params.network, tokenAddress);
+    const tradeSource = sourceTrades.length > 0
+      ? sourceTrades[0]?.source ?? 'replay'
+      : 'fixture';
     const trades = (sourceTrades.length > 0 ? sourceTrades : buildOnchainTradeFixtures(database).map((trade) => ({ ...trade, source: 'fixture' as const })))
       .filter((trade) => trade.networkId === params.network && trade.tokenAddress === tokenAddress && poolAddresses.has(trade.poolAddress))
       .filter((trade) => threshold === null || trade.volumeUsd > threshold)
