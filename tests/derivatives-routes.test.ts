@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { derivativeTickers } from '../src/db/schema';
+import { ingestDerivativeTickerReplayBatch } from '../src/services/derivatives-ingestion';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -78,7 +80,11 @@ describe('derivatives routes', () => {
     });
 
     expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toEqual(contractFixtures.derivativesExchangesList);
+    expect(listResponse.json()).toEqual(expect.arrayContaining(contractFixtures.derivativesExchangesList));
+    expect(listResponse.json()).toEqual(expect.arrayContaining([
+      { id: 'okx', name: 'OKX' },
+      { id: 'bitget', name: 'Bitget' },
+    ]));
 
     expect(exchangesResponse.statusCode).toBe(200);
     const exchangesBody = exchangesResponse.json();
@@ -144,12 +150,102 @@ describe('derivatives routes', () => {
     expect(response.statusCode).toBe(200);
     const derivativesBody = response.json();
     expect(derivativesBody.data).toMatchObject(contractFixtures.derivatives);
-    expect(derivativesBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20', note: 'Derivatives data is seeded fixture, not live' });
+    expect(derivativesBody.meta).toMatchObject({ fixture: true, frozen_at: '2026-03-20', source_backed_tickers: 0 });
+    expect(derivativesBody.meta.note).toContain('seeded fixture');
     for (const ticker of derivativesBody.data) {
       expect(ticker.funding_rate).not.toBeUndefined();
       expect(ticker.open_interest_btc).not.toBeNull();
       expect(ticker.trade_volume_24h_btc).not.toBeNull();
       expect(ticker.last_traded_at).not.toBeNull();
     }
+  });
+
+  it('marks derivative routes as source-backed after live-style ingestion and preserves volume sorting', async () => {
+    await getApp().ready();
+    getApp().db.db.delete(derivativeTickers).run();
+    ingestDerivativeTickerReplayBatch(getApp().db, [
+      {
+        exchangeId: 'bybit',
+        symbol: 'BTC/USDT:USDT',
+        market: 'BTCUSDT',
+        base: 'BTC',
+        quote: 'USDT',
+        markPrice: 91_000,
+        contractType: 'perpetual',
+        tradeVolume24hBtc: 200,
+        openInterestBtc: 50,
+        timestamp: 1777939200000,
+      },
+      {
+        exchangeId: 'okx',
+        symbol: 'ETH/USDT:USDT',
+        market: 'ETHUSDT',
+        base: 'ETH',
+        quote: 'USDT',
+        markPrice: 3_200,
+        contractType: 'perpetual',
+        tradeVolume24hBtc: 500,
+        openInterestBtc: 100,
+        timestamp: 1777939260000,
+      },
+    ], {
+      sourceKind: 'live',
+      sourceProvider: 'ccxt.test',
+      sourceFetchedAt: new Date('2026-05-05T00:02:00.000Z'),
+    });
+
+    const derivativesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives',
+    });
+    const exchangesResponse = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives/exchanges?per_page=10&page=1&order=open_interest_btc_desc',
+    });
+    const detailResponse = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives/exchanges/okx?include_tickers=true',
+    });
+
+    expect(derivativesResponse.statusCode).toBe(200);
+    const derivativesBody = derivativesResponse.json();
+    expect(derivativesBody.meta).toMatchObject({
+      fixture: false,
+      source: 'ccxt_derivatives',
+      source_backed_tickers: 2,
+      latest_source_fetched_at: '2026-05-05T00:02:00.000Z',
+    });
+    expect(derivativesBody.data.map((ticker: { symbol: string }) => ticker.symbol)).toEqual([
+      'ETH/USDT:USDT',
+      'BTC/USDT:USDT',
+    ]);
+
+    expect(exchangesResponse.statusCode).toBe(200);
+    expect(exchangesResponse.json()).toMatchObject({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'okx',
+          open_interest_btc: 100,
+          trade_volume_24h_btc: 500,
+          number_of_perpetual_pairs: 1,
+        }),
+      ]),
+      meta: expect.objectContaining({ fixture: false }),
+    });
+
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      data: {
+        id: 'okx',
+        tickers: [
+          expect.objectContaining({
+            market_id: 'okx',
+            symbol: 'ETH/USDT:USDT',
+            trade_volume_24h_btc: 500,
+          }),
+        ],
+      },
+      meta: expect.objectContaining({ fixture: false }),
+    });
   });
 });

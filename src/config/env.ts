@@ -8,6 +8,8 @@ import {
   DEFAULT_CURRENCY_REFRESH_INTERVAL_SECONDS,
   DEFAULT_CATEGORY_AGGREGATOR_INTERVAL_SECONDS,
   DEFAULT_COIN_CATALOG_RESCAN_INTERVAL_SECONDS,
+  DEFAULT_DERIVATIVES_CCXT_EXCHANGES,
+  DEFAULT_DERIVATIVES_REFRESH_INTERVAL_SECONDS,
   DEFAULT_DEFILLAMA_POOL_SWEEP_INTERVAL_SECONDS,
   DEFAULT_DEFILLAMA_TOKEN_SWEEP_INTERVAL_SECONDS,
   DEFAULT_EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS,
@@ -30,7 +32,7 @@ const envSchema = z.object({
   LOG_HTTP_STYLE: z.enum(HTTP_LOG_STYLES).default('emoji_compact_p'),
   DATABASE_URL: z.string().default('./data/opengecko.db'),
   CCXT_EXCHANGES: z.string().default(DEFAULT_CCXT_EXCHANGES.join(',')),
-  DERIVATIVES_CCXT_EXCHANGES: z.string().default(''),
+  DERIVATIVES_CCXT_EXCHANGES: z.string().default(DEFAULT_DERIVATIVES_CCXT_EXCHANGES.join(',')),
   COIN_HISTORY_TARGETS: z.string().default(''),
   EXCHANGE_VOLUME_TARGETS: z.string().default(''),
   MARKET_CHART_TARGETS: z.string().default(''),
@@ -51,6 +53,7 @@ const envSchema = z.object({
   EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS),
   GLOBAL_AGGREGATOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_GLOBAL_AGGREGATOR_INTERVAL_SECONDS),
   CATEGORY_AGGREGATOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CATEGORY_AGGREGATOR_INTERVAL_SECONDS),
+  DERIVATIVES_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_DERIVATIVES_REFRESH_INTERVAL_SECONDS),
   SCHEDULER_DISABLED: z.boolean().default(false),
   MARKET_REFRESH_DISABLED: z.boolean().default(false),
   CURRENCY_RATES_DISABLED: z.boolean().default(false),
@@ -64,6 +67,7 @@ const envSchema = z.object({
   EXCHANGE_METADATA_RESCAN_DISABLED: z.boolean().default(false),
   GLOBAL_AGGREGATOR_DISABLED: z.boolean().default(false),
   CATEGORY_AGGREGATOR_DISABLED: z.boolean().default(false),
+  DERIVATIVES_REFRESH_DISABLED: z.boolean().default(false),
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   OHLCV_TARGET_HISTORY_DAYS: z.coerce.number().int().positive().default(DEFAULT_OHLCV_TARGET_HISTORY_DAYS),
@@ -105,6 +109,7 @@ export type AppConfig = {
   exchangeMetadataRescanIntervalSeconds: number;
   globalAggregatorIntervalSeconds: number;
   categoryAggregatorIntervalSeconds: number;
+  derivativesRefreshIntervalSeconds: number;
   schedulerDisabled: boolean;
   marketRefreshDisabled: boolean;
   currencyRatesDisabled: boolean;
@@ -118,6 +123,7 @@ export type AppConfig = {
   exchangeMetadataRescanDisabled: boolean;
   globalAggregatorDisabled: boolean;
   categoryAggregatorDisabled: boolean;
+  derivativesRefreshDisabled: boolean;
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
   ohlcvTargetHistoryDays: number;
@@ -267,6 +273,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     exchangeMetadataRescanIntervalSeconds: env.EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS,
     globalAggregatorIntervalSeconds: env.GLOBAL_AGGREGATOR_INTERVAL_SECONDS,
     categoryAggregatorIntervalSeconds: env.CATEGORY_AGGREGATOR_INTERVAL_SECONDS,
+    derivativesRefreshIntervalSeconds: env.DERIVATIVES_REFRESH_INTERVAL_SECONDS,
     schedulerDisabled: env.SCHEDULER_DISABLED,
     marketRefreshDisabled: env.MARKET_REFRESH_DISABLED,
     currencyRatesDisabled: env.CURRENCY_RATES_DISABLED,
@@ -280,6 +287,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     exchangeMetadataRescanDisabled: env.EXCHANGE_METADATA_RESCAN_DISABLED,
     globalAggregatorDisabled: env.GLOBAL_AGGREGATOR_DISABLED,
     categoryAggregatorDisabled: env.CATEGORY_AGGREGATOR_DISABLED,
+    derivativesRefreshDisabled: env.DERIVATIVES_REFRESH_DISABLED,
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     ohlcvTargetHistoryDays: env.OHLCV_TARGET_HISTORY_DAYS,

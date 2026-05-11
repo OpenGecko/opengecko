@@ -55,6 +55,7 @@ export type ExchangeNetworkSnapshot = {
 
 const VALID_EXCHANGE_IDS = new Set(ccxt.exchanges);
 const exchangePool = new Map<ExchangeId, Exchange>();
+const DEFAULT_DERIVATIVE_TICKER_SYMBOL_LIMIT = 40;
 
 export function isValidExchangeId(value: string): value is ExchangeId {
   return VALID_EXCHANGE_IDS.has(value);
@@ -377,7 +378,7 @@ export async function fetchExchangeDerivativeTickers(
     .filter(isDerivativeMarket)
     .map((market) => market.symbol);
   const supportedSymbols = getSupportedSymbols(exchange, symbols ?? derivativeSymbols);
-  const targetSymbols = supportedSymbols ?? [];
+  const targetSymbols = (supportedSymbols ?? []).slice(0, symbols?.length ? undefined : DEFAULT_DERIVATIVE_TICKER_SYMBOL_LIMIT);
 
   if (targetSymbols.length === 0) {
     return [];

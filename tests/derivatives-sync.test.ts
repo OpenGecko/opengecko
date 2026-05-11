@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockedFetchExchangeDerivativeTickers = vi.hoisted(() => vi.fn());
 
@@ -12,9 +12,13 @@ import { createDatabase, initializeDatabase } from '../src/db/client';
 import { derivativeTickers } from '../src/db/schema';
 import { runDerivativeSyncJob } from '../src/jobs/sync-derivatives';
 import { syncDerivativeTickers } from '../src/services/derivatives-sync';
-import { parseDerivativeVenueConfig } from '../src/services/derivatives-venues';
+import { buildDerivativesProviderDiagnostics, parseDerivativeVenueConfig, resetDerivativesVenueRefreshStateForTests } from '../src/services/derivatives-venues';
 
 describe('derivatives sync job config', () => {
+  afterEach(() => {
+    resetDerivativesVenueRefreshStateForTests();
+  });
+
   it('parses optional venue mappings from environment syntax', () => {
     expect(parseDerivativeVenueConfig(undefined)).toEqual([]);
     expect(parseDerivativeVenueConfig('   ')).toEqual([]);
@@ -70,6 +74,91 @@ describe('derivatives sync job config', () => {
           sourceProvider: 'ccxt.binanceusdm',
         }),
       ]));
+    } finally {
+      database.client.close();
+    }
+  });
+
+  it('isolates per-venue CCXT failures while writing successful venue rows and diagnostics', async () => {
+    const database = createDatabase(':memory:');
+
+    try {
+      initializeDatabase(database);
+      const result = await syncDerivativeTickers(database, {
+        venues: [
+          { exchangeId: 'bybit', providerExchangeId: 'bybit' },
+          { exchangeId: 'okx', providerExchangeId: 'okx' },
+          { exchangeId: 'bitget', providerExchangeId: 'bitget' },
+        ],
+        now: new Date('2026-05-05T00:10:00.000Z'),
+        fetcher: async (providerExchangeId, exchangeId) => {
+          if (providerExchangeId === 'okx') {
+            throw new Error('okx fetchTickers request timed out with token=secret');
+          }
+
+          if (providerExchangeId === 'bitget') {
+            return [];
+          }
+
+          return [{
+            exchangeId,
+            symbol: 'BTC/USDT:USDT',
+            market: 'BTCUSDT',
+            base: 'BTC',
+            quote: 'USDT',
+            markPrice: 91_000,
+            contractType: 'perpetual',
+            tradeVolume24hBtc: 700,
+            openInterestBtc: 300,
+            timestamp: 1777939800000,
+          }];
+        },
+      });
+
+      expect(result).toMatchObject({
+        venues_attempted: 3,
+        tickers_fetched: 1,
+        tickers_written: 1,
+        rowsWritten: 1,
+        partialFailures: [
+          { target: 'okx', reason: expect.stringContaining('timed out') },
+          { target: 'bitget', reason: 'ccxt.bitget returned no derivative tickers' },
+        ],
+      });
+      expect(database.db.select().from(derivativeTickers)
+        .where(eq(derivativeTickers.exchangeId, 'bybit'))
+        .all()).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          symbol: 'BTC/USDT:USDT',
+          sourceKind: 'live',
+          sourceProvider: 'ccxt.bybit',
+        }),
+      ]));
+      expect(buildDerivativesProviderDiagnostics(database, 'bybit,okx,bitget')).toMatchObject({
+        exchanges: expect.arrayContaining([
+          expect.objectContaining({
+            exchange_id: 'bybit',
+            status: 'source_backed',
+            last_refresh_success_at: '2026-05-05T00:10:00.000Z',
+          }),
+          expect.objectContaining({
+            exchange_id: 'okx',
+            status: 'errored',
+            last_refresh_error: expect.stringContaining('timed out'),
+          }),
+          expect.objectContaining({
+            exchange_id: 'bitget',
+            status: 'unsupported_or_empty',
+          }),
+        ]),
+        gaps: expect.objectContaining({
+          configured_without_source_rows: expect.arrayContaining(['okx', 'bitget']),
+          errored_exchanges: ['okx'],
+        }),
+      });
+      const okxDiagnostic = buildDerivativesProviderDiagnostics(database, 'bybit,okx,bitget').exchanges
+        .find((exchange) => exchange.exchange_id === 'okx');
+      expect(okxDiagnostic?.last_refresh_error).not.toContain('secret');
     } finally {
       database.client.close();
     }

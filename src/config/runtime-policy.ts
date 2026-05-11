@@ -31,6 +31,13 @@ export const DEFAULT_COIN_CATALOG_RESCAN_INTERVAL_SECONDS = 3600;
 export const DEFAULT_EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS = 21600;
 export const DEFAULT_GLOBAL_AGGREGATOR_INTERVAL_SECONDS = 60;
 export const DEFAULT_CATEGORY_AGGREGATOR_INTERVAL_SECONDS = 900;
+export const DEFAULT_DERIVATIVES_REFRESH_INTERVAL_SECONDS = 120;
+export const DEFAULT_DERIVATIVES_CCXT_EXCHANGES = [
+  'binance_futures=binanceusdm',
+  'bybit',
+  'okx',
+  'bitget',
+] as const;
 
 export const STALE_DATA_POLICY = {
   seededSnapshotsRemainUsable: true,

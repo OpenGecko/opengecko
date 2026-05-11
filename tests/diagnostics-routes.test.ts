@@ -47,6 +47,7 @@ import { syncSupplyCharts } from '../src/services/supply-chart-sync';
 function resetCcxtProviderMocks() {
   const mockedFetchExchangeMarkets = ccxtProvider.fetchExchangeMarkets as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeTickers = ccxtProvider.fetchExchangeTickers as ReturnType<typeof vi.fn>;
+  const mockedFetchExchangeDerivativeTickers = ccxtProvider.fetchExchangeDerivativeTickers as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeNetworks = ccxtProvider.fetchExchangeNetworks as ReturnType<typeof vi.fn>;
   const mockedCloseExchangePool = ccxtProvider.closeExchangePool as ReturnType<typeof vi.fn>;
@@ -59,6 +60,7 @@ function resetCcxtProviderMocks() {
     { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 85000, bid: 84950, ask: 85050, high: 86000, low: 84000, baseVolume: 5000, quoteVolume: 425000000, percentage: 1.8, timestamp: Date.now(), raw: {} as never },
     { exchangeId: 'binance', symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', last: 2000, bid: 1999, ask: 2001, high: 2050, low: 1950, baseVolume: 50000, quoteVolume: 100000000, percentage: 2.56, timestamp: Date.now(), raw: {} as never },
   ]);
+  mockedFetchExchangeDerivativeTickers.mockResolvedValue([]);
   mockedFetchExchangeOHLCV.mockResolvedValue([]);
   mockedFetchExchangeNetworks.mockResolvedValue([]);
   mockedCloseExchangePool.mockResolvedValue(undefined);
@@ -67,6 +69,7 @@ function resetCcxtProviderMocks() {
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
   fetchExchangeTickers: vi.fn(),
+  fetchExchangeDerivativeTickers: vi.fn().mockResolvedValue([]),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn(),
   closeExchangePool: vi.fn(),
@@ -181,7 +184,7 @@ describe('diagnostics routes', () => {
     expect(response.json().data).toMatchObject({
       scheduler: {
         enabled: true,
-        job_count: 12,
+        job_count: 13,
       },
       jobs: expect.arrayContaining([
         expect.objectContaining({
@@ -244,6 +247,11 @@ describe('diagnostics routes', () => {
         expect.objectContaining({
           name: 'category-aggregator',
           interval_seconds: 900,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'derivatives-refresh',
+          interval_seconds: 120,
           disabled: false,
         }),
       ]),
@@ -502,19 +510,36 @@ describe('diagnostics routes', () => {
 
     expect(fixtureOnlyResponse.statusCode).toBe(200);
     expect(fixtureOnlyResponse.json().data).toMatchObject({
-      configured_venues: [],
+      configured_venues: expect.arrayContaining([
+        {
+          exchange_id: 'binance_futures',
+          provider_exchange_id: 'binanceusdm',
+          source_provider: 'ccxt.binanceusdm',
+        },
+        {
+          exchange_id: 'okx',
+          provider_exchange_id: 'okx',
+          source_provider: 'ccxt.okx',
+        },
+        {
+          exchange_id: 'bitget',
+          provider_exchange_id: 'bitget',
+          source_provider: 'ccxt.bitget',
+        },
+      ]),
       exchanges: expect.arrayContaining([
         expect.objectContaining({
           exchange_id: 'binance_futures',
-          status: 'fixture_only',
-          configured_provider_exchange_id: null,
+          status: 'configured_pending',
+          configured_provider_exchange_id: 'binanceusdm',
+          enabled: true,
           ticker_counts: expect.objectContaining({
             source_backed: 0,
           }),
         }),
       ]),
       gaps: expect.objectContaining({
-        fixture_only_exchanges: expect.arrayContaining(['binance_futures']),
+        configured_without_source_rows: expect.arrayContaining(['binance_futures', 'okx', 'bitget']),
       }),
     });
 

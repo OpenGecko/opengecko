@@ -131,8 +131,10 @@ describe('derivatives provider replay fixtures', () => {
           },
         ]),
         meta: {
-          fixture: true,
-          frozen_at: '2026-03-20',
+          fixture: false,
+          source: 'ccxt_derivatives',
+          source_backed_tickers: 1,
+          latest_source_fetched_at: '2026-05-05T00:00:00.000Z',
         },
       });
       expect(exchangeDetailResponse.statusCode).toBe(200);
@@ -318,16 +320,20 @@ describe('derivatives provider replay fixtures', () => {
         })),
       });
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         venues_attempted: 1,
         tickers_fetched: 1,
         tickers_written: 1,
+        rowsWritten: 1,
+        partialFailures: [],
         source_fetched_at: '2026-05-05T00:00:00.000Z',
         results: [{
           exchange_id: 'binance_futures',
           provider_exchange_id: 'binanceusdm',
+          status: 'success',
           tickers_fetched: 1,
           tickers_written: 1,
+          last_error: null,
         }],
       });
 

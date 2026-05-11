@@ -39,6 +39,7 @@ export function registerAppRoutes(app: FastifyInstance, {
     },
     {
       ccxtExchanges: config.derivativesCcxtExchanges,
+      refreshDisabled: config.derivativesRefreshDisabled,
     },
     {
       targets: config.coinHistoryTargets,

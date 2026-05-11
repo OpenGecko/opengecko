@@ -32,6 +32,7 @@ import { runSearchRebuildOnce } from './search-rebuild';
 import { runStartupPrewarm } from './startup-prewarm';
 import type { StartupProgressReporter } from './startup-progress';
 import { registerTier1SchedulerJobs } from './tier1-jobs';
+import { registerTier23SchedulerJobs } from './tier23-jobs';
 
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
 type JobRunner = () => Promise<void>;
@@ -48,6 +49,8 @@ type RuntimeConfig = Pick<AppConfig,
   | 'exchangeMetadataRescanIntervalSeconds'
   | 'globalAggregatorIntervalSeconds'
   | 'categoryAggregatorIntervalSeconds'
+  | 'derivativesCcxtExchanges'
+  | 'derivativesRefreshIntervalSeconds'
   | 'marketFreshnessThresholdSeconds'
   | 'providerFanoutConcurrency'
   | 'startupPrewarmBudgetMs'
@@ -65,6 +68,7 @@ type RuntimeConfig = Pick<AppConfig,
   | 'exchangeMetadataRescanDisabled'
   | 'globalAggregatorDisabled'
   | 'categoryAggregatorDisabled'
+  | 'derivativesRefreshDisabled'
   | 'optionalProviderSyncEnabled'
   | 'optionalProviderSyncIntervalSeconds'
   | 'coinHistoryTargets'
@@ -137,6 +141,7 @@ export function createMarketRuntimeDiagnosticsScheduler(
     });
   }
   registerTier1SchedulerJobs(scheduler, database, config);
+  registerTier23SchedulerJobs(scheduler, database, config);
 
   return scheduler;
 }
@@ -264,6 +269,7 @@ export function createMarketRuntime(
     },
   });
   registerTier1SchedulerJobs(scheduler, database, config);
+  registerTier23SchedulerJobs(scheduler, database, config);
 
   return {
     scheduler,

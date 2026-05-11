@@ -502,7 +502,8 @@ describe('HTTP cache semantics', () => {
             exchanges: expect.arrayContaining([
               expect.objectContaining({
                 exchange_id: 'binance_futures',
-                status: 'fixture_only',
+                status: 'configured_pending',
+                configured_provider_exchange_id: 'binanceusdm',
               }),
             ]),
             gaps: expect.any(Object),

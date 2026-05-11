@@ -10,6 +10,7 @@ import { buildApp } from '../../src/app';
 vi.mock('../../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn().mockResolvedValue([]),
   fetchExchangeTickers: vi.fn().mockResolvedValue([]),
+  fetchExchangeDerivativeTickers: vi.fn().mockResolvedValue([]),
   fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
@@ -74,8 +75,9 @@ describe('derivatives fixture metadata', () => {
     expect(body.meta).toMatchObject({
       fixture: true,
       frozen_at: '2026-03-20',
-      note: 'Derivatives data is seeded fixture, not live',
+      source_backed_tickers: 0,
     });
+    expect(body.meta.note).toContain('seeded fixture');
     expect(body.meta).toHaveProperty('page');
   });
 
@@ -96,8 +98,9 @@ describe('derivatives fixture metadata', () => {
     expect(body.meta).toMatchObject({
       fixture: true,
       frozen_at: '2026-03-20',
-      note: 'Derivatives data is seeded fixture, not live',
+      source_backed_tickers: 0,
     });
+    expect(body.meta.note).toContain('seeded fixture');
     expect(body.meta).toHaveProperty('page');
   });
 
@@ -114,7 +117,7 @@ describe('derivatives fixture metadata', () => {
         page: 1,
         fixture: true,
         frozen_at: '2026-03-20',
-        note: 'Derivatives data is seeded fixture, not live',
+        source_backed_tickers: 0,
       },
     });
   });
@@ -138,8 +141,9 @@ describe('derivatives fixture metadata', () => {
     expect(body.meta).toMatchObject({
       fixture: true,
       frozen_at: '2026-03-20',
-      note: 'Derivatives data is seeded fixture, not live',
+      source_backed_tickers: 0,
     });
+    expect(body.meta.note).toContain('seeded fixture');
   });
 
   it('GET /derivatives/exchanges/:id with include_tickers returns fixture metadata alongside tickers', async () => {

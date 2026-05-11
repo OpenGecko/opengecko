@@ -35,6 +35,7 @@ const defaultDefillamaOnchainCatalogMocks = () => {
 function resetCcxtProviderMocks() {
   const mockedFetchExchangeMarkets = ccxtProvider.fetchExchangeMarkets as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeTickers = ccxtProvider.fetchExchangeTickers as ReturnType<typeof vi.fn>;
+  const mockedFetchExchangeDerivativeTickers = ccxtProvider.fetchExchangeDerivativeTickers as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeNetworks = ccxtProvider.fetchExchangeNetworks as ReturnType<typeof vi.fn>;
   const mockedCloseExchangePool = ccxtProvider.closeExchangePool as ReturnType<typeof vi.fn>;
@@ -59,6 +60,7 @@ function resetCcxtProviderMocks() {
     { exchangeId: 'binance', symbol: 'LINK/USDT', base: 'LINK', quote: 'USDT', last: 24, bid: 23.9, ask: 24.1, high: 25, low: 23, baseVolume: 500000, quoteVolume: 12000000, percentage: 3.5, timestamp: Date.now(), raw: {} as never },
     { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', last: 1.0, bid: 0.9999, ask: 1.0001, high: 1.001, low: 0.999, baseVolume: 10000000, quoteVolume: 10000000, percentage: 0.01, timestamp: Date.now(), raw: {} as never },
   ]);
+  mockedFetchExchangeDerivativeTickers.mockResolvedValue([]);
   mockedFetchExchangeOHLCV.mockResolvedValue([]);
   mockedFetchExchangeNetworks.mockResolvedValue([]);
   mockedCloseExchangePool.mockResolvedValue(undefined);
@@ -85,6 +87,7 @@ vi.mock('../src/providers/ccxt', () => ({
     { exchangeId: 'binance', symbol: 'LINK/USDT', base: 'LINK', quote: 'USDT', last: 24, bid: 23.9, ask: 24.1, high: 25, low: 23, baseVolume: 500000, quoteVolume: 12000000, percentage: 3.5, timestamp: Date.now(), raw: {} as never },
     { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', last: 1.0, bid: 0.9999, ask: 1.0001, high: 1.001, low: 0.999, baseVolume: 10000000, quoteVolume: 10000000, percentage: 0.01, timestamp: Date.now(), raw: {} as never },
   ]),
+  fetchExchangeDerivativeTickers: vi.fn().mockResolvedValue([]),
   fetchExchangeOHLCV: vi.fn().mockResolvedValue([]),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
@@ -6411,7 +6414,7 @@ describe('OpenGecko app scaffold', () => {
       expect(initialDiagnostics.json().data.scheduler).toMatchObject({
         enabled: true,
         started: true,
-        job_count: 12,
+        job_count: 13,
       });
 
       await expect.poll(async () => {
@@ -6532,7 +6535,7 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnostics.json().data.scheduler).toMatchObject({
         enabled: false,
         started: false,
-        job_count: 12,
+        job_count: 13,
       });
       for (const job of diagnostics.json().data.jobs) {
         expect(job).toMatchObject({

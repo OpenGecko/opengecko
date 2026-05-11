@@ -96,6 +96,41 @@ function sortDerivativeRows(rows: DerivativeTickerWithExchangeRow[]) {
   return [...rows].sort((left, right) => sortNumber(right.derivative_tickers.tradeVolume24hBtc, -1) - sortNumber(left.derivative_tickers.tradeVolume24hBtc, -1));
 }
 
+function buildDerivativesMeta(rows: DerivativeTickerWithExchangeRow[], page = 1) {
+  const sourceBackedRows = rows.filter((row) => row.derivative_tickers.sourceKind !== 'seed');
+  const latestSourceFetchedAt = sourceBackedRows.reduce<Date | null>((latest, row) => {
+    const value = row.derivative_tickers.sourceFetchedAt ?? row.derivative_tickers.lastTradedAt;
+
+    if (!value) {
+      return latest;
+    }
+
+    return latest === null || value.getTime() > latest.getTime() ? value : latest;
+  }, null);
+
+  if (sourceBackedRows.length > 0) {
+    return {
+      page,
+      fixture: false,
+      source: 'ccxt_derivatives',
+      source_backed_tickers: sourceBackedRows.length,
+      fallback_tickers: Math.max(rows.length - sourceBackedRows.length, 0),
+      latest_source_fetched_at: latestSourceFetchedAt?.toISOString() ?? null,
+      note: 'Derivatives data includes source-attributed CCXT derivative ticker rows; seeded fallback rows may remain for venues without live rows.',
+    };
+  }
+
+  return {
+    page,
+    fixture: true,
+    frozen_at: '2026-03-20',
+    source_backed_tickers: 0,
+    fallback_tickers: rows.length,
+    latest_source_fetched_at: null,
+    note: 'Derivatives data is seeded fixture until a derivatives refresh writes source-attributed rows.',
+  };
+}
+
 function buildDerivativeTickerPayload(row: DerivativeTickerWithExchangeRow) {
   return {
     market: row.derivatives_exchanges.name,
@@ -139,15 +174,11 @@ export function registerDerivativeRoutes(app: FastifyInstance, database: AppData
     const rows = database.db.select().from(derivativesExchanges).all();
     const sortedRows = sortDerivativesExchangeRows(rows, query.order);
     const start = (page - 1) * perPage;
+    const derivativeRows = getDerivativeRows(database);
 
     return sendCacheableJson(request, reply, {
       data: sortedRows.slice(start, start + perPage).map(buildDerivativesExchangeSummary),
-      meta: {
-        page,
-        fixture: true,
-        frozen_at: '2026-03-20',
-        note: 'Derivatives data is seeded fixture, not live',
-      },
+      meta: buildDerivativesMeta(derivativeRows, page),
     }, DERIVATIVES_HTTP_CACHE_POLICY);
   });
 
@@ -161,24 +192,16 @@ export function registerDerivativeRoutes(app: FastifyInstance, database: AppData
         ...buildDerivativesExchangeSummary(exchange),
         ...(query.include_tickers === 'true' ? { tickers: getDerivativesExchangeTickers(database, params.id) } : {}),
       },
-      meta: {
-        page: 1,
-        fixture: true,
-        frozen_at: '2026-03-20',
-        note: 'Derivatives data is seeded fixture, not live',
-      },
+      meta: buildDerivativesMeta(getDerivativeRows(database).filter((row) => row.derivative_tickers.exchangeId === params.id)),
     }, DERIVATIVES_HTTP_CACHE_POLICY);
   });
 
   app.get('/derivatives', async (request, reply) => {
+    const rows = sortDerivativeRows(getDerivativeRows(database));
+
     return sendCacheableJson(request, reply, {
-      data: sortDerivativeRows(getDerivativeRows(database)).map(buildDerivativeTickerPayload),
-      meta: {
-        page: 1,
-        fixture: true,
-        frozen_at: '2026-03-20',
-        note: 'Derivatives data is seeded fixture, not live',
-      },
+      data: rows.map(buildDerivativeTickerPayload),
+      meta: buildDerivativesMeta(rows),
     }, DERIVATIVES_HTTP_CACHE_POLICY);
   });
 }

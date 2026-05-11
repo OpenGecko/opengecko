@@ -40,6 +40,7 @@ export function registerDiagnosticsRoutes(
   },
   derivatives: {
     ccxtExchanges: string;
+    refreshDisabled: boolean;
   },
   coinHistory: {
     targets: string;
@@ -141,7 +142,9 @@ export function registerDiagnosticsRoutes(
 
   app.get('/diagnostics/derivatives', async (request, reply) => {
     return sendCacheableJson(request, reply, {
-      data: buildDerivativesProviderDiagnostics(database, derivatives.ccxtExchanges),
+      data: buildDerivativesProviderDiagnostics(database, derivatives.ccxtExchanges, {
+        refreshDisabled: derivatives.refreshDisabled,
+      }),
     }, dynamicDiagnosticsCachePolicy);
   });
 

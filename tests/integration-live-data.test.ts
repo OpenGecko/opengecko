@@ -29,6 +29,7 @@ vi.mock('../src/providers/defillama', async () => {
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
   fetchExchangeTickers: vi.fn(),
+  fetchExchangeDerivativeTickers: vi.fn().mockResolvedValue([]),
   fetchExchangeOHLCV: vi.fn(),
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
@@ -89,6 +90,7 @@ describe('live data integration', () => {
         logLevel: 'silent',
         marketFreshnessThresholdSeconds: 300,
         providerFanoutConcurrency: 2,
+        derivativesRefreshDisabled: true,
       },
       startBackgroundJobs: true,
     });
@@ -298,9 +300,9 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.7.0');
+    expect(packageJson.version).toBe('0.8.0');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(packageJson.version.startsWith('0.7.')).toBe(true);
+    expect(packageJson.version.startsWith('0.8.')).toBe(true);
   });
 
   it('keeps CeFi and DeFi USD prices within the contract coherence threshold on the onchain simple token price path', async () => {
