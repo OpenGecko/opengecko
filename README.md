@@ -81,10 +81,13 @@ curl "http://localhost:3000/diagnostics/jobs"
 **Developer commands:**
 
 ```bash
-bun run dev                  # local dev server (hot reload)
-bun run typecheck            # TypeScript type check
-bun run test                 # run full test suite
-bun run test:endpoint        # smoke-test all endpoint families
+bun run dev                              # local dev server (hot reload)
+bun run build                            # compile TypeScript
+bun run lint                             # ESLint over src/
+bun run typecheck                        # TypeScript type check
+bun run test                             # run full test suite
+bun run test:coverage                    # run full test suite with coverage
+bun run test:endpoint                    # smoke-test all endpoint families
 bun run test:endpoint:simple
 bun run test:endpoint:coins
 bun run test:endpoint:exchanges
@@ -93,6 +96,25 @@ bun run test:endpoint:assets
 bun run test:endpoint:search
 bun run test:endpoint:onchain
 bun run test:endpoint:treasury
+bun run test:endpoint:mr-market-frontend
+bun run db:generate                      # generate Drizzle migrations
+bun run db:migrate                       # apply database migrations
+bun run markets:refresh                  # refresh hot market snapshots
+bun run ohlcv:worker                     # continuous OHLCV ingestion
+bun run search:rebuild                   # rebuild SQLite FTS5 search index
+bun run charts:backfill                  # backfill historical OHLCV data
+bun run coin:history:sync                # optional dated coin history sync
+bun run derivatives:sync                 # optional/source-backed derivatives sync
+bun run exchange:volumes:sync            # optional exchange volume sync
+bun run market:charts:sync               # optional chart/OHLC target sync
+bun run onchain:analytics:sync           # optional holder/trader analytics sync
+bun run onchain:trades:sync              # optional onchain pool trade sync
+bun run supply:charts:sync               # optional supply chart sync
+bun run benchmark:hot-routes             # benchmark hot API routes
+bun run coingecko:snapshots:capture      # capture CoinGecko snapshots
+bun run coingecko:replay:offline         # replay captured CoinGecko snapshots offline
+bun run coingecko:report:diff            # report snapshot diffs
+bun run coingecko:report:improvement-gate # run the parity improvement report gate
 ```
 
 ## Architecture
@@ -248,30 +270,71 @@ The API coverage table is guarded by `tests/docs-drift.test.ts` against the regi
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP bind host |
 | `PORT` | `3000` | HTTP bind port |
+| `LOG_LEVEL` | `info` | Pino log level |
+| `LOG_PRETTY` | `true` | Enable pretty local logs |
+| `LOG_HTTP_STYLE` | `emoji_compact_p` | HTTP access-log format style |
 | `DATABASE_URL` | `./data/opengecko.db` | SQLite database path |
-| `CCXT_EXCHANGES` | `binance,coinbase,kraken,okx` | Active exchange set |
-| `MARKET_REFRESH_INTERVAL_SECONDS` | `60` | Hot snapshot refresh cadence |
-| `MARKET_FRESHNESS_THRESHOLD_SECONDS` | `300` | Freshness threshold for live reads |
-| `SEARCH_REBUILD_INTERVAL_SECONDS` | `900` | Search index rebuild cadence |
-| `REQUEST_TIMEOUT_MS` | `15000` | Upstream exchange request timeout |
-| `OHLCV_TARGET_HISTORY_DAYS` | `1825` | Default daily OHLCV history depth to backfill for generated chart/OHLC targets |
-| `OHLCV_RETENTION_DAYS` | `1825` | Default canonical OHLCV retention window before old candles can be pruned |
+| `CCXT_EXCHANGES` | `binance,bybit,coinbase,kraken,okx,gate,mexc,bitget,bigone,kucoin,htx,bitmart,lbank,whitebit,coinex,ascendex` | Active CCXT spot exchange set |
+| `DERIVATIVES_CCXT_EXCHANGES` | `binance_futures=binanceusdm,bybit,okx,bitget` | Active CCXT derivatives exchange set |
 | `COIN_HISTORY_TARGETS` | empty | Optional `provider=coin:YYYY-MM-DD` source-backed dated coin history sync targets |
-| `COIN_HISTORY_BASE_URL` | unset | Base URL for the optional coin history provider adapter used by `bun run coin:history:sync` |
 | `EXCHANGE_VOLUME_TARGETS` | empty | Optional `provider=exchange` source-backed exchange volume sync targets |
-| `EXCHANGE_VOLUME_BASE_URL` | unset | Base URL for the optional exchange volume provider adapter used by `bun run exchange:volumes:sync` |
 | `MARKET_CHART_TARGETS` | empty | Optional `provider=coin:interval:vs_currency` source-backed chart/OHLC sync targets; see `docs/reference/market-chart-targets.json` and `docs/reference/market-chart-provider-presets.json` |
-| `MARKET_CHART_BASE_URL` | unset | Base URL for the optional market chart provider adapter used by `bun run market:charts:sync` |
 | `ONCHAIN_ANALYTICS_TARGETS` | empty | Optional source-backed onchain holder/trader analytics sync targets |
-| `ONCHAIN_ANALYTICS_BASE_URL` | unset | Base URL for the optional onchain analytics provider adapter used by `bun run onchain:analytics:sync` |
 | `ONCHAIN_TRADE_TARGETS` | empty | Optional source-backed onchain pool trade sync targets |
-| `ONCHAIN_TRADE_BASE_URL` | unset | Base URL for the optional onchain trade provider adapter used by `bun run onchain:trades:sync` |
 | `SUPPLY_CHART_TARGETS` | empty | Optional `provider=coin:supply_type` source-backed supply chart sync targets |
-| `SUPPLY_CHART_BASE_URL` | unset | Base URL for the optional supply chart provider adapter used by `bun run supply:charts:sync` |
+| `TREASURY_DISCLOSURE_REPLAY_PATH` | empty | Optional local replay file for treasury disclosure source ingestion |
 | `OPTIONAL_PROVIDER_SYNC_ENABLED` | `false` | Enables interval scheduler hooks for optional source-backed sync jobs |
 | `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS` | `900` | Interval for optional provider sync scheduler when enabled |
+| `MARKET_REFRESH_INTERVAL_SECONDS` | `60` | Hot snapshot refresh cadence |
+| `MARKET_FRESHNESS_THRESHOLD_SECONDS` | `300` | Freshness threshold for live reads |
+| `CURRENCY_REFRESH_INTERVAL_SECONDS` | `300` | Exchange-rate refresh cadence |
+| `SEARCH_REBUILD_INTERVAL_SECONDS` | `900` | Search index rebuild cadence |
+| `OHLCV_REFRESH_INTERVAL_SECONDS` | `60` | OHLCV worker tick cadence |
+| `DEFILLAMA_POOL_SWEEP_INTERVAL_SECONDS` | `300` | DeFiLlama pool sweep cadence |
+| `DEFILLAMA_TOKEN_SWEEP_INTERVAL_SECONDS` | `600` | DeFiLlama token sweep cadence |
+| `SUBSQUID_TRADE_SWEEP_INTERVAL_SECONDS` | `60` | Subsquid/SQD trade sweep cadence |
+| `COIN_CATALOG_RESCAN_INTERVAL_SECONDS` | `3600` | CCXT coin catalog rescan cadence |
+| `EXCHANGE_METADATA_RESCAN_INTERVAL_SECONDS` | `21600` | CCXT exchange metadata rescan cadence |
+| `GLOBAL_AGGREGATOR_INTERVAL_SECONDS` | `60` | Global market aggregate refresh cadence |
+| `CATEGORY_AGGREGATOR_INTERVAL_SECONDS` | `900` | Category aggregate refresh cadence |
+| `DERIVATIVES_REFRESH_INTERVAL_SECONDS` | `120` | Derivatives source refresh cadence |
+| `SUPPLY_AGGREGATOR_INTERVAL_SECONDS` | `900` | Supply aggregate refresh cadence |
+| `TREASURY_SWEEP_INTERVAL_SECONDS` | `86400` | Treasury disclosure sweep cadence |
+| `SCHEDULER_DISABLED` | `false` | Disable all in-process scheduler jobs |
+| `MARKET_REFRESH_DISABLED` | `false` | Disable hot market refresh job |
+| `CURRENCY_RATES_DISABLED` | `false` | Disable exchange-rate refresh job |
+| `SEARCH_REBUILD_DISABLED` | `false` | Disable search-index rebuild job |
+| `OHLCV_TICK_DISABLED` | `false` | Disable OHLCV worker ticks |
+| `CACHE_EVICTION_DISABLED` | `false` | Disable cache eviction job |
+| `DEFILLAMA_POOL_SWEEP_DISABLED` | `false` | Disable DeFiLlama pool sweeps |
+| `DEFILLAMA_TOKEN_SWEEP_DISABLED` | `false` | Disable DeFiLlama token sweeps |
+| `SUBSQUID_TRADE_SWEEP_DISABLED` | `false` | Disable Subsquid/SQD trade sweeps |
+| `COIN_CATALOG_RESCAN_DISABLED` | `false` | Disable CCXT coin catalog rescans |
+| `EXCHANGE_METADATA_RESCAN_DISABLED` | `false` | Disable CCXT exchange metadata rescans |
+| `GLOBAL_AGGREGATOR_DISABLED` | `false` | Disable global market aggregate job |
+| `CATEGORY_AGGREGATOR_DISABLED` | `false` | Disable category aggregate job |
+| `DERIVATIVES_REFRESH_DISABLED` | `false` | Disable derivatives refresh job |
+| `SUPPLY_AGGREGATOR_DISABLED` | `false` | Disable supply aggregate job |
+| `TREASURY_SWEEP_DISABLED` | `false` | Disable treasury disclosure sweeps |
+| `PROVIDER_FANOUT_CONCURRENCY` | `2` | Maximum provider fanout concurrency |
+| `REQUEST_TIMEOUT_MS` | `15000` | Upstream provider request timeout |
+| `OHLCV_TARGET_HISTORY_DAYS` | `1825` | Default daily OHLCV history depth to backfill for generated chart/OHLC targets |
+| `OHLCV_RETENTION_DAYS` | `1825` | Default canonical OHLCV retention window before old candles can be pruned |
+| `DEFILLAMA_BASE_URL` | `https://api.llama.fi` | DeFiLlama pool/token API origin |
+| `DEFILLAMA_YIELDS_BASE_URL` | `https://yields.llama.fi` | DeFiLlama yields API origin |
+| `RESPONSE_COMPRESSION_THRESHOLD_BYTES` | `1024` | Response-size threshold before compression is applied |
+| `STARTUP_PREWARM_BUDGET_MS` | `250` | Startup prewarm time budget |
+| `DISABLE_REMOTE_CURRENCY_REFRESH` | `false` | Skip remote currency refresh during startup/runtime validation |
+| `OPEN_GECKO_REBUILD_CANONICAL_DB_ON_START` | `false` | Rebuild canonical SQLite data on startup |
+| `OPEN_GECKO_DISABLE_REPO_DOTENV` | unset | Disable automatic loading of a repository-local `.env` file when set to `1` |
+| `COIN_HISTORY_BASE_URL` | unset | Base URL for the optional coin history provider adapter used by `bun run coin:history:sync` |
+| `EXCHANGE_VOLUME_BASE_URL` | unset | Base URL for the optional exchange volume provider adapter used by `bun run exchange:volumes:sync` |
+| `MARKET_CHART_BASE_URL` | unset | Base URL for the optional market chart provider adapter used by `bun run market:charts:sync` |
+| `ONCHAIN_ANALYTICS_BASE_URL` | unset | Base URL for the optional onchain analytics provider adapter used by `bun run onchain:analytics:sync` |
+| `ONCHAIN_TRADE_BASE_URL` | unset | Base URL for the optional onchain trade provider adapter used by `bun run onchain:trades:sync` |
+| `SUPPLY_CHART_BASE_URL` | unset | Base URL for the optional supply chart provider adapter used by `bun run supply:charts:sync` |
 
-Full schema in `src/config/env.ts`.
+Full central schema in `src/config/env.ts`. The optional `*_BASE_URL` adapter settings are read directly by standalone sync jobs and are intentionally allowlisted by `tests/docs-drift.test.ts` until they move into the central config loader.
 
 ## Diagnostics & Operations
 

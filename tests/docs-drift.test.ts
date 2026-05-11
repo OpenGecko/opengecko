@@ -33,6 +33,66 @@ function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort();
 }
 
+const readmeConfigEnvAllowlist = new Set([
+  'COIN_HISTORY_BASE_URL',
+  'EXCHANGE_VOLUME_BASE_URL',
+  'MARKET_CHART_BASE_URL',
+  'ONCHAIN_ANALYTICS_BASE_URL',
+  'ONCHAIN_TRADE_BASE_URL',
+  'SUPPLY_CHART_BASE_URL',
+]);
+
+function extractEnvTsReferencedEnvVars() {
+  const envConfig = readRepoFile('src/config/env.ts');
+  const schemaBody = envConfig.match(/const envSchema = z\.object\(\{([\s\S]*?)\n\}\);/)?.[1];
+
+  expect(schemaBody).toBeDefined();
+
+  return uniqueSorted([
+    ...[...schemaBody!.matchAll(/^\s{2}([A-Z][A-Z0-9_]+):/gm)].map((match) => match[1]),
+    ...[...envConfig.matchAll(/\benv\.([A-Z][A-Z0-9_]+)\b/g)].map((match) => match[1]),
+  ]);
+}
+
+function extractReadmeConfigEnvVars() {
+  const readme = readRepoFile('README.md');
+  const configSection = readme.match(/## Configuration([\s\S]*?)## Diagnostics & Operations/)?.[1];
+
+  expect(configSection).toBeDefined();
+
+  return uniqueSorted(
+    [...configSection!.matchAll(/^\| `([A-Z][A-Z0-9_]+)` \|/gm)]
+      .map((match) => match[1]),
+  );
+}
+
+function extractPackageJsonScripts() {
+  const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
+
+  return uniqueSorted(Object.keys(packageJson.scripts));
+}
+
+function extractReadmeBunRunScripts() {
+  const readme = readRepoFile('README.md');
+
+  return uniqueSorted(
+    [...readme.matchAll(/\bbun run ([a-z0-9][a-z0-9:-]*)\b/g)]
+      .map((match) => match[1]),
+  );
+}
+
+function sourceTreeContains(value: string, directory = resolve(process.cwd(), 'src')): boolean {
+  return readdirSync(directory, { withFileTypes: true }).some((entry) => {
+    const entryPath = resolve(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      return sourceTreeContains(value, entryPath);
+    }
+
+    return entry.isFile() && entry.name.endsWith('.ts') && readFileSync(entryPath, 'utf8').includes(value);
+  });
+}
+
 function extractRegisteredCoinGeckoGetRoutes() {
   const modulesDir = resolve(process.cwd(), 'src/modules');
   const registeredRoutes = readdirSync(modulesDir, { withFileTypes: true })
@@ -136,6 +196,23 @@ describe('documentation drift guards', () => {
     expect(auditCoverage).toBeDefined();
     expect(auditCoverage?.slice(1, 3).map(Number)).toEqual([registeredRoutes.length, registeredRoutes.length]);
     expect(extractCompatibilityAuditImplementedRoutes()).toEqual(registeredRoutes);
+  });
+
+  it('keeps README configuration variables aligned with src/config/env.ts', () => {
+    const envTsVars = extractEnvTsReferencedEnvVars();
+    const readmeVars = extractReadmeConfigEnvVars();
+    const allowedReadmeOnlyVars = readmeVars.filter((envVar) => readmeConfigEnvAllowlist.has(envVar));
+
+    for (const envVar of allowedReadmeOnlyVars) {
+      expect(sourceTreeContains(envVar)).toBe(true);
+    }
+
+    expect(readmeVars.filter((envVar) => !readmeConfigEnvAllowlist.has(envVar))).toEqual(envTsVars);
+    expect(envTsVars.filter((envVar) => !readmeVars.includes(envVar))).toEqual([]);
+  });
+
+  it('keeps README bun run script references aligned with package.json scripts', () => {
+    expect(extractReadmeBunRunScripts()).toEqual(extractPackageJsonScripts());
   });
 
   it('keeps the improvement guide route-coverage claim aligned with the compatibility audit', () => {
