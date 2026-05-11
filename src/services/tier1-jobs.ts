@@ -1,6 +1,11 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import type { UnifiedScheduler } from './job-scheduler';
+import {
+  runDefillamaPoolSweep,
+  runDefillamaTokenSweep,
+  runSubsquidTradeSweep,
+} from './tier1-onchain-sweepers';
 import { selectTier1Targets } from './tier1-target-selection';
 
 export const TIER1_SCHEDULER_JOB_NAMES = [
@@ -62,19 +67,34 @@ export function registerTier1SchedulerJobs(
     name: 'defillama-pool-sweep',
     intervalSeconds: config.defillamaPoolSweepIntervalSeconds,
     disabled: Boolean(config.defillamaPoolSweepDisabled),
-    run: async () => ({ targetsProcessed: selectRankedTargets().targets.length }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runDefillamaPoolSweep(database, { targets: selectRankedTargets().targets });
+    },
   });
   scheduler.register({
     name: 'defillama-token-sweep',
     intervalSeconds: config.defillamaTokenSweepIntervalSeconds,
     disabled: Boolean(config.defillamaTokenSweepDisabled),
-    run: async () => ({ targetsProcessed: selectRankedTargets().targets.length }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runDefillamaTokenSweep(database, { targets: selectRankedTargets().targets });
+    },
   });
   scheduler.register({
     name: 'subsquid-trade-sweep',
     intervalSeconds: config.subsquidTradeSweepIntervalSeconds,
     disabled: Boolean(config.subsquidTradeSweepDisabled),
-    run: async () => ({ targetsProcessed: selectRankedTargets().targets.length }),
+    run: async () => {
+      if (!database) {
+        return { targetsProcessed: 0 };
+      }
+      return runSubsquidTradeSweep(database, { targets: selectRankedTargets().targets });
+    },
   });
   scheduler.register({
     name: 'coin-catalog-rescan',
