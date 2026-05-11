@@ -132,6 +132,19 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     maxAgeSeconds: 30,
     staleWhileRevalidateSeconds: 30,
   };
+  const latestPoolUpdatedAt = (rows: Array<{ updatedAt: Date }>) =>
+    rows.reduce<Date | null>((latest, row) =>
+      latest === null || row.updatedAt.getTime() > latest.getTime() ? row.updatedAt : latest, null);
+  const buildOnchainSourceMeta = (options: {
+    source: 'live' | 'seeded' | 'fixture' | 'replay';
+    updatedAt?: Date | null;
+    extra?: Record<string, unknown>;
+  }) => ({
+    fixture: options.source === 'seeded' || options.source === 'fixture',
+    source: options.source,
+    updated_at: options.updatedAt?.toISOString() ?? null,
+    ...options.extra,
+  });
 
   app.get('/onchain/networks', async (request, reply) => {
     const query = paginationQuerySchema.parse(request.query);
@@ -230,10 +243,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     return sendCacheableJson(request, reply, {
       data: allRows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
-      meta: {
+      meta: buildOnchainSourceMeta({
+        source: liveCatalog.poolsByAddress.size === 0 || params.network !== 'eth' ? 'seeded' : 'live',
+        updatedAt: latestPoolUpdatedAt(seededRows),
+        extra: {
         page,
         data_source: liveCatalog.poolsByAddress.size === 0 || params.network !== 'eth' ? 'seeded' : 'live',
-      },
+        },
+      }),
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
@@ -303,10 +320,15 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     return sendCacheableJson(request, reply, {
       data: allRows.slice(start, start + perPage).map((row) => buildPoolResource(row)),
-      meta: {
+      meta: buildOnchainSourceMeta({
+        source: liveCatalog.poolsByAddress.size === 0 || params.network !== 'eth' ? 'seeded' : 'live',
+        updatedAt: latestPoolUpdatedAt(seededRows),
+        extra: {
         page,
         dex: dex.id,
-      },
+        data_source: liveCatalog.poolsByAddress.size === 0 || params.network !== 'eth' ? 'seeded' : 'live',
+        },
+      }),
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
 
@@ -640,9 +662,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
         includeVolumeBreakdown,
         includeComposition,
       }),
-      meta: {
+      meta: buildOnchainSourceMeta({
+        source: liveCatalog.degraded || params.network !== 'eth' ? 'seeded' : 'live',
+        updatedAt: patchedRow.updatedAt,
+        extra: {
         data_source: liveCatalog.degraded || params.network !== 'eth' ? 'seeded' : 'live',
-      },
+        },
+      }),
       ...(included.length > 0 ? { included } : {}),
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -744,6 +770,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     return sendCacheableJson(request, reply, {
       data: tokenResource,
+      meta: buildOnchainSourceMeta({
+        source: livePrice ? 'live' : 'seeded',
+        updatedAt: latestPoolUpdatedAt(tokenPools),
+        extra: {
+          network: params.network,
+          token_address: normalizeAddress(params.address),
+        },
+      }),
       ...(includes.includes('top_pools')
         ? { included: tokenPools.map((row) => buildPoolResource(row)) }
         : {}),

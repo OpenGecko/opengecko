@@ -171,6 +171,13 @@ describe('global routes', () => {
     const body = response.json();
     expect(body).toEqual({
       market_cap_chart: expect.any(Array),
+      meta: {
+        fixture: expect.any(Boolean),
+        source: expect.any(String),
+        updated_at: expect.any(String),
+        point_count: expect.any(Number),
+        note: expect.any(String),
+      },
     });
     expect(body.market_cap_chart.length).toBeGreaterThan(0);
     expect(body.market_cap_chart[0]).toHaveLength(2);

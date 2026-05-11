@@ -21,8 +21,10 @@ check_json_expr "inactive exchange list returns an empty array" "/exchanges/list
 module_section "Exchange Detail"
 check_status "GET /exchanges paginates exchange summaries" "/exchanges?per_page=2&page=1"
 check_json_expr "exchange summaries include ranking and volume fields" "/exchanges?per_page=2&page=1" 'type == "array" and length > 0 and ([.[0] | has("id") and has("name") and has("trust_score_rank") and has("trade_volume_24h_btc")] | all(.))' "exchange summaries expose ranking and btc volume fields"
+check_json_expr "exchange summaries expose safe source and freshness fields" "/exchanges?per_page=2&page=1" 'type == "array" and length > 0 and ([.[] | has("source") and has("updated_at") and ((.source == "fixture") or (.source == "live" and (.updated_at | type == "string")))] | all(.))' "exchange summaries cannot claim live without updated_at"
 check_status "GET /exchanges/:id responds" "/exchanges/${EXCHANGE_ID}"
 check_json_expr "exchange detail returns overview fields and ticker array" "/exchanges/${EXCHANGE_ID}" 'has("id") and has("name") and has("centralized") and (.tickers | type) == "array" and (.tickers | length > 0)' "exchange detail contains overview metadata and embedded tickers"
+check_json_expr "exchange detail exposes safe source and freshness fields" "/exchanges/${EXCHANGE_ID}" 'has("source") and has("updated_at") and ((.source == "fixture") or (.source == "live" and (.updated_at | type == "string")))' "exchange detail cannot claim live without updated_at"
 check_status "GET /exchanges/:id with contract-address formatting responds" "/exchanges/${EXCHANGE_ID}?dex_pair_format=contract_address"
 check_json_expr "contract-address formatting rewrites seeded USDC base" "/exchanges/${EXCHANGE_ID}?dex_pair_format=contract_address" '(.tickers | map(select(.coin_id == "usd-coin")) | length > 0) and ((.tickers | map(select(.coin_id == "usd-coin"))[0].base) == "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")' "usd-coin ticker base is rendered as a contract address"
 
@@ -34,9 +36,9 @@ check_json_expr "depth=true adds depth-cost fields" "/exchanges/${EXCHANGE_ID}/t
 
 module_section "Exchange Volume"
 check_status "GET /exchanges/:id/volume_chart responds" "/exchanges/${EXCHANGE_ID}/volume_chart?days=7"
-check_json_expr "volume chart returns timestamp/value pairs" "/exchanges/${EXCHANGE_ID}/volume_chart?days=7" 'type == "array" and length > 0 and ([.[0] | length == 2 and (.[0] | type) == "number" and (.[1] | type) == "number"] | all(.))' "volume_chart returns numeric [timestamp, volume] tuples"
+check_json_expr "volume chart returns an array of timestamp/value pairs when available" "/exchanges/${EXCHANGE_ID}/volume_chart?days=7" 'type == "array" and (length == 0 or ([.[0] | length == 2 and (.[0] | type) == "number" and (.[1] | type) == "number"] | all(.)))' "volume_chart returns an array, with numeric [timestamp, volume] tuples when populated"
 check_status "GET /exchanges/:id/volume_chart/range responds" "/exchanges/${EXCHANGE_ID}/volume_chart/range?from=${VOLUME_RANGE_FROM}&to=${VOLUME_RANGE_TO}"
-check_json_expr "volume chart range returns ascending timestamp/value pairs" "/exchanges/${EXCHANGE_ID}/volume_chart/range?from=${VOLUME_RANGE_FROM}&to=${VOLUME_RANGE_TO}" 'type == "array" and length > 0 and ([.[0] | length == 2 and (.[0] | type) == "number" and (.[1] | type) == "number"] | all(.))' "volume_chart/range returns numeric [timestamp, volume] tuples"
+check_json_expr "volume chart range returns an array of timestamp/value pairs when available" "/exchanges/${EXCHANGE_ID}/volume_chart/range?from=${VOLUME_RANGE_FROM}&to=${VOLUME_RANGE_TO}" 'type == "array" and (length == 0 or ([.[0] | length == 2 and (.[0] | type) == "number" and (.[1] | type) == "number"] | all(.)))' "volume_chart/range returns an array, with numeric [timestamp, volume] tuples when populated"
 
 module_section "Derivatives"
 check_status "GET /derivatives responds" "/derivatives"

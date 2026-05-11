@@ -17,6 +17,7 @@
     "test:endpoint:exchanges": "bash scripts/modules/exchanges/exchanges.sh",
     "test:endpoint:global": "bash scripts/modules/global/global.sh",
     "test:endpoint:mr-market-frontend": "bash scripts/modules/mr-market-frontend/mr-market-frontend.sh",
+    "test:endpoint:onchain": "bash scripts/modules/onchain/onchain.sh",
     "test:endpoint:search": "bash scripts/modules/search/search.sh",
     "test:endpoint:simple": "bash scripts/modules/simple/simple.sh",
     "db:generate": "drizzle-kit generate",

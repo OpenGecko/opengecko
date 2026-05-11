@@ -19,6 +19,7 @@ check_json_expr "global totals include usd market cap and volume entries" "/glob
 module_section "Global Market Cap Chart"
 check_status "GET /global/market_cap_chart responds" "/global/market_cap_chart?vs_currency=${VS_CURRENCY}&days=${MARKET_CAP_DAYS}"
 check_json_expr "market cap chart returns timestamp/value pairs" "/global/market_cap_chart?vs_currency=${VS_CURRENCY}&days=${MARKET_CAP_DAYS}" 'has("market_cap_chart") and (.market_cap_chart | type) == "array" and (.market_cap_chart | length) > 0 and ([.market_cap_chart[] | length == 2 and (.[0] | type) == "number" and (.[1] | type) == "number"] | all(.))' "market_cap_chart contains numeric [timestamp, market_cap] tuples"
+check_json_expr "market cap chart exposes source and freshness metadata" "/global/market_cap_chart?vs_currency=${VS_CURRENCY}&days=${MARKET_CAP_DAYS}" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at") and has("point_count")) and ((.meta.fixture == true and .meta.source == "fixture") or (.meta.fixture == false and .meta.source == "market_snapshots" and (.meta.updated_at | type == "string")))' "market_cap_chart cannot claim live data without freshness/source metadata"
 
 module_section "DeFi Snapshot"
 check_status "GET /global/decentralized_finance_defi responds" "/global/decentralized_finance_defi"

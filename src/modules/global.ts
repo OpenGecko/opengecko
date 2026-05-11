@@ -158,6 +158,21 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
   return allRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
 }
 
+function buildGlobalChartMeta(rows: Array<{ timestamp: Date; marketCap: number }>) {
+  const latestTimestamp = rows.reduce<Date | null>((latest, row) =>
+    latest === null || row.timestamp.getTime() > latest.getTime() ? row.timestamp : latest, null);
+
+  return {
+    fixture: rows.length === 0,
+    source: rows.length > 0 ? 'market_snapshots' : 'fixture',
+    updated_at: latestTimestamp?.toISOString() ?? null,
+    point_count: rows.length,
+    note: rows.length > 0
+      ? 'Global market cap chart is derived from persisted market/chart snapshots'
+      : 'Global market cap chart has no persisted data available',
+  };
+}
+
 export function registerGlobalRoutes(
   app: FastifyInstance,
   database: AppDatabase,
@@ -195,6 +210,7 @@ export function registerGlobalRoutes(
 
     return sendCacheableJson(request, reply, {
       market_cap_chart: downsampledRows.map((row) => [row.timestamp.getTime(), row.marketCap]),
+      meta: buildGlobalChartMeta(downsampledRows),
     }, GLOBAL_HTTP_CACHE_POLICY);
   });
 

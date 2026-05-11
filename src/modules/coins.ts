@@ -201,6 +201,23 @@ function categoriesAreLiveAggregated(rows: ReturnType<typeof getCategories>) {
   return rows.some((category) => category.updatedAt.getTime() > SEEDED_CATEGORY_TIMESTAMP_MS);
 }
 
+function buildFixtureAwareMeta(options: {
+  fixture: boolean;
+  countKey: string;
+  count: number;
+  updatedAt: Date | null;
+  fixtureNote: string;
+  liveNote: string;
+}) {
+  return {
+    fixture: options.fixture,
+    [options.countKey]: options.count,
+    source: options.fixture ? 'fixture' : 'live',
+    updated_at: options.updatedAt?.toISOString() ?? null,
+    note: options.fixture ? options.fixtureNote : options.liveNote,
+  };
+}
+
 function buildCategoryTopCoinFields(database: AppDatabase, topCoinIds: string[]) {
   const coinById = new Map(getCoins(database, { status: 'all' }).map((coin) => [coin.id, coin]));
   const topCoinImages = topCoinIds.map((coinId) => {
@@ -407,6 +424,16 @@ export function registerCoinRoutes(
 
     return sendCacheableJson(request, reply, {
       coins: rows.map(buildNewListingRow),
+      meta: {
+        fixture: false,
+        source: 'catalog',
+        updated_at: rows.reduce<Date | null>((latest, row) => {
+          const rowUpdatedAt = row.updatedAt ?? row.activatedAt ?? row.createdAt;
+          return latest === null || rowUpdatedAt.getTime() > latest.getTime() ? rowUpdatedAt : latest;
+        }, null)?.toISOString() ?? null,
+        coin_count: rows.length,
+        note: 'Coin listings are sourced from the persisted catalog and scheduler rescans',
+      },
     }, COIN_AUXILIARY_HTTP_CACHE_POLICY);
   });
 
@@ -715,13 +742,15 @@ export function registerCoinRoutes(
         category_id: category.id,
         name: category.name,
       })),
-      meta: {
+      meta: buildFixtureAwareMeta({
         fixture,
-        category_count: categories.length,
-        note: fixture
-          ? `Categories data is seeded fixture (${categories.length} categories)`
-          : 'Categories taxonomy includes scheduler-refreshed aggregate inputs',
-      },
+        countKey: 'category_count',
+        count: categories.length,
+        updatedAt: categories.reduce<Date | null>((latest, category) =>
+          latest === null || category.updatedAt.getTime() > latest.getTime() ? category.updatedAt : latest, null),
+        fixtureNote: `Categories data is seeded fixture (${categories.length} categories)`,
+        liveNote: 'Categories taxonomy includes scheduler-refreshed aggregate inputs',
+      }),
     }, {
       maxAgeSeconds: 3_600,
       staleWhileRevalidateSeconds: 3_600,
@@ -748,13 +777,15 @@ export function registerCoinRoutes(
           updated_at: category.updatedAt.toISOString(),
         };
       }),
-      meta: {
+      meta: buildFixtureAwareMeta({
         fixture,
-        category_count: sorted.length,
-        note: fixture
-          ? `Categories data is seeded fixture (${sorted.length} categories)`
-          : 'Category metrics are computed from persisted market snapshots',
-      },
+        countKey: 'category_count',
+        count: sorted.length,
+        updatedAt: sorted.reduce<Date | null>((latest, category) =>
+          latest === null || category.updatedAt.getTime() > latest.getTime() ? category.updatedAt : latest, null),
+        fixtureNote: `Categories data is seeded fixture (${sorted.length} categories)`,
+        liveNote: 'Category metrics are computed from persisted market snapshots',
+      }),
     }, {
       maxAgeSeconds: 300,
       staleWhileRevalidateSeconds: 300,

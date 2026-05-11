@@ -66,6 +66,8 @@ describe('module contract verification scripts', () => {
     mockedFetchExchangeOHLCV.mockReset();
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue(null);
     vi.spyOn(defillamaProvider, 'fetchDefillamaDexVolumes').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaTokenPrices').mockResolvedValue(null);
+    vi.spyOn(defillamaProvider, 'fetchDefillamaTokens').mockResolvedValue(null);
 
     mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [
@@ -177,7 +179,9 @@ describe('module contract verification scripts', () => {
       'OpenGecko Exchanges Module Checks',
       [
         'exchange list returns exchange identifiers',
+        'exchange summaries expose safe source and freshness fields',
         'exchange detail returns overview fields and ticker array',
+        'exchange detail exposes safe source and freshness fields',
         'derivatives exchange detail can include ticker payloads',
       ],
     );
@@ -190,6 +194,7 @@ describe('module contract verification scripts', () => {
       [
         'global response returns aggregate market fields',
         'market cap chart returns timestamp/value pairs',
+        'market cap chart exposes source and freshness metadata',
         'defi response returns aggregate defi fields',
       ],
     );
@@ -225,8 +230,23 @@ describe('module contract verification scripts', () => {
       'OpenGecko Coins Module Checks',
       [
         'coin list includes platform data when requested',
+        'new listings expose source and freshness metadata',
         'coin detail includes market data and ticker arrays by default',
+        'categories mark fixture/live state and row freshness safely',
         'supply charts return fixture data envelopes',
+      ],
+    );
+  });
+
+  it('passes onchain contract checks for pools, tokens, trades, and categories', async () => {
+    await expectScriptToPass(
+      'scripts/modules/onchain/onchain.sh',
+      'OpenGecko Onchain Module Checks',
+      [
+        'pool list marks fixture/live state and freshness safely',
+        'token detail exposes freshness/source metadata for fixture/live safety',
+        'pool trades fail unsafe fixture/live claims',
+        'onchain categories expose category aggregate shape',
       ],
     );
   });

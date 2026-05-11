@@ -19,6 +19,8 @@ export function buildExchangeSummary(row: ExchangeRow) {
     trust_score_rank: row.trustScoreRank,
     trade_volume_24h_btc: row.tradeVolume24hBtc,
     trade_volume_24h_btc_normalized: row.tradeVolume24hBtcNormalized,
+    updated_at: row.updatedAt.toISOString(),
+    source: row.updatedAt.getTime() > Date.parse('2026-03-20T00:00:00.000Z') ? 'live' : 'fixture',
   };
 }
 
@@ -49,6 +51,8 @@ export function buildExchangeDetail(row: ExchangeRow) {
     trade_volume_24h_btc: row.tradeVolume24hBtc,
     trade_volume_24h_btc_normalized: row.tradeVolume24hBtcNormalized,
     status_updates: [],
+    updated_at: row.updatedAt.toISOString(),
+    source: row.updatedAt.getTime() > Date.parse('2026-03-20T00:00:00.000Z') ? 'live' : 'fixture',
   };
 }
 

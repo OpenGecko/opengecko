@@ -22,6 +22,7 @@ check_json_expr "coin list returns id/symbol/name rows" "/coins/list" 'type == "
 check_json_expr "coin list includes platform data when requested" "/coins/list?include_platform=true" 'type == "array" and length > 0 and ([.[0] | has("platforms")] | all(.))' "coin list adds platforms when include_platform=true"
 check_status "GET /coins/list/new responds" "/coins/list/new"
 check_json_expr "new listings return a coins envelope with listing timestamps" "/coins/list/new" 'has("coins") and (.coins | type) == "array" and (.coins | length) > 0 and ([.coins[] | has("id") and has("activated_at")] | all(.))' "new listings are wrapped in a coins array with activation timestamps"
+check_json_expr "new listings expose source and freshness metadata" "/coins/list/new" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at")) and (.meta.fixture == false and .meta.source == "catalog" and (.meta.updated_at | type == "string"))' "new listings cannot be served without catalog freshness/source metadata"
 
 module_section "Markets"
 check_status "GET /coins/markets responds" "/coins/markets?vs_currency=${VS_CURRENCY}&per_page=10&page=1"
@@ -62,8 +63,10 @@ check_json_expr "coin tickers return exchange metadata and price fields" "/coins
 check_json_expr "coin ticker exchange filter can isolate coinbase rows" "/coins/${COIN_ID}/tickers?exchange_ids=coinbase" '(.tickers | type) == "array" and ([.tickers[].market.identifier] | all(. == "coinbase"))' "exchange_ids filter limits rows to coinbase"
 check_status "GET /coins/categories/list responds" "/coins/categories/list"
 check_json_expr "category list returns fixture category rows" "/coins/categories/list" 'has("data") and (.data | type == "array") and (.data | length > 0) and ([.data[0] | has("category_id") and has("name")] | all(.))' "category list returns identifier/name rows inside the fixture envelope"
+check_json_expr "category list marks fixture/live state safely" "/coins/categories/list" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at")) and ((.meta.fixture == true and .meta.source == "fixture") or (.meta.fixture == false and .meta.source == "live" and (.meta.updated_at | type == "string")))' "category list fixture responses stay marked and live responses include freshness"
 check_status "GET /coins/categories responds" "/coins/categories?order=name_desc"
 check_json_expr "categories return fixture market-cap metadata and top coin lists" "/coins/categories?order=name_desc" 'has("data") and (.data | type == "array") and (.data | length > 0) and ([.data[0] | has("id") and has("market_cap") and has("top_3_coins")] | all(.))' "categories expose market cap and top_3_coins inside the fixture envelope"
+check_json_expr "categories mark fixture/live state and row freshness safely" "/coins/categories?order=name_desc" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at")) and ([.data[] | (.updated_at | type == "string")] | all(.)) and ((.meta.fixture == true and .meta.source == "fixture") or (.meta.fixture == false and .meta.source == "live" and (.meta.updated_at | type == "string")))' "categories cannot silently serve fixture data as live"
 
 module_section "Contract Address"
 check_status "GET /coins/:platform/contract/:address responds" "/coins/${PLATFORM_ID}/contract/${CONTRACT_ADDRESS}?localization=false&tickers=false&community_data=false&developer_data=false"
