@@ -30,7 +30,7 @@ The result: a decentralized, open market data layer that anyone can deploy, audi
 > OpenGecko ships **HTTP contract compatibility** and **live-data fidelity** on separate tracks. Routes, params, and field names follow CoinGecko conventions from day one. Live-data breadth and long-tail fidelity improve per release. See `docs/status/implementation-tracker.md` for current coverage.
 
 > [!WARNING]
-> Broad route coverage does **not** currently mean full release parity. The active non-NFT CoinGecko-compatible surface is largely implemented, but data fidelity remains uneven and the main Vitest suite still has open regressions in several core flows. Treat the project as a fast-moving compatibility API, not a finished 1:1 CoinGecko replacement.
+> Broad route coverage does **not** mean full data parity. The active non-NFT CoinGecko-compatible surface is largely implemented and the current validation gate is green, but live-data fidelity remains tiered: most endpoints are live or automated source-backed, while paid-indexer-style onchain analytics and deep long-tail historical coverage remain fixture/degraded or out of scope.
 
 ## What You Get
 
@@ -38,6 +38,7 @@ The result: a decentralized, open market data layer that anyone can deploy, audi
 - **Zero vendor lock-in** — No API keys. No rate limits. No subscription. Own your infrastructure.
 - **Deploy in one command** — `bun install && bun run dev`. SQLite under the hood. No external services required.
 - **60-second fresh data** — Hot market snapshots refresh continuously. No stale cache surprises.
+- **Unified automation loop** — In-memory scheduling owns refresh, sweep, retention, and optional source-sync jobs with `/diagnostics/jobs` visibility.
 - **Fully auditable** — Every intentional divergence from CoinGecko is documented. No black-box surprises.
 - **Built on open data** — CCXT, TrustWallet, [OpenGecko Assets](https://github.com/opengecko/assets), public on-chain sources. No proprietary data lock-in.
 
@@ -74,6 +75,7 @@ curl "http://localhost:3000/ping"
 curl "http://localhost:3000/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
 curl "http://localhost:3000/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&page=1"
 curl "http://localhost:3000/diagnostics/runtime"
+curl "http://localhost:3000/diagnostics/jobs"
 ```
 
 **Developer commands:**
@@ -89,6 +91,8 @@ bun run test:endpoint:exchanges
 bun run test:endpoint:global
 bun run test:endpoint:assets
 bun run test:endpoint:search
+bun run test:endpoint:onchain
+bun run test:endpoint:treasury
 ```
 
 ## Architecture
@@ -114,13 +118,14 @@ bun run test:endpoint:search
 └─────────────────┘              └─────────────────────────┘
 ```
 
-Three layers:
+Three layers plus an in-process automation scheduler:
 
 - **Compatibility API** — Fastify-powered REST surface matching CoinGecko contracts.
 - **Domain Services** — Business logic, freshness enforcement, response shaping.
 - **Storage / Provider** — SQLite hot snapshot (60s refresh) backed by CCXT live feeds.
+- **Scheduler / Jobs** — Serialized in-memory jobs for market refresh, Tier 1 through Tier 3 sweeps, retention pruning, and optional source-backed syncs exposed through `/diagnostics/jobs`.
 
-A background OHLCV worker runs continuously, prioritizing top-100 coins for recent data before deepening historical range. Search uses SQLite FTS5.
+A background OHLCV worker runs continuously, prioritizing top-100 coins for recent data before deepening historical range. Search uses SQLite FTS5. Live automation now covers the primary market, exchange, derivatives, category, supply, movers, treasury, trending, and onchain replay paths where public or configured sources are available; fixture/fallback states remain explicit in diagnostics instead of being presented as paid-indexer parity.
 
 ## API Coverage
 
@@ -245,11 +250,11 @@ Full schema in `src/config/env.ts`.
 | `GET /diagnostics/ohlcv_sync` | OHLCV worker progress, sync health, estimated remaining history backfill chunks, and capped most-behind target samples |
 | `GET /diagnostics/chain_coverage` | Chain/network normalization coverage |
 | `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, freshness/depth status, and fallback-only gaps |
-| `GET /diagnostics/jobs` | Optional provider sync job target counts and last persisted or in-process run outcome |
+| `GET /diagnostics/jobs` | Unified scheduler and optional provider sync job target counts, run state, sanitized failures, retention/sweep outcomes, and last persisted or in-process run outcome |
 | `GET /metrics` | Prometheus-compatible metrics |
 
 > [!TIP]
-> For production, monitor `/diagnostics/runtime` and `/metrics` together to capture both contract uptime and data freshness state.
+> For production, monitor `/diagnostics/runtime`, `/diagnostics/jobs`, and `/metrics` together to capture contract uptime, scheduler health, data freshness, and fallback/degraded states.
 
 **Background jobs:**
 
@@ -259,6 +264,7 @@ bun run ohlcv:worker      # continuous OHLCV ingestion (top-100 first)
 bun run search:rebuild    # rebuild SQLite FTS5 search index
 bun run charts:backfill   # backfill historical OHLCV data
 bun run coin:history:sync # optional source-backed dated coin history sync
+bun run derivatives:sync  # optional/source-backed derivatives venue sync
 bun run exchange:volumes:sync # optional source-backed exchange volume sync
 bun run market:charts:sync # optional source-backed market chart/OHLC target sync
 bun run onchain:analytics:sync # optional source-backed onchain holder/trader analytics sync
@@ -675,7 +681,7 @@ Use `summary` for the rollout view and `coins` for per-target detail. The `respo
 
 1. Switch your API base URL to your OpenGecko host.
 2. Re-run your existing contract tests against OpenGecko.
-3. Check `GET /diagnostics/runtime` for initial sync state and any stale fallback conditions.
+3. Check `GET /diagnostics/runtime` and `GET /diagnostics/jobs` for initial sync state, scheduler progress, source-backed job outcomes, and any stale/degraded fallback conditions.
 4. Validate the endpoints in your critical path first — `/simple`, `/coins`, `/exchanges` — before assuming broader parity.
 5. Read `docs/status/implementation-tracker.md` and `docs/status/compatibility-audit.md` together so you separate route availability from data/runtime confidence.
 6. Track any intentional incompatibilities in your integration docs.
