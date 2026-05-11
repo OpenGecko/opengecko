@@ -127,10 +127,50 @@ describe('unified scheduler', () => {
   });
 
   it('bounds and redacts standalone diagnostic error text', () => {
-    const sanitized = sanitizeSchedulerDiagnosticError(`password=hunter2 ${'x'.repeat(600)}`);
+    const sanitized = sanitizeSchedulerDiagnosticError(
+      `Authorization: Bearer scheduler-secret-token database_url=/home/whoami/dev/opengecko/data/opengecko.db path /home/whoami/dev/opengecko/data/runtime.sqlite password=hunter2 https://provider.example/v1/prices?api_key=url-secret&ids=bitcoin ${'x'.repeat(600)}`,
+    );
 
     expect(sanitized).toContain('password=redacted');
+    expect(sanitized).toContain('Authorization: redacted');
+    expect(sanitized).toContain('[path redacted]');
+    expect(sanitized).toContain('?redacted');
     expect(sanitized).not.toContain('hunter2');
+    expect(sanitized).not.toContain('scheduler-secret-token');
+    expect(sanitized).not.toContain('url-secret');
+    expect(sanitized).not.toContain('/home/whoami/dev/opengecko/data/opengecko.db');
+    expect(sanitized).not.toContain('/home/whoami/dev/opengecko/data/runtime.sqlite');
     expect(sanitized.length).toBeLessThanOrEqual(500);
+  });
+
+  it('emits sanitized structured failure logs matching diagnostics', async () => {
+    const logger = createLogger();
+    const scheduler = createUnifiedScheduler({
+      logger,
+      now: () => new Date('2026-05-05T00:00:00.000Z'),
+    });
+
+    scheduler.register({
+      name: 'secret-failure-job',
+      intervalSeconds: 60,
+      run: vi.fn(async () => {
+        throw new Error(
+          'POST failed Authorization=Bearer log-secret-token token=query-secret /home/whoami/dev/opengecko/data/runtime.sqlite\n    at providerStack',
+        );
+      }),
+    });
+
+    await scheduler.runNow('secret-failure-job');
+
+    const diagnosticError = scheduler.diagnostics()[0]?.last_error;
+    const logError = logger.error.mock.calls[0]?.[0]?.error;
+    expect(logError).toBe(diagnosticError);
+    expect(logError).toContain('Authorization=redacted');
+    expect(logError).toContain('token=redacted');
+    expect(logError).toContain('[path redacted]');
+    expect(logError).not.toContain('log-secret-token');
+    expect(logError).not.toContain('query-secret');
+    expect(logError).not.toContain('/home/whoami/dev/opengecko/data/runtime.sqlite');
+    expect(logError).not.toContain('providerStack');
   });
 });
