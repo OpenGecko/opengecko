@@ -640,4 +640,32 @@ describe('documentation drift guards', () => {
       expect(ohlcvInterpretation).toContain(expectedOhlcvDetail);
     }
   });
+
+  it('keeps resolved TODO follow-ups out of the review queue', () => {
+    const todos = readRepoFile('TODOS.md');
+    const reviewSection = todos.match(/## Review([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
+    const completedSection = todos.match(/## Completed([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
+    const deferredSection = todos.match(/## Deferred with rationale([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
+    const resolvedTodoTitles = [
+      'Add plan/tracker drift guard tests',
+      'Add onchain TTL cache reliability tests',
+      'Time-box renewable enrichment source evaluation',
+    ];
+
+    for (const title of resolvedTodoTitles) {
+      expect(reviewSection).not.toContain(title);
+      expect(todos).toContain(`### ${title}`);
+    }
+
+    expect(completedSection).toContain('Add plan/tracker drift guard tests');
+    expect(completedSection).toContain('tests/docs-drift.test.ts');
+    expect(completedSection).toContain('docs/status/implementation-tracker.md');
+    expect(completedSection).toContain('docs/status/compatibility-audit.md');
+
+    expect(deferredSection).toContain('Add onchain TTL cache reliability tests');
+    expect(deferredSection).toContain('src/modules/onchain.ts');
+    expect(deferredSection).toContain('buildLiveOnchainCatalog()');
+    expect(deferredSection).toContain('Time-box renewable enrichment source evaluation');
+    expect(deferredSection).toContain('docs/plans/2026-05-05-opengecko-improvement-guide.md');
+  });
 });

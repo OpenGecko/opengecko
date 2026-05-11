@@ -2,40 +2,38 @@
 
 ## Review
 
+No active review items.
+
+## Completed
+
 ### Add plan/tracker drift guard tests
 
-**What:** Add automated tests that fail when `docs/status/implementation-tracker.md` and `docs/status/compatibility-audit.md` claim states that contradict runtime behavior.
+**Status:** Completed.
 
-**Why:** Prevent planning drift and wasted implementation cycles caused by stale documentation.
+**Resolution:** Covered by `tests/docs-drift.test.ts`, including assertions that:
 
-**Context:** The data-fidelity review found that exchange ticker ingestion and exchange volume accumulation were documented as pending even though `src/services/market-refresh.ts` already performs both live paths. Add a docs consistency guard so this type of mismatch is caught in CI.
+- `docs/status/implementation-tracker.md` coverage counts, percentages, and family ownership rows are derived from `src/services/coverage-matrix.ts`.
+- `docs/status/implementation-tracker.md` cannot claim a family is `live` unless the coverage matrix builder reports `live`.
+- `docs/status/compatibility-audit.md` active non-NFT endpoint counts and implemented route rows match the registered CoinGecko-compatible GET routes.
 
-**Effort:** M
-**Priority:** P1
-**Depends on:** None
+**References:** `tests/docs-drift.test.ts`, `docs/status/implementation-tracker.md`, `docs/status/compatibility-audit.md`, and `/diagnostics/coverage_matrix`.
+
+## Deferred with rationale
 
 ### Add onchain TTL cache reliability tests
 
-**What:** Add targeted tests for onchain live-catalog TTL cache behavior, including hit, expiry refresh, and degraded fallback.
+**Status:** Deferred.
 
-**Why:** Cache regressions create silent stale data issues and upstream pressure under load.
+**Rationale:** The scoped TTL helper does not exist in `src/modules/onchain.ts`. Current route code imports `buildLiveOnchainCatalog()` from `src/modules/onchain/pools.ts`, where the existing module-level promise only coalesces in-flight provider discovery; it does not implement a 60-second hit/expiry cache surface with deterministic time injection for hit, expiry refresh, and degraded fallback assertions.
 
-**Context:** The review decision is to add a 60s TTL cache for `buildLiveOnchainCatalog()` in `src/modules/onchain.ts`. Tests should verify provider call dedupe within TTL, refresh after TTL, and clear fallback behavior when refresh fails.
+**Responsible plan:** Defer to the provider resilience and hot-route cache work tracked in `docs/plans/2026-05-05-opengecko-improvement-guide.md`, where a future implementation can add the cache helper and focused tests together.
 
-**Effort:** M
-**Priority:** P1
-**Depends on:** Implement 60s onchain live-catalog TTL cache
+**Depends on:** Implement a 60-second onchain live-catalog TTL cache with injectable time/provider seams.
 
 ### Time-box renewable enrichment source evaluation
 
-**What:** Run a time-boxed evaluation of renewable external data sources for coin description/links/community/developer enrichment.
+**Status:** Deferred.
 
-**Why:** The prior CCXT-based enrichment task is not technically feasible for CoinGecko-style metadata.
+**Rationale:** Renewable external sources for CoinGecko-style description, links, community, and developer metadata need a licensing/schema/update-cadence review before implementation. The current API remains explicit that coin detail enrichment is seeded/source-capable rather than full live metadata parity.
 
-**Context:** Keep current seeded enrichment for now, then evaluate source options with explicit criteria: licensing, update cadence, schema coverage, quality, and fallback policy. Deliverable is a go/no-go recommendation and integration plan.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
-
-## Completed
+**Responsible plan:** Track source evaluation criteria and go/no-go planning in `docs/plans/2026-05-05-opengecko-improvement-guide.md` under the data fidelity and improvement prioritization work.
