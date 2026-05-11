@@ -6414,7 +6414,7 @@ describe('OpenGecko app scaffold', () => {
       expect(initialDiagnostics.json().data.scheduler).toMatchObject({
         enabled: true,
         started: true,
-        job_count: 13,
+        job_count: 14,
       });
 
       await expect.poll(async () => {
@@ -6535,7 +6535,7 @@ describe('OpenGecko app scaffold', () => {
       expect(diagnostics.json().data.scheduler).toMatchObject({
         enabled: false,
         started: false,
-        job_count: 13,
+        job_count: 14,
       });
       for (const job of diagnostics.json().data.jobs) {
         expect(job).toMatchObject({
@@ -7157,7 +7157,7 @@ describe('OpenGecko app scaffold', () => {
   it('supports mover duration, tolerates trailing-empty mover windows, and validates invalid mover params explicitly', async () => {
     const validResponse = await getApp().inject({
       method: 'GET',
-      url: '/coins/top_gainers_losers?vs_currency=usd&duration=24h&top_coins=300&price_change_percentage=24h',
+      url: '/coins/top_gainers_losers?vs_currency=usd&duration=24h&top_coins=100&price_change_percentage=24h',
     });
     const trailingCommaResponse = await getApp().inject({
       method: 'GET',
@@ -7174,6 +7174,10 @@ describe('OpenGecko app scaffold', () => {
     const invalidTopCoinsResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/top_gainers_losers?vs_currency=usd&top_coins=2',
+    });
+    const invalidCurrencyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/top_gainers_losers?vs_currency=notacurrency&duration=24h',
     });
 
     expect(validResponse.statusCode).toBe(200);
@@ -7198,6 +7202,12 @@ describe('OpenGecko app scaffold', () => {
     expect(invalidTopCoinsResponse.statusCode).toBe(400);
     expect(invalidTopCoinsResponse.json()).toMatchObject({
       error: 'invalid_parameter',
+    });
+
+    expect(invalidCurrencyResponse.statusCode).toBe(400);
+    expect(invalidCurrencyResponse.json()).toMatchObject({
+      error: 'invalid_parameter',
+      message: 'Unsupported vs_currency: notacurrency',
     });
   });
 

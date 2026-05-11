@@ -152,7 +152,7 @@ export function parseTopCoinsLimit(value: string | undefined) {
 
   const parsed = Number(value);
 
-  if (!Number.isInteger(parsed) || ![300, 500, 1000].includes(parsed)) {
+  if (!Number.isInteger(parsed) || ![100, 300, 500, 1000].includes(parsed)) {
     throw new HttpError(400, 'invalid_parameter', `Unsupported top_coins value: ${value}`);
   }
 

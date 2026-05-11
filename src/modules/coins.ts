@@ -358,6 +358,7 @@ export function registerCoinRoutes(
     const requestedWindows = Array.from(new Set([...parseMoverPriceChangePercentage(query.price_change_percentage), duration.days === 1 ? '24h' : `${duration.days}d`]));
     const topCoinsLimit = parseTopCoinsLimit(query.top_coins);
     const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+    getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
     const rankedUniverse = getMarketRows(database, 'usd', { status: 'active' })
       .map((row) => ({
         coin: row.coin,

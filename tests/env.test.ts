@@ -93,6 +93,8 @@ describe('repo dotenv loading', () => {
       SUPPLY_CHART_TARGETS: 'mock.supply=bitcoin',
       OPTIONAL_PROVIDER_SYNC_ENABLED: 'true',
       OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS: '120',
+      SUPPLY_AGGREGATOR_INTERVAL_SECONDS: '450',
+      SUPPLY_AGGREGATOR_DISABLED: 'true',
     };
 
     const config = loadConfig(env);
@@ -107,6 +109,8 @@ describe('repo dotenv loading', () => {
     expect(config.supplyChartTargets).toBe('mock.supply=bitcoin');
     expect(config.optionalProviderSyncEnabled).toBe(true);
     expect(config.optionalProviderSyncIntervalSeconds).toBe(120);
+    expect(config.supplyAggregatorIntervalSeconds).toBe(450);
+    expect(config.supplyAggregatorDisabled).toBe(true);
   });
 
   it('retains the last successfully resolved config for deterministic startup failure logging', () => {

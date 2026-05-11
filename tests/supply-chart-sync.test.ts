@@ -5,8 +5,9 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { supplyChartPoints } from '../src/db/schema';
+import { marketSnapshots, supplyChartPoints } from '../src/db/schema';
 import { runSupplyChartSyncJob } from '../src/jobs/sync-supply-charts';
+import { runSupplyAggregator } from '../src/services/supply-aggregator';
 import {
   createHttpSupplyChartFetcher,
   parseSupplyChartTargetConfig,
@@ -225,6 +226,111 @@ describe('supply chart sync', () => {
           source: 'live',
         },
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('aggregates current market snapshot supply into bounded live chart rows and diagnostics', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+
+      app.db.db
+        .insert(marketSnapshots)
+        .values({
+          coinId: 'bitcoin',
+          vsCurrency: 'usd',
+          price: 85_000,
+          marketCap: 1_684_000_000_000,
+          totalVolume: 42_000_000_000,
+          marketCapRank: 1,
+          fullyDilutedValuation: 1_785_000_000_000,
+          circulatingSupply: 19_812_345,
+          totalSupply: 21_000_000,
+          maxSupply: 21_000_000,
+          ath: null,
+          athChangePercentage: null,
+          athDate: null,
+          atl: null,
+          atlChangePercentage: null,
+          atlDate: null,
+          priceChange24h: 1_500,
+          priceChangePercentage24h: 1.8,
+          sourceProvidersJson: JSON.stringify(['mock.exchange']),
+          sourceCount: 1,
+          updatedAt: new Date('2026-05-06T00:00:00.000Z'),
+          lastUpdated: new Date('2026-05-06T00:00:00.000Z'),
+        })
+        .onConflictDoUpdate({
+          target: [marketSnapshots.coinId, marketSnapshots.vsCurrency],
+          set: {
+            circulatingSupply: 19_812_345,
+            totalSupply: 21_000_000,
+            lastUpdated: new Date('2026-05-06T00:00:00.000Z'),
+          },
+        })
+        .run();
+
+      expect(runSupplyAggregator(app.db, new Date('2026-05-06T00:01:00.000Z'))).toEqual({
+        targetsProcessed: 1,
+        rowsWritten: 2,
+      });
+
+      const circulatingResponse = await app.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/circulating_supply_chart?days=30',
+      });
+      const totalRangeResponse = await app.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/total_supply_chart/range?from=1778025600&to=1778112000',
+      });
+      const diagnosticsResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/supply_charts',
+      });
+
+      expect(circulatingResponse.statusCode).toBe(200);
+      expect(circulatingResponse.json()).toMatchObject({
+        data: [[1778025600 * 1_000, 19_812_345]],
+        meta: {
+          fixture: false,
+          coin_id: 'bitcoin',
+          supply_type: 'circulating',
+          source: 'live',
+          source_providers: ['market-snapshot-aggregator'],
+        },
+      });
+      expect(totalRangeResponse.statusCode).toBe(200);
+      expect(totalRangeResponse.json()).toMatchObject({
+        data: [[1778025600 * 1_000, 21_000_000]],
+        meta: {
+          fixture: false,
+          coin_id: 'bitcoin',
+          supply_type: 'total',
+          source: 'live',
+        },
+      });
+      expect(diagnosticsResponse.statusCode).toBe(200);
+      expect(diagnosticsResponse.json().data.coins).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          status: 'live_backed',
+          source_providers: ['market-snapshot-aggregator'],
+          row_counts: {
+            circulating: { total: 1, live: 1, replay: 0 },
+            total: { total: 1, live: 1, replay: 0 },
+          },
+          latest_source_fetched_at: '2026-05-06T00:01:00.000Z',
+        }),
+      ]));
     } finally {
       await app.close();
     }

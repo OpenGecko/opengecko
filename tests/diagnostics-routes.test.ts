@@ -184,7 +184,7 @@ describe('diagnostics routes', () => {
     expect(response.json().data).toMatchObject({
       scheduler: {
         enabled: true,
-        job_count: 13,
+        job_count: 14,
       },
       jobs: expect.arrayContaining([
         expect.objectContaining({
@@ -252,6 +252,11 @@ describe('diagnostics routes', () => {
         expect.objectContaining({
           name: 'derivatives-refresh',
           interval_seconds: 120,
+          disabled: false,
+        }),
+        expect.objectContaining({
+          name: 'supply-aggregator',
+          interval_seconds: 900,
           disabled: false,
         }),
       ]),
