@@ -182,6 +182,9 @@ describe('module contract verification scripts', () => {
         'exchange summaries expose safe source and freshness fields',
         'exchange detail returns overview fields and ticker array',
         'exchange detail exposes safe source and freshness fields',
+        'derivatives response exposes explicit live or fixture state',
+        'derivatives diagnostics explain configured live or fallback state',
+        'derivatives refresh job is observable in scheduler diagnostics',
         'derivatives exchange detail can include ticker payloads',
       ],
     );
