@@ -1171,28 +1171,31 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
+    const persistedTrades = readOnchainPoolTrades(database, params.network, normalizedAddress);
     const liveFetchedAt = new Date();
     let liveTrades = null;
-    try {
-      liveTrades = (await fetchLivePoolTrades(resolvedPool))?.map((trade) => ({
-        ...trade,
-        sourceFetchedAt: liveFetchedAt,
-      })) ?? null;
-      request.log.info({
-        network: params.network,
-        pool_address: normalizedAddress,
-        live_trade_count: liveTrades?.length ?? 0,
-        live_source: liveTrades ? 'live' : 'fixture',
-      }, 'resolved onchain pool trades source');
-    } catch (error) {
-      request.log.error({
-        err: error,
-        network: params.network,
-        pool_address: normalizedAddress,
-      }, 'failed to fetch live onchain pool trades');
+    if (persistedTrades.length === 0) {
+      try {
+        liveTrades = (await fetchLivePoolTrades(resolvedPool))?.map((trade) => ({
+          ...trade,
+          sourceFetchedAt: liveFetchedAt,
+        })) ?? null;
+        request.log.info({
+          network: params.network,
+          pool_address: normalizedAddress,
+          live_trade_count: liveTrades?.length ?? 0,
+          live_source: liveTrades ? 'live' : 'fixture',
+        }, 'resolved onchain pool trades source');
+      } catch (error) {
+        request.log.error({
+          err: error,
+          network: params.network,
+          pool_address: normalizedAddress,
+        }, 'failed to fetch live onchain pool trades');
+      }
     }
 
-    const sourceTrades = liveTrades ?? readOnchainPoolTrades(database, params.network, normalizedAddress);
+    const sourceTrades = persistedTrades.length > 0 ? persistedTrades : liveTrades ?? [];
     const tradeSource = liveTrades
       ? 'live'
       : sourceTrades.length > 0

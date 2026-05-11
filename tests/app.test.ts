@@ -19,6 +19,7 @@ import * as sqdProvider from '../src/providers/sqd';
 import * as startupPrewarmModule from '../src/services/startup-prewarm';
 import * as currencyRatesModule from '../src/services/currency-rates';
 import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates';
+import { syncOnchainTrades } from '../src/services/onchain-trade-sync';
 import contractFixtures from './fixtures/contract-fixtures.json';
 
 const currentDailyBucket = () => candleStore.toDailyBucket(Date.now()).getTime();
@@ -3959,6 +3960,71 @@ describe('OpenGecko app scaffold', () => {
       method: 'GET',
       url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/trades?limit=1&before_timestamp=1710000000',
     });
+
+    await syncOnchainTrades(getApp().db, {
+      now: new Date('2026-05-05T00:13:00.000Z'),
+      targets: [
+        {
+          provider: 'mock.trades',
+          networkId: 'eth',
+          poolAddress: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+        },
+        {
+          provider: 'mock.trades',
+          networkId: 'eth',
+          poolAddress: '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7',
+        },
+      ],
+      fetcher: async (target) => {
+        if (target.poolAddress === '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640') {
+          return {
+            provider: target.provider,
+            captured_at: '2026-05-05T00:13:00.000Z',
+            network_id: target.networkId,
+            pool_address: target.poolAddress,
+            trades: [
+              {
+                id: 'live-usdcweth-1',
+                token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+                side: 'buy',
+                volume_usd: 220000,
+                price_usd: 1,
+                tx_hash: '0xlivetx1',
+                block_timestamp: 1710000100,
+              },
+              {
+                id: 'live-usdcweth-2',
+                token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+                side: 'buy',
+                volume_usd: 151000,
+                price_usd: 1,
+                tx_hash: '0xlivetx2',
+                block_timestamp: 1710000000,
+              },
+            ],
+          };
+        }
+
+        return {
+          provider: target.provider,
+          captured_at: '2026-05-05T00:13:00.000Z',
+          network_id: target.networkId,
+          pool_address: target.poolAddress,
+          trades: [
+            {
+              id: 'live-curve-1',
+              token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              side: 'buy',
+              volume_usd: 180000,
+              price_usd: 1,
+              tx_hash: '0xlivetx3',
+              block_timestamp: 1709999200,
+            },
+          ],
+        };
+      },
+    });
+
     const tokenTradesResponse = await getApp().inject({
       method: 'GET',
       url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/trades',
