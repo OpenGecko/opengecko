@@ -116,11 +116,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         seedValidationSnapshotMode,
       );
     });
+
+    if (scheduler) {
+      app.addHook('onListen', async () => {
+        if (!config.schedulerDisabled) {
+          scheduler.start();
+        }
+      });
+    }
   }
 
   app.addHook('onClose', async () => {
     if (runtime) {
       await runtime.stop();
+    } else if (scheduler) {
+      await scheduler.stop();
     }
 
     await closeExchangePool();

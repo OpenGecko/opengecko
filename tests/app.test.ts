@@ -6311,6 +6311,173 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
+  it('starts the validation diagnostics scheduler after listener binding and ticks no-op jobs', async () => {
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        host: '127.0.0.1',
+        port: 3102,
+        marketRefreshIntervalSeconds: 1,
+        searchRebuildIntervalSeconds: 1,
+        currencyRefreshIntervalSeconds: 1,
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+      pluginTimeout: 0,
+    });
+
+    try {
+      await bootstrapApp.listen({ host: '127.0.0.1', port: 0 });
+
+      const initialDiagnostics = await bootstrapApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      expect(initialDiagnostics.statusCode).toBe(200);
+      expect(initialDiagnostics.json().data.scheduler).toMatchObject({
+        enabled: true,
+        started: true,
+        job_count: 5,
+      });
+
+      await expect.poll(async () => {
+        const response = await bootstrapApp.inject({
+          method: 'GET',
+          url: '/diagnostics/jobs',
+        });
+        const marketJob = response.json().data.jobs.find((job: { name: string }) => job.name === 'market-refresh');
+        return marketJob?.run_count ?? 0;
+      }, { interval: 100, timeout: 2500 }).toBeGreaterThanOrEqual(1);
+
+      const populatedDiagnostics = await bootstrapApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const marketJob = populatedDiagnostics.json().data.jobs.find((job: { name: string }) => job.name === 'market-refresh');
+      expect(marketJob).toMatchObject({
+        disabled: false,
+        run_count: expect.any(Number),
+        success_count: expect.any(Number),
+        last_duration_ms: expect.any(Number),
+        last_error: null,
+        error_count: 0,
+      });
+      expect(marketJob.run_count).toBeGreaterThanOrEqual(1);
+      expect(marketJob.success_count).toBeGreaterThanOrEqual(1);
+      expect(marketJob.last_run_at).toEqual(expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/));
+      expect(marketJob.last_success_at).toEqual(expect.stringMatching(/^20\d{2}-\d{2}-\d{2}T.*Z$/));
+    } finally {
+      await bootstrapApp.close();
+    }
+  });
+
+  it('keeps market-refresh observable but unticked when validation diagnostics disable that job', async () => {
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        host: '127.0.0.1',
+        port: 3102,
+        marketRefreshIntervalSeconds: 1,
+        searchRebuildIntervalSeconds: 1,
+        currencyRefreshIntervalSeconds: 1,
+        disableRemoteCurrencyRefresh: true,
+        marketRefreshDisabled: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+      pluginTimeout: 0,
+    });
+
+    try {
+      await bootstrapApp.listen({ host: '127.0.0.1', port: 0 });
+
+      await expect.poll(async () => {
+        const response = await bootstrapApp.inject({
+          method: 'GET',
+          url: '/diagnostics/jobs',
+        });
+        const searchJob = response.json().data.jobs.find((job: { name: string }) => job.name === 'search-rebuild');
+        return searchJob?.run_count ?? 0;
+      }, { interval: 100, timeout: 2500 }).toBeGreaterThanOrEqual(1);
+
+      const diagnostics = await bootstrapApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      expect(diagnostics.json().data.scheduler).toMatchObject({
+        enabled: true,
+        started: true,
+      });
+      const marketJob = diagnostics.json().data.jobs.find((job: { name: string }) => job.name === 'market-refresh');
+      expect(marketJob).toMatchObject({
+        disabled: true,
+        run_count: 0,
+        success_count: 0,
+        last_run_at: null,
+        last_success_at: null,
+        last_duration_ms: null,
+        last_error: null,
+      });
+    } finally {
+      await bootstrapApp.close();
+    }
+  });
+
+  it('keeps the validation diagnostics scheduler stopped when the scheduler is globally disabled', async () => {
+    const bootstrapApp = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        host: '127.0.0.1',
+        port: 3102,
+        marketRefreshIntervalSeconds: 1,
+        searchRebuildIntervalSeconds: 1,
+        currencyRefreshIntervalSeconds: 1,
+        disableRemoteCurrencyRefresh: true,
+        schedulerDisabled: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+      pluginTimeout: 0,
+    });
+
+    try {
+      await bootstrapApp.listen({ host: '127.0.0.1', port: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      const diagnostics = await bootstrapApp.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      expect(diagnostics.statusCode).toBe(200);
+      expect(diagnostics.json().data.scheduler).toMatchObject({
+        enabled: false,
+        started: false,
+        job_count: 5,
+      });
+      for (const job of diagnostics.json().data.jobs) {
+        expect(job).toMatchObject({
+          disabled: true,
+          run_count: 0,
+          success_count: 0,
+          last_run_at: null,
+          last_success_at: null,
+        });
+      }
+    } finally {
+      await bootstrapApp.close();
+    }
+  });
+
   it('allows background-runtime startup when fastify plugin timeout is disabled', async () => {
     const initialSyncModule = await import('../src/services/initial-sync');
     const runInitialMarketSyncSpy = vi.spyOn(initialSyncModule, 'runInitialMarketSync')

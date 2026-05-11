@@ -298,7 +298,7 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.5.0');
+    expect(packageJson.version).toBe('0.5.1');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(packageJson.version.startsWith('0.5.')).toBe(true);
   });
