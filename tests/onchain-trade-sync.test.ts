@@ -229,6 +229,8 @@ describe('onchain trade sync', () => {
           network: 'eth',
           pool_address: fixture.pool_address,
           source: 'live',
+          fixture: false,
+          updated_at: '2026-05-05T00:13:00.000Z',
         },
       });
       expect(tokenTradesResponse.json()).toMatchObject({
@@ -242,6 +244,8 @@ describe('onchain trade sync', () => {
           network: 'eth',
           token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
           source: 'live',
+          fixture: false,
+          updated_at: '2026-05-05T00:13:00.000Z',
         },
       });
     } finally {

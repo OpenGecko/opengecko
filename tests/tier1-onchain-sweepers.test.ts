@@ -200,15 +200,29 @@ describe('Tier 1 onchain background sweepers', () => {
       const result = await runDefillamaTokenSweep(app.db, {
         now: new Date('2026-05-05T00:02:00.000Z'),
         targets: [{ id: 'usd-coin' }],
-        fetchTokenPrices: async () => ({
-          'ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
+        fetchTokenPrices: async (coins) => {
+          expect(coins).toEqual(expect.arrayContaining([
+            'ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            'ethereum:0xdac17f958d2ee523a2206206994597c13d831ec7',
+          ]));
+
+          return {
+            'ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': {
             price: 1.01,
             symbol: 'USDC',
             decimals: 6,
             confidence: 0.99,
             timestamp: 1_778_501_000,
-          },
-        }),
+            },
+            'ethereum:0xdac17f958d2ee523a2206206994597c13d831ec7': {
+              price: 1,
+              symbol: 'USDT',
+              decimals: 6,
+              confidence: 0.99,
+              timestamp: 1_778_501_000,
+            },
+          };
+        },
       });
 
       expect(result.rowsWritten).toBeGreaterThan(0);
@@ -223,6 +237,13 @@ describe('Tier 1 onchain background sweepers', () => {
         updated_at: Math.floor(Date.parse('2026-05-05T00:02:00.000Z') / 1000),
       });
       expect(after.json().data.attributes.updated_at).toBeGreaterThan(beforeUpdatedAt);
+
+      const quoteAfter = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/tokens/0xdac17f958d2ee523a2206206994597c13d831ec7/info',
+      });
+      expect(quoteAfter.statusCode).toBe(200);
+      expect(quoteAfter.json().data.attributes.updated_at).toBeGreaterThan(beforeUpdatedAt);
 
       await expect(runDefillamaTokenSweep(app.db, {
         now: new Date('2026-05-05T00:03:00.000Z'),

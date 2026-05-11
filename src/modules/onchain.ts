@@ -145,6 +145,11 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     updated_at: options.updatedAt?.toISOString() ?? null,
     ...options.extra,
   });
+  const latestTradeUpdatedAt = (trades: Array<{ id: string; sourceFetchedAt?: Date | null }>) =>
+    trades.reduce<Date | null>((latest, trade) =>
+      trade.sourceFetchedAt && (latest === null || trade.sourceFetchedAt.getTime() > latest.getTime())
+        ? trade.sourceFetchedAt
+        : latest, null);
 
   app.get('/onchain/networks', async (request, reply) => {
     const query = paginationQuerySchema.parse(request.query);
@@ -1166,9 +1171,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
+    const liveFetchedAt = new Date();
     let liveTrades = null;
     try {
-      liveTrades = await fetchLivePoolTrades(resolvedPool);
+      liveTrades = (await fetchLivePoolTrades(resolvedPool))?.map((trade) => ({
+        ...trade,
+        sourceFetchedAt: liveFetchedAt,
+      })) ?? null;
       request.log.info({
         network: params.network,
         pool_address: normalizedAddress,
@@ -1206,11 +1215,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     return sendCacheableJson(request, reply, {
       data: trades.map((trade) => buildTradeResource(trade, resolveAddressLabel(trade.poolAddress))),
-      meta: {
-        network: params.network,
-        pool_address: params.address,
+      meta: buildOnchainSourceMeta({
         source: tradeSource,
-      },
+        updatedAt: latestTradeUpdatedAt(trades),
+        extra: {
+          network: params.network,
+          pool_address: params.address,
+        },
+      }),
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 
@@ -1230,7 +1242,12 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       throw new HttpError(404, 'not_found', `Onchain token not found: ${tokenAddress}`);
     }
 
-    const liveTradeGroups = await Promise.all(tokenPools.map((pool) => fetchLivePoolTrades(pool)));
+    const liveFetchedAt = new Date();
+    const liveTradeGroups = await Promise.all(tokenPools.map(async (pool) =>
+      (await fetchLivePoolTrades(pool))?.map((trade) => ({
+        ...trade,
+        sourceFetchedAt: liveFetchedAt,
+      })) ?? null));
     const liveTrades = liveTradeGroups.flatMap((group) => group ?? []);
     const poolAddresses = new Set(tokenPools.map((pool) => pool.address));
     const sourceTrades = liveTrades.length > 0 ? liveTrades : readOnchainTokenTrades(database, params.network, tokenAddress);
@@ -1248,11 +1265,14 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     return sendCacheableJson(request, reply, {
       data: trades.map((trade) => buildTradeResource(trade, resolveAddressLabel(trade.poolAddress))),
-      meta: {
-        network: params.network,
-        token_address: tokenAddress,
+      meta: buildOnchainSourceMeta({
         source: tradeSource,
-      },
+        updatedAt: latestTradeUpdatedAt(trades),
+        extra: {
+          network: params.network,
+          token_address: tokenAddress,
+        },
+      }),
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 

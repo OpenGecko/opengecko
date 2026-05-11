@@ -126,6 +126,58 @@ describe('unified scheduler', () => {
     ]);
   });
 
+  it('exposes partial failure counts and sanitized samples from successful mixed job runs', async () => {
+    const logger = createLogger();
+    const scheduler = createUnifiedScheduler({
+      logger,
+      now: () => new Date('2026-05-05T00:00:00.000Z'),
+    });
+
+    scheduler.register({
+      name: 'mixed-job',
+      intervalSeconds: 60,
+      run: vi.fn(async () => ({
+        targetsProcessed: 3,
+        rowsWritten: 2,
+        partialFailures: [
+          {
+            target: 'eth:0xpool',
+            reason: 'upstream timeout token=secret-token /home/whoami/dev/opengecko/data/runtime.sqlite',
+          },
+        ],
+      })),
+    });
+
+    await scheduler.runNow('mixed-job');
+
+    expect(scheduler.diagnostics()[0]).toMatchObject({
+      name: 'mixed-job',
+      rows_written: 2,
+      partial_failure_count: 1,
+      partial_failure_samples: [
+        {
+          target: 'eth:0xpool',
+          reason: expect.stringContaining('token=redacted'),
+        },
+      ],
+    });
+    expect(scheduler.diagnostics()[0]?.partial_failure_samples[0]?.reason).not.toContain('secret-token');
+    expect(scheduler.diagnostics()[0]?.partial_failure_samples[0]?.reason).not.toContain('/home/whoami/dev/opengecko/data/runtime.sqlite');
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        job: 'mixed-job',
+        rows_written: 2,
+        partial_failure_count: 1,
+        partial_failure_samples: [
+          expect.objectContaining({
+            reason: expect.stringContaining('token=redacted'),
+          }),
+        ],
+      }),
+      'background job completed job=mixed-job',
+    );
+  });
+
   it('bounds and redacts standalone diagnostic error text', () => {
     const sanitized = sanitizeSchedulerDiagnosticError(
       `Authorization: Bearer scheduler-secret-token database_url=/home/whoami/dev/opengecko/data/opengecko.db path /home/whoami/dev/opengecko/data/runtime.sqlite password=hunter2 https://provider.example/v1/prices?api_key=url-secret&ids=bitcoin ${'x'.repeat(600)}`,

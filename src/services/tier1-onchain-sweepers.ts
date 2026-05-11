@@ -328,10 +328,18 @@ function readTokenSweepTargets(database: AppDatabase, limit: number) {
   const tokens = new Map<string, { address: string; symbol: string }>();
 
   for (const row of rows) {
-    tokens.set(normalizeAddress(row.baseTokenAddress), {
-      address: normalizeAddress(row.baseTokenAddress),
-      symbol: row.baseTokenSymbol,
-    });
+    for (const token of [
+      { address: row.baseTokenAddress, symbol: row.baseTokenSymbol },
+      { address: row.quoteTokenAddress, symbol: row.quoteTokenSymbol },
+    ]) {
+      const address = normalizeAddress(token.address);
+      if (!tokens.has(address)) {
+        tokens.set(address, {
+          address,
+          symbol: token.symbol,
+        });
+      }
+    }
   }
 
   return [...tokens.values()];
@@ -370,6 +378,15 @@ export async function runDefillamaTokenSweep(
         .where(and(
           eq(onchainPools.networkId, 'eth'),
           eq(onchainPools.baseTokenAddress, target.address),
+        ))
+        .run();
+      database.db.update(onchainPools)
+        .set({
+          updatedAt: now,
+        })
+        .where(and(
+          eq(onchainPools.networkId, 'eth'),
+          eq(onchainPools.quoteTokenAddress, target.address),
         ))
         .run();
       rowsWritten += 1;

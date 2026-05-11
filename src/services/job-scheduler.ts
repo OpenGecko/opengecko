@@ -4,6 +4,8 @@ import type { MetricsRegistry } from './metrics';
 
 export type SchedulerJobResult = {
   targetsProcessed?: number | null;
+  rowsWritten?: number | null;
+  partialFailures?: Array<{ target: string; reason: string }> | null;
 };
 
 type SchedulerJobRunner = () => Promise<SchedulerJobResult | void>;
@@ -33,6 +35,9 @@ export type SchedulerJobDiagnostic = {
   run_count: number;
   success_count: number;
   skipped_count: number;
+  rows_written: number | null;
+  partial_failure_count: number;
+  partial_failure_samples: Array<{ target: string; reason: string }>;
 };
 
 type SchedulerJobState = {
@@ -47,6 +52,9 @@ type SchedulerJobState = {
   runCount: number;
   successCount: number;
   skippedCount: number;
+  rowsWritten: number | null;
+  partialFailureCount: number;
+  partialFailureSamples: Array<{ target: string; reason: string }>;
   nextEligibleAt: Date | null;
   stopped: boolean;
 };
@@ -132,6 +140,15 @@ function computeLagSeconds(state: SchedulerJobState, now: Date) {
   return Math.max(0, Math.floor((now.getTime() - dueAt) / 1000));
 }
 
+function sanitizePartialFailures(failures: SchedulerJobResult['partialFailures']) {
+  return (failures ?? [])
+    .slice(0, 5)
+    .map((failure) => ({
+      target: sanitizeSchedulerDiagnosticError(failure.target),
+      reason: sanitizeSchedulerDiagnosticError(failure.reason),
+    }));
+}
+
 export function createUnifiedScheduler(options: {
   logger: SchedulerLogger;
   metrics?: MetricsRegistry;
@@ -192,6 +209,9 @@ export function createUnifiedScheduler(options: {
         state.lastError = null;
         state.errorCount = 0;
         state.successCount += 1;
+        state.rowsWritten = result?.rowsWritten ?? null;
+        state.partialFailureCount = result?.partialFailures?.length ?? 0;
+        state.partialFailureSamples = sanitizePartialFailures(result?.partialFailures);
         state.nextEligibleAt = null;
         options.metrics?.incrementCounter('opengecko_scheduler_job_runs_total', {
           job: name,
@@ -208,6 +228,9 @@ export function createUnifiedScheduler(options: {
           duration_ms: state.lastDurationMs,
           outcome: 'success',
           targets_processed: result?.targetsProcessed ?? null,
+          rows_written: state.rowsWritten,
+          partial_failure_count: state.partialFailureCount,
+          partial_failure_samples: state.partialFailureSamples,
         }, `background job completed job=${name}`);
       } catch (error) {
         const finishedAt = now();
@@ -215,6 +238,9 @@ export function createUnifiedScheduler(options: {
         state.lastDurationMs = Math.max(0, finishedAt.getTime() - startedAt.getTime());
         state.lastError = message;
         state.errorCount += 1;
+        state.rowsWritten = null;
+        state.partialFailureCount = 0;
+        state.partialFailureSamples = [];
         state.nextEligibleAt = new Date(finishedAt.getTime() + computeBackoffMs(state.definition.intervalSeconds, state.errorCount));
         options.metrics?.incrementCounter('opengecko_scheduler_job_runs_total', {
           job: name,
@@ -232,6 +258,9 @@ export function createUnifiedScheduler(options: {
           outcome: 'failure',
           error: message,
           targets_processed: null,
+          rows_written: null,
+          partial_failure_count: 0,
+          partial_failure_samples: [],
         }, 'background job failed');
       } finally {
         state.inFlight = null;
@@ -259,6 +288,9 @@ export function createUnifiedScheduler(options: {
         runCount: 0,
         successCount: 0,
         skippedCount: 0,
+        rowsWritten: null,
+        partialFailureCount: 0,
+        partialFailureSamples: [],
         nextEligibleAt: null,
         stopped: false,
       });
@@ -322,6 +354,9 @@ export function createUnifiedScheduler(options: {
         run_count: state.runCount,
         success_count: state.successCount,
         skipped_count: state.skippedCount,
+        rows_written: state.rowsWritten,
+        partial_failure_count: state.partialFailureCount,
+        partial_failure_samples: state.partialFailureSamples,
       }));
     },
     isStarted() {

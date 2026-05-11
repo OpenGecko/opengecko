@@ -608,6 +608,11 @@ describe('trades address labels', () => {
       'address_label' in trade.attributes,
     );
     expect(hasAddressLabel).toBe(true);
+    expect(body.meta).toMatchObject({
+      source: 'fixture',
+      fixture: true,
+      updated_at: null,
+    });
 
     const tradesWithLabel = body.data.filter((trade: { attributes: { address_label?: string } }) =>
       'address_label' in trade.attributes,
@@ -675,6 +680,9 @@ describe('trades address labels', () => {
       meta: expect.objectContaining({
         network: 'arbitrum',
         pool_address: discoveredPool.id,
+        fixture: true,
+        source: 'fixture',
+        updated_at: null,
       }),
     });
 

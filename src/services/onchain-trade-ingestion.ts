@@ -150,6 +150,7 @@ function toTradeRecord(row: typeof onchainPoolTrades.$inferSelect): LiveTradeRec
     txHash: row.txHash,
     blockTimestamp: row.blockTimestamp,
     source: row.sourceKind,
+    sourceFetchedAt: row.sourceFetchedAt,
   };
 }
 
