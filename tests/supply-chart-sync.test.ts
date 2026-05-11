@@ -279,9 +279,10 @@ describe('supply chart sync', () => {
         })
         .run();
 
-      expect(runSupplyAggregator(app.db, new Date('2026-05-06T00:01:00.000Z'))).toEqual({
+      expect(runSupplyAggregator(app.db, new Date('2026-05-06T00:01:00.000Z'))).toMatchObject({
         targetsProcessed: 1,
         rowsWritten: 2,
+        rowsPruned: 0,
       });
 
       const circulatingResponse = await app.inject({

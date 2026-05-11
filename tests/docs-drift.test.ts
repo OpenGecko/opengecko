@@ -21,7 +21,7 @@ describe('documentation drift guards', () => {
     const guide = readRepoFile('docs/plans/2026-05-05-opengecko-improvement-guide.md');
     const tracker = readRepoFile('docs/status/implementation-tracker.md');
 
-    expect(tracker).toMatch(/\bLive\b\**\s*\(~55%\)/);
+    expect(tracker).toMatch(/Live \/ automated source-backed\b\**\s*\(~86%\)/);
     expect(guide).toContain('Live data coverage');
     expect(guide).toContain('fixture-backed');
 

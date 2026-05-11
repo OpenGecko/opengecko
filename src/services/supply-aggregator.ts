@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { marketSnapshots, supplyChartPoints } from '../db/schema';
+import { enforceSupplySnapshotRetention } from './snapshot-retention';
 
 const SUPPLY_AGGREGATOR_SOURCE_PROVIDER = 'market-snapshot-aggregator';
 
@@ -70,8 +71,11 @@ export function runSupplyAggregator(database: AppDatabase, now = new Date()) {
     }
   }
 
+  const rowsPruned = enforceSupplySnapshotRetention(database, { now });
+
   return {
     targetsProcessed,
     rowsWritten,
+    rowsPruned,
   };
 }

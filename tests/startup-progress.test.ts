@@ -3,9 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   createStartupProgressTracker,
   INITIAL_STARTUP_STEPS,
+  OPENGECKO_RELEASE_VERSION,
 } from '../src/services/startup-progress';
+import packageJson from '../package.json';
 
 describe('startup progress tracker', () => {
+  it('keeps the startup release version aligned with package.json', () => {
+    expect(OPENGECKO_RELEASE_VERSION).toBe(packageJson.version);
+  });
+
   it('prints the ascii logo and structured header on start() and logs progress sections', () => {
     const writes: string[] = [];
     const tracker = createStartupProgressTracker({
@@ -25,6 +31,7 @@ describe('startup progress tracker', () => {
     const output = writes.join('');
     expect(output).toContain('░█▀█░█▀█░█▀▀░█▀█░█▀▀░█▀▀░█▀▀░█░█░█▀█');
     expect(output).toContain('System boot initialized');
+    expect(output).toContain(`OpenGecko v${OPENGECKO_RELEASE_VERSION}`);
     expect(output).toMatch(/\[20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z\] INFO  System boot initialized/);
     expect(output).toContain('runtime: node | driver: better-sqlite3');
     expect(output).toContain('db: /tmp/opengecko.db');

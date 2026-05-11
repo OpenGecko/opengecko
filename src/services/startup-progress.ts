@@ -11,6 +11,8 @@ export const INITIAL_STARTUP_STEPS = [
   { id: 'start_http_listener', label: 'Start HTTP listener' },
 ] as const;
 
+export const OPENGECKO_RELEASE_VERSION = '0.9.0';
+
 export type StartupStepId = typeof INITIAL_STARTUP_STEPS[number]['id'];
 
 type OhlcvProgress = {
@@ -228,6 +230,7 @@ export function createStartupProgressTracker(
       headerPrinted = true;
       printBanner();
       writeLine(`[${timestamp()}] INFO  System boot initialized`);
+      writeLine(`           OpenGecko v${OPENGECKO_RELEASE_VERSION}`);
       writeLine(`           runtime: ${info.runtime} | driver: ${info.driver}`);
       writeLine(`           db: ${info.databaseUrl}`);
     },
