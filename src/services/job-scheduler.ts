@@ -5,6 +5,7 @@ import type { MetricsRegistry } from './metrics';
 export type SchedulerJobResult = {
   targetsProcessed?: number | null;
   rowsWritten?: number | null;
+  rowsPruned?: number | null;
   partialFailures?: Array<{ target: string; reason: string }> | null;
 };
 
@@ -36,6 +37,7 @@ export type SchedulerJobDiagnostic = {
   success_count: number;
   skipped_count: number;
   rows_written: number | null;
+  rows_pruned: number | null;
   partial_failure_count: number;
   partial_failure_samples: Array<{ target: string; reason: string }>;
 };
@@ -53,6 +55,7 @@ type SchedulerJobState = {
   successCount: number;
   skippedCount: number;
   rowsWritten: number | null;
+  rowsPruned: number | null;
   partialFailureCount: number;
   partialFailureSamples: Array<{ target: string; reason: string }>;
   nextEligibleAt: Date | null;
@@ -210,6 +213,7 @@ export function createUnifiedScheduler(options: {
         state.errorCount = 0;
         state.successCount += 1;
         state.rowsWritten = result?.rowsWritten ?? null;
+        state.rowsPruned = result?.rowsPruned ?? null;
         state.partialFailureCount = result?.partialFailures?.length ?? 0;
         state.partialFailureSamples = sanitizePartialFailures(result?.partialFailures);
         state.nextEligibleAt = null;
@@ -229,6 +233,7 @@ export function createUnifiedScheduler(options: {
           outcome: 'success',
           targets_processed: result?.targetsProcessed ?? null,
           rows_written: state.rowsWritten,
+          rows_pruned: state.rowsPruned,
           partial_failure_count: state.partialFailureCount,
           partial_failure_samples: state.partialFailureSamples,
         }, `background job completed job=${name}`);
@@ -239,6 +244,7 @@ export function createUnifiedScheduler(options: {
         state.lastError = message;
         state.errorCount += 1;
         state.rowsWritten = null;
+        state.rowsPruned = null;
         state.partialFailureCount = 0;
         state.partialFailureSamples = [];
         state.nextEligibleAt = new Date(finishedAt.getTime() + computeBackoffMs(state.definition.intervalSeconds, state.errorCount));
@@ -259,6 +265,7 @@ export function createUnifiedScheduler(options: {
           error: message,
           targets_processed: null,
           rows_written: null,
+          rows_pruned: null,
           partial_failure_count: 0,
           partial_failure_samples: [],
         }, 'background job failed');
@@ -289,6 +296,7 @@ export function createUnifiedScheduler(options: {
         successCount: 0,
         skippedCount: 0,
         rowsWritten: null,
+        rowsPruned: null,
         partialFailureCount: 0,
         partialFailureSamples: [],
         nextEligibleAt: null,
@@ -355,6 +363,7 @@ export function createUnifiedScheduler(options: {
         success_count: state.successCount,
         skipped_count: state.skippedCount,
         rows_written: state.rowsWritten,
+        rows_pruned: state.rowsPruned,
         partial_failure_count: state.partialFailureCount,
         partial_failure_samples: state.partialFailureSamples,
       }));

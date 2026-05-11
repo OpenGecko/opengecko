@@ -3,6 +3,7 @@ import {
   ingestSupplyChartReplay,
   type RawSupplyChartReplay,
 } from './supply-chart-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -124,10 +125,16 @@ export async function syncSupplyCharts(database: AppDatabase, options: SupplyCha
     });
   }
 
+  const pointsWritten = results.reduce((total, result) => total + result.points_written, 0);
+  const retention = pointsWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     targets_attempted: options.targets.length,
     points_fetched: results.reduce((total, result) => total + result.points_fetched, 0),
-    points_written: results.reduce((total, result) => total + result.points_written, 0),
+    points_written: pointsWritten,
+    rows_pruned: retention?.totalRowsPruned ?? 0,
     source_fetched_at: sourceFetchedAt.toISOString(),
     results,
   };

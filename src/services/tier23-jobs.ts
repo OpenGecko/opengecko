@@ -3,7 +3,6 @@ import type { AppDatabase } from '../db/client';
 import { syncDerivativeTickers } from './derivatives-sync';
 import { parseDerivativeVenueConfig } from './derivatives-venues';
 import type { UnifiedScheduler } from './job-scheduler';
-import { enforceSnapshotRetention } from './snapshot-retention';
 import { runSupplyAggregator } from './supply-aggregator';
 import { runTreasurySweep } from './treasury-sweep';
 
@@ -37,13 +36,7 @@ export function registerTier23SchedulerJobs(
         return { targetsProcessed: 0, rowsWritten: 0 };
       }
 
-      const result = await syncDerivativeTickers(database, { venues });
-      const retention = enforceSnapshotRetention(database);
-
-      return {
-        ...result,
-        rowsPruned: retention.totalRowsPruned,
-      };
+      return syncDerivativeTickers(database, { venues });
     },
   });
 
@@ -69,15 +62,9 @@ export function registerTier23SchedulerJobs(
         return { targetsProcessed: 0, rowsWritten: 0 };
       }
 
-      const result = runTreasurySweep(database, {
+      return runTreasurySweep(database, {
         replayPath: config.treasuryDisclosureReplayPath,
       });
-      const retention = enforceSnapshotRetention(database);
-
-      return {
-        ...result,
-        rowsPruned: retention.totalRowsPruned,
-      };
     },
   });
 }

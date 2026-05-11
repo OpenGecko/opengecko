@@ -4,6 +4,7 @@ import {
   type MarketChartInterval,
   type RawMarketChartReplay,
 } from './market-chart-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -194,11 +195,17 @@ export async function syncMarketCharts(database: AppDatabase, options: MarketCha
     throw new Error(`Market chart sync failed for all ${options.targets.length} target(s): ${firstError}`);
   }
 
+  const pointsWritten = results.reduce((total, result) => total + result.points_written, 0);
+  const retention = pointsWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     targets_attempted: options.targets.length,
     targets_failed: failedResults.length,
     points_fetched: results.reduce((total, result) => total + result.points_fetched, 0),
-    points_written: results.reduce((total, result) => total + result.points_written, 0),
+    points_written: pointsWritten,
+    rows_pruned: retention?.totalRowsPruned ?? 0,
     source_fetched_at: sourceFetchedAt.toISOString(),
     results,
   };

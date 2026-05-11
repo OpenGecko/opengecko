@@ -4,6 +4,7 @@ import {
   ingestOnchainAnalytics,
   type RawOnchainAnalyticsReplay,
 } from './onchain-analytics-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -140,14 +141,23 @@ export async function syncOnchainAnalytics(database: AppDatabase, options: Oncha
     });
   }
 
+  const holdersWritten = results.reduce((total, result) => total + result.holders_written, 0);
+  const tradersWritten = results.reduce((total, result) => total + result.traders_written, 0);
+  const holderCountsWritten = results.reduce((total, result) => total + result.holder_counts_written, 0);
+  const rowsWritten = holdersWritten + tradersWritten + holderCountsWritten;
+  const retention = rowsWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     targets_attempted: options.targets.length,
     holders_fetched: results.reduce((total, result) => total + result.holders_fetched, 0),
     traders_fetched: results.reduce((total, result) => total + result.traders_fetched, 0),
     holder_counts_fetched: results.reduce((total, result) => total + result.holder_counts_fetched, 0),
-    holders_written: results.reduce((total, result) => total + result.holders_written, 0),
-    traders_written: results.reduce((total, result) => total + result.traders_written, 0),
-    holder_counts_written: results.reduce((total, result) => total + result.holder_counts_written, 0),
+    holders_written: holdersWritten,
+    traders_written: tradersWritten,
+    holder_counts_written: holderCountsWritten,
+    rows_pruned: retention?.totalRowsPruned ?? 0,
     source_fetched_at: sourceFetchedAt.toISOString(),
     results,
   };

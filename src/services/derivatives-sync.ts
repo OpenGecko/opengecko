@@ -4,6 +4,7 @@ import { ingestDerivativeTickerReplayBatch } from './derivatives-ingestion';
 import type { RawDerivativeTickerReplay } from './derivatives-normalizer';
 import { recordDerivativesVenueRefreshState, type DerivativesSyncVenue } from './derivatives-venues';
 import { sanitizeSchedulerDiagnosticError } from './job-scheduler';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 export type DerivativesSyncVenueConfig = DerivativesSyncVenue & {
   exchangeId: string;
@@ -96,13 +97,19 @@ export async function syncDerivativeTickers(database: AppDatabase, options: Deri
     }
   }
 
+  const tickersWritten = results.reduce((total, result) => total + result.tickers_written, 0);
+  const retention = tickersWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     venues_attempted: options.venues.length,
     tickers_fetched: results.reduce((total, result) => total + result.tickers_fetched, 0),
-    tickers_written: results.reduce((total, result) => total + result.tickers_written, 0),
+    tickers_written: tickersWritten,
     source_fetched_at: sourceFetchedAt.toISOString(),
     targetsProcessed: options.venues.length,
-    rowsWritten: results.reduce((total, result) => total + result.tickers_written, 0),
+    rowsWritten: tickersWritten,
+    rowsPruned: retention?.totalRowsPruned ?? 0,
     partialFailures,
     results,
   };

@@ -2,11 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { createDatabase, initializeDatabase } from '../src/db/client';
+import { supplyChartPoints } from '../src/db/schema';
 import {
+  createConfiguredOptionalProviderSyncJobs,
   createOptionalProviderSyncScheduler,
   type OptionalProviderScheduledJob,
 } from '../src/services/optional-provider-scheduler';
@@ -203,6 +206,68 @@ describe('optional provider sync scheduler', () => {
         // The database may already be closed before the restart-level diagnostics check.
       }
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runs append-table retention through configured optional provider scheduler jobs after successful writes', async () => {
+    const database = createDatabase(':memory:');
+    const logger = createLogger();
+    const registry = createOptionalProviderJobRegistry();
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      captured_at: '2026-05-05T00:14:00.000Z',
+      points: [{
+        timestamp: '1774051200',
+        circulating_supply: '19815000',
+        total_supply: '21000000',
+      }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    try {
+      initializeDatabase(database);
+      database.db.insert(supplyChartPoints).values({
+        coinId: 'bitcoin',
+        supplyType: 'total',
+        timestamp: new Date('2024-01-01T00:00:00.000Z'),
+        value: 21_000_000,
+        sourceKind: 'live',
+        sourceProvider: 'old-provider',
+        sourceFetchedAt: new Date('2024-01-01T00:00:00.000Z'),
+      }).run();
+
+      const scheduler = createOptionalProviderSyncScheduler({
+        enabled: true,
+        intervalSeconds: 60,
+        jobs: createConfiguredOptionalProviderSyncJobs(database, {
+          coinHistoryTargets: '',
+          exchangeVolumeTargets: '',
+          marketChartTargets: '',
+          onchainAnalyticsTargets: '',
+          onchainTradeTargets: '',
+          supplyChartTargets: 'mock.supply=bitcoin',
+        }, {
+          SUPPLY_CHART_BASE_URL: 'https://supply.example',
+        } as NodeJS.ProcessEnv),
+        registry,
+        logger,
+        database,
+      });
+
+      await scheduler.runOnce();
+
+      expect(registry.get('supply_charts')).toMatchObject({
+        status: 'succeeded',
+        rowsWritten: 2,
+      });
+      expect(database.db.select().from(supplyChartPoints)
+        .where(eq(supplyChartPoints.sourceProvider, 'old-provider'))
+        .all()).toHaveLength(0);
+      expect(database.db.select().from(supplyChartPoints)
+        .where(eq(supplyChartPoints.sourceProvider, 'mock.supply'))
+        .all()).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      database.client.close();
     }
   });
 

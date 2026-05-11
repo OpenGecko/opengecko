@@ -4,6 +4,7 @@ import {
   ingestOnchainTradeReplay,
   type RawOnchainTradeReplay,
 } from './onchain-trade-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -130,10 +131,16 @@ export async function syncOnchainTrades(database: AppDatabase, options: OnchainT
     });
   }
 
+  const tradesWritten = results.reduce((total, result) => total + result.trades_written, 0);
+  const retention = tradesWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     targets_attempted: options.targets.length,
     trades_fetched: results.reduce((total, result) => total + result.trades_fetched, 0),
-    trades_written: results.reduce((total, result) => total + result.trades_written, 0),
+    trades_written: tradesWritten,
+    rows_pruned: retention?.totalRowsPruned ?? 0,
     source_fetched_at: sourceFetchedAt.toISOString(),
     results,
   };

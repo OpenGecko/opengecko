@@ -8,6 +8,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeDerivativeTickers: mockedFetchExchangeDerivativeTickers,
 }));
 
+import { buildApp } from '../src/app';
 import { createDatabase, initializeDatabase } from '../src/db/client';
 import { derivativeTickers } from '../src/db/schema';
 import { runDerivativeSyncJob } from '../src/jobs/sync-derivatives';
@@ -161,6 +162,66 @@ describe('derivatives sync job config', () => {
       expect(okxDiagnostic?.last_refresh_error).not.toContain('secret');
     } finally {
       database.client.close();
+    }
+  });
+
+  it('invokes append-table retention from the scheduled derivatives refresh after successful writes', async () => {
+    mockedFetchExchangeDerivativeTickers.mockReset();
+    mockedFetchExchangeDerivativeTickers.mockResolvedValue([{
+      exchangeId: 'binance_futures',
+      symbol: 'BTC/USDT:USDT',
+      market: 'BTCUSDT',
+      base: 'BTC',
+      quote: 'USDT',
+      markPrice: 95_000,
+      contractType: 'perpetual',
+      timestamp: 1777939200000,
+    }]);
+
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+        derivativesCcxtExchanges: 'binance_futures=binanceusdm',
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+
+    try {
+      await app.ready();
+      app.db.db.insert(derivativeTickers).values({
+        exchangeId: 'binance_futures',
+        symbol: 'OLD/USDT:USDT',
+        market: 'OLDUSDT',
+        price: 1,
+        contractType: 'perpetual',
+        sourceKind: 'live',
+        sourceProvider: 'ccxt.old',
+        sourceFetchedAt: new Date('2024-01-01T00:00:00.000Z'),
+      }).run();
+
+      await app.scheduler?.runNow('derivatives-refresh');
+
+      expect(app.db.db.select().from(derivativeTickers)
+        .where(eq(derivativeTickers.symbol, 'OLD/USDT:USDT'))
+        .all()).toHaveLength(0);
+      expect(app.db.db.select().from(derivativeTickers)
+        .where(eq(derivativeTickers.symbol, 'BTC/USDT:USDT'))
+        .all()).toHaveLength(1);
+
+      const jobsResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const derivativesJob = jobsResponse.json().data.jobs.find((job: { name: string }) => job.name === 'derivatives-refresh');
+      expect(derivativesJob).toMatchObject({
+        name: 'derivatives-refresh',
+        rows_written: 1,
+        rows_pruned: 1,
+      });
+    } finally {
+      await app.close();
     }
   });
 });

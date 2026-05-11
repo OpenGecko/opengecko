@@ -4,6 +4,7 @@ import { desc } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { treasuryEntities, treasuryHoldings, treasurySourceDocuments, treasuryTransactions } from '../db/schema';
+import { enforceSnapshotRetention } from './snapshot-retention';
 import { ingestTreasuryDisclosureReplay } from './treasury-disclosure-ingestion';
 import type { RawTreasuryDisclosureReplay } from './treasury-disclosure-normalizer';
 
@@ -55,5 +56,12 @@ export function runTreasurySweep(database: AppDatabase, options: TreasurySweepOp
       + result.source_documents_written;
   }
 
-  return summarizeCurrentTreasuryRows(database, rowsWritten, payloads.length);
+  const retention = rowsWritten > 0
+    ? enforceSnapshotRetention(database)
+    : null;
+
+  return {
+    ...summarizeCurrentTreasuryRows(database, rowsWritten, payloads.length),
+    rowsPruned: retention?.totalRowsPruned ?? 0,
+  };
 }

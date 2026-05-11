@@ -12,6 +12,7 @@ import { type SqdEthereumSwapLog, fetchEthereumPoolSwapLogs } from '../providers
 import { generateDeterministicAddress, normalizeAddress, slugifyOnchainId, toDexName } from '../modules/onchain/helpers';
 import { deriveLivePoolTrades } from '../modules/onchain/trades';
 import { ingestOnchainTradeReplay, type RawOnchainTradeReplay } from './onchain-trade-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 type SweepTarget = {
   id: string;
@@ -25,6 +26,7 @@ type SweepFailure = {
 type SweepResult = {
   targetsProcessed: number;
   rowsWritten: number;
+  rowsPruned?: number;
   partialFailures: SweepFailure[];
 };
 
@@ -500,9 +502,14 @@ export async function runSubsquidTradeSweep(
     throw new Error(`Subsquid trade sweep failed for all targets: ${partialFailures[0]!.reason}`);
   }
 
+  const retention = rowsWritten > 0
+    ? enforceSnapshotRetention(database, { now })
+    : null;
+
   return {
     targetsProcessed: targets.length,
     rowsWritten,
+    rowsPruned: retention?.totalRowsPruned ?? 0,
     partialFailures,
   };
 }

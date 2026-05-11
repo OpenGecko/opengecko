@@ -3,6 +3,7 @@ import {
   ingestCoinHistoryReplay,
   type RawCoinHistoryReplay,
 } from './coin-history-ingestion';
+import { enforceSnapshotRetention } from './snapshot-retention';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -145,10 +146,16 @@ export async function syncCoinHistorySnapshots(database: AppDatabase, options: C
     });
   }
 
+  const snapshotsWritten = results.reduce((total, result) => total + result.snapshots_written, 0);
+  const retention = snapshotsWritten > 0
+    ? enforceSnapshotRetention(database, { now: sourceFetchedAt })
+    : null;
+
   return {
     targets_attempted: options.targets.length,
     snapshots_fetched: results.reduce((total, result) => total + result.snapshots_fetched, 0),
-    snapshots_written: results.reduce((total, result) => total + result.snapshots_written, 0),
+    snapshots_written: snapshotsWritten,
+    rows_pruned: retention?.totalRowsPruned ?? 0,
     source_fetched_at: sourceFetchedAt.toISOString(),
     results,
   };

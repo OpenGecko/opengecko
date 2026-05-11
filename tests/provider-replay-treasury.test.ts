@@ -134,6 +134,56 @@ describe('treasury provider replay fixtures', () => {
     }
   });
 
+  it('invokes append-table retention from the scheduled treasury sweep after successful writes', async () => {
+    const replayPath = join(process.cwd(), 'tests/fixtures/provider-replay/treasury/strategy-bitcoin-disclosure.json');
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+        treasuryDisclosureReplayPath: replayPath,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+
+    try {
+      await app.ready();
+      app.db.db.insert(treasurySourceDocuments).values({
+        sourceUrl: 'https://retention.example/old-treasury-disclosure',
+        entityId: 'strategy',
+        provider: 'retention',
+        documentType: 'treasury_disclosure',
+        acceptedAt: new Date('2024-01-01T00:00:00.000Z'),
+        contentHash: 'old-scheduled-retention',
+        rawJson: '{}',
+        createdAt: new Date('2024-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+      }).run();
+
+      await app.scheduler?.runNow('treasury-sweep');
+
+      expect(app.db.db.select().from(treasurySourceDocuments)
+        .where(eq(treasurySourceDocuments.sourceUrl, 'https://retention.example/old-treasury-disclosure'))
+        .all()).toHaveLength(0);
+      expect(app.db.db.select().from(treasurySourceDocuments)
+        .where(eq(treasurySourceDocuments.sourceUrl, loadFixture().source_url))
+        .all()).toHaveLength(1);
+
+      const jobsResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const treasuryJob = jobsResponse.json().data.jobs.find((job: { name: string }) => job.name === 'treasury-sweep');
+      expect(treasuryJob).toMatchObject({
+        name: 'treasury-sweep',
+        rows_written: expect.any(Number),
+        rows_pruned: 1,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('records treasury sweep failures without replacing fixture fallback data', async () => {
     const app = buildApp({
       config: {
