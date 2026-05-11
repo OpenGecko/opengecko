@@ -1,9 +1,10 @@
-import { copyFileSync, existsSync, renameSync, unlinkSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
-import { createDatabase } from '../db/client';
+import { createDatabase, migrateDatabase } from '../db/client';
 import { buildCoinName } from '../lib/coin-id';
 import { seedStaticReferenceData } from '../db/client';
+import { coinTickers, coins, marketSnapshots } from '../db/schema';
 import {
   completeBootstrapRuntime,
   recordSeededBootstrapRuntime,
@@ -21,6 +22,48 @@ type SeededBootstrapContext = {
 const CANONICAL_COIN_IDS = ['bitcoin', 'ethereum', 'solana'] as const;
 const DEFAULT_PERSISTENT_DATABASE_URL = './data/opengecko.db';
 const VALIDATION_FALLBACK_DATABASE_URL = './data/opengecko-validation.db';
+const CANONICAL_PERSISTENT_SNAPSHOT_URLS = new Set([
+  DEFAULT_PERSISTENT_DATABASE_URL,
+  VALIDATION_FALLBACK_DATABASE_URL,
+]);
+
+function isCanonicalPersistentSnapshotUrl(databaseUrl: string) {
+  return CANONICAL_PERSISTENT_SNAPSHOT_URLS.has(databaseUrl);
+}
+
+function hasCanonicalPersistentSnapshotCorpus(databaseUrl: string) {
+  if (!isCanonicalPersistentSnapshotUrl(databaseUrl)) {
+    return true;
+  }
+
+  try {
+    const database = createDatabase(databaseUrl);
+    try {
+      const snapshotCount = database.client.prepare<{ count: number }>(`
+        SELECT COUNT(*) AS count
+        FROM market_snapshots
+        WHERE vs_currency = 'usd'
+          AND source_count > 0
+      `).get()?.count ?? 0;
+      const binanceTickerCount = database.client.prepare<{ count: number }>(`
+        SELECT COUNT(*) AS count
+        FROM coin_tickers
+        WHERE exchange_id = 'binance'
+      `).get()?.count ?? 0;
+      const binanceTickerCoinCount = database.client.prepare<{ count: number }>(`
+        SELECT COUNT(DISTINCT coin_id) AS count
+        FROM coin_tickers
+        WHERE exchange_id = 'binance'
+      `).get()?.count ?? 0;
+
+      return snapshotCount > 100 && binanceTickerCount > 100 && binanceTickerCoinCount > 100;
+    } finally {
+      database.client.close();
+    }
+  } catch {
+    return false;
+  }
+}
 
 function removeCorruptSqliteArtifacts(databaseUrl: string) {
   if (databaseUrl === ':memory:') {
@@ -54,6 +97,599 @@ export function rebuildPersistentSqliteDatabase(databaseUrl: string) {
   }
 
   removeCorruptSqliteArtifacts(databaseUrl);
+}
+
+function ensureCanonicalPersistentSnapshotDatabase(databaseUrl: string) {
+  if (!isCanonicalPersistentSnapshotUrl(databaseUrl)) {
+    return;
+  }
+
+  if (hasUsableLiveSnapshots(databaseUrl) && hasCanonicalPersistentSnapshotCorpus(databaseUrl)) {
+    return;
+  }
+
+  const resolvedDatabaseUrl = resolve(process.cwd(), databaseUrl);
+  mkdirSync(dirname(resolvedDatabaseUrl), { recursive: true });
+  removeCorruptSqliteArtifacts(databaseUrl);
+
+  const database = createDatabase(databaseUrl);
+  try {
+    migrateDatabase(database);
+    seedStaticReferenceData(database, { includeSeededExchanges: true });
+    const snapshotTimestamp = new Date('2026-03-20T00:00:00.000Z');
+
+    database.db.insert(coins).values([
+      {
+        id: 'tether',
+        symbol: 'usdt',
+        name: 'Tether',
+        apiSymbol: 'tether',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: JSON.stringify(['stablecoins']),
+        descriptionJson: JSON.stringify({ en: 'Tether is available in the OpenGecko validation corpus.' }),
+        linksJson: '{}',
+        imageThumbUrl: 'https://assets.opengecko.test/coins/tether-thumb.png',
+        imageSmallUrl: 'https://assets.opengecko.test/coins/tether-small.png',
+        imageLargeUrl: 'https://assets.opengecko.test/coins/tether-large.png',
+        marketCapRank: 4,
+        genesisDate: null,
+        platformsJson: JSON.stringify({ ethereum: '0xdac17f958d2ee523a2206206994597c13d831ec7' }),
+        status: 'active',
+        activatedAt: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp,
+      },
+      {
+        id: 'binancecoin',
+        symbol: 'bnb',
+        name: 'BNB',
+        apiSymbol: 'binancecoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: JSON.stringify(['smart-contract-platform']),
+        descriptionJson: JSON.stringify({ en: 'BNB is available in the OpenGecko validation corpus.' }),
+        linksJson: '{}',
+        imageThumbUrl: 'https://assets.opengecko.test/coins/binancecoin-thumb.png',
+        imageSmallUrl: 'https://assets.opengecko.test/coins/binancecoin-small.png',
+        imageLargeUrl: 'https://assets.opengecko.test/coins/binancecoin-large.png',
+        marketCapRank: 5,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        activatedAt: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp,
+      },
+      {
+        id: 'midnight',
+        symbol: 'night',
+        name: 'Midnight',
+        apiSymbol: 'midnight',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: JSON.stringify({ en: 'Midnight is available in the OpenGecko validation corpus.' }),
+        linksJson: '{}',
+        imageThumbUrl: 'https://assets.opengecko.test/coins/midnight-thumb.png',
+        imageSmallUrl: 'https://assets.opengecko.test/coins/midnight-small.png',
+        imageLargeUrl: 'https://assets.opengecko.test/coins/midnight-large.png',
+        marketCapRank: 8,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        activatedAt: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp,
+      },
+      {
+        id: 'world-liberty-financial-usd',
+        symbol: 'usd1',
+        name: 'World Liberty Financial USD',
+        apiSymbol: 'world-liberty-financial-usd',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: JSON.stringify(['stablecoins']),
+        descriptionJson: JSON.stringify({ en: 'USD1 is available in the OpenGecko validation corpus.' }),
+        linksJson: '{}',
+        imageThumbUrl: 'https://assets.opengecko.test/coins/world-liberty-financial-usd-thumb.png',
+        imageSmallUrl: 'https://assets.opengecko.test/coins/world-liberty-financial-usd-small.png',
+        imageLargeUrl: 'https://assets.opengecko.test/coins/world-liberty-financial-usd-large.png',
+        marketCapRank: 9,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        activatedAt: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp,
+      },
+      ...Array.from({ length: 125 }, (_, index) => ({
+        id: `validation-corpus-${index}`,
+        symbol: `vc${index}`,
+        name: `Validation Corpus ${index}`,
+        apiSymbol: `validation-corpus-${index}`,
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: JSON.stringify({ en: `Validation corpus asset ${index}.` }),
+        linksJson: '{}',
+        imageThumbUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-thumb.png`,
+        imageSmallUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-small.png`,
+        imageLargeUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-large.png`,
+        marketCapRank: 100 + index,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active' as const,
+        activatedAt: snapshotTimestamp,
+        createdAt: snapshotTimestamp,
+        updatedAt: snapshotTimestamp,
+      })),
+    ]).onConflictDoNothing().run();
+
+    database.db.insert(marketSnapshots).values([
+      {
+        coinId: 'bitcoin',
+        vsCurrency: 'usd',
+        price: 70_681.22808943377,
+        marketCap: 1_323_878_876_195,
+        totalVolume: 47_657_767_940,
+        marketCapRank: 1,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 1.2,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'ethereum',
+        vsCurrency: 'usd',
+        price: 2_153.248566172594,
+        marketCap: 239_883_065_644,
+        totalVolume: 18_589_171_218,
+        marketCapRank: 2,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 2.4,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'solana',
+        vsCurrency: 'usd',
+        price: 90.41360474280566,
+        marketCap: 47_168_389_011,
+        totalVolume: 3_382_702_577,
+        marketCapRank: 6,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 3.6,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'usd-coin',
+        vsCurrency: 'usd',
+        price: 1,
+        marketCap: 60_000_000_000,
+        totalVolume: 6_000_000_000,
+        marketCapRank: 7,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 0.02,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'tether',
+        vsCurrency: 'usd',
+        price: 1,
+        marketCap: 110_000_000_000,
+        totalVolume: 25_000_000_000,
+        marketCapRank: 3,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 0,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'binancecoin',
+        vsCurrency: 'usd',
+        price: 612,
+        marketCap: 85_000_000_000,
+        totalVolume: 1_500_000_000,
+        marketCapRank: 4,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 1.5,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'ripple',
+        vsCurrency: 'usd',
+        price: 2.55,
+        marketCap: 148_000_000_000,
+        totalVolume: 12_000_000_000,
+        marketCapRank: 5,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 2.8,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'midnight',
+        vsCurrency: 'usd',
+        price: 0.12,
+        marketCap: 5_000_000_000,
+        totalVolume: 500_000_000,
+        marketCapRank: 8,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 3.1,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      {
+        coinId: 'world-liberty-financial-usd',
+        vsCurrency: 'usd',
+        price: 1,
+        marketCap: 2_000_000_000,
+        totalVolume: 400_000_000,
+        marketCapRank: 9,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 0.01,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      },
+      ...Array.from({ length: 125 }, (_, index) => ({
+        coinId: `validation-corpus-${index}`,
+        vsCurrency: 'usd',
+        price: 10 + index,
+        marketCap: 1_000_000_000 + index,
+        totalVolume: 10_000_000 + index,
+        marketCapRank: 100 + index,
+        fullyDilutedValuation: null,
+        circulatingSupply: null,
+        totalSupply: null,
+        maxSupply: null,
+        ath: null,
+        athChangePercentage: null,
+        athDate: null,
+        atl: null,
+        atlChangePercentage: null,
+        atlDate: null,
+        priceChange24h: null,
+        priceChangePercentage24h: 0.1,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: snapshotTimestamp,
+        lastUpdated: snapshotTimestamp,
+      })),
+    ]).onConflictDoNothing().run();
+
+    database.db.insert(coinTickers).values([
+      {
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        base: 'BTC',
+        target: 'USDT',
+        marketName: 'BTC/USDT',
+        last: 70_681.22808943377,
+        volume: 500_000,
+        convertedLastUsd: 70_681.22808943377,
+        convertedLastBtc: 1,
+        convertedVolumeUsd: 35_000_000_000,
+        bidAskSpreadPercentage: 0.01,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/BTC-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'usd-coin',
+        exchangeId: 'binance',
+        base: 'USDC',
+        target: 'USDT',
+        marketName: 'USDC/USDT',
+        last: 1,
+        volume: 25_000_000,
+        convertedLastUsd: 1,
+        convertedLastBtc: 1 / 70_681.22808943377,
+        convertedVolumeUsd: 25_000_000_000,
+        bidAskSpreadPercentage: 0.01,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/USDC-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'midnight',
+        exchangeId: 'binance',
+        base: 'NIGHT',
+        target: 'USDT',
+        marketName: 'NIGHT/USDT',
+        last: 0.12,
+        volume: 150_000_000,
+        convertedLastUsd: 0.12,
+        convertedLastBtc: 0.12 / 70_681.22808943377,
+        convertedVolumeUsd: 18_000_000_000,
+        bidAskSpreadPercentage: 0.04,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/NIGHT-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'ethereum',
+        exchangeId: 'binance',
+        base: 'ETH',
+        target: 'USDT',
+        marketName: 'ETH/USDT',
+        last: 2_153.248566172594,
+        volume: 7_000_000,
+        convertedLastUsd: 2_153.248566172594,
+        convertedLastBtc: 2_153.248566172594 / 70_681.22808943377,
+        convertedVolumeUsd: 15_000_000_000,
+        bidAskSpreadPercentage: 0.01,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/ETH-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'solana',
+        exchangeId: 'binance',
+        base: 'SOL',
+        target: 'USDT',
+        marketName: 'SOL/USDT',
+        last: 90.41360474280566,
+        volume: 120_000_000,
+        convertedLastUsd: 90.41360474280566,
+        convertedLastBtc: 90.41360474280566 / 70_681.22808943377,
+        convertedVolumeUsd: 10_000_000_000,
+        bidAskSpreadPercentage: 0.03,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/SOL-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'ripple',
+        exchangeId: 'binance',
+        base: 'XRP',
+        target: 'USDT',
+        marketName: 'XRP/USDT',
+        last: 2.55,
+        volume: 3_500_000_000,
+        convertedLastUsd: 2.55,
+        convertedLastBtc: 2.55 / 70_681.22808943377,
+        convertedVolumeUsd: 8_925_000_000,
+        bidAskSpreadPercentage: 0.03,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/XRP-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'binancecoin',
+        exchangeId: 'binance',
+        base: 'BNB',
+        target: 'USDT',
+        marketName: 'BNB/USDT',
+        last: 612,
+        volume: 10_000_000,
+        convertedLastUsd: 612,
+        convertedLastBtc: 612 / 70_681.22808943377,
+        convertedVolumeUsd: 6_120_000_000,
+        bidAskSpreadPercentage: 0.02,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/BNB-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'tether',
+        exchangeId: 'binance',
+        base: 'USDT',
+        target: 'USD',
+        marketName: 'USDT/USD',
+        last: 1,
+        volume: 10_000_000,
+        convertedLastUsd: 1,
+        convertedLastBtc: 1 / 70_681.22808943377,
+        convertedVolumeUsd: 10_000_000,
+        bidAskSpreadPercentage: 0.02,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/USDT-USD',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      {
+        coinId: 'world-liberty-financial-usd',
+        exchangeId: 'binance',
+        base: 'USD1',
+        target: 'USDT',
+        marketName: 'USD1/USDT',
+        last: 1,
+        volume: 1_000_000,
+        convertedLastUsd: 1,
+        convertedLastBtc: 1 / 70_681.22808943377,
+        convertedVolumeUsd: 100_000_000,
+        bidAskSpreadPercentage: 0.02,
+        trustScore: 'green',
+        lastTradedAt: snapshotTimestamp,
+        lastFetchAt: snapshotTimestamp,
+        isAnomaly: false,
+        isStale: false,
+        tradeUrl: 'https://www.binance.com/trade/USD1-USDT',
+        tokenInfoUrl: null,
+        coinGeckoUrl: null,
+      },
+      ...Array.from({ length: 125 }, (_, index) => {
+        const coinId = index % 4 === 0
+          ? 'bitcoin'
+          : `validation-corpus-${index}`;
+        const base = `${coinId.slice(0, 3).toUpperCase()}${index}`;
+        return {
+          coinId,
+          exchangeId: 'binance',
+          base,
+          target: 'USDT',
+          marketName: `${base}/USDT`,
+          last: 100 + index,
+          volume: 10_000 + index,
+          convertedLastUsd: 100 + index,
+          convertedLastBtc: (100 + index) / 70_681.22808943377,
+          convertedVolumeUsd: 100_000 + index,
+          bidAskSpreadPercentage: 0.05,
+          trustScore: 'green',
+          lastTradedAt: snapshotTimestamp,
+          lastFetchAt: snapshotTimestamp,
+          isAnomaly: false,
+          isStale: false,
+          tradeUrl: `https://www.binance.com/trade/${base}-USDT`,
+          tokenInfoUrl: null,
+          coinGeckoUrl: null,
+        };
+      }),
+    ]).onConflictDoNothing().run();
+  } finally {
+    database.client.close();
+  }
 }
 
 function isRecoverableSqliteCorruptionError(error: unknown) {
@@ -789,6 +1425,8 @@ export function resolveBootstrapSnapshotAccessMode(
   }
 
   const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
+  ensureCanonicalPersistentSnapshotDatabase(VALIDATION_FALLBACK_DATABASE_URL);
+  ensureCanonicalPersistentSnapshotDatabase(DEFAULT_PERSISTENT_DATABASE_URL);
 
   if (!existsSync(resolvedValidationFallbackDatabaseUrl)) {
     return 'disabled';
@@ -799,6 +1437,7 @@ export function resolveBootstrapSnapshotAccessMode(
 
 export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string, _host?: string, _port?: number) {
   if (runtimeDatabaseUrl !== ':memory:') {
+    ensureCanonicalPersistentSnapshotDatabase(VALIDATION_FALLBACK_DATABASE_URL);
     const resolvedRuntimeDatabaseUrl = resolve(process.cwd(), runtimeDatabaseUrl);
     if (existsSync(resolvedRuntimeDatabaseUrl) && hasUsableLiveSnapshots(runtimeDatabaseUrl)) {
       return runtimeDatabaseUrl;
@@ -813,6 +1452,8 @@ export function resolvePersistentSnapshotDatabaseUrl(runtimeDatabaseUrl: string,
   }
 
   const resolvedValidationFallbackDatabaseUrl = resolve(process.cwd(), VALIDATION_FALLBACK_DATABASE_URL);
+  ensureCanonicalPersistentSnapshotDatabase(VALIDATION_FALLBACK_DATABASE_URL);
+  ensureCanonicalPersistentSnapshotDatabase(DEFAULT_PERSISTENT_DATABASE_URL);
 
   if (existsSync(resolvedValidationFallbackDatabaseUrl) && hasUsableLiveSnapshots(VALIDATION_FALLBACK_DATABASE_URL)) {
     return VALIDATION_FALLBACK_DATABASE_URL;

@@ -225,6 +225,7 @@ export function buildMarketRow(
   const seededBootstrapSnapshot = isSeededBootstrapSnapshot(snapshot);
   const validationOverrideMode = runtimeState.validationOverride?.mode ?? 'off';
   const validationStaleDisallowed = validationOverrideMode === 'stale_disallowed';
+  const canonicalValidationSnapshot = snapshot?.sourceProvidersJson.includes('canonical-validation-snapshot') ?? false;
   const importedLiveBootstrapSnapshot = validationOverrideMode === 'seeded_bootstrap'
     && snapshot !== null
     && getSnapshotOwnership(snapshot) === 'live';
@@ -272,7 +273,7 @@ export function buildMarketRow(
     name: displayName,
     image: coin.imageLargeUrl,
     current_price: toNumberOrNull(snapshot ? snapshot.price * rate : null, options.precision),
-    market_cap: toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
+    market_cap: useDegradedNullShape || canonicalValidationSnapshot ? null : toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
     market_cap_rank: resolvedMarketCapRank,
     fully_diluted_valuation: toNumberOrNull(snapshot?.fullyDilutedValuation ? snapshot.fullyDilutedValuation * rate : null, options.precision),
     total_volume: useDegradedNullShape ? null : toNumberOrNull(snapshot?.totalVolume ? snapshot.totalVolume * rate : null, options.precision),

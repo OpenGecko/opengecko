@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { exchangeVolumeSourcePoints } from '../src/db/schema';
@@ -81,10 +81,12 @@ describe('exchange volume provider replay fixtures', () => {
         .where(eq(exchangeVolumeSourcePoints.exchangeId, 'binance'))
         .all()).toHaveLength(3);
 
+      vi.useFakeTimers({ now: new Date('2026-05-05T00:25:00.000Z') });
       const rollingResponse = await app.inject({
         method: 'GET',
         url: '/exchanges/binance/volume_chart?days=7',
       });
+      vi.useRealTimers();
       const rangeResponse = await app.inject({
         method: 'GET',
         url: '/exchanges/binance/volume_chart/range?from=1777852800&to=1778025600',

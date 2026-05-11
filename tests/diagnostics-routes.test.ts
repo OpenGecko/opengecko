@@ -1023,10 +1023,12 @@ describe('diagnostics routes', () => {
       }),
     });
 
+    vi.useFakeTimers({ now: new Date('2026-05-05T01:20:00.000Z') });
     const liveResponse = await getApp().inject({
       method: 'GET',
       url: '/diagnostics/market_charts',
     });
+    vi.useRealTimers();
 
     expect(liveResponse.statusCode).toBe(200);
     expect(liveResponse.json().data.coins).toEqual(expect.arrayContaining([

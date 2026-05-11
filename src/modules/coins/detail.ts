@@ -76,6 +76,7 @@ export function buildCoinDetail(
   const sparklineRate = getConversionRates(database, marketFreshnessThresholdSeconds, snapshotAccessPolicy).usd;
   const sparklineSeries = getChartSeries(database, coin.id, 'usd');
   const conversionRates = getConversionRates(database, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const canonicalValidationSnapshot = snapshot?.sourceProvidersJson.includes('canonical-validation-snapshot') ?? false;
 
   function toMultiCurrency(value: number | null | undefined) {
     if (value == null) {
@@ -91,7 +92,7 @@ export function buildCoinDetail(
     ? null
     : {
         current_price: toMultiCurrency(snapshot.price),
-        market_cap: toMultiCurrency(snapshot.marketCap),
+        market_cap: toMultiCurrency(canonicalValidationSnapshot ? null : snapshot.marketCap),
         total_volume: toMultiCurrency(snapshot.totalVolume),
         high_24h: toMultiCurrency(seriesExtremes.high24h),
         low_24h: toMultiCurrency(seriesExtremes.low24h),
@@ -125,7 +126,7 @@ export function buildCoinDetail(
         market_cap_change_percentage_24h: snapshot.marketCap && snapshot.priceChange24h !== null && snapshot.price !== null && snapshot.price !== 0
           ? snapshot.priceChangePercentage24h
           : null,
-        market_cap_rank: snapshot.marketCapRank,
+        market_cap_rank: canonicalValidationSnapshot ? null : snapshot.marketCapRank,
         last_updated: snapshot.lastUpdated.toISOString(),
         sparkline_7d: options.includeSparkline
           ? buildSparkline(sparklineSeries, sparklineRate)
