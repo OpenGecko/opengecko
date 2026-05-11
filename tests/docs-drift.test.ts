@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 
 import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
 import { buildCoverageMatrix, type DataOwnershipClass } from '../src/services/coverage-matrix';
-
-function readRepoFile(path: string) {
-  return readFileSync(resolve(process.cwd(), path), 'utf8');
-}
+import {
+  extractReadmeApiCoverageGetRoutes,
+  normalizeRouteTemplate,
+  readRepoFile,
+  uniqueSorted,
+} from './helpers/readme-routes';
 
 const coverageOwnershipClasses: DataOwnershipClass[] = [
   'live',
@@ -22,16 +24,6 @@ const intentionallyUndocumentedPublicRoutes = new Set([
   '/health',
   '/metrics',
 ]);
-
-function normalizeRouteTemplate(route: string) {
-  return route
-    .replace(/:[A-Za-z0-9_]+/g, '{param}')
-    .replace(/\{[^}]+}/g, '{param}');
-}
-
-function uniqueSorted(values: string[]) {
-  return [...new Set(values)].sort();
-}
 
 const readmeConfigEnvAllowlist = new Set([
   'COIN_HISTORY_BASE_URL',
@@ -106,17 +98,6 @@ function extractRegisteredCoinGeckoGetRoutes() {
     .map(normalizeRouteTemplate);
 
   return uniqueSorted(registeredRoutes);
-}
-
-function extractReadmeApiCoverageGetRoutes() {
-  const readme = readRepoFile('README.md');
-  const apiCoverage = readme.match(/## API Coverage([\s\S]*?)## Configuration/)?.[1];
-  expect(apiCoverage).toBeDefined();
-
-  return uniqueSorted(
-    [...apiCoverage!.matchAll(/`GET ([^`]+)`/g)]
-      .map((match) => normalizeRouteTemplate(match[1])),
-  );
 }
 
 function extractCompatibilityAuditImplementedRoutes() {
