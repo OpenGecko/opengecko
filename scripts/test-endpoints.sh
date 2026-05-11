@@ -315,7 +315,7 @@ peek "tickers structure" "/coins/bitcoin/tickers" '{ name, tickers_count: (.tick
 echo
 echo -e "${BOLD}📂 Coins — Categories${NC}"
 check "GET /coins/categories/list" "/coins/categories/list"
-check_json "coins/categories/list marks fixture/live safely" "/coins/categories/list" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at")) and ((.meta.fixture == true and .meta.source == "fixture") or (.meta.fixture == false and .meta.source == "live" and (.meta.updated_at | type == "string")))' "true"
+check_json "coins/categories/list returns a bare category_id/name array" "/coins/categories/list" 'type == "array" and length > 0 and ([.[] | has("category_id") and has("name") and (.category_id | type == "string" and length > 0) and (.name | type == "string" and length > 0)] | all(.))' "true"
 check "GET /coins/categories" "/coins/categories"
 check_json "coins/categories marks fixture/live safely" "/coins/categories" 'has("meta") and (.meta | has("fixture") and has("source") and has("updated_at")) and ((.meta.fixture == true and .meta.source == "fixture") or (.meta.fixture == false and .meta.source == "live" and (.meta.updated_at | type == "string")))' "true"
 check "GET /coins/categories?order=name_desc" "/coins/categories?order=name_desc"

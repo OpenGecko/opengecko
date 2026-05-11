@@ -247,12 +247,16 @@ describe('HTTP cache semantics', () => {
         app,
         '/coins/categories/list',
         'public, max-age=3600, stale-while-revalidate=3600',
-        (body) => expect(body).toMatchObject({
-          data: expect.any(Array),
-          meta: {
-            fixture: true,
-          },
-        }),
+        (body) => {
+          expect(body).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+              category_id: expect.any(String),
+              name: expect.any(String),
+            }),
+          ]));
+          expect(body).not.toHaveProperty('data');
+          expect(body).not.toHaveProperty('meta');
+        },
       );
 
       await expectCacheableEndpoint(
