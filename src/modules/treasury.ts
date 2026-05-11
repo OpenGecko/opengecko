@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import BigNumber from 'bignumber.js';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import { chartPoints, coins, marketSnapshots, treasuryEntities, treasuryHoldings, treasuryTransactions, type TreasuryEntityRow, type TreasuryTransactionRow } from '../db/schema';
+import { chartPoints, coins, marketSnapshots, treasuryEntities, treasuryHoldings, treasurySourceDocuments, treasuryTransactions, type TreasuryEntityRow, type TreasuryTransactionRow } from '../db/schema';
 import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePositiveInt } from '../http/params';
@@ -74,6 +74,56 @@ function buildEntityListRow(row: TreasuryEntityRow) {
     symbol: row.symbol,
     country: row.country,
     entity_type: row.entityType,
+  };
+}
+
+function buildTreasurySourceMeta(database: AppDatabase, sourceUrls: Array<string | null | undefined>, options: {
+  totalRows: number;
+  emptyFallback?: boolean;
+  extra?: Record<string, unknown>;
+}): {
+  fixture: boolean;
+  degraded: boolean;
+  source: 'fixture' | 'disclosure_replay' | 'hybrid';
+  updated_at: string | null;
+  source_documents_count: number;
+  live_rows_count: number;
+  fallback_rows_count: number;
+  note: string;
+} & Record<string, unknown> {
+  const uniqueSourceUrls = [...new Set(sourceUrls.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+  const sourceDocuments = uniqueSourceUrls.length === 0
+    ? []
+    : database.db
+        .select()
+        .from(treasurySourceDocuments)
+        .where(inArray(treasurySourceDocuments.sourceUrl, uniqueSourceUrls))
+        .orderBy(desc(treasurySourceDocuments.updatedAt))
+        .all();
+  const sourceDocumentUrls = new Set(sourceDocuments.map((row) => row.sourceUrl));
+  const liveRows = uniqueSourceUrls.filter((sourceUrl) => sourceDocumentUrls.has(sourceUrl)).length;
+  const fallbackRows = Math.max(options.totalRows - liveRows, 0);
+  const fixture = options.emptyFallback === true || options.totalRows === 0 || fallbackRows > 0;
+  const source = liveRows > 0 && fallbackRows > 0
+    ? 'hybrid'
+    : liveRows > 0
+      ? 'disclosure_replay'
+      : 'fixture';
+  const latestUpdatedAt = sourceDocuments[0]?.updatedAt
+    ?? (fixture ? new Date('2026-03-20T00:00:00.000Z') : null);
+
+  return {
+    fixture,
+    degraded: fixture,
+    source,
+    updated_at: latestUpdatedAt?.toISOString() ?? null,
+    source_documents_count: sourceDocuments.length,
+    live_rows_count: liveRows,
+    fallback_rows_count: fallbackRows,
+    note: fixture
+      ? 'Treasury data includes seeded fixture fallback; source-backed disclosure rows are counted separately when available'
+      : 'Treasury data is source-backed from normalized public disclosure replay rows',
+    ...(options.extra ?? {}),
   };
 }
 
@@ -206,11 +256,12 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
 
     return sendCacheableJson(request, reply, {
       data,
-      meta: {
-        fixture: true,
-        entity_count: filteredRows.length,
-        note: 'Treasury data is seeded fixture, not live',
-      },
+      meta: buildTreasurySourceMeta(database, filteredRows.map((row) => row.websiteUrl), {
+        totalRows: filteredRows.length,
+        extra: {
+          entity_count: filteredRows.length,
+        },
+      }),
     }, TREASURY_HTTP_CACHE_POLICY);
   });
 
@@ -278,11 +329,12 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
           source_url: row.sourceUrl,
         })),
       },
-      meta: {
-        fixture: true,
-        entity_count: rows.length,
-        note: 'Treasury data is seeded fixture, not live',
-      },
+      meta: buildTreasurySourceMeta(database, rows.map((row) => row.sourceUrl), {
+        totalRows: rows.length,
+        extra: {
+          entity_count: rows.length,
+        },
+      }),
     }, TREASURY_HTTP_CACHE_POLICY);
   });
 
@@ -344,11 +396,12 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         total_unrealized_pnl_usd: new BigNumber(totalCurrentValueUsd).minus(totalEntryValueUsd).toNumber(),
         holdings,
       },
-      meta: {
-        fixture: true,
-        entity_count: 1,
-        note: 'Treasury data is seeded fixture, not live',
-      },
+      meta: buildTreasurySourceMeta(database, holdings.map((holding) => holding.source_url), {
+        totalRows: holdings.length,
+        extra: {
+          entity_count: 1,
+        },
+      }),
     }, TREASURY_HTTP_CACHE_POLICY);
   });
 
@@ -383,10 +436,10 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
           holdings: [],
           holding_value_in_usd: [],
         },
-        meta: {
-          fixture: true,
-          note: 'Treasury data is seeded fixture, not live',
-        },
+        meta: buildTreasurySourceMeta(database, [], {
+          totalRows: 0,
+          emptyFallback: true,
+        }),
       }, TREASURY_HTTP_CACHE_POLICY);
     }
 
@@ -433,10 +486,9 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
         holdings: chartRows.map((row) => [row.timestamp, row.holdingBalance]),
         holding_value_in_usd: chartRows.map((row) => [row.timestamp, row.holdingValueUsd]),
       },
-      meta: {
-        fixture: true,
-        note: 'Treasury data is seeded fixture, not live',
-      },
+      meta: buildTreasurySourceMeta(database, rows.map((row) => row.sourceUrl), {
+        totalRows: rows.length,
+      }),
     }, TREASURY_HTTP_CACHE_POLICY);
   });
 
@@ -473,11 +525,12 @@ export function registerTreasuryRoutes(app: FastifyInstance, database: AppDataba
           average_entry_value_usd: row.averageEntryValueUsd,
         })),
       },
-      meta: {
-        fixture: true,
-        transaction_count: 6,
-        note: 'Treasury data is seeded fixture, not live',
-      },
+      meta: buildTreasurySourceMeta(database, filteredRows.map((row) => row.sourceUrl), {
+        totalRows: filteredRows.length,
+        extra: {
+          transaction_count: filteredRows.length,
+        },
+      }),
     }, TREASURY_HTTP_CACHE_POLICY);
   });
 }

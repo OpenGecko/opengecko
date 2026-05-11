@@ -227,7 +227,10 @@ describe('onchain analytics sync', () => {
         meta: {
           fixture: false,
           source: 'live',
-          note: 'Holder data is source-attributed live provider data',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
       expect(tradersResponse.json()).toMatchObject({
@@ -238,7 +241,10 @@ describe('onchain analytics sync', () => {
         meta: {
           fixture: false,
           source: 'live',
-          note: 'Trader data is source-attributed live provider data',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
       expect(holdersChartResponse.json()).toMatchObject({
@@ -250,7 +256,10 @@ describe('onchain analytics sync', () => {
         meta: {
           fixture: false,
           source: 'live',
-          note: 'Holders chart data is source-attributed live provider data',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
     } finally {

@@ -127,7 +127,10 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
-          note: 'Holder data is source-attributed replay, not live',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
       expect(tradersResponse.statusCode).toBe(200);
@@ -151,7 +154,10 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
-          note: 'Trader data is source-attributed replay, not live',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
       expect(holdersChartResponse.statusCode).toBe(200);
@@ -164,7 +170,10 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
-          note: 'Holders chart data is source-attributed replay, not live',
+          degraded: true,
+          out_of_scope: true,
+          scope: expect.stringContaining('out-of-scope'),
+          note: expect.stringContaining('out-of-scope'),
         },
       });
     } finally {

@@ -72,7 +72,9 @@ describe('treasury fixture compatibility', () => {
       },
       meta: {
         fixture: true,
-        note: 'Treasury data is seeded fixture, not live',
+        degraded: true,
+        source: 'fixture',
+        note: expect.stringContaining('seeded fixture fallback'),
       },
     });
   });
@@ -84,14 +86,16 @@ describe('treasury fixture compatibility', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       data: {
         holdings: [],
         holding_value_in_usd: [],
       },
       meta: {
         fixture: true,
-        note: 'Treasury data is seeded fixture, not live',
+        degraded: true,
+        source: 'fixture',
+        note: expect.stringContaining('seeded fixture fallback'),
       },
     });
   });
@@ -103,14 +107,16 @@ describe('treasury fixture compatibility', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       data: {
         holdings: [],
         holding_value_in_usd: [],
       },
       meta: {
         fixture: true,
-        note: 'Treasury data is seeded fixture, not live',
+        degraded: true,
+        source: 'fixture',
+        note: expect.stringContaining('seeded fixture fallback'),
       },
     });
   });

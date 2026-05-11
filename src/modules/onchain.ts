@@ -515,6 +515,12 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       ...(included.length > 0 ? { included } : {}),
       meta: {
         ...buildPaginationMeta(page, perPage, sortedRows.length),
+        fixture: true,
+        degraded: true,
+        out_of_scope: true,
+        scope: 'out-of-scope analytics approximation; not promoted as live-complete',
+        source: 'seeded',
+        note: 'Megafilter is an out-of-scope analytics surface backed by seeded pool rows and must not be treated as live-complete.',
         sort,
         applied_filters: {
           ...(networks.length > 0 ? { networks } : {}),
@@ -1007,17 +1013,21 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       ...(included.length > 0 ? { included } : {}),
       meta: {
         fixture: holdersSource !== 'live',
+        degraded: true,
+        out_of_scope: true,
         network: params.network,
         token_address: tokenAddress,
         holders,
         include_pnl_details: includePnlDetails,
-        scope: holdersSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
+        scope: holdersSource === 'fixture'
+          ? 'out-of-scope analytics fixture for USDC only'
+          : 'out-of-scope source-attributed token analytics, not live-complete',
         source: holdersSource,
         note: holdersSource === 'live'
-          ? 'Holder data is source-attributed live provider data'
+          ? 'Holder data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : holdersSource === 'replay'
-            ? 'Holder data is source-attributed replay, not live'
-            : 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays',
+            ? 'Holder data is source-attributed replay, not live; the surface remains out-of-scope for live-complete coverage'
+            : 'Holder data is seeded fixture for USDC only; all other tokens return empty arrays and the surface remains out-of-scope',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -1062,18 +1072,22 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       data: tradersRows.map((trader) => buildTopTraderResource(trader, includeAddressLabel)),
       meta: {
         fixture: tradersSource !== 'live',
+        degraded: true,
+        out_of_scope: true,
         network: params.network,
         token_address: tokenAddress,
         traders,
         sort,
         include_address_label: includeAddressLabel,
-        scope: tradersSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
+        scope: tradersSource === 'fixture'
+          ? 'out-of-scope analytics fixture for USDC only'
+          : 'out-of-scope source-attributed token analytics, not live-complete',
         source: tradersSource,
         note: tradersSource === 'live'
-          ? 'Trader data is source-attributed live provider data'
+          ? 'Trader data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : tradersSource === 'replay'
-            ? 'Trader data is source-attributed replay, not live'
-            : 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays',
+            ? 'Trader data is source-attributed replay, not live; the surface remains out-of-scope for live-complete coverage'
+            : 'Trader data is seeded fixture for USDC only; all other tokens return empty arrays and the surface remains out-of-scope',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });
@@ -1101,16 +1115,20 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       data: data.map(buildHoldersChartResource),
       meta: {
         fixture: chartSource !== 'live',
+        degraded: true,
+        out_of_scope: true,
         network: params.network,
         token_address: tokenAddress,
         days,
-        scope: chartSource === 'fixture' ? 'USDC only' : 'source-attributed token analytics',
+        scope: chartSource === 'fixture'
+          ? 'out-of-scope analytics fixture for USDC only'
+          : 'out-of-scope source-attributed token analytics, not live-complete',
         source: chartSource,
         note: chartSource === 'live'
-          ? 'Holders chart data is source-attributed live provider data'
+          ? 'Holders chart data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : chartSource === 'replay'
-            ? 'Holders chart data is source-attributed replay, not live'
-            : 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays',
+            ? 'Holders chart data is source-attributed replay, not live; the surface remains out-of-scope for live-complete coverage'
+            : 'Holders chart data is seeded fixture for USDC only; all other tokens return empty arrays and the surface remains out-of-scope',
       },
     }, ONCHAIN_HTTP_CACHE_POLICY);
   });

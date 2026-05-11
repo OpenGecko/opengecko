@@ -217,6 +217,11 @@ describe('search routes', () => {
     expect(body).toHaveProperty('coins');
     expect(body).toHaveProperty('nfts');
     expect(body).toHaveProperty('categories');
+    expect(body.meta).toMatchObject({
+      approximation: true,
+      source: 'market_snapshots',
+      ranking_method: 'market_cap_rank_with_volume_price_change_context',
+    });
     expect(Array.isArray(body.coins)).toBe(true);
     expect(Array.isArray(body.nfts)).toBe(true);
     expect(Array.isArray(body.categories)).toBe(true);
@@ -329,6 +334,7 @@ describe('search routes', () => {
     const body = response.json();
     expect(body.coins).toHaveLength(1);
     expect(body.categories).toHaveLength(1);
+    expect(body.meta.show_max).toBe(1);
     expect(body.nfts).toEqual([]);
     expect(body.coins[0].item.id).toBe('bitcoin');
     expect(body.categories[0].name).toBe('Smart Contract Platform');
@@ -341,10 +347,14 @@ describe('search routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       coins: [],
       nfts: [],
       categories: [],
+      meta: expect.objectContaining({
+        approximation: true,
+        show_max: 0,
+      }),
     });
   });
 });

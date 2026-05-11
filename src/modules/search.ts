@@ -204,6 +204,13 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
       coins,
       nfts: [],
       categories,
+      meta: {
+        approximation: true,
+        source: 'market_snapshots',
+        ranking_method: 'market_cap_rank_with_volume_price_change_context',
+        show_max: showMax ?? 7,
+        note: 'Trending is approximated from current OpenGecko market snapshots and category aggregates, not CoinGecko social/search telemetry.',
+      },
     }, SEARCH_HTTP_CACHE_POLICY);
   });
 }

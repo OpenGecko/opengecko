@@ -20,6 +20,7 @@
     "test:endpoint:onchain": "bash scripts/modules/onchain/onchain.sh",
     "test:endpoint:search": "bash scripts/modules/search/search.sh",
     "test:endpoint:simple": "bash scripts/modules/simple/simple.sh",
+    "test:endpoint:treasury": "bash scripts/modules/treasury/treasury.sh",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "charts:backfill": "tsx src/jobs/backfill-ohlcv.ts",

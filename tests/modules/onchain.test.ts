@@ -224,6 +224,36 @@ describe('onchain pool discovery', () => {
     expect(body.data.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('marks out-of-scope analytics surfaces as degraded or fixture-scoped', async () => {
+    const [holdersResponse, tradersResponse, holdersChartResponse, megafilterResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_holders',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/top_traders',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/holders_chart',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/pools/megafilter?networks=eth',
+      }),
+    ]);
+
+    for (const response of [holdersResponse, tradersResponse, holdersChartResponse, megafilterResponse]) {
+      expect(response.statusCode).toBe(200);
+      expect(response.json().meta).toMatchObject({
+        degraded: true,
+        out_of_scope: true,
+        scope: expect.stringContaining('out-of-scope'),
+      });
+    }
+  });
+
   it('filters discovered pools by chain', async () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],

@@ -129,7 +129,11 @@ describe('treasury provider replay fixtures', () => {
           ]),
         },
         meta: {
-          fixture: true,
+          fixture: false,
+          source: 'disclosure_replay',
+          source_documents_count: 1,
+          live_rows_count: 1,
+          fallback_rows_count: 0,
         },
       });
       expect(detailResponse.statusCode).toBe(200);
@@ -144,6 +148,13 @@ describe('treasury provider replay fixtures', () => {
               source_url: fixture.source_url,
             }),
           ],
+        },
+        meta: {
+          fixture: false,
+          source: 'disclosure_replay',
+          source_documents_count: 1,
+          live_rows_count: 1,
+          fallback_rows_count: 0,
         },
       });
       expect(transactionsResponse.statusCode).toBe(200);
@@ -161,6 +172,12 @@ describe('treasury provider replay fixtures', () => {
               average_entry_value_usd: 64615.38461538462,
             },
           ]),
+        },
+        meta: {
+          fixture: true,
+          source: 'hybrid',
+          source_documents_count: 1,
+          transaction_count: 4,
         },
       });
 

@@ -21,6 +21,7 @@ module_section "Trending"
 check_status "GET /search/trending responds" "/search/trending"
 check_json_expr "trending response returns coin and category groups" "/search/trending" 'has("coins") and has("categories") and has("nfts") and (.coins | type) == "array" and (.categories | type) == "array"' "trending payload exposes grouped arrays"
 check_json_expr "trending items include nested item/data structures" "/search/trending" '(.coins | length > 0) and ([.coins[] | has("item") and (.item | has("id") and has("slug") and has("data"))] | all(.))' "trending coin rows include nested item/data payloads"
+check_json_expr "trending response marks approximation semantics" "/search/trending" 'has("meta") and (.meta.approximation == true) and (.meta.ranking_method | type == "string") and (.meta.source | type == "string")' "trending cannot be advertised as exact CoinGecko trending data"
 check_json_expr "trending show_max limits both coin and category groups" "/search/trending?show_max=${TRENDING_LIMIT}" "(.coins | length) <= ${TRENDING_LIMIT} and (.categories | length) <= ${TRENDING_LIMIT}" "show_max limits both coin and category result groups"
 
 module_summary

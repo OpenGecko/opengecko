@@ -184,7 +184,7 @@ describe('diagnostics routes', () => {
     expect(response.json().data).toMatchObject({
       scheduler: {
         enabled: true,
-        job_count: 14,
+        job_count: 15,
       },
       jobs: expect.arrayContaining([
         expect.objectContaining({
@@ -259,6 +259,11 @@ describe('diagnostics routes', () => {
           interval_seconds: 900,
           disabled: false,
         }),
+        expect.objectContaining({
+          name: 'treasury-sweep',
+          interval_seconds: 86400,
+          disabled: false,
+        }),
       ]),
     });
   });
@@ -312,6 +317,50 @@ describe('diagnostics routes', () => {
         last_success_at: null,
       });
     }
+    expect(jobs.find((job) => job.name === 'market-refresh')).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('honors Tier 2 and Tier 3 disable flags without disabling unrelated jobs', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'scheduler-disabled-tier23.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+        derivativesRefreshDisabled: true,
+        supplyAggregatorDisabled: true,
+        treasurySweepDisabled: true,
+      },
+      startBackgroundJobs: true,
+    });
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/jobs',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const jobs = response.json().data.jobs as Array<{
+      name: string;
+      disabled: boolean;
+      run_count: number;
+      last_run_at: string | null;
+      last_success_at: string | null;
+    }>;
+
+    for (const jobName of ['derivatives-refresh', 'supply-aggregator', 'treasury-sweep']) {
+      expect(jobs.find((job) => job.name === jobName)).toMatchObject({
+        disabled: true,
+        run_count: 0,
+        last_run_at: null,
+        last_success_at: null,
+      });
+    }
+
     expect(jobs.find((job) => job.name === 'market-refresh')).toMatchObject({
       disabled: false,
     });

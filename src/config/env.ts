@@ -22,6 +22,7 @@ import {
   DEFAULT_SEARCH_REBUILD_INTERVAL_SECONDS,
   DEFAULT_SUPPLY_AGGREGATOR_INTERVAL_SECONDS,
   DEFAULT_SUBSQUID_TRADE_SWEEP_INTERVAL_SECONDS,
+  DEFAULT_TREASURY_SWEEP_INTERVAL_SECONDS,
 } from './runtime-policy';
 import { HTTP_LOG_STYLES } from '../http/http-log-style';
 
@@ -56,6 +57,7 @@ const envSchema = z.object({
   CATEGORY_AGGREGATOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CATEGORY_AGGREGATOR_INTERVAL_SECONDS),
   DERIVATIVES_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_DERIVATIVES_REFRESH_INTERVAL_SECONDS),
   SUPPLY_AGGREGATOR_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_SUPPLY_AGGREGATOR_INTERVAL_SECONDS),
+  TREASURY_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_TREASURY_SWEEP_INTERVAL_SECONDS),
   SCHEDULER_DISABLED: z.boolean().default(false),
   MARKET_REFRESH_DISABLED: z.boolean().default(false),
   CURRENCY_RATES_DISABLED: z.boolean().default(false),
@@ -71,6 +73,7 @@ const envSchema = z.object({
   CATEGORY_AGGREGATOR_DISABLED: z.boolean().default(false),
   DERIVATIVES_REFRESH_DISABLED: z.boolean().default(false),
   SUPPLY_AGGREGATOR_DISABLED: z.boolean().default(false),
+  TREASURY_SWEEP_DISABLED: z.boolean().default(false),
   PROVIDER_FANOUT_CONCURRENCY: z.coerce.number().int().positive().default(DEFAULT_PROVIDER_FANOUT_CONCURRENCY),
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   OHLCV_TARGET_HISTORY_DAYS: z.coerce.number().int().positive().default(DEFAULT_OHLCV_TARGET_HISTORY_DAYS),
@@ -114,6 +117,7 @@ export type AppConfig = {
   categoryAggregatorIntervalSeconds: number;
   derivativesRefreshIntervalSeconds: number;
   supplyAggregatorIntervalSeconds: number;
+  treasurySweepIntervalSeconds: number;
   schedulerDisabled: boolean;
   marketRefreshDisabled: boolean;
   currencyRatesDisabled: boolean;
@@ -129,6 +133,7 @@ export type AppConfig = {
   categoryAggregatorDisabled: boolean;
   derivativesRefreshDisabled: boolean;
   supplyAggregatorDisabled: boolean;
+  treasurySweepDisabled: boolean;
   providerFanoutConcurrency: number;
   requestTimeoutMs: number;
   ohlcvTargetHistoryDays: number;
@@ -280,6 +285,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     categoryAggregatorIntervalSeconds: env.CATEGORY_AGGREGATOR_INTERVAL_SECONDS,
     derivativesRefreshIntervalSeconds: env.DERIVATIVES_REFRESH_INTERVAL_SECONDS,
     supplyAggregatorIntervalSeconds: env.SUPPLY_AGGREGATOR_INTERVAL_SECONDS,
+    treasurySweepIntervalSeconds: env.TREASURY_SWEEP_INTERVAL_SECONDS,
     schedulerDisabled: env.SCHEDULER_DISABLED,
     marketRefreshDisabled: env.MARKET_REFRESH_DISABLED,
     currencyRatesDisabled: env.CURRENCY_RATES_DISABLED,
@@ -295,6 +301,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     categoryAggregatorDisabled: env.CATEGORY_AGGREGATOR_DISABLED,
     derivativesRefreshDisabled: env.DERIVATIVES_REFRESH_DISABLED,
     supplyAggregatorDisabled: env.SUPPLY_AGGREGATOR_DISABLED,
+    treasurySweepDisabled: env.TREASURY_SWEEP_DISABLED,
     providerFanoutConcurrency: env.PROVIDER_FANOUT_CONCURRENCY,
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS,
     ohlcvTargetHistoryDays: env.OHLCV_TARGET_HISTORY_DAYS,
