@@ -561,7 +561,7 @@ export async function runMarketRefreshOnce(
   config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
   logger?: Logger,
   runtimeState?: MarketDataRuntimeState,
-  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh'>,
+  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh' | 'recordProviderForcedFailure' | 'recordProviderBlockedByBreaker' | 'recordProviderPartialFailure' | 'recordProviderRecovery'>,
   progress?: MarketRefreshProgressHandlers,
 ) {
   const refreshLogger = logger?.child({ operation: 'market_refresh' });
@@ -575,6 +575,9 @@ export async function runMarketRefreshOnce(
 
   if (runtimeState?.forcedProviderFailure.active) {
     metrics?.recordProviderRefresh('forced_failure', exchangeIds.length, exchangeIds.length);
+    for (const exchangeId of exchangeIds) {
+      metrics?.recordProviderForcedFailure(exchangeId);
+    }
     throw new Error(runtimeState.forcedProviderFailure.reason ?? 'forced provider failure active');
   }
 
@@ -595,6 +598,11 @@ export async function runMarketRefreshOnce(
     ? exchangeIds.filter((exchangeId) => canAttemptProvider(providerBreakers, exchangeId, startTime))
     : exchangeIds;
   const blockedExchangeCount = exchangeIds.length - attemptedExchangeIds.length;
+  for (const exchangeId of exchangeIds) {
+    if (!attemptedExchangeIds.includes(exchangeId)) {
+      metrics?.recordProviderBlockedByBreaker(exchangeId);
+    }
+  }
 
   if (attemptedExchangeIds.length === 0) {
     metrics?.recordProviderRefresh('breaker_skip', exchangeIds.length, 0);
@@ -676,6 +684,7 @@ export async function runMarketRefreshOnce(
   stopWaitingStatus();
   fetchTickersPhase.stop();
   let failedExchanges = 0;
+  const failedExchangeIds: string[] = [];
 
   for (let i = 0; i < attemptedExchangeIds.length; i++) {
     const exchangeId = attemptedExchangeIds[i];
@@ -688,6 +697,7 @@ export async function runMarketRefreshOnce(
     if (result.status === 'rejected') {
       processingPhase.stop();
       failedExchanges += 1;
+      failedExchangeIds.push(exchangeId);
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
         : { message: String(result.reason) };
@@ -698,8 +708,14 @@ export async function runMarketRefreshOnce(
       continue;
     }
 
+    const providerHadFailure = providerBreakers
+      ? (providerBreakers.providers[exchangeId]?.failureCount ?? 0) > 0
+      : false;
     if (providerBreakers) {
       recordProviderSuccess(providerBreakers, exchangeId, Date.now());
+    }
+    if (providerHadFailure) {
+      metrics?.recordProviderRecovery(exchangeId);
     }
 
     const tickers = Array.isArray(result.value) ? result.value : [];
@@ -767,6 +783,12 @@ export async function runMarketRefreshOnce(
 
   if (runtimeState) {
     clearProviderFailureCooldown(runtimeState);
+  }
+
+  if (failedExchangeIds.length > 0) {
+    for (const exchangeId of failedExchangeIds) {
+      metrics?.recordProviderPartialFailure(exchangeId);
+    }
   }
 
   metrics?.recordProviderRefresh(

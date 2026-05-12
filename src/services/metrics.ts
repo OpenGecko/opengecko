@@ -56,6 +56,11 @@ export type MetricsRegistry = {
   recordCacheHit: (surface: string) => void;
   recordCacheMiss: (surface: string) => void;
   recordProviderRefresh: (outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'breaker_skip' | 'forced_failure' | 'failure', exchangeCount: number, failedExchangeCount: number) => void;
+  recordProviderForcedFailure: (provider: string) => void;
+  recordProviderBlockedByBreaker: (provider: string) => void;
+  recordProviderPartialFailure: (provider: string) => void;
+  recordProviderRecovery: (provider: string) => void;
+  initializeProviderHealthCounters: (provider: string) => void;
   recordStartupPrewarmTarget: (target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) => void;
   recordStartupPrewarmFirstRequest: (target: string, cacheSurface: string, cacheHit: boolean, durationMs: number) => void;
   renderPrometheus: () => string;
@@ -149,6 +154,29 @@ export function createMetricsRegistry(): MetricsRegistry {
     setGauge('opengecko_provider_failed_exchange_count', {}, failedExchangeCount);
   }
 
+  function recordProviderForcedFailure(provider: string) {
+    incrementCounter('provider_forced_failure_total', { provider });
+  }
+
+  function recordProviderBlockedByBreaker(provider: string) {
+    incrementCounter('provider_blocked_by_breaker_total', { provider });
+  }
+
+  function recordProviderPartialFailure(provider: string) {
+    incrementCounter('provider_partial_failure_total', { provider });
+  }
+
+  function recordProviderRecovery(provider: string) {
+    incrementCounter('provider_recovery_total', { provider });
+  }
+
+  function initializeProviderHealthCounters(provider: string) {
+    incrementCounter('provider_forced_failure_total', { provider }, 0);
+    incrementCounter('provider_blocked_by_breaker_total', { provider }, 0);
+    incrementCounter('provider_partial_failure_total', { provider }, 0);
+    incrementCounter('provider_recovery_total', { provider }, 0);
+  }
+
   function recordStartupPrewarmTarget(target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) {
     incrementCounter('opengecko_startup_prewarm_targets_total', {
       target,
@@ -206,6 +234,11 @@ export function createMetricsRegistry(): MetricsRegistry {
     recordCacheHit,
     recordCacheMiss,
     recordProviderRefresh,
+    recordProviderForcedFailure,
+    recordProviderBlockedByBreaker,
+    recordProviderPartialFailure,
+    recordProviderRecovery,
+    initializeProviderHealthCounters,
     recordStartupPrewarmTarget,
     recordStartupPrewarmFirstRequest,
     renderPrometheus,

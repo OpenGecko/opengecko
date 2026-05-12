@@ -77,6 +77,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   const marketDataRuntimeState = createMarketDataRuntimeState();
   const metrics = createMetricsRegistry();
+  for (const provider of config.ccxtExchanges) {
+    metrics.initializeProviderHealthCounters(provider);
+  }
   const optionalProviderJobs = createOptionalProviderJobRegistry();
   const chartResponseSources = createChartResponseSourceDiagnostics(database);
   const runtime = shouldStartBackgroundJobs
