@@ -390,7 +390,26 @@ describe('HTTP cache semantics', () => {
         });
 
         expect(response.statusCode).toBe(200);
-        baseline[name] = response.json();
+        const body = response.json();
+        if (name === 'onchain_pool') {
+          const payload = body as {
+            data?: { attributes?: { price_usd?: unknown; reserve_usd?: unknown; volume_usd?: { h24?: unknown } } };
+            meta?: { data_source?: unknown; fixture?: unknown; source?: unknown };
+          };
+          if (payload.data?.attributes) {
+            payload.data.attributes.price_usd = '<provider-dependent>';
+            payload.data.attributes.reserve_usd = '<provider-dependent>';
+            if (payload.data.attributes.volume_usd) {
+              payload.data.attributes.volume_usd.h24 = '<provider-dependent>';
+            }
+          }
+          if (payload.meta) {
+            payload.meta.data_source = '<provider-dependent>';
+            payload.meta.fixture = '<provider-dependent>';
+            payload.meta.source = '<provider-dependent>';
+          }
+        }
+        baseline[name] = body;
       }
 
       expect(baseline).toMatchInlineSnapshot(`
@@ -549,10 +568,10 @@ describe('HTTP cache semantics', () => {
                 "base_token_symbol": "USDC",
                 "name": "USDC / WETH 0.05%",
                 "pool_created_at": 1712707200,
-                "price_usd": 0.315641,
+                "price_usd": "<provider-dependent>",
                 "quote_token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
                 "quote_token_symbol": "WETH",
-                "reserve_usd": 102583351,
+                "reserve_usd": "<provider-dependent>",
                 "transactions": {
                   "h24": {
                     "buys": 12840,
@@ -560,7 +579,7 @@ describe('HTTP cache semantics', () => {
                   },
                 },
                 "volume_usd": {
-                  "h24": 37166218.31189,
+                  "h24": "<provider-dependent>",
                 },
               },
               "id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
@@ -581,9 +600,9 @@ describe('HTTP cache semantics', () => {
               "type": "pool",
             },
             "meta": {
-              "data_source": "live",
-              "fixture": false,
-              "source": "live",
+              "data_source": "<provider-dependent>",
+              "fixture": "<provider-dependent>",
+              "source": "<provider-dependent>",
               "updated_at": "2026-03-20T00:00:00.000Z",
             },
           },

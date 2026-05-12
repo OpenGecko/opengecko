@@ -102,6 +102,19 @@ describe('market runtime', () => {
     marketFreshnessThresholdSeconds: 300,
     providerFanoutConcurrency: 2,
     startupPrewarmBudgetMs: 250,
+    ohlcvTickDisabled: true,
+    cacheEvictionDisabled: true,
+    defillamaPoolSweepDisabled: true,
+    defillamaTokenSweepDisabled: true,
+    subsquidTradeSweepDisabled: true,
+    coinCatalogRescanDisabled: true,
+    exchangeMetadataRescanDisabled: true,
+    globalAggregatorDisabled: true,
+    categoryAggregatorDisabled: true,
+    derivativesRefreshDisabled: true,
+    supplyAggregatorDisabled: true,
+    treasurySweepDisabled: true,
+    optionalProviderSyncEnabled: false,
   };
 
   const metrics = createMetricsRegistry();
