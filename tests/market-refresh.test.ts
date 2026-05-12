@@ -896,6 +896,14 @@ describe('market refresh service', () => {
       expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="cooldown_skip"} 1');
       expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="partial_failure"} 1');
       expect(metricsText).toContain('opengecko_provider_refresh_total{outcome="success"} 1');
+      for (const providerHealthCounter of [
+        'provider_forced_failure_total',
+        'provider_blocked_by_breaker_total',
+        'provider_partial_failure_total',
+        'provider_recovery_total',
+      ]) {
+        expect(metricsText).toContain(providerHealthCounter);
+      }
       expect(metricsText).toContain('provider_forced_failure_total{provider="binance"} 1');
       expect(metricsText).toContain('provider_forced_failure_total{provider="coinbase"} 1');
       expect(metricsText).toContain('provider_partial_failure_total{provider="coinbase"} 1');
