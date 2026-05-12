@@ -2512,7 +2512,8 @@ describe('diagnostics routes', () => {
     });
     expect(typeof response.json().data.hot_paths.shared_market_snapshot.freshness.age_seconds).toBe('number');
     expect(Array.isArray(response.json().data.hot_paths.shared_market_snapshot.providers)).toBe(true);
-    expect(response.json().data.providers).toEqual(expect.arrayContaining([
+    const runtimeProviders = response.json().data.providers;
+    expect(runtimeProviders).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'binance',
         state: 'closed',
@@ -2522,36 +2523,14 @@ describe('diagnostics routes', () => {
         failure_count: 0,
         next_retry_at: null,
       }),
-      expect.objectContaining({
-        id: 'currency-api',
-        state: 'closed',
-        last_success_at: null,
-        last_failure_at: null,
-        last_failure_reason: null,
-        failure_count: 0,
-        next_retry_at: null,
-      }),
-      expect.objectContaining({
-        id: 'defillama',
-        state: 'closed',
-        last_success_at: null,
-        last_failure_at: null,
-        last_failure_reason: null,
-        failure_count: 0,
-        next_retry_at: null,
-      }),
-      expect.objectContaining({
-        id: 'subsquid',
-        state: 'closed',
-        last_success_at: null,
-        last_failure_at: null,
-        last_failure_reason: null,
-        failure_count: 0,
-        next_retry_at: null,
-      }),
+    ]));
+    expect(runtimeProviders.map((provider: { id: string }) => provider.id)).not.toEqual(expect.arrayContaining([
+      'currency-api',
+      'defillama',
+      'subsquid',
     ]));
 
-    for (const provider of response.json().data.providers) {
+    for (const provider of runtimeProviders) {
       expect(Object.keys(provider)).toEqual(expect.arrayContaining([...REQUIRED_RUNTIME_PROVIDER_FIELDS]));
       expect(['closed', 'open', 'half_open']).toContain(provider.state);
       expect(typeof provider.failure_count).toBe('number');

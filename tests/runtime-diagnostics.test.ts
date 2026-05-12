@@ -656,7 +656,7 @@ describe('runtime diagnostics', () => {
     expect(JSON.stringify(diagnostics)).not.toContain('api_key');
   });
 
-  it('lists required breaker state fields for every active provider', () => {
+  it('lists required breaker state fields only for providers with real breaker state', () => {
     const providerBreakers = createProviderBreakerState(['binance'], {
       baseBackoffMs: 60_000,
       jitterRatio: 0,
@@ -681,16 +681,10 @@ describe('runtime diagnostics', () => {
       },
       300,
       new Date('2026-03-26T00:00:30.000Z').getTime(),
-      ['binance', 'currency-api', 'defillama', 'subsquid'],
     );
 
     const providers = diagnostics.providers ?? [];
-    expect(providers.map((provider) => provider.id)).toEqual([
-      'binance',
-      'currency-api',
-      'defillama',
-      'subsquid',
-    ]);
+    expect(providers.map((provider) => provider.id)).toEqual(['binance']);
 
     for (const provider of providers) {
       expect(Object.keys(provider)).toEqual(expect.arrayContaining([...REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS]));
@@ -713,6 +707,53 @@ describe('runtime diagnostics', () => {
     expect(JSON.stringify(providers)).not.toContain('api_key');
     expect(JSON.stringify(providers)).not.toContain('super-secret-token');
     expect(JSON.stringify(providers)).not.toContain('Bearer');
+  });
+
+  it('reports non-CCXT provider breaker fields only when real breaker state exists', () => {
+    const providerBreakers = createProviderBreakerState(['binance', 'defillama'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    const failedAt = new Date('2026-03-26T00:00:00.000Z').getTime();
+    recordProviderSuccess(providerBreakers, 'binance', failedAt - 60_000);
+    recordProviderFailure(providerBreakers, 'defillama', failedAt, 'DeFiLlama pool fetch failed');
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:00:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      failedAt + 30_000,
+    );
+
+    expect(diagnostics.providers).toEqual([
+      expect.objectContaining({
+        id: 'binance',
+        state: 'closed',
+        alert_status: 'healthy',
+        last_success_at: '2026-03-25T23:59:00.000Z',
+      }),
+      expect.objectContaining({
+        id: 'defillama',
+        state: 'open',
+        alert_status: 'degraded',
+        failure_count: 1,
+        last_failure_at: '2026-03-26T00:00:00.000Z',
+        last_failure_reason: 'DeFiLlama pool fetch failed',
+        next_retry_at: '2026-03-26T00:01:00.000Z',
+      }),
+    ]);
+    expect(diagnostics.providers?.map((provider) => provider.id)).not.toEqual(expect.arrayContaining([
+      'currency-api',
+      'subsquid',
+    ]));
   });
 
   it('classifies provider alert status across healthy, degraded, and failing transitions', () => {

@@ -113,7 +113,6 @@ export function buildRuntimeDiagnostics(
   latestUsdSnapshot: Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceProvidersJson' | 'sourceCount'> | null,
   marketFreshnessThresholdSeconds: number,
   now = Date.now(),
-  activeProviderIds: string[] = [],
 ): RuntimeDiagnostics {
   const listenerBoundSeededBootstrap = runtimeState.listenerBound
     && runtimeState.validationOverride.mode === 'off'
@@ -133,20 +132,7 @@ export function buildRuntimeDiagnostics(
   const providerBreakerSummaries = runtimeState.providerBreakers
     ? summarizeProviderBreakerState(runtimeState.providerBreakers, now)
     : [];
-  const summarizedProviderIds = new Set(providerBreakerSummaries.map((provider) => provider.id));
-  const missingActiveProviders = [...new Set(activeProviderIds)]
-    .filter((providerId) => !summarizedProviderIds.has(providerId))
-    .map((providerId) => ({
-      id: providerId,
-      status: 'closed' as const,
-      failure_count: 0,
-      opened_until: null,
-      last_success_at: null,
-      last_failure_at: null,
-      last_failure_reason: null,
-      retry_in_ms: 0,
-    }));
-  const providerDiagnostics = [...providerBreakerSummaries, ...missingActiveProviders]
+  const providerDiagnostics = providerBreakerSummaries
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((provider) => {
       const nextRetryAt = provider.status === 'open' ? toIsoString(provider.opened_until) : null;
