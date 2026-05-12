@@ -699,6 +699,19 @@ describe('HTTP cache semantics', () => {
 
       await expectCacheableEndpoint(
         app,
+        '/diagnostics/runtime',
+        'public, max-age=60, stale-while-revalidate=60',
+        (body) => expect(body).toMatchObject({
+          data: {
+            readiness: expect.any(Object),
+            hot_paths: expect.any(Object),
+            transport: expect.any(Object),
+          },
+        }),
+      );
+
+      await expectCacheableEndpoint(
+        app,
         '/diagnostics/derivatives',
         'public, max-age=60, stale-while-revalidate=60',
         (body) => expect(body).toMatchObject({

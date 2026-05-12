@@ -208,7 +208,7 @@ export function registerDiagnosticsRoutes(
     }, dynamicDiagnosticsCachePolicy);
   });
 
-  app.get('/diagnostics/runtime', async () => {
+  app.get('/diagnostics/runtime', async (request, reply) => {
     const latestUsdSnapshot = database.db
       .select()
       .from(marketSnapshots)
@@ -217,7 +217,7 @@ export function registerDiagnosticsRoutes(
       .all()
       .at(-1) ?? null;
 
-    return {
+    return sendCacheableJson(request, reply, {
       data: {
         ...buildRuntimeDiagnostics(
           app.marketDataRuntimeState,
@@ -233,7 +233,7 @@ export function registerDiagnosticsRoutes(
         },
         startup_prewarm: app.marketDataRuntimeState.startupPrewarm,
       },
-    };
+    }, dynamicDiagnosticsCachePolicy);
   });
 
   app.get('/metrics', async (_request, reply) => {
