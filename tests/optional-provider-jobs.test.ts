@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { optionalProviderJobRuns } from '../src/db/schema';
 import { runMarketChartSyncJob } from '../src/jobs/sync-market-charts';
 
 vi.mock('../src/providers/ccxt', () => ({
@@ -324,6 +325,81 @@ describe('optional provider job diagnostics', () => {
       expect(payloadText).not.toContain('secret-token');
       expect(payloadText).not.toContain('hunter2');
       expect(payloadText).not.toContain('user:pass');
+      expect(response.json().data.jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'market_charts',
+          last_partial_failure_reason: expect.stringContaining('redacted'),
+          last_partial_failure_samples: [
+            expect.objectContaining({
+              error: expect.stringContaining('redacted'),
+            }),
+          ],
+          last_partial_failure_retry_targets_template: 'mock.chart=bitcoin:1d:usd',
+        }),
+      ]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('redacts persisted partial failure reasons and samples at diagnostics render time', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd,mock.chart=solana:1d:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      app.db.db.insert(optionalProviderJobRuns).values({
+        jobId: 'market_charts',
+        status: 'succeeded',
+        startedAt: new Date('2026-05-05T02:30:00.000Z'),
+        finishedAt: new Date('2026-05-05T02:30:01.000Z'),
+        targetsAttempted: 2,
+        rowsWritten: 1,
+        failureReason: JSON.stringify({
+          kind: 'partial_failure',
+          reason: [
+            'GET https://client:password@adapter.example/fetch?api_key=raw-api-key&token=raw-token failed',
+            'Authorization: Bearer persisted-bearer-token',
+            'Error: adapter failed',
+            '    at fetchSecret (/home/whoami/dev/opengecko/data/runtime.sqlite:1:1)',
+          ].join('\n'),
+          samples: [{
+            provider: 'mock.chart',
+            coin_id: 'bitcoin',
+            vs_currency: 'usd',
+            interval: '1d',
+            error: [
+              'POST https://user:pass@adapter.example/sample?password=hunter2&symbol=BTC failed',
+              'Bearer sample-bearer-token',
+              '    at sampleSecret (/tmp/opengecko-secret.db:2:2)',
+            ].join('\n'),
+          }],
+        }),
+        updatedAt: new Date('2026-05-05T02:30:01.000Z'),
+      }).run();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/jobs',
+      });
+      const payloadText = response.body;
+
+      expect(response.statusCode).toBe(200);
+      expect(payloadText).not.toContain('client:password@');
+      expect(payloadText).not.toContain('user:pass@');
+      expect(payloadText).not.toContain('raw-api-key');
+      expect(payloadText).not.toContain('raw-token');
+      expect(payloadText).not.toContain('persisted-bearer-token');
+      expect(payloadText).not.toContain('sample-bearer-token');
+      expect(payloadText).not.toContain('hunter2');
+      expect(payloadText).not.toContain('/home/whoami/dev/opengecko/data/runtime.sqlite');
+      expect(payloadText).not.toContain('/tmp/opengecko-secret.db');
+      expect(payloadText).not.toMatch(/api_key|token=|password=|Bearer/i);
       expect(response.json().data.jobs).toEqual(expect.arrayContaining([
         expect.objectContaining({
           id: 'market_charts',

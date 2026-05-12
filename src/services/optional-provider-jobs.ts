@@ -6,7 +6,7 @@ import { optionalProviderJobRuns, type OptionalProviderJobRunRow } from '../db/s
 import { parseCoinHistoryTargetConfig } from './coin-history-sync';
 import { parseExchangeVolumeTargetConfig } from './exchange-volume-sync';
 import { parseMarketChartTargetConfig } from './market-chart-sync';
-import { sanitizeDiagnosticText } from './diagnostic-sanitizer';
+import { sanitizeDiagnosticText, sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
 import { parseOnchainAnalyticsTargetConfig } from './onchain-analytics-sync';
 import { parseOnchainTradeTargetConfig } from './onchain-trade-sync';
 import { parseSupplyChartTargetConfig } from './supply-chart-sync';
@@ -174,8 +174,11 @@ function parsePartialFailure(value: string | null) {
         : [];
 
       return {
-        reason: parsed.reason,
-        samples,
+        reason: sanitizeDiagnosticText(parsed.reason),
+        samples: samples.map((sample) => ({
+          ...sample,
+          error: sanitizeDiagnosticText(sample.error),
+        })),
       };
     }
   } catch {
@@ -186,6 +189,13 @@ function parsePartialFailure(value: string | null) {
     reason: sanitizeDiagnosticText(value),
     samples: [],
   };
+}
+
+function sanitizePartialFailureSamples(samples: OptionalProviderJobPartialFailureSample[]) {
+  return samples.slice(0, 5).map((sample) => ({
+    ...sample,
+    error: sanitizeDiagnosticText(sample.error),
+  }));
 }
 
 function buildPartialFailureRetryTargetsTemplate(samples: OptionalProviderJobPartialFailureSample[]) {
@@ -416,7 +426,9 @@ export function buildOptionalProviderJobDiagnostics(
       ?? (configuredTargetCount === 0 ? 'not_configured' : 'configured_pending');
     const startedAt = runState?.startedAt ?? null;
     const finishedAt = runState && runState.status !== 'running' ? runState.finishedAt : null;
-    const partialFailureSamples = runState?.status === 'succeeded' ? runState.partialFailureSamples ?? [] : [];
+    const partialFailureSamples = runState?.status === 'succeeded'
+      ? sanitizePartialFailureSamples(runState.partialFailureSamples ?? [])
+      : [];
 
     return {
       id: definition.id,
@@ -431,7 +443,9 @@ export function buildOptionalProviderJobDiagnostics(
       last_targets_attempted: runState?.targetsAttempted ?? null,
       last_rows_written: runState?.status === 'succeeded' ? runState.rowsWritten : null,
       last_failure_reason: runState?.status === 'failed' ? sanitizeDiagnosticText(runState.error) : null,
-      last_partial_failure_reason: runState?.status === 'succeeded' ? runState.partialFailureReason ?? null : null,
+      last_partial_failure_reason: runState?.status === 'succeeded'
+        ? sanitizeNullableDiagnosticText(runState.partialFailureReason ?? null)
+        : null,
       last_partial_failure_samples: partialFailureSamples,
       last_partial_failure_retry_targets_template: buildPartialFailureRetryTargetsTemplate(partialFailureSamples),
       production_freshness_cadence: definition.id === 'market_charts'
