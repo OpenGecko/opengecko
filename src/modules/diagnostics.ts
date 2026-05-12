@@ -15,6 +15,7 @@ import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
 import { buildMarketChartProviderDiagnostics } from '../services/market-chart-diagnostics';
 import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
 import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
+import { sanitizeNullableDiagnosticText } from '../services/diagnostic-sanitizer';
 import {
   buildOptionalProviderJobDiagnostics,
   type OptionalProviderJobRegistry,
@@ -281,7 +282,7 @@ export function registerDiagnosticsRoutes(
     };
     const active = body.active === true;
     const reason = active
-      ? (typeof body.reason === 'string' && body.reason.trim().length > 0
+      ? sanitizeNullableDiagnosticText(typeof body.reason === 'string' && body.reason.trim().length > 0
         ? body.reason.trim()
         : 'forced provider failure active')
       : null;
@@ -328,7 +329,7 @@ export function registerDiagnosticsRoutes(
 
     const reason = mode === 'off'
       ? null
-      : (typeof body.reason === 'string' && body.reason.trim().length > 0
+      : sanitizeNullableDiagnosticText(typeof body.reason === 'string' && body.reason.trim().length > 0
         ? body.reason.trim()
         : 'validation degraded state override');
 

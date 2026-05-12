@@ -703,7 +703,7 @@ describe('runtime diagnostics', () => {
       state: 'open',
       failure_count: 1,
       next_retry_at: '2026-03-26T00:01:00.000Z',
-      last_failure_reason: 'GET https://[redacted]@example.test/tickers?credential=[redacted] authorization=[redacted]',
+      last_failure_reason: 'GET https://redacted:redacted@example.test/tickers?redacted authorization=[redacted]',
     });
     expect(JSON.stringify(providers)).not.toContain('api_key');
     expect(JSON.stringify(providers)).not.toContain('super-secret-token');

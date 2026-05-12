@@ -157,7 +157,7 @@ describe('unified scheduler', () => {
       partial_failure_samples: [
         {
           target: 'eth:0xpool',
-          reason: expect.stringContaining('token=redacted'),
+          reason: expect.stringContaining('credential=[redacted]'),
         },
       ],
     });
@@ -170,7 +170,7 @@ describe('unified scheduler', () => {
         partial_failure_count: 1,
         partial_failure_samples: [
           expect.objectContaining({
-            reason: expect.stringContaining('token=redacted'),
+            reason: expect.stringContaining('credential=[redacted]'),
           }),
         ],
       }),
@@ -183,8 +183,8 @@ describe('unified scheduler', () => {
       `Authorization: Bearer scheduler-secret-token database_url=/home/whoami/dev/opengecko/data/opengecko.db path /home/whoami/dev/opengecko/data/runtime.sqlite password=hunter2 https://provider.example/v1/prices?api_key=url-secret&ids=bitcoin ${'x'.repeat(600)}`,
     );
 
-    expect(sanitized).toContain('password=redacted');
-    expect(sanitized).toContain('Authorization: redacted');
+    expect(sanitized).toContain('credential=[redacted]');
+    expect(sanitized).toContain('authorization=[redacted]');
     expect(sanitized).toContain('[path redacted]');
     expect(sanitized).toContain('?redacted');
     expect(sanitized).not.toContain('hunter2');
@@ -217,8 +217,8 @@ describe('unified scheduler', () => {
     const diagnosticError = scheduler.diagnostics()[0]?.last_error;
     const logError = logger.error.mock.calls[0]?.[0]?.error;
     expect(logError).toBe(diagnosticError);
-    expect(logError).toContain('Authorization=redacted');
-    expect(logError).toContain('token=redacted');
+    expect(logError).toContain('authorization=[redacted]');
+    expect(logError).toContain('credential=[redacted]');
     expect(logError).toContain('[path redacted]');
     expect(logError).not.toContain('log-secret-token');
     expect(logError).not.toContain('query-secret');

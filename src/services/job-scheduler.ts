@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 
+import { sanitizeDiagnosticText } from './diagnostic-sanitizer';
 import type { MetricsRegistry } from './metrics';
 
 export type SchedulerJobResult = {
@@ -64,67 +65,12 @@ type SchedulerJobState = {
 
 export type UnifiedScheduler = ReturnType<typeof createUnifiedScheduler>;
 
-const MAX_ERROR_LENGTH = 500;
-const SENSITIVE_QUERY_KEYS = [
-  'access_token',
-  'api_key',
-  'apikey',
-  'auth',
-  'authorization',
-  'client_secret',
-  'database_url',
-  'db_url',
-  'key',
-  'password',
-  'pass',
-  'secret',
-  'signature',
-  'token',
-];
-const SENSITIVE_QUERY_KEY_PATTERN = SENSITIVE_QUERY_KEYS.join('|');
-const SENSITIVE_QUERY_ASSIGNMENT = new RegExp(
-  `((?:${SENSITIVE_QUERY_KEY_PATTERN})(?:\\[[^\\]]+\\])?\\s*[=:]\\s*)[^&\\s,;'")]+`,
-  'gi',
-);
-const SENSITIVE_LABEL_ASSIGNMENT = new RegExp(
-  `((?:${SENSITIVE_QUERY_KEY_PATTERN})(?:\\[[^\\]]+\\])?\\s*[:=]\\s*)[^\\s,;'")]+`,
-  'gi',
-);
-const AUTHORIZATION_HEADER_PATTERN = /\b(authorization\s*[:=]\s*)(?:bearer|basic|token)?\s*[^\s,;'")]+/gi;
-const BEARER_TOKEN_PATTERN = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/g;
-const UNIX_SENSITIVE_PATH_PATTERN = /(?:\b[A-Z_]*DATABASE_URL=)?(?:file:)?\/(?:home|Users|root|var|tmp|private|data)\/[^\s,;'")]+/g;
-const DATABASE_FILE_PATH_PATTERN = /(?:\b[A-Z_]*DATABASE_URL=)?(?:file:)?(?:\.{0,2}\/)?[A-Za-z0-9._/-]*[A-Za-z0-9_-]+\.(?:sqlite|sqlite3|db)(?:\?[^&\s,;'")]+)?/gi;
-
 function formatTimestamp(date: Date | null) {
   return date?.toISOString() ?? null;
 }
 
 export function sanitizeSchedulerDiagnosticError(error: unknown) {
-  const raw = error instanceof Error ? error.message : String(error);
-  const withoutStack = raw.split(/\r?\n\s*at\s+/)[0] ?? raw;
-  const withoutUrls = withoutStack.replace(/https?:\/\/[^\s]+/gi, (rawUrl) => {
-    try {
-      const parsed = new URL(rawUrl);
-      parsed.username = parsed.username ? 'redacted' : '';
-      parsed.password = parsed.password ? 'redacted' : '';
-      parsed.search = parsed.search ? '?redacted' : '';
-      parsed.hash = '';
-      return parsed.toString();
-    } catch {
-      return '[url redacted]';
-    }
-  });
-  const redacted = withoutUrls
-    .replace(AUTHORIZATION_HEADER_PATTERN, '$1redacted')
-    .replace(BEARER_TOKEN_PATTERN, '$1redacted')
-    .replace(SENSITIVE_QUERY_ASSIGNMENT, '$1redacted')
-    .replace(SENSITIVE_LABEL_ASSIGNMENT, '$1redacted')
-    .replace(UNIX_SENSITIVE_PATH_PATTERN, '[path redacted]')
-    .replace(DATABASE_FILE_PATH_PATTERN, '[database path redacted]');
-
-  return redacted.length > MAX_ERROR_LENGTH
-    ? `${redacted.slice(0, MAX_ERROR_LENGTH - 3)}...`
-    : redacted;
+  return sanitizeDiagnosticText(error);
 }
 
 function computeBackoffMs(intervalSeconds: number, errorCount: number) {

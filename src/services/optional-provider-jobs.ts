@@ -6,6 +6,7 @@ import { optionalProviderJobRuns, type OptionalProviderJobRunRow } from '../db/s
 import { parseCoinHistoryTargetConfig } from './coin-history-sync';
 import { parseExchangeVolumeTargetConfig } from './exchange-volume-sync';
 import { parseMarketChartTargetConfig } from './market-chart-sync';
+import { sanitizeDiagnosticText } from './diagnostic-sanitizer';
 import { parseOnchainAnalyticsTargetConfig } from './onchain-analytics-sync';
 import { parseOnchainTradeTargetConfig } from './onchain-trade-sync';
 import { parseSupplyChartTargetConfig } from './supply-chart-sync';
@@ -125,29 +126,6 @@ const MARKET_CHART_INTRADAY_PRODUCTION_FRESHNESS_SECONDS = 5 * 60;
 
 function durationMs(startedAt: Date, finishedAt: Date) {
   return Math.max(finishedAt.getTime() - startedAt.getTime(), 0);
-}
-
-function sanitizeDiagnosticText(value: string) {
-  const withoutUrlSecrets = value.replace(/https?:\/\/[^\s]+/gi, (rawUrl) => {
-    try {
-      const parsed = new URL(rawUrl);
-      parsed.username = parsed.username ? 'redacted' : '';
-      parsed.password = parsed.password ? 'redacted' : '';
-      parsed.search = parsed.search ? '?redacted' : '';
-      parsed.hash = '';
-      return parsed.toString();
-    } catch {
-      return '[url redacted]';
-    }
-  });
-  const sanitized = withoutUrlSecrets.replace(
-    /((?:api[_-]?key|apikey|token|secret|signature|password|pass)=)[^&\s]+/gi,
-    '$1redacted',
-  );
-
-  return sanitized.length > PARTIAL_FAILURE_ERROR_MAX_LENGTH
-    ? `${sanitized.slice(0, PARTIAL_FAILURE_ERROR_MAX_LENGTH - 3)}...`
-    : sanitized;
 }
 
 function serializePartialFailure(
@@ -321,7 +299,7 @@ function rowToRunState(row: OptionalProviderJobRunRow): OptionalProviderJobRunSt
     startedAt: row.startedAt,
     finishedAt: row.finishedAt ?? row.updatedAt,
     targetsAttempted: row.targetsAttempted,
-    error: row.failureReason ?? 'unknown failure',
+    error: sanitizeDiagnosticText(row.failureReason ?? 'unknown failure'),
   };
 }
 
@@ -372,7 +350,7 @@ export function recordOptionalProviderJobRunFailure(
     finishedAt: result.finishedAt,
     targetsAttempted: result.targetsAttempted,
     rowsWritten: null,
-    failureReason: result.error,
+    failureReason: sanitizeDiagnosticText(result.error),
     updatedAt: result.finishedAt,
   });
 }
@@ -416,6 +394,7 @@ export function createOptionalProviderJobRegistry() {
       states.set(jobId, {
         status: 'failed',
         ...result,
+        error: sanitizeDiagnosticText(result.error),
       });
     },
     get(jobId: OptionalProviderJobId) {
@@ -451,7 +430,7 @@ export function buildOptionalProviderJobDiagnostics(
       last_duration_ms: startedAt && finishedAt ? durationMs(startedAt, finishedAt) : null,
       last_targets_attempted: runState?.targetsAttempted ?? null,
       last_rows_written: runState?.status === 'succeeded' ? runState.rowsWritten : null,
-      last_failure_reason: runState?.status === 'failed' ? runState.error : null,
+      last_failure_reason: runState?.status === 'failed' ? sanitizeDiagnosticText(runState.error) : null,
       last_partial_failure_reason: runState?.status === 'succeeded' ? runState.partialFailureReason ?? null : null,
       last_partial_failure_samples: partialFailureSamples,
       last_partial_failure_retry_targets_template: buildPartialFailureRetryTargetsTemplate(partialFailureSamples),

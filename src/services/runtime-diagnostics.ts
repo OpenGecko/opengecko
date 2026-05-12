@@ -2,6 +2,7 @@ import type { MarketSnapshotRow } from '../db/schema';
 import { getMarketRuntimePhase, type MarketDataRuntimeState, type MarketRuntimePhase } from './market-runtime-state';
 import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
+import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
 import { summarizeProviderBreakerState } from './provider-breaker';
 
 export type ProviderRuntimeDiagnostics = {
@@ -74,18 +75,6 @@ function toIsoString(timestamp: number | null) {
   return timestamp === null ? null : new Date(timestamp).toISOString();
 }
 
-function sanitizeProviderFailureReason(reason: string | null) {
-  if (reason === null) {
-    return null;
-  }
-
-  return reason
-    .replace(/\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'authorization=[redacted]')
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'authorization=[redacted]')
-    .replace(/\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*([^&\s]+)/gi, 'credential=[redacted]')
-    .replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, '$1[redacted]@');
-}
-
 export function buildRuntimeDiagnostics(
   runtimeState: MarketDataRuntimeState,
   latestUsdSnapshot: Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceProvidersJson' | 'sourceCount'> | null,
@@ -133,7 +122,7 @@ export function buildRuntimeDiagnostics(
         state: provider.status,
         last_success_at: toIsoString(provider.last_success_at),
         last_failure_at: toIsoString(provider.last_failure_at),
-        last_failure_reason: sanitizeProviderFailureReason(provider.last_failure_reason),
+        last_failure_reason: sanitizeNullableDiagnosticText(provider.last_failure_reason),
         failure_count: provider.failure_count,
         next_retry_at: nextRetryAt,
       };
@@ -179,7 +168,7 @@ export function buildRuntimeDiagnostics(
           : validationOverride.mode === 'zero_live_completed_boot'
             ? false
           : runtimeState.allowStaleLiveService;
-  const effectiveFailureReason = validationOverride.reason ?? runtimeState.syncFailureReason;
+  const effectiveFailureReason = sanitizeNullableDiagnosticText(validationOverride.reason ?? runtimeState.syncFailureReason);
   const effectiveSeededBootstrapFallbackActive = validationOverride.mode === 'degraded_seeded_bootstrap'
     || (
       effectiveInitialSyncCompleted === false
@@ -286,13 +275,13 @@ export function buildRuntimeDiagnostics(
       provider_failure_cooldown_until: cooldownUntil === null ? null : new Date(cooldownUntil).toISOString(),
       injected_provider_failure: {
         active: injectedProviderFailure.active,
-        reason: injectedProviderFailure.reason,
+        reason: sanitizeNullableDiagnosticText(injectedProviderFailure.reason),
       },
       ...(providerBreakerDiagnostics.length > 0 ? { provider_breakers: providerBreakerDiagnostics } : {}),
       validation_override: {
         active: validationOverrideActive,
         mode: validationOverride.mode,
-        reason: validationOverride.reason,
+        reason: sanitizeNullableDiagnosticText(validationOverride.reason),
       },
     },
     ...(providerDiagnostics.length > 0 ? { providers: providerDiagnostics } : {}),
