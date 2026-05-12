@@ -4,6 +4,16 @@ import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
 import { summarizeProviderBreakerState } from './provider-breaker';
 
+export type ProviderRuntimeDiagnostics = {
+  id: string;
+  state: 'closed' | 'open' | 'half_open';
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_failure_reason: string | null;
+  failure_count: number;
+  next_retry_at: string | null;
+};
+
 export type RuntimeDiagnostics = {
   readiness: {
     state: 'starting' | 'ready' | 'degraded';
@@ -26,9 +36,11 @@ export type RuntimeDiagnostics = {
     };
     provider_breakers?: Array<{
       id: string;
+      state: 'closed' | 'open' | 'half_open';
       status: 'closed' | 'open' | 'half_open';
       failure_count: number;
       opened_until: string | null;
+      next_retry_at: string | null;
       last_success_at: string | null;
       last_failure_at: string | null;
       last_failure_reason: string | null;
@@ -40,6 +52,7 @@ export type RuntimeDiagnostics = {
       reason: string | null;
     };
   };
+  providers?: ProviderRuntimeDiagnostics[];
   hot_paths: {
     shared_market_snapshot: {
       available: boolean;
@@ -57,11 +70,28 @@ export type RuntimeDiagnostics = {
   };
 };
 
+function toIsoString(timestamp: number | null) {
+  return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+function sanitizeProviderFailureReason(reason: string | null) {
+  if (reason === null) {
+    return null;
+  }
+
+  return reason
+    .replace(/\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'authorization=[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'authorization=[redacted]')
+    .replace(/\b(?:api[_-]?key|token|password|secret)\s*[:=]\s*([^&\s]+)/gi, 'credential=[redacted]')
+    .replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, '$1[redacted]@');
+}
+
 export function buildRuntimeDiagnostics(
   runtimeState: MarketDataRuntimeState,
   latestUsdSnapshot: Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceProvidersJson' | 'sourceCount'> | null,
   marketFreshnessThresholdSeconds: number,
   now = Date.now(),
+  activeProviderIds: string[] = [],
 ): RuntimeDiagnostics {
   const listenerBoundSeededBootstrap = runtimeState.listenerBound
     && runtimeState.validationOverride.mode === 'off'
@@ -78,18 +108,50 @@ export function buildRuntimeDiagnostics(
     ? getSnapshotFreshness(latestStoredUsdSnapshot, marketFreshnessThresholdSeconds, now)
     : null;
   const cooldownUntil = runtimeState.providerFailureCooldownUntil;
-  const providerBreakerDiagnostics = runtimeState.providerBreakers
-    ? summarizeProviderBreakerState(runtimeState.providerBreakers, now).map((provider) => ({
-      id: provider.id,
-      status: provider.status,
-      failure_count: provider.failure_count,
-      opened_until: provider.opened_until === null ? null : new Date(provider.opened_until).toISOString(),
-      last_success_at: provider.last_success_at === null ? null : new Date(provider.last_success_at).toISOString(),
-      last_failure_at: provider.last_failure_at === null ? null : new Date(provider.last_failure_at).toISOString(),
-      last_failure_reason: provider.last_failure_reason,
-      retry_in_ms: provider.retry_in_ms,
-    }))
+  const providerBreakerSummaries = runtimeState.providerBreakers
+    ? summarizeProviderBreakerState(runtimeState.providerBreakers, now)
     : [];
+  const summarizedProviderIds = new Set(providerBreakerSummaries.map((provider) => provider.id));
+  const missingActiveProviders = [...new Set(activeProviderIds)]
+    .filter((providerId) => !summarizedProviderIds.has(providerId))
+    .map((providerId) => ({
+      id: providerId,
+      status: 'closed' as const,
+      failure_count: 0,
+      opened_until: null,
+      last_success_at: null,
+      last_failure_at: null,
+      last_failure_reason: null,
+      retry_in_ms: 0,
+    }));
+  const providerDiagnostics = [...providerBreakerSummaries, ...missingActiveProviders]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((provider) => {
+      const nextRetryAt = provider.status === 'open' ? toIsoString(provider.opened_until) : null;
+      return {
+        id: provider.id,
+        state: provider.status,
+        last_success_at: toIsoString(provider.last_success_at),
+        last_failure_at: toIsoString(provider.last_failure_at),
+        last_failure_reason: sanitizeProviderFailureReason(provider.last_failure_reason),
+        failure_count: provider.failure_count,
+        next_retry_at: nextRetryAt,
+      };
+    });
+  const providerBreakerDiagnostics = providerDiagnostics.map((provider) => ({
+    id: provider.id,
+    state: provider.state,
+    status: provider.state,
+    failure_count: provider.failure_count,
+    opened_until: provider.next_retry_at,
+    next_retry_at: provider.next_retry_at,
+    last_success_at: provider.last_success_at,
+    last_failure_at: provider.last_failure_at,
+    last_failure_reason: provider.last_failure_reason,
+    retry_in_ms: provider.state === 'open' && provider.next_retry_at !== null
+      ? Math.max(0, new Date(provider.next_retry_at).getTime() - now)
+      : 0,
+  }));
   const injectedProviderFailure = runtimeState.forcedProviderFailure ?? {
     active: false,
     reason: null,
@@ -233,6 +295,7 @@ export function buildRuntimeDiagnostics(
         reason: validationOverride.reason,
       },
     },
+    ...(providerDiagnostics.length > 0 ? { providers: providerDiagnostics } : {}),
     hot_paths: {
       shared_market_snapshot: hotPathSnapshot,
       cache_revision: runtimeState.hotDataRevision,

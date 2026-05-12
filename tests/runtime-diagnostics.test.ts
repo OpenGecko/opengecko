@@ -4,6 +4,16 @@ import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
 import { createProviderBreakerState, recordProviderFailure } from '../src/services/provider-breaker';
 
+const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
+  'id',
+  'state',
+  'last_success_at',
+  'last_failure_at',
+  'last_failure_reason',
+  'failure_count',
+  'next_retry_at',
+] as const;
+
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   const baseState: MarketDataRuntimeState = {
     initialSyncCompleted: false,
@@ -616,9 +626,11 @@ describe('runtime diagnostics', () => {
     expect(diagnostics.degraded.provider_breakers).toEqual([
       {
         id: 'binance',
+        state: 'open',
         status: 'open',
         failure_count: 1,
         opened_until: '2026-03-26T00:01:00.000Z',
+        next_retry_at: '2026-03-26T00:01:00.000Z',
         last_success_at: null,
         last_failure_at: '2026-03-26T00:00:00.000Z',
         last_failure_reason: 'ticker fetch timed out',
@@ -626,9 +638,11 @@ describe('runtime diagnostics', () => {
       },
       {
         id: 'coinbase',
+        state: 'closed',
         status: 'closed',
         failure_count: 0,
         opened_until: null,
+        next_retry_at: null,
         last_success_at: null,
         last_failure_at: null,
         last_failure_reason: null,
@@ -637,6 +651,63 @@ describe('runtime diagnostics', () => {
     ]);
     expect(JSON.stringify(diagnostics)).not.toContain('secret');
     expect(JSON.stringify(diagnostics)).not.toContain('api_key');
+  });
+
+  it('lists required breaker state fields for every active provider', () => {
+    const providerBreakers = createProviderBreakerState(['binance'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    recordProviderFailure(
+      providerBreakers,
+      'binance',
+      new Date('2026-03-26T00:00:00.000Z').getTime(),
+      'GET https://user:pass@example.test/tickers?api_key=super-secret-token Authorization: Bearer abc123',
+    );
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:00:00.000Z'),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      new Date('2026-03-26T00:00:30.000Z').getTime(),
+      ['binance', 'currency-api', 'defillama', 'subsquid'],
+    );
+
+    const providers = diagnostics.providers ?? [];
+    expect(providers.map((provider) => provider.id)).toEqual([
+      'binance',
+      'currency-api',
+      'defillama',
+      'subsquid',
+    ]);
+
+    for (const provider of providers) {
+      expect(Object.keys(provider)).toEqual(expect.arrayContaining([...REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS]));
+      expect(['closed', 'open', 'half_open']).toContain(provider.state);
+      expect(typeof provider.failure_count).toBe('number');
+      expect(provider.last_success_at === null || typeof provider.last_success_at === 'string').toBe(true);
+      expect(provider.last_failure_at === null || typeof provider.last_failure_at === 'string').toBe(true);
+      expect(provider.last_failure_reason === null || typeof provider.last_failure_reason === 'string').toBe(true);
+      expect(provider.next_retry_at === null || typeof provider.next_retry_at === 'string').toBe(true);
+    }
+
+    expect(providers.find((provider) => provider.id === 'binance')).toMatchObject({
+      state: 'open',
+      failure_count: 1,
+      next_retry_at: '2026-03-26T00:01:00.000Z',
+      last_failure_reason: 'GET https://[redacted]@example.test/tickers?credential=[redacted] authorization=[redacted]',
+    });
+    expect(JSON.stringify(providers)).not.toContain('api_key');
+    expect(JSON.stringify(providers)).not.toContain('super-secret-token');
+    expect(JSON.stringify(providers)).not.toContain('Bearer');
   });
 
   it('reports injected provider failure state alongside degraded recovery fields', () => {

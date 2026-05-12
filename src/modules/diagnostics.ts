@@ -26,6 +26,25 @@ import {
   recordForcedProviderFailure,
   recordValidationRuntimeOverride,
 } from '../services/market-runtime-state';
+import type { AppConfig } from '../config/env';
+
+function getActiveRuntimeDiagnosticProviderIds(config: AppConfig) {
+  const providerIds = [...config.ccxtExchanges];
+
+  if (!config.defillamaPoolSweepDisabled || !config.defillamaTokenSweepDisabled) {
+    providerIds.push('defillama');
+  }
+
+  if (!config.subsquidTradeSweepDisabled) {
+    providerIds.push('subsquid');
+  }
+
+  if (!config.currencyRatesDisabled && !config.disableRemoteCurrencyRefresh) {
+    providerIds.push('currency-api');
+  }
+
+  return [...new Set(providerIds)].sort((left, right) => left.localeCompare(right));
+}
 
 export function registerDiagnosticsRoutes(
   app: FastifyInstance,
@@ -218,7 +237,13 @@ export function registerDiagnosticsRoutes(
 
     return {
       data: {
-        ...buildRuntimeDiagnostics(app.marketDataRuntimeState, latestUsdSnapshot, marketFreshnessThresholdSeconds),
+        ...buildRuntimeDiagnostics(
+          app.marketDataRuntimeState,
+          latestUsdSnapshot,
+          marketFreshnessThresholdSeconds,
+          Date.now(),
+          getActiveRuntimeDiagnosticProviderIds(app.appConfig),
+        ),
         transport: {
           request_timeout_ms: transport.requestTimeoutMs,
           compression: {

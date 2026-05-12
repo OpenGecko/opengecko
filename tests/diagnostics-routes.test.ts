@@ -44,6 +44,16 @@ import {
 } from '../src/services/supply-chart-ingestion';
 import { syncSupplyCharts } from '../src/services/supply-chart-sync';
 
+const REQUIRED_RUNTIME_PROVIDER_FIELDS = [
+  'id',
+  'state',
+  'last_success_at',
+  'last_failure_at',
+  'last_failure_reason',
+  'failure_count',
+  'next_retry_at',
+] as const;
+
 function resetCcxtProviderMocks() {
   const mockedFetchExchangeMarkets = ccxtProvider.fetchExchangeMarkets as ReturnType<typeof vi.fn>;
   const mockedFetchExchangeTickers = ccxtProvider.fetchExchangeTickers as ReturnType<typeof vi.fn>;
@@ -2502,5 +2512,53 @@ describe('diagnostics routes', () => {
     });
     expect(typeof response.json().data.hot_paths.shared_market_snapshot.freshness.age_seconds).toBe('number');
     expect(Array.isArray(response.json().data.hot_paths.shared_market_snapshot.providers)).toBe(true);
+    expect(response.json().data.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'binance',
+        state: 'closed',
+        last_success_at: expect.any(String),
+        last_failure_at: null,
+        last_failure_reason: null,
+        failure_count: 0,
+        next_retry_at: null,
+      }),
+      expect.objectContaining({
+        id: 'currency-api',
+        state: 'closed',
+        last_success_at: null,
+        last_failure_at: null,
+        last_failure_reason: null,
+        failure_count: 0,
+        next_retry_at: null,
+      }),
+      expect.objectContaining({
+        id: 'defillama',
+        state: 'closed',
+        last_success_at: null,
+        last_failure_at: null,
+        last_failure_reason: null,
+        failure_count: 0,
+        next_retry_at: null,
+      }),
+      expect.objectContaining({
+        id: 'subsquid',
+        state: 'closed',
+        last_success_at: null,
+        last_failure_at: null,
+        last_failure_reason: null,
+        failure_count: 0,
+        next_retry_at: null,
+      }),
+    ]));
+
+    for (const provider of response.json().data.providers) {
+      expect(Object.keys(provider)).toEqual(expect.arrayContaining([...REQUIRED_RUNTIME_PROVIDER_FIELDS]));
+      expect(['closed', 'open', 'half_open']).toContain(provider.state);
+      expect(typeof provider.failure_count).toBe('number');
+      expect(provider.last_success_at === null || typeof provider.last_success_at === 'string').toBe(true);
+      expect(provider.last_failure_at === null || typeof provider.last_failure_at === 'string').toBe(true);
+      expect(provider.last_failure_reason === null || typeof provider.last_failure_reason === 'string').toBe(true);
+      expect(provider.next_retry_at === null || typeof provider.next_retry_at === 'string').toBe(true);
+    }
   });
 });
