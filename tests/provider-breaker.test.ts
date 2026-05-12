@@ -23,7 +23,7 @@ describe('provider breaker', () => {
     ]);
   });
 
-  it('opens after failure and blocks attempts until its deadline', () => {
+  it('transitions closed→open after failure and blocks attempts until next_retry_at', () => {
     const state = createProviderBreakerState(['binance'], {
       baseBackoffMs: 1_000,
       jitterRatio: 0,
@@ -45,7 +45,25 @@ describe('provider breaker', () => {
     ]);
   });
 
-  it('moves to half-open when the backoff deadline expires', () => {
+  it('keeps an open breaker hot before next_retry_at without sleeping', () => {
+    const state = createProviderBreakerState(['binance'], {
+      baseBackoffMs: 1_000,
+      jitterRatio: 0,
+    });
+
+    recordProviderFailure(state, 'binance', 10_000);
+
+    expect(canAttemptProvider(state, 'binance', 10_999)).toBe(false);
+    expect(summarizeProviderBreakerState(state, 10_999)).toMatchObject([
+      {
+        id: 'binance',
+        status: 'open',
+        retry_in_ms: 1,
+      },
+    ]);
+  });
+
+  it('transitions open→half_open after next_retry_at using an injected clock', () => {
     const state = createProviderBreakerState(['binance'], {
       baseBackoffMs: 1_000,
       jitterRatio: 0,
@@ -63,7 +81,7 @@ describe('provider breaker', () => {
     ]);
   });
 
-  it('closes and resets failures after a successful half-open attempt', () => {
+  it('transitions half_open→closed after probe success', () => {
     const state = createProviderBreakerState(['binance'], {
       baseBackoffMs: 1_000,
       jitterRatio: 0,
@@ -85,7 +103,7 @@ describe('provider breaker', () => {
     ]);
   });
 
-  it('reopens with larger backoff when a half-open attempt fails', () => {
+  it('transitions half_open→open after probe failure with larger backoff', () => {
     const state = createProviderBreakerState(['binance'], {
       baseBackoffMs: 1_000,
       multiplier: 2,
@@ -125,6 +143,42 @@ describe('provider breaker', () => {
         status: 'open',
         opened_until: 11_200,
         retry_in_ms: 1_200,
+      },
+    ]);
+  });
+
+  it('bounds jitter within the configured min and max retry deadlines', () => {
+    const baseBackoffMs = 1_000;
+    const jitterRatio = 0.5;
+    const now = 10_000;
+    const minimumRetryDeadline = now + baseBackoffMs;
+    const maximumRetryDeadline = now + baseBackoffMs + (baseBackoffMs * jitterRatio);
+    const lowerBoundState = createProviderBreakerState(['binance'], {
+      baseBackoffMs,
+      maxBackoffMs: 10_000,
+      jitterRatio,
+      jitter: () => -1,
+    });
+    const upperBoundState = createProviderBreakerState(['binance'], {
+      baseBackoffMs,
+      maxBackoffMs: 10_000,
+      jitterRatio,
+      jitter: () => 2,
+    });
+
+    recordProviderFailure(lowerBoundState, 'binance', now);
+    recordProviderFailure(upperBoundState, 'binance', now);
+
+    expect(summarizeProviderBreakerState(lowerBoundState, now)).toMatchObject([
+      {
+        opened_until: minimumRetryDeadline,
+        retry_in_ms: baseBackoffMs,
+      },
+    ]);
+    expect(summarizeProviderBreakerState(upperBoundState, now)).toMatchObject([
+      {
+        opened_until: maximumRetryDeadline,
+        retry_in_ms: maximumRetryDeadline - now,
       },
     ]);
   });
