@@ -75,7 +75,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (!options.startupProgress) {
     app.log.info({ timestamp: formatRfc3339Timestamp(), ...getDatabaseStartupLogContext(database) }, 'database initialized');
   }
-  const marketDataRuntimeState = createMarketDataRuntimeState();
+  const marketDataRuntimeState = createMarketDataRuntimeState(config.ccxtExchanges);
   const metrics = createMetricsRegistry();
   for (const provider of config.ccxtExchanges) {
     metrics.initializeProviderHealthCounters(provider);

@@ -52,6 +52,7 @@ const REQUIRED_RUNTIME_PROVIDER_FIELDS = [
   'last_failure_reason',
   'failure_count',
   'next_retry_at',
+  'alert_status',
 ] as const;
 
 function resetCcxtProviderMocks() {
@@ -2538,6 +2539,45 @@ describe('diagnostics routes', () => {
       expect(provider.last_failure_at === null || typeof provider.last_failure_at === 'string').toBe(true);
       expect(provider.last_failure_reason === null || typeof provider.last_failure_reason === 'string').toBe(true);
       expect(provider.next_retry_at === null || typeof provider.next_retry_at === 'string').toBe(true);
+      expect(['healthy', 'degraded', 'failing']).toContain(provider.alert_status);
     }
+  });
+
+  it('exposes configured provider diagnostics under the validation boot config before real breaker events', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        disableRemoteCurrencyRefresh: true,
+        logLevel: 'silent',
+        ccxtExchanges: ['binance'],
+        providerFanoutConcurrency: 1,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+
+    await getApp().ready();
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.providers).toEqual([
+      {
+        id: 'binance',
+        state: 'closed',
+        last_success_at: null,
+        last_failure_at: null,
+        last_failure_reason: null,
+        failure_count: 0,
+        next_retry_at: null,
+        alert_status: 'healthy',
+      },
+    ]);
   });
 });

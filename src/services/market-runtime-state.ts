@@ -244,7 +244,7 @@ export function markMarketRuntimeListenerStopped(state: MarketDataRuntimeState) 
   state.listenerBound = false;
 }
 
-export function createMarketDataRuntimeState(): MarketDataRuntimeState {
+export function createMarketDataRuntimeState(providerIds: string[] = []): MarketDataRuntimeState {
   return {
     initialSyncCompleted: false,
     listenerBindDeferred: false,
@@ -260,7 +260,7 @@ export function createMarketDataRuntimeState(): MarketDataRuntimeState {
       snapshotSourceCountOverride: null,
     },
     providerFailureCooldownUntil: null,
-    providerBreakers: createProviderBreakerState(),
+    providerBreakers: createProviderBreakerState(providerIds),
     forcedProviderFailure: {
       active: false,
       reason: null,
