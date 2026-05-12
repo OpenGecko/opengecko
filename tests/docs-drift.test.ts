@@ -164,6 +164,115 @@ function extractTrackerFamilyOwnershipClaims(tracker: string) {
   );
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildTrackerClaimBlocks(tracker: string) {
+  const blocks: string[] = [];
+  let proseBlock: string[] = [];
+
+  for (const line of tracker.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+
+    if (!trimmedLine) {
+      if (proseBlock.length > 0) {
+        blocks.push(proseBlock.join(' '));
+        proseBlock = [];
+      }
+      continue;
+    }
+
+    if (trimmedLine.startsWith('|') || trimmedLine.startsWith('- ') || trimmedLine.startsWith('#')) {
+      if (proseBlock.length > 0) {
+        blocks.push(proseBlock.join(' '));
+        proseBlock = [];
+      }
+      blocks.push(trimmedLine);
+      continue;
+    }
+
+    proseBlock.push(trimmedLine);
+  }
+
+  if (proseBlock.length > 0) {
+    blocks.push(proseBlock.join(' '));
+  }
+
+  return blocks;
+}
+
+function routeAliasesForTrackerScan(route: string) {
+  const aliases = new Set([route]);
+
+  aliases.add(route.replace(/:([A-Za-z0-9_]+)/g, '{$1}'));
+  aliases.add(route.replace(/:([A-Za-z0-9_]+)/g, '*'));
+  aliases.add(route.replace(/\/:([A-Za-z0-9_]+)/g, '/*'));
+
+  return [...aliases];
+}
+
+function familyAliasesForTrackerScan(entry: ReturnType<typeof buildDocsCoverageMatrixEntries>[number]) {
+  return uniqueSorted([
+    entry.family,
+    entry.family.replace(/_/g, ' '),
+    entry.family.replace(/_/g, '-'),
+    ...entry.representative_routes.flatMap(routeAliasesForTrackerScan),
+  ]);
+}
+
+function containsTrackerLiveClaim(block: string) {
+  const normalized = block.toLowerCase();
+
+  if (/\b(?:not|never|without|unless|until|before|rather than|instead of)\b[^.?!|]{0,120}\blive\b/.test(normalized)) {
+    return false;
+  }
+
+  if (/\blive\b[^.?!|]{0,80}\b(?:only when|when|if|once|after|until|requires?|would|should|could|can)\b/.test(normalized)) {
+    return false;
+  }
+
+  if (/\b(?:should|could|would|can)\b[^.?!|]{0,80}\blive\b/.test(normalized)) {
+    return false;
+  }
+
+  return [
+    /\bfully\s+live\b/,
+    /\bfull\s+live\b/,
+    /\blive[-\s]?backed\b/,
+    /\blive[-\s]?owned\b/,
+    /\blive[-\s]?data\b/,
+    /\blive[-\s]?coverage\b/,
+    /\blive[-\s]?fidelity\b/,
+    /\blive[-\s]?parity\b/,
+    /\blive[-\s]?source\b/,
+    /\blive[-\s]?pipeline\b/,
+    /\blive\s+(?:provider|providers|rows|ingestion|refresh|snapshot|snapshots)\b/,
+    /\b(?:is|are|as|currently|now|reports?|labels?)\s+[^.?!|]{0,80}\blive\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function extractTrackerLiveClaimsByFamily(
+  tracker: string,
+  matrixEntries: ReturnType<typeof buildDocsCoverageMatrixEntries>,
+) {
+  const blocks = buildTrackerClaimBlocks(tracker);
+
+  return matrixEntries.flatMap((entry) => {
+    const aliasPatterns = familyAliasesForTrackerScan(entry)
+      .map((alias) => new RegExp(`(?:^|[^A-Za-z0-9_/:-])${escapeRegExp(alias)}(?:$|[^A-Za-z0-9_/:-])`, 'i'));
+
+    return blocks
+      .filter((block) => containsTrackerLiveClaim(block))
+      .filter((block) => aliasPatterns.some((pattern) => pattern.test(block)))
+      .map((block) => ({
+        family: entry.family,
+        ownershipClass: entry.ownership_class,
+        claim: block,
+      }));
+  });
+}
+
 describe('documentation drift guards', () => {
   it('keeps the README endpoint table aligned with registered CoinGecko-compatible GET routes', () => {
     expect(extractReadmeApiCoverageGetRoutes()).toEqual(extractRegisteredCoinGeckoGetRoutes());
@@ -257,6 +366,14 @@ describe('documentation drift guards', () => {
         expect(matrixOwnershipByFamily.get(family)).toBe('live');
       }
     }
+  });
+
+  it('prevents tracker prose live claims from contradicting the coverage matrix', () => {
+    const tracker = readRepoFile('docs/status/implementation-tracker.md');
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const proseLiveClaims = extractTrackerLiveClaimsByFamily(tracker, matrixEntries);
+
+    expect(proseLiveClaims.filter((claim) => claim.ownershipClass !== 'live')).toEqual([]);
   });
 
   it('keeps release-readiness gate claims aligned with actual CI and coverage config', () => {

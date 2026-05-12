@@ -147,7 +147,7 @@ Source-capable providers remain CCXT, DeFiLlama, Subsquid/SQD-compatible replay,
 - `/asset_platforms`: matrix class is `stable_catalog=seeded`; canonical CCXT-discovered platform rows can supplement the catalog.
 - `/coins/list/new`: now uses canonical discovery `activated_at` ordering from CCXT-backed catalog sync.
 - `/search`: family-grouped output, blank-query rejection, per-family result bounds, and `/search/trending` approximation semantics are covered; exact-match relevance can still improve incrementally.
-- The Graph provider was removed in 08e4b39 — Subsquid is now the sole live-trade provider for onchain pool trades.
+- The Graph provider was removed in 08e4b39 — Subsquid is now the sole source-attributed trade provider for onchain pool trades.
 
 ## Completed Milestones
 
@@ -192,10 +192,10 @@ Historical delivery log. Entries below record what shipped in each phase; they a
 - Added a standalone `ohlcv:worker` job entrypoint plus `/diagnostics/ohlcv_sync` health reporting.
 - Replaced 1D freshness model (allowSeededFallback) with 2D model (initialSyncCompleted + allowStaleLiveService).
 - Wired initial-sync into startup: runtime runs sync before refresh loop, handles failure with stale fallback.
-- Added live exchange volume snapshots during market refresh with downsampling in volume_chart endpoint.
-- Added end-to-end integration tests for full live CCXT data pipeline (6 tests covering /simple/price, /coins/markets, /coins/:id, /exchanges, /ohlc, /exchange_rates).
-- Removed The Graph provider (08e4b39): deleted `src/providers/thegraph.ts`, removed The Graph fallback path from `onchain.ts`, removed `THEGRAPH_API_KEY` env var, removed associated tests. Subsquid is now the sole live-trade provider.
-- **Phase 2 Data Fidelity Uplift (2026-03-31)**: Extended DeFiLlama pool discovery beyond seeded pools with dynamic discovery; added DeFiLlama-based token discovery for ETH with live price/decimals; implemented multi-network DeFiLlama discovery (Solana, Avalanche, Fantom); enriched coin details with CCXT metadata (description/links); added Subsquid address-label enrichment for swap trades. Live data coverage increased from ~30% to ~55%.
+- Added source-attributed exchange volume snapshots during market refresh with downsampling in volume_chart endpoint.
+- Added end-to-end integration tests for the CCXT source-sync data pipeline (6 tests covering /simple/price, /coins/markets, /coins/:id, /exchanges, /ohlc, /exchange_rates).
+- Removed The Graph provider (08e4b39): deleted `src/providers/thegraph.ts`, removed The Graph fallback path from `onchain.ts`, removed `THEGRAPH_API_KEY` env var, removed associated tests. Subsquid is now the sole source-attributed trade provider.
+- **Phase 2 Data Fidelity Uplift (2026-03-31)**: Extended DeFiLlama pool discovery beyond seeded pools with dynamic discovery; added DeFiLlama-based token discovery for ETH with provider price/decimals; implemented multi-network DeFiLlama discovery (Solana, Avalanche, Fantom); enriched coin details with CCXT metadata (description/links); added Subsquid address-label enrichment for swap trades. Source-capable data coverage increased from ~30% to ~55%.
 
 ## Update Rules
 
