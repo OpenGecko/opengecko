@@ -341,7 +341,7 @@ Full central schema in `src/config/env.ts`. The optional `*_BASE_URL` adapter se
 | Route | Purpose |
 |---|---|
 | `GET /health` | Liveness probe |
-| `GET /diagnostics/runtime` | Startup state, stale fallback, provider and cache status |
+| `GET /diagnostics/runtime` | Startup state, stale fallback, provider and cache status, including per-provider `alert_status` (`healthy` / `degraded` / `failing`) derived from the runtime constants in `src/services/runtime-diagnostics.ts` |
 | `GET /diagnostics/ohlcv_sync` | OHLCV worker progress, sync health, estimated remaining history backfill chunks, and capped most-behind target samples |
 | `GET /diagnostics/chain_coverage` | Chain/network normalization coverage |
 | `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, freshness/depth status, and fallback-only gaps |

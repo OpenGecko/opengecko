@@ -5,9 +5,15 @@ import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTim
 import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
 import { summarizeProviderBreakerState } from './provider-breaker';
 
+export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
+
+export const PROVIDER_ALERT_STATUS_FAILING_FAILURE_COUNT = 3;
+export const PROVIDER_ALERT_STATUS_RECENT_RECOVERY_WINDOW_MS = 120_000;
+
 export type ProviderRuntimeDiagnostics = {
   id: string;
   state: 'closed' | 'open' | 'half_open';
+  alert_status: ProviderAlertStatus;
   last_success_at: string | null;
   last_failure_at: string | null;
   last_failure_reason: string | null;
@@ -39,6 +45,7 @@ export type RuntimeDiagnostics = {
       id: string;
       state: 'closed' | 'open' | 'half_open';
       status: 'closed' | 'open' | 'half_open';
+      alert_status: ProviderAlertStatus;
       failure_count: number;
       opened_until: string | null;
       next_retry_at: string | null;
@@ -73,6 +80,32 @@ export type RuntimeDiagnostics = {
 
 function toIsoString(timestamp: number | null) {
   return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+function classifyProviderAlertStatus(provider: {
+  status: 'closed' | 'open' | 'half_open';
+  failure_count: number;
+  last_success_at: number | null;
+  last_failure_at: number | null;
+}, now: number): ProviderAlertStatus {
+  if (provider.failure_count >= PROVIDER_ALERT_STATUS_FAILING_FAILURE_COUNT) {
+    return 'failing';
+  }
+
+  if (provider.status !== 'closed' || provider.failure_count > 0) {
+    return 'degraded';
+  }
+
+  if (
+    provider.last_success_at !== null
+    && provider.last_failure_at !== null
+    && provider.last_success_at >= provider.last_failure_at
+    && now - provider.last_success_at <= PROVIDER_ALERT_STATUS_RECENT_RECOVERY_WINDOW_MS
+  ) {
+    return 'degraded';
+  }
+
+  return 'healthy';
 }
 
 export function buildRuntimeDiagnostics(
@@ -120,6 +153,7 @@ export function buildRuntimeDiagnostics(
       return {
         id: provider.id,
         state: provider.status,
+        alert_status: classifyProviderAlertStatus(provider, now),
         last_success_at: toIsoString(provider.last_success_at),
         last_failure_at: toIsoString(provider.last_failure_at),
         last_failure_reason: sanitizeNullableDiagnosticText(provider.last_failure_reason),
@@ -131,6 +165,7 @@ export function buildRuntimeDiagnostics(
     id: provider.id,
     state: provider.state,
     status: provider.state,
+    alert_status: provider.alert_status,
     failure_count: provider.failure_count,
     opened_until: provider.next_retry_at,
     next_retry_at: provider.next_retry_at,

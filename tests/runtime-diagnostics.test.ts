@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
 import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
-import { createProviderBreakerState, recordProviderFailure } from '../src/services/provider-breaker';
+import { createProviderBreakerState, recordProviderFailure, recordProviderSuccess } from '../src/services/provider-breaker';
 
 const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
   'id',
@@ -12,6 +12,7 @@ const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
   'last_failure_reason',
   'failure_count',
   'next_retry_at',
+  'alert_status',
 ] as const;
 
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
@@ -628,6 +629,7 @@ describe('runtime diagnostics', () => {
         id: 'binance',
         state: 'open',
         status: 'open',
+        alert_status: 'degraded',
         failure_count: 1,
         opened_until: '2026-03-26T00:01:00.000Z',
         next_retry_at: '2026-03-26T00:01:00.000Z',
@@ -640,6 +642,7 @@ describe('runtime diagnostics', () => {
         id: 'coinbase',
         state: 'closed',
         status: 'closed',
+        alert_status: 'healthy',
         failure_count: 0,
         opened_until: null,
         next_retry_at: null,
@@ -692,6 +695,7 @@ describe('runtime diagnostics', () => {
     for (const provider of providers) {
       expect(Object.keys(provider)).toEqual(expect.arrayContaining([...REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS]));
       expect(['closed', 'open', 'half_open']).toContain(provider.state);
+      expect(['healthy', 'degraded', 'failing']).toContain(provider.alert_status);
       expect(typeof provider.failure_count).toBe('number');
       expect(provider.last_success_at === null || typeof provider.last_success_at === 'string').toBe(true);
       expect(provider.last_failure_at === null || typeof provider.last_failure_at === 'string').toBe(true);
@@ -701,6 +705,7 @@ describe('runtime diagnostics', () => {
 
     expect(providers.find((provider) => provider.id === 'binance')).toMatchObject({
       state: 'open',
+      alert_status: 'degraded',
       failure_count: 1,
       next_retry_at: '2026-03-26T00:01:00.000Z',
       last_failure_reason: 'GET https://redacted:redacted@example.test/tickers?redacted authorization=[redacted]',
@@ -708,6 +713,107 @@ describe('runtime diagnostics', () => {
     expect(JSON.stringify(providers)).not.toContain('api_key');
     expect(JSON.stringify(providers)).not.toContain('super-secret-token');
     expect(JSON.stringify(providers)).not.toContain('Bearer');
+  });
+
+  it('classifies provider alert status across healthy, degraded, and failing transitions', () => {
+    const providerBreakers = createProviderBreakerState(['binance', 'coinbase', 'kraken'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    const startedAt = new Date('2026-03-26T00:00:00.000Z').getTime();
+
+    recordProviderFailure(providerBreakers, 'binance', startedAt, 'first timeout');
+    recordProviderFailure(providerBreakers, 'coinbase', startedAt, 'first timeout');
+    recordProviderFailure(providerBreakers, 'coinbase', startedAt + 1_000, 'second timeout');
+    recordProviderFailure(providerBreakers, 'coinbase', startedAt + 2_000, 'third timeout');
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date('2026-03-26T00:00:00.000Z'),
+        sourceProvidersJson: '["kraken"]',
+        sourceCount: 1,
+      },
+      300,
+      startedAt + 30_000,
+    );
+
+    expect(diagnostics.providers).toEqual([
+      expect.objectContaining({
+        id: 'binance',
+        state: 'open',
+        failure_count: 1,
+        alert_status: 'degraded',
+      }),
+      expect.objectContaining({
+        id: 'coinbase',
+        state: 'open',
+        failure_count: 3,
+        alert_status: 'failing',
+      }),
+      expect.objectContaining({
+        id: 'kraken',
+        state: 'closed',
+        failure_count: 0,
+        alert_status: 'healthy',
+      }),
+    ]);
+    expect(diagnostics.degraded.provider_breakers).toEqual([
+      expect.objectContaining({
+        id: 'binance',
+        alert_status: 'degraded',
+      }),
+      expect.objectContaining({
+        id: 'coinbase',
+        alert_status: 'failing',
+      }),
+      expect.objectContaining({
+        id: 'kraken',
+        alert_status: 'healthy',
+      }),
+    ]);
+  });
+
+  it('keeps recently recovered providers degraded during the alert recovery window', () => {
+    const providerBreakers = createProviderBreakerState(['binance'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    const failedAt = new Date('2026-03-26T00:00:00.000Z').getTime();
+    const recoveredAt = failedAt + 30_000;
+
+    recordProviderFailure(providerBreakers, 'binance', failedAt, 'temporary timeout');
+    recordProviderSuccess(providerBreakers, 'binance', recoveredAt);
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date(recoveredAt),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      recoveredAt + 30_000,
+    );
+
+    expect(diagnostics.providers).toEqual([
+      expect.objectContaining({
+        id: 'binance',
+        state: 'closed',
+        failure_count: 0,
+        last_success_at: '2026-03-26T00:00:30.000Z',
+        last_failure_at: '2026-03-26T00:00:00.000Z',
+        alert_status: 'degraded',
+      }),
+    ]);
   });
 
   it('reports injected provider failure state alongside degraded recovery fields', () => {
