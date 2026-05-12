@@ -53,27 +53,6 @@ async function expectCacheableEndpoint(
   return etag;
 }
 
-function responseShape(value: unknown): unknown {
-  if (value === null) {
-    return 'null';
-  }
-
-  if (Array.isArray(value)) {
-    return value.length === 0 ? [] : [responseShape(value[0])];
-  }
-
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.keys(record)
-        .sort()
-        .map((key) => [key, responseShape(record[key])]),
-    );
-  }
-
-  return typeof value;
-}
-
 describe('HTTP cache semantics', () => {
   it('adds cache headers and supports 304 responses for /ping', async () => {
     const app = buildApp({
@@ -385,7 +364,7 @@ describe('HTTP cache semantics', () => {
     }
   });
 
-  it('keeps representative public CoinGecko route response shapes pinned to the provider-health baseline', async () => {
+  it('keeps representative public CoinGecko route responses pinned to the provider-health baseline', async () => {
     const app = buildApp({
       config: {
         databaseUrl: ':memory:',
@@ -411,150 +390,217 @@ describe('HTTP cache semantics', () => {
         });
 
         expect(response.statusCode).toBe(200);
-        baseline[name] = responseShape(response.json());
+        baseline[name] = response.json();
       }
 
       expect(baseline).toMatchInlineSnapshot(`
         {
           "coins_markets": [
             {
-              "ath": "null",
-              "ath_change_percentage": "null",
-              "ath_date": "null",
-              "atl": "null",
-              "atl_change_percentage": "null",
-              "atl_date": "null",
-              "circulating_supply": "null",
-              "current_price": "number",
-              "fully_diluted_valuation": "null",
-              "high_24h": "number",
-              "id": "string",
-              "image": "string",
-              "last_updated": "string",
-              "low_24h": "number",
-              "market_cap": "null",
-              "market_cap_change_24h": "null",
-              "market_cap_change_percentage_24h": "null",
-              "market_cap_rank": "number",
-              "max_supply": "null",
-              "name": "string",
-              "price_change_24h": "null",
-              "price_change_percentage_24h": "number",
-              "price_change_percentage_24h_in_currency": "number",
-              "roi": "null",
-              "symbol": "string",
-              "total_supply": "null",
-              "total_volume": "number",
+              "ath": null,
+              "ath_change_percentage": null,
+              "ath_date": null,
+              "atl": null,
+              "atl_change_percentage": null,
+              "atl_date": null,
+              "circulating_supply": null,
+              "current_price": 70681.22808943377,
+              "fully_diluted_valuation": null,
+              "high_24h": 70681.22808943377,
+              "id": "bitcoin",
+              "image": "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400",
+              "last_updated": "2026-03-20T00:00:00.000Z",
+              "low_24h": 66145,
+              "market_cap": null,
+              "market_cap_change_24h": null,
+              "market_cap_change_percentage_24h": null,
+              "market_cap_rank": 1,
+              "max_supply": null,
+              "name": "Bitcoin",
+              "price_change_24h": null,
+              "price_change_percentage_24h": 1.2,
+              "price_change_percentage_24h_in_currency": 1.2,
+              "roi": null,
+              "symbol": "btc",
+              "total_supply": null,
+              "total_volume": 47657767940,
+            },
+            {
+              "ath": null,
+              "ath_change_percentage": null,
+              "ath_date": null,
+              "atl": null,
+              "atl_change_percentage": null,
+              "atl_date": null,
+              "circulating_supply": null,
+              "current_price": 2153.248566172594,
+              "fully_diluted_valuation": null,
+              "high_24h": 2153.248566172594,
+              "id": "ethereum",
+              "image": "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628",
+              "last_updated": "2026-03-20T00:00:00.000Z",
+              "low_24h": 1972.03,
+              "market_cap": null,
+              "market_cap_change_24h": null,
+              "market_cap_change_percentage_24h": null,
+              "market_cap_rank": 2,
+              "max_supply": null,
+              "name": "Ethereum",
+              "price_change_24h": null,
+              "price_change_percentage_24h": 2.4,
+              "price_change_percentage_24h_in_currency": 2.4,
+              "roi": {
+                "currency": "btc",
+                "percentage": 3914.9028999875204,
+                "times": 39.149028999875206,
+              },
+              "symbol": "eth",
+              "total_supply": null,
+              "total_volume": 18589171218,
             },
           ],
           "derivatives": {
             "data": [
               {
-                "basis": "number",
-                "contract_type": "string",
-                "expired_at": "null",
-                "funding_rate": "number",
-                "index": "number",
-                "index_id": "string",
-                "last_traded_at": "string",
-                "market": "string",
-                "market_id": "string",
-                "open_interest_btc": "number",
-                "price": "number",
-                "price_percentage_change_24h": "number",
-                "spread": "number",
-                "symbol": "string",
-                "trade_volume_24h_btc": "number",
+                "basis": 40,
+                "contract_type": "perpetual",
+                "expired_at": null,
+                "funding_rate": 0.0001,
+                "index": 85080,
+                "index_id": "bitcoin",
+                "last_traded_at": "2026-03-20T00:00:00.000Z",
+                "market": "Binance Futures",
+                "market_id": "binance_futures",
+                "open_interest_btc": 120000,
+                "price": 85120,
+                "price_percentage_change_24h": 1.7,
+                "spread": 0.012,
+                "symbol": "BTCUSDT",
+                "trade_volume_24h_btc": 420000,
+              },
+              {
+                "basis": 6,
+                "contract_type": "perpetual",
+                "expired_at": null,
+                "funding_rate": 0.00012,
+                "index": 2004,
+                "index_id": "ethereum",
+                "last_traded_at": "2026-03-20T00:00:00.000Z",
+                "market": "Binance Futures",
+                "market_id": "binance_futures",
+                "open_interest_btc": 42000,
+                "price": 2010,
+                "price_percentage_change_24h": 2.2,
+                "spread": 0.018,
+                "symbol": "ETHUSDT",
+                "trade_volume_24h_btc": 110000,
+              },
+              {
+                "basis": 760,
+                "contract_type": "futures",
+                "expired_at": "2026-06-27T08:00:00.000Z",
+                "funding_rate": null,
+                "index": 85080,
+                "index_id": "bitcoin",
+                "last_traded_at": "2026-03-20T00:00:00.000Z",
+                "market": "Bybit",
+                "market_id": "bybit",
+                "open_interest_btc": 18500,
+                "price": 85840,
+                "price_percentage_change_24h": 1.1,
+                "spread": 0.025,
+                "symbol": "BTC-27JUN26",
+                "trade_volume_24h_btc": 56000,
               },
             ],
             "meta": {
-              "fallback_tickers": "number",
-              "fixture": "boolean",
-              "frozen_at": "string",
-              "latest_source_fetched_at": "null",
-              "note": "string",
-              "page": "number",
-              "source_backed_tickers": "number",
+              "fallback_tickers": 3,
+              "fixture": true,
+              "frozen_at": "2026-03-20",
+              "latest_source_fetched_at": null,
+              "note": "Derivatives data is seeded fixture until a derivatives refresh writes source-attributed rows.",
+              "page": 1,
+              "source_backed_tickers": 0,
             },
           },
           "exchanges": [
             {
-              "country": "string",
-              "description": "string",
-              "has_trading_incentive": "boolean",
-              "id": "string",
-              "image": "string",
-              "name": "string",
-              "source": "string",
-              "trade_volume_24h_btc": "number",
-              "trade_volume_24h_btc_normalized": "null",
-              "trust_score": "number",
-              "trust_score_rank": "number",
-              "updated_at": "string",
-              "url": "string",
-              "year_established": "number",
+              "country": "Cayman Islands",
+              "description": "One of the world’s largest cryptocurrency exchanges by trading volume, offering a wide range of services including spot, futures, and staking options.",
+              "has_trading_incentive": false,
+              "id": "binance",
+              "image": "https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274",
+              "name": "Binance",
+              "source": "fixture",
+              "trade_volume_24h_btc": 139508.1218951856,
+              "trade_volume_24h_btc_normalized": null,
+              "trust_score": 10,
+              "trust_score_rank": 1,
+              "updated_at": "2026-03-20T00:00:00.000Z",
+              "url": "https://www.binance.com/",
+              "year_established": 2017,
             },
           ],
           "onchain_pool": {
             "data": {
               "attributes": {
-                "address": "string",
-                "base_token_address": "string",
-                "base_token_symbol": "string",
-                "name": "string",
-                "pool_created_at": "number",
-                "price_usd": "number",
-                "quote_token_address": "string",
-                "quote_token_symbol": "string",
-                "reserve_usd": "number",
+                "address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+                "base_token_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                "base_token_symbol": "USDC",
+                "name": "USDC / WETH 0.05%",
+                "pool_created_at": 1712707200,
+                "price_usd": 0.315641,
+                "quote_token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+                "quote_token_symbol": "WETH",
+                "reserve_usd": 102583351,
                 "transactions": {
                   "h24": {
-                    "buys": "number",
-                    "sells": "number",
+                    "buys": 12840,
+                    "sells": 12590,
                   },
                 },
                 "volume_usd": {
-                  "h24": "number",
+                  "h24": 37166218.31189,
                 },
               },
-              "id": "string",
+              "id": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
               "relationships": {
                 "dex": {
                   "data": {
-                    "id": "string",
-                    "type": "string",
+                    "id": "uniswap_v3",
+                    "type": "dex",
                   },
                 },
                 "network": {
                   "data": {
-                    "id": "string",
-                    "type": "string",
+                    "id": "eth",
+                    "type": "network",
                   },
                 },
               },
-              "type": "string",
+              "type": "pool",
             },
             "meta": {
-              "data_source": "string",
-              "fixture": "boolean",
-              "source": "string",
-              "updated_at": "string",
+              "data_source": "live",
+              "fixture": false,
+              "source": "live",
+              "updated_at": "2026-03-20T00:00:00.000Z",
             },
           },
           "simple_price": {
             "bitcoin": {
-              "last_updated_at": "number",
-              "usd": "number",
-              "usd_24h_change": "number",
-              "usd_24h_vol": "number",
-              "usd_market_cap": "number",
+              "last_updated_at": 1773964800,
+              "usd": 70681.22808943377,
+              "usd_24h_change": 1.2,
+              "usd_24h_vol": 47657767940,
+              "usd_market_cap": 1323878876195,
             },
             "ethereum": {
-              "last_updated_at": "number",
-              "usd": "number",
-              "usd_24h_change": "number",
-              "usd_24h_vol": "number",
-              "usd_market_cap": "number",
+              "last_updated_at": 1773964800,
+              "usd": 2153.248566172594,
+              "usd_24h_change": 2.4,
+              "usd_24h_vol": 18589171218,
+              "usd_market_cap": 239883065644,
             },
           },
         }
