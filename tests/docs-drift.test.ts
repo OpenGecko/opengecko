@@ -204,10 +204,15 @@ function buildTrackerClaimBlocks(tracker: string) {
 
 function routeAliasesForTrackerScan(route: string) {
   const aliases = new Set([route]);
+  const [rootSegment] = route.split('/').filter(Boolean);
 
   aliases.add(route.replace(/:([A-Za-z0-9_]+)/g, '{$1}'));
   aliases.add(route.replace(/:([A-Za-z0-9_]+)/g, '*'));
   aliases.add(route.replace(/\/:([A-Za-z0-9_]+)/g, '/*'));
+
+  if (rootSegment) {
+    aliases.add(`/${rootSegment}/*`);
+  }
 
   return [...aliases];
 }
@@ -232,11 +237,17 @@ function containsTrackerLiveClaim(block: string) {
     return false;
   }
 
+  if (/\b(?:if|when|once|after|until)\b[^.?!|]{0,80}\blive\b/.test(normalized)) {
+    return false;
+  }
+
   if (/\b(?:should|could|would|can)\b[^.?!|]{0,80}\blive\b/.test(normalized)) {
     return false;
   }
 
   return [
+    /\|\s*`?live`?\s*\|/,
+    /:\s*`?live`?\s*(?:$|[\s|,.;)])/,
     /\bfully\s+live\b/,
     /\bfull\s+live\b/,
     /\blive[-\s]?backed\b/,
@@ -260,7 +271,7 @@ function extractTrackerLiveClaimsByFamily(
 
   return matrixEntries.flatMap((entry) => {
     const aliasPatterns = familyAliasesForTrackerScan(entry)
-      .map((alias) => new RegExp(`(?:^|[^A-Za-z0-9_/:-])${escapeRegExp(alias)}(?:$|[^A-Za-z0-9_/:-])`, 'i'));
+      .map((alias) => new RegExp(`(?:^|[^A-Za-z0-9_/-])${escapeRegExp(alias)}(?:$|[^A-Za-z0-9_/-])`, 'i'));
 
     return blocks
       .filter((block) => containsTrackerLiveClaim(block))
@@ -374,6 +385,74 @@ describe('documentation drift guards', () => {
     const proseLiveClaims = extractTrackerLiveClaimsByFamily(tracker, matrixEntries);
 
     expect(proseLiveClaims.filter((claim) => claim.ownershipClass !== 'live')).toEqual([]);
+  });
+
+  it('detects bare tracker live table-cell claims for non-live coverage families', () => {
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const claims = extractTrackerLiveClaimsByFamily(
+      '| Family | Data quality |\n| --- | --- |\n| `/derivatives/*` | live |',
+      matrixEntries,
+    );
+
+    expect(claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'derivatives',
+        ownershipClass: 'fixture',
+        claim: '| `/derivatives/*` | live |',
+      }),
+    ]));
+  });
+
+  it('detects bare tracker colon live claims for non-live coverage families', () => {
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const claims = extractTrackerLiveClaimsByFamily(
+      '- `/derivatives/*`: live',
+      matrixEntries,
+    );
+
+    expect(claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'derivatives',
+        ownershipClass: 'fixture',
+        claim: '- `/derivatives/*`: live',
+      }),
+    ]));
+  });
+
+  it('detects matrix-family ownership snippets that claim non-live families are live', () => {
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const claims = extractTrackerLiveClaimsByFamily(
+      'derivatives: live',
+      matrixEntries,
+    );
+
+    expect(claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'derivatives',
+        ownershipClass: 'fixture',
+        claim: 'derivatives: live',
+      }),
+    ]));
+  });
+
+  it('maps tracker wildcard endpoint-family rows to their coverage-matrix families', () => {
+    const matrixEntries = buildDocsCoverageMatrixEntries();
+    const claims = extractTrackerLiveClaimsByFamily(
+      [
+        '| Family | Data quality |',
+        '| --- | --- |',
+        '| `/simple/*` | live |',
+        '| `/exchanges/*` | live |',
+        '| `/derivatives/*` | live |',
+      ].join('\n'),
+      matrixEntries,
+    );
+
+    expect(claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ family: 'simple', ownershipClass: 'seeded' }),
+      expect.objectContaining({ family: 'exchanges', ownershipClass: 'seeded' }),
+      expect.objectContaining({ family: 'derivatives', ownershipClass: 'fixture' }),
+    ]));
   });
 
   it('keeps release-readiness gate claims aligned with actual CI and coverage config', () => {
