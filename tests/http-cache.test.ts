@@ -53,6 +53,27 @@ async function expectCacheableEndpoint(
   return etag;
 }
 
+function responseShape(value: unknown): unknown {
+  if (value === null) {
+    return 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return value.length === 0 ? [] : [responseShape(value[0])];
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .sort()
+        .map((key) => [key, responseShape(record[key])]),
+    );
+  }
+
+  return typeof value;
+}
+
 describe('HTTP cache semantics', () => {
   it('adds cache headers and supports 304 responses for /ping', async () => {
     const app = buildApp({
@@ -359,6 +380,185 @@ describe('HTTP cache semantics', () => {
           }),
         ]),
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps representative public CoinGecko route response shapes pinned to the provider-health baseline', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const routes = {
+        simple_price: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true',
+        coins_markets: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&page=1&per_page=2&price_change_percentage=24h&sparkline=false',
+        exchanges: '/exchanges?page=1&per_page=1',
+        derivatives: '/derivatives',
+        onchain_pool: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+      } as const;
+      const baseline: Record<string, unknown> = {};
+
+      for (const [name, url] of Object.entries(routes)) {
+        const response = await app.inject({
+          method: 'GET',
+          url,
+        });
+
+        expect(response.statusCode).toBe(200);
+        baseline[name] = responseShape(response.json());
+      }
+
+      expect(baseline).toMatchInlineSnapshot(`
+        {
+          "coins_markets": [
+            {
+              "ath": "null",
+              "ath_change_percentage": "null",
+              "ath_date": "null",
+              "atl": "null",
+              "atl_change_percentage": "null",
+              "atl_date": "null",
+              "circulating_supply": "null",
+              "current_price": "number",
+              "fully_diluted_valuation": "null",
+              "high_24h": "number",
+              "id": "string",
+              "image": "string",
+              "last_updated": "string",
+              "low_24h": "number",
+              "market_cap": "null",
+              "market_cap_change_24h": "null",
+              "market_cap_change_percentage_24h": "null",
+              "market_cap_rank": "number",
+              "max_supply": "null",
+              "name": "string",
+              "price_change_24h": "null",
+              "price_change_percentage_24h": "number",
+              "price_change_percentage_24h_in_currency": "number",
+              "roi": "null",
+              "symbol": "string",
+              "total_supply": "null",
+              "total_volume": "number",
+            },
+          ],
+          "derivatives": {
+            "data": [
+              {
+                "basis": "number",
+                "contract_type": "string",
+                "expired_at": "null",
+                "funding_rate": "number",
+                "index": "number",
+                "index_id": "string",
+                "last_traded_at": "string",
+                "market": "string",
+                "market_id": "string",
+                "open_interest_btc": "number",
+                "price": "number",
+                "price_percentage_change_24h": "number",
+                "spread": "number",
+                "symbol": "string",
+                "trade_volume_24h_btc": "number",
+              },
+            ],
+            "meta": {
+              "fallback_tickers": "number",
+              "fixture": "boolean",
+              "frozen_at": "string",
+              "latest_source_fetched_at": "null",
+              "note": "string",
+              "page": "number",
+              "source_backed_tickers": "number",
+            },
+          },
+          "exchanges": [
+            {
+              "country": "string",
+              "description": "string",
+              "has_trading_incentive": "boolean",
+              "id": "string",
+              "image": "string",
+              "name": "string",
+              "source": "string",
+              "trade_volume_24h_btc": "number",
+              "trade_volume_24h_btc_normalized": "null",
+              "trust_score": "number",
+              "trust_score_rank": "number",
+              "updated_at": "string",
+              "url": "string",
+              "year_established": "number",
+            },
+          ],
+          "onchain_pool": {
+            "data": {
+              "attributes": {
+                "address": "string",
+                "base_token_address": "string",
+                "base_token_symbol": "string",
+                "name": "string",
+                "pool_created_at": "number",
+                "price_usd": "number",
+                "quote_token_address": "string",
+                "quote_token_symbol": "string",
+                "reserve_usd": "number",
+                "transactions": {
+                  "h24": {
+                    "buys": "number",
+                    "sells": "number",
+                  },
+                },
+                "volume_usd": {
+                  "h24": "number",
+                },
+              },
+              "id": "string",
+              "relationships": {
+                "dex": {
+                  "data": {
+                    "id": "string",
+                    "type": "string",
+                  },
+                },
+                "network": {
+                  "data": {
+                    "id": "string",
+                    "type": "string",
+                  },
+                },
+              },
+              "type": "string",
+            },
+            "meta": {
+              "data_source": "string",
+              "fixture": "boolean",
+              "source": "string",
+              "updated_at": "string",
+            },
+          },
+          "simple_price": {
+            "bitcoin": {
+              "last_updated_at": "number",
+              "usd": "number",
+              "usd_24h_change": "number",
+              "usd_24h_vol": "number",
+              "usd_market_cap": "number",
+            },
+            "ethereum": {
+              "last_updated_at": "number",
+              "usd": "number",
+              "usd_24h_change": "number",
+              "usd_24h_vol": "number",
+              "usd_market_cap": "number",
+            },
+          },
+        }
+      `);
     } finally {
       await app.close();
     }
