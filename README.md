@@ -490,6 +490,22 @@ When several OHLCV targets are eligible, the worker leases by priority tier firs
 
 Daily `/coins/{id}/ohlc/range` requests use source-backed rows first, then canonical OHLCV storage, and can fall back to the configured ticker provider when the requested range is empty. Daily `/coins/{id}/market_chart` and `/coins/{id}/market_chart/range` requests use the same fallback path and expose provider OHLCV close prices as chart prices with stable market-cap and volume arrays. Successful fallback candles are persisted into canonical OHLCV storage so the same day window or range can be served locally on later requests; hourly ranges remain storage-backed only.
 
+**Snapshot retention contract:**
+
+OpenGecko keeps retained history, not infinite history. The generated daily history targets use `OHLCV_TARGET_HISTORY_DAYS=1825` and canonical OHLCV candles follow `OHLCV_RETENTION_DAYS=1825`; both defaults come from `src/config/runtime-policy.ts` through the central environment schema in `src/config/env.ts`. Append-style source table pruning is handled by `enforceSnapshotRetention()` in `src/services/snapshot-retention.ts`, whose default snapshot retention horizon is 365 days when a caller does not pass an override.
+
+The snapshot-retention sweep deletes rows older than the retention cutoff based on each source row's `sourceFetchedAt` timestamp, then reports retention/sweep outcomes through `/diagnostics/jobs` when run by scheduler or sync jobs. The contract covers these append-style source table surfaces:
+
+| Table | Pruned timestamp | Runtime result field | Contract |
+|---|---|---|---|
+| `market_chart_source_points` | `sourceFetchedAt` | `marketChartSourcePoints` | Source-backed `/coins/{id}/market_chart*` and `/coins/{id}/ohlc*` replay rows are bounded by snapshot retention. |
+| `exchange_volume_source_points` | `sourceFetchedAt` | `exchangeVolumeSourcePoints` | Exchange volume replay rows are bounded by snapshot retention. |
+| `onchain_pool_trades` | `sourceFetchedAt` | `onchainPoolTrades` | Source-attributed pool trade rows are bounded by snapshot retention. |
+| `supply_chart_points` | `sourceFetchedAt` | `supplyChartPoints` | Supply chart source rows are bounded by snapshot retention. |
+| `coin_history_snapshots` | `sourceFetchedAt` | `coinHistorySnapshots` | Dated coin history source snapshots are bounded by snapshot retention. |
+
+Retention removes storage rows only; it must not add fields to public CoinGecko-compatible response shapes. When a requested chart, OHLC, volume, supply, trade, or history range falls outside retained data, the route keeps its existing compatibility shape and uses the documented fallback/degraded behavior for that surface.
+
 **Optional provider scheduler playbook:**
 
 1. Keep `OPTIONAL_PROVIDER_SYNC_ENABLED=false` until target envs and provider base URLs are configured and verified with the standalone commands above.

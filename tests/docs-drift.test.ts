@@ -3,7 +3,12 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
+import {
+  DEFAULT_OHLCV_RETENTION_DAYS,
+  DEFAULT_OHLCV_TARGET_HISTORY_DAYS,
+} from '../src/config/runtime-policy';
 import { buildCoverageMatrix, type DataOwnershipClass } from '../src/services/coverage-matrix';
+import { DEFAULT_SNAPSHOT_RETENTION_DAYS } from '../src/services/snapshot-retention';
 import {
   extractReadmeApiCoverageGetRoutes,
   normalizeRouteTemplate,
@@ -56,6 +61,15 @@ function extractReadmeConfigEnvVars() {
     [...configSection!.matchAll(/^\| `([A-Z][A-Z0-9_]+)` \|/gm)]
       .map((match) => match[1]),
   );
+}
+
+function extractReadmeConfigDefault(envVar: string) {
+  const readme = readRepoFile('README.md');
+  const match = readme.match(new RegExp(`^\\| \`${escapeRegExp(envVar)}\` \\| \`([^\\\`]+)\\\` \\|`, 'm'));
+
+  expect(match).toBeDefined();
+
+  return match![1];
 }
 
 function extractPackageJsonScripts() {
@@ -727,6 +741,8 @@ describe('documentation drift guards', () => {
 
     expect(runtimePolicy).toContain('DEFAULT_OHLCV_TARGET_HISTORY_DAYS = 1825');
     expect(runtimePolicy).toContain('DEFAULT_OHLCV_RETENTION_DAYS = 1825');
+    expect(extractReadmeConfigDefault('OHLCV_TARGET_HISTORY_DAYS')).toBe(String(DEFAULT_OHLCV_TARGET_HISTORY_DAYS));
+    expect(extractReadmeConfigDefault('OHLCV_RETENTION_DAYS')).toBe(String(DEFAULT_OHLCV_RETENTION_DAYS));
     expect(ohlcvSync).toContain('HISTORICAL_DEEPEN_CHUNK_DAYS = 180');
     expect(ohlcvSync).toContain('HISTORICAL_DEEPEN_OVERLAP_DAYS = 2');
     expect(readme).toContain('| `OHLCV_TARGET_HISTORY_DAYS` | `1825` |');
@@ -818,6 +834,49 @@ describe('documentation drift guards', () => {
       'public chart or OHLC response shapes',
     ]) {
       expect(ohlcvInterpretation).toContain(expectedOhlcvDetail);
+    }
+  });
+
+  it('keeps the README snapshot-retention contract aligned with runtime pruning defaults', () => {
+    const readme = readRepoFile('README.md');
+    const snapshotRetention = readRepoFile('src/services/snapshot-retention.ts');
+    const retentionContract = readme.match(
+      /\*\*Snapshot retention contract:\*\*([\s\S]*?)\*\*Optional provider scheduler playbook:\*\*/,
+    )?.[1];
+
+    expect(retentionContract).toBeDefined();
+    expect(snapshotRetention).toContain(`DEFAULT_SNAPSHOT_RETENTION_DAYS = ${DEFAULT_SNAPSHOT_RETENTION_DAYS}`);
+    expect(retentionContract).toContain(`default snapshot retention horizon is ${DEFAULT_SNAPSHOT_RETENTION_DAYS} days`);
+    expect(retentionContract).toContain(
+      `canonical OHLCV candles follow \`OHLCV_RETENTION_DAYS=${DEFAULT_OHLCV_RETENTION_DAYS}\``,
+    );
+    expect(retentionContract).toContain(
+      `generated daily history targets use \`OHLCV_TARGET_HISTORY_DAYS=${DEFAULT_OHLCV_TARGET_HISTORY_DAYS}\``,
+    );
+
+    for (const tableName of [
+      'market_chart_source_points',
+      'exchange_volume_source_points',
+      'onchain_pool_trades',
+      'supply_chart_points',
+      'coin_history_snapshots',
+    ]) {
+      expect(retentionContract).toContain(tableName);
+      expect(snapshotRetention).toContain(tableName.split('_').map((part, index) => (
+        index === 0 ? part : `${part[0]?.toUpperCase()}${part.slice(1)}`
+      )).join(''));
+    }
+
+    for (const expectedContractDetail of [
+      'append-style source table',
+      'sourceFetchedAt',
+      'enforceSnapshotRetention()',
+      '/diagnostics/jobs',
+      'retention/sweep outcomes',
+      'retained history, not infinite history',
+      'public CoinGecko-compatible response shapes',
+    ]) {
+      expect(retentionContract).toContain(expectedContractDetail);
     }
   });
 
