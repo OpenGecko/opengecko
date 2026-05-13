@@ -41,6 +41,8 @@ type OhlcvDepthStatusCounts = {
   blocked: number;
 };
 
+type OhlcvSloStatus = 'complete' | 'catching_up' | 'blocked';
+
 type OhlcvRetryRecoveryCounts = {
   due: number;
   backoff: number;
@@ -95,9 +97,12 @@ export type OhlcvSyncSummary = {
     targets_at_target_depth: number;
     by_tier: Record<'top100' | 'requested' | 'long_tail', {
       total: number;
+      target_depth_days: number;
       with_any_history: number;
       at_target_depth: number;
       oldest_covered_at: string | null;
+      coverage_ratio: number;
+      slo_status: OhlcvSloStatus;
       remaining_depth_days: number;
       estimated_remaining_chunks: number;
       depth_status_counts: OhlcvDepthStatusCounts;
@@ -182,9 +187,12 @@ function isRecentCoverageCurrentEnough(latestSyncedAt: Date | null, now: Date) {
 function emptyHistoryTierSummary() {
   return {
     total: 0,
+    target_depth_days: 0,
     with_any_history: 0,
     at_target_depth: 0,
     oldest_covered_at: null as string | null,
+    coverage_ratio: 1,
+    slo_status: 'complete' as OhlcvSloStatus,
     remaining_depth_days: 0,
     estimated_remaining_chunks: 0,
     depth_status_counts: emptyDepthStatusCounts(),
@@ -236,6 +244,28 @@ function classifyDepthStatus(targetRemainingDepthDays: number, status: string) {
   }
 
   return 'catching_up' as const;
+}
+
+function classifyTierSloStatus(counts: OhlcvDepthStatusCounts): OhlcvSloStatus {
+  if (counts.blocked > 0) {
+    return 'blocked';
+  }
+
+  if (counts.catching_up > 0) {
+    return 'catching_up';
+  }
+
+  return 'complete';
+}
+
+function toCoverageRatio(coveredDepthDays: number, targetDepthDays: number) {
+  if (targetDepthDays <= 0) {
+    return 1;
+  }
+
+  const clamped = Math.min(Math.max(coveredDepthDays / targetDepthDays, 0), 1);
+
+  return Number(clamped.toFixed(6));
 }
 
 function toIso(value: number | null) {
@@ -311,6 +341,11 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
     requested: emptyHistoryTierSummary(),
     long_tail: emptyHistoryTierSummary(),
   };
+  const tierCoverageTotals = {
+    top100: { coveredDepthDays: 0, targetDepthDays: 0 },
+    requested: { coveredDepthDays: 0, targetDepthDays: 0 },
+    long_tail: { coveredDepthDays: 0, targetDepthDays: 0 },
+  };
   const depthStatusCounts = emptyDepthStatusCounts();
   const retryRecoveryCounts = emptyRetryRecoveryCounts();
   const retryStarvationCounts = emptyRetryStarvationCounts();
@@ -327,6 +362,7 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
 
   for (const row of rows) {
     const tier = historyByTier[row.priorityTier];
+    const tierCoverage = tierCoverageTotals[row.priorityTier];
     const queueTier = queuePrioritySummary.by_tier[row.priorityTier];
     tier.total += 1;
 
@@ -356,6 +392,9 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
       : Math.ceil(targetRemainingDepthDays / HISTORICAL_DEEPEN_CHUNK_DAYS);
     oldestHistoricalGapMs = Math.max(oldestHistoricalGapMs, historicalGapMs);
     maxTargetHistoryDays = Math.max(maxTargetHistoryDays, row.targetHistoryDays);
+    tier.target_depth_days = Math.max(tier.target_depth_days, row.targetHistoryDays);
+    tierCoverage.targetDepthDays += row.targetHistoryDays;
+    tierCoverage.coveredDepthDays += Math.max(row.targetHistoryDays - targetRemainingDepthDays, 0);
     remainingDepthDays += targetRemainingDepthDays;
     estimatedRemainingChunks += targetEstimatedRemainingChunks;
     maxRemainingDepthDays = Math.max(maxRemainingDepthDays, targetRemainingDepthDays);
@@ -495,6 +534,13 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
         || left.symbol.localeCompare(right.symbol);
     });
     samples.splice(BLOCKED_TARGET_SAMPLE_LIMIT);
+  }
+
+  for (const tierName of Object.keys(historyByTier) as Array<keyof typeof historyByTier>) {
+    const tier = historyByTier[tierName];
+    const coverage = tierCoverageTotals[tierName];
+    tier.coverage_ratio = toCoverageRatio(coverage.coveredDepthDays, coverage.targetDepthDays);
+    tier.slo_status = classifyTierSloStatus(tier.depth_status_counts);
   }
 
   return {

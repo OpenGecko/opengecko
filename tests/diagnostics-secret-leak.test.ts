@@ -16,6 +16,7 @@ const DIAGNOSTIC_ROUTES = [
   '/diagnostics/jobs',
   '/diagnostics/coverage_matrix',
   '/diagnostics/freshness_budgets',
+  '/diagnostics/ohlcv_sync',
   '/diagnostics/providers',
 ] as const;
 

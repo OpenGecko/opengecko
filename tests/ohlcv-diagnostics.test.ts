@@ -74,9 +74,12 @@ describe('ohlcv diagnostics route', () => {
         by_tier: {
           top100: {
             total: 100,
+            target_depth_days: 365,
             with_any_history: 97,
             at_target_depth: 94,
             oldest_covered_at: '2025-03-22T00:00:00.000Z',
+            coverage_ratio: 0.999836,
+            slo_status: 'catching_up',
             remaining_depth_days: 6,
             estimated_remaining_chunks: 1,
             depth_status_counts: {
@@ -94,9 +97,12 @@ describe('ohlcv diagnostics route', () => {
           },
           requested: {
             total: 0,
+            target_depth_days: 0,
             with_any_history: 0,
             at_target_depth: 0,
             oldest_covered_at: null,
+            coverage_ratio: 1,
+            slo_status: 'complete',
             remaining_depth_days: 0,
             estimated_remaining_chunks: 0,
             depth_status_counts: {
@@ -114,9 +120,12 @@ describe('ohlcv diagnostics route', () => {
           },
           long_tail: {
             total: 0,
+            target_depth_days: 0,
             with_any_history: 0,
             at_target_depth: 0,
             oldest_covered_at: null,
+            coverage_ratio: 1,
+            slo_status: 'complete',
             remaining_depth_days: 0,
             estimated_remaining_chunks: 0,
             depth_status_counts: {
@@ -297,5 +306,11 @@ describe('ohlcv diagnostics route', () => {
     expect(response.json().data.backfill.max_target_history_days).toBeGreaterThanOrEqual(0);
     expect(response.json().data.history.target_depth_days).toBe(365);
     expect(response.json().data.history.targets_with_any_history).toBeGreaterThanOrEqual(response.json().data.history.targets_at_target_depth);
+    expect(response.json().data.history.by_tier.top100).toMatchObject({
+      target_depth_days: 365,
+      oldest_covered_at: '2025-03-22T00:00:00.000Z',
+      coverage_ratio: 0.999836,
+      slo_status: 'catching_up',
+    });
   });
 });

@@ -677,9 +677,12 @@ describe('ohlcv runtime', () => {
       by_tier: {
         top100: {
           total: 2,
+          target_depth_days: 180,
           with_any_history: 1,
           at_target_depth: 1,
           oldest_covered_at: '2025-12-23T00:00:00.000Z',
+          coverage_ratio: 0.333333,
+          slo_status: 'blocked',
           remaining_depth_days: 180,
           estimated_remaining_chunks: 1,
           depth_status_counts: {
@@ -697,9 +700,12 @@ describe('ohlcv runtime', () => {
         },
         requested: {
           total: 0,
+          target_depth_days: 0,
           with_any_history: 0,
           at_target_depth: 0,
           oldest_covered_at: null,
+          coverage_ratio: 1,
+          slo_status: 'complete',
           remaining_depth_days: 0,
           estimated_remaining_chunks: 0,
           depth_status_counts: {
@@ -717,9 +723,12 @@ describe('ohlcv runtime', () => {
         },
         long_tail: {
           total: 1,
+          target_depth_days: 30,
           with_any_history: 1,
           at_target_depth: 0,
           oldest_covered_at: '2026-03-15T00:00:00.000Z',
+          coverage_ratio: 0.266667,
+          slo_status: 'catching_up',
           remaining_depth_days: 22,
           estimated_remaining_chunks: 1,
           depth_status_counts: {
@@ -910,6 +919,176 @@ describe('ohlcv runtime', () => {
       remaining_depth_days: 0,
       estimated_remaining_chunks: 0,
       max_remaining_depth_days: 0,
+    });
+  });
+
+  it('derives per-tier depth SLO fields for no data, partial data, and complete coverage', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => [
+              {
+                coinId: 'bitcoin',
+                exchangeId: 'binance',
+                symbol: 'BTC/USDT',
+                vsCurrency: 'usd',
+                interval: '1d',
+                priorityTier: 'top100',
+                status: 'idle',
+                latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+                oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
+                targetHistoryDays: 365,
+                failureCount: 0,
+                nextRetryAt: null,
+              },
+              {
+                coinId: 'solana',
+                exchangeId: 'binance',
+                symbol: 'SOL/USDT',
+                vsCurrency: 'usd',
+                interval: '1d',
+                priorityTier: 'requested',
+                status: 'idle',
+                latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+                oldestSyncedAt: new Date('2026-03-13T00:00:00.000Z'),
+                targetHistoryDays: 30,
+                failureCount: 0,
+                nextRetryAt: null,
+              },
+              {
+                coinId: 'some-microcap',
+                exchangeId: 'binance',
+                symbol: 'SMC/USDT',
+                vsCurrency: 'usd',
+                interval: '1d',
+                priorityTier: 'long_tail',
+                status: 'failed',
+                latestSyncedAt: null,
+                oldestSyncedAt: null,
+                targetHistoryDays: 30,
+                failureCount: 1,
+                nextRetryAt: new Date('2026-03-23T00:10:00.000Z'),
+                lastAttemptAt: now,
+                lastSuccessAt: null,
+                lastError: 'timeout',
+              },
+            ],
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.by_tier.top100).toMatchObject({
+      target_depth_days: 365,
+      oldest_covered_at: '2025-03-22T00:00:00.000Z',
+      coverage_ratio: 1,
+      slo_status: 'complete',
+    });
+    expect(summary.history.by_tier.requested).toMatchObject({
+      target_depth_days: 30,
+      oldest_covered_at: '2026-03-13T00:00:00.000Z',
+      coverage_ratio: 0.333333,
+      slo_status: 'catching_up',
+    });
+    expect(summary.history.by_tier.long_tail).toMatchObject({
+      target_depth_days: 30,
+      oldest_covered_at: null,
+      coverage_ratio: 0,
+      slo_status: 'blocked',
+    });
+  });
+
+  it('derives per-tier historical depth SLO fields for no-data, partial, and complete coverage', () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const rows = [
+      {
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        status: 'idle',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: null,
+        targetHistoryDays: 365,
+        failureCount: 0,
+        nextRetryAt: null,
+      },
+      {
+        coinId: 'ethereum',
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'requested',
+        status: 'idle',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2025-09-23T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        failureCount: 0,
+        nextRetryAt: null,
+      },
+      {
+        coinId: 'some-microcap',
+        exchangeId: 'binance',
+        symbol: 'SMC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'long_tail',
+        status: 'idle',
+        latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2025-03-23T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        failureCount: 0,
+        nextRetryAt: null,
+      },
+    ];
+
+    const summary = summarizeOhlcvSyncStatus({
+      db: {
+        select: () => ({
+          from: () => ({
+            all: () => rows,
+          }),
+        }),
+      },
+    } as never, now);
+
+    expect(summary.history.by_tier.top100).toMatchObject({
+      target_depth_days: 365,
+      oldest_covered_at: null,
+      coverage_ratio: 0,
+      slo_status: 'catching_up',
+      depth_status_counts: {
+        complete: 0,
+        catching_up: 1,
+        blocked: 0,
+      },
+    });
+    expect(summary.history.by_tier.requested).toMatchObject({
+      target_depth_days: 365,
+      oldest_covered_at: '2025-09-23T00:00:00.000Z',
+      coverage_ratio: 0.49589,
+      slo_status: 'catching_up',
+      depth_status_counts: {
+        complete: 0,
+        catching_up: 1,
+        blocked: 0,
+      },
+    });
+    expect(summary.history.by_tier.long_tail).toMatchObject({
+      target_depth_days: 365,
+      oldest_covered_at: '2025-03-23T00:00:00.000Z',
+      coverage_ratio: 1,
+      slo_status: 'complete',
+      depth_status_counts: {
+        complete: 1,
+        catching_up: 0,
+        blocked: 0,
+      },
     });
   });
 
