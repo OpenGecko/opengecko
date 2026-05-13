@@ -120,7 +120,6 @@ const OPTIONAL_PROVIDER_JOB_DEFINITIONS: OptionalProviderJobDefinition[] = [
     parseTargetCount: (config) => parseSupplyChartTargetConfig(config.supplyChartTargets).length,
   },
 ];
-const PARTIAL_FAILURE_ERROR_MAX_LENGTH = 500;
 const MARKET_CHART_DAILY_PRODUCTION_FRESHNESS_SECONDS = 2 * 60 * 60;
 const MARKET_CHART_INTRADAY_PRODUCTION_FRESHNESS_SECONDS = 5 * 60;
 
