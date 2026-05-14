@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import {
+  coverageTargetsToMarketChartTargets,
+  parseCoverageTargetManifest,
+} from '../src/services/coverage-targets';
+import {
   createHttpMarketChartFetcher,
   parseMarketChartTargetConfig,
   syncMarketCharts,
@@ -39,6 +43,8 @@ type MarketChartProviderPresetManifest = {
   }>;
 };
 
+type CoverageTargetManifest = Parameters<typeof parseCoverageTargetManifest>[0];
+
 function loadManifest() {
   return JSON.parse(readFileSync(
     join(process.cwd(), 'docs/reference/market-chart-targets.json'),
@@ -51,6 +57,13 @@ function loadProviderPresetManifest() {
     join(process.cwd(), 'docs/reference/market-chart-provider-presets.json'),
     'utf8',
   )) as MarketChartProviderPresetManifest;
+}
+
+function loadCoverageManifest() {
+  return JSON.parse(readFileSync(
+    join(process.cwd(), 'docs/reference/default-coverage-targets.json'),
+    'utf8',
+  )) as CoverageTargetManifest;
 }
 
 describe('market chart target manifest', () => {
@@ -74,6 +87,7 @@ describe('market chart target manifest', () => {
       interval: target.interval,
       vsCurrency: target.vs_currency,
     })));
+    expect(coverageTargetsToMarketChartTargets(parseCoverageTargetManifest(loadCoverageManifest()))).toEqual(parsedTargets);
     expect(new Set(parsedTargets.map((target) =>
       `${target.provider}:${target.coinId}:${target.interval}:${target.vsCurrency}`)).size).toBe(parsedTargets.length);
     expect(parsedTargets.filter((target) => target.interval === '1d').map((target) => target.coinId).sort())

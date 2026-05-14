@@ -357,10 +357,15 @@ Known follow-ups:
 
 Keep upcoming work small enough that each PR can be reviewed by behavior, not by intention.
 
+The near-term implementation direction is now captured in `docs/plans/2026-05-14-opengecko-coverage-history-plan.md`. Prioritize data source coverage and historical depth work before adding unrelated endpoint surface.
+
 | Order | PR | Includes | Excludes | Exit check |
 | --- | --- | --- | --- | --- |
-| 1 | Market chart preset breadth audit | Identify which seeded chart targets still lack fixture-backed provider examples and decide whether to add more fixtures or keep them operator-config only | Live provider calls in tests, broad fixture churn without route assertions, or automatic target writes | Plan lists the remaining fixture gaps and the next fixture/provider priority |
-| 2 | Market chart preset fixture expansion | Add the next highest-value daily or 1m provider fixture examples after the breadth audit identifies gaps | Live provider calls in tests, broad fixture churn without route assertions, or automatic target writes | New fixtures are linked from provider presets and exercised through sync plus public chart/OHLC route assertions |
+| 1 | Coverage target manifest service | Add a reusable target manifest/parser for market chart and OHLCV coverage targets, with tier, freshness, production freshness, and depth metadata | Runtime scheduler rewrites, live provider calls in tests, automatic target writes | `tests/coverage-targets.test.ts` proves parse/validation/deduplication and existing market chart targets are derivable |
+| 2 | History backfill planner | Add a deterministic planner that turns missing, stale, production-stale, shallow, and gap-repair states into ordered sync/backfill tasks | Changing public CoinGecko-compatible response payloads or adding more diagnostics-only fields without planner use | Planner tests prove task reasons, chunk bounds, and tier/priority ordering |
+| 3 | Market chart sync consumes planner tasks | Let market chart source sync execute planner output while preserving existing `MARKET_CHART_TARGETS` behavior and partial-failure semantics | Broad onchain/supply/treasury scope, mandatory external services, or response-shape changes | Provider fixture tests prove planner tasks write source rows and public chart/OHLC routes read them |
+| 4 | OHLCV worker uses coverage priority | Feed target tier/depth priority into OHLCV target generation/leasing while preserving top-100-first and retry-due behavior | Replacing SQLite or removing existing worker diagnostics | OHLCV tests prove high-tier incomplete depth and retry-due targets lease before low-urgency targets |
+| 5 | Coverage matrix promotion hardening | Tighten family promotion rules so source-backed rows improve `coverage_matrix` without fixture/live overclaims | Claiming `live` from seeded/fixture rows or changing default public payloads | Diagnostics/docs-drift tests prove promotion/demotion and tracker wording stay honest |
 
 ## Decision Rules
 

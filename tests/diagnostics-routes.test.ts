@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { chartPoints, marketChartSourcePoints, ohlcvCandles } from '../src/db/schema';
+import { chartPoints, marketChartSourcePoints, marketSnapshots, ohlcvCandles } from '../src/db/schema';
+import { upsertCanonicalOhlcvCandle } from '../src/services/candle-store';
 import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
@@ -491,6 +492,78 @@ describe('diagnostics routes', () => {
         ]),
       },
     });
+  });
+
+  it('promotes coverage matrix only from source-backed fresh snapshots and historical rows', async () => {
+    await getApp().ready();
+    const now = new Date('2026-05-14T12:00:00.000Z');
+    getApp().db.db.update(marketSnapshots).set({
+      sourceProvidersJson: JSON.stringify([]),
+      sourceCount: 0,
+      lastUpdated: now,
+      updatedAt: now,
+    }).run();
+    getApp().db.db.delete(ohlcvCandles).run();
+    getApp().db.db.delete(marketChartSourcePoints).run();
+
+    const fixtureOnlyResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coverage_matrix',
+    });
+    const fixtureOnlyEntries = fixtureOnlyResponse.json().data.entries as Array<{ family: string; ownership_class: string }>;
+
+    expect(fixtureOnlyEntries.find((entry) => entry.family === 'simple')?.ownership_class).toBe('seeded');
+    expect(fixtureOnlyEntries.find((entry) => entry.family === 'coins_markets')?.ownership_class).toBe('seeded');
+
+    getApp().db.db.update(marketSnapshots).set({
+      sourceProvidersJson: JSON.stringify(['binance']),
+      sourceCount: 1,
+      lastUpdated: now,
+      updatedAt: now,
+    }).where(and(
+      eq(marketSnapshots.coinId, 'bitcoin'),
+      eq(marketSnapshots.vsCurrency, 'usd'),
+    )).run();
+    upsertCanonicalOhlcvCandle(getApp().db, {
+      coinId: 'bitcoin',
+      vsCurrency: 'usd',
+      interval: '1d',
+      timestamp: now,
+      open: 100,
+      high: 110,
+      low: 95,
+      close: 105,
+      volume: 10,
+      source: 'canonical',
+      replaceExisting: true,
+    });
+
+    const promotedResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/coverage_matrix',
+    });
+    const promotedEntries = promotedResponse.json().data.entries as Array<{
+      family: string;
+      ownership_class: string;
+      last_successful_refresh_at: string | null;
+      evidence: { notes: string };
+    }>;
+
+    expect(promotedEntries.find((entry) => entry.family === 'simple')).toMatchObject({
+      ownership_class: 'live',
+      last_successful_refresh_at: now.toISOString(),
+    });
+    expect(promotedEntries.find((entry) => entry.family === 'coins_markets')).toMatchObject({
+      ownership_class: 'live',
+      last_successful_refresh_at: now.toISOString(),
+    });
+    expect(promotedEntries.find((entry) => entry.family === 'historical_charts')).toMatchObject({
+      ownership_class: 'hybrid',
+      last_successful_refresh_at: now.toISOString(),
+    });
+    expect(promotedEntries.find((entry) => entry.family === 'historical_charts')?.evidence.notes).toContain(
+      'Future live classification requires documented breadth/depth thresholds',
+    );
   });
 
   it('keeps coverage matrix entries complete enough to support release claims', async () => {

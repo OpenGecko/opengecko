@@ -11,6 +11,7 @@ import {
   createHttpMarketChartFetcher,
   parseMarketChartTargetConfig,
   syncMarketCharts,
+  syncMarketChartsFromCoveragePlan,
 } from '../src/services/market-chart-sync';
 import {
   ingestMarketChartReplay,
@@ -715,6 +716,107 @@ describe('market chart sync', () => {
       ]));
       expect(diagnostics.gaps.stale_source_targets).toEqual([]);
       expect(diagnostics.gaps.shallow_source_targets).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('derives provider sync work from coverage backfill planner tasks', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+
+      const now = new Date('2026-05-05T03:00:00.000Z');
+      const fetchedWindows: Array<{ from: string; to: string; reason: string }> = [];
+      const result = await syncMarketChartsFromCoveragePlan(app.db, {
+        now,
+        coverageTargets: [
+          {
+            family: 'market_charts',
+            provider: 'mock.chart',
+            entityType: 'coin',
+            entityId: 'bitcoin',
+            interval: '1d',
+            vsCurrency: 'usd',
+            tier: 'S',
+            targetHistoryDays: 365,
+            freshnessSloSeconds: 86_400,
+            productionFreshnessSloSeconds: 3_600,
+            enabled: true,
+            priority: 1,
+          },
+        ],
+        fetcher: async (task) => {
+          fetchedWindows.push({
+            from: task.from.toISOString(),
+            to: task.to.toISOString(),
+            reason: task.reason,
+          });
+
+          return {
+            provider: task.provider,
+            captured_at: now.toISOString(),
+            coin_id: task.coinId,
+            vs_currency: task.vsCurrency,
+            interval: '1d',
+            points: [
+              {
+                timestamp: Math.floor(task.from.getTime() / 1000),
+                price: 90_000,
+                open: 89_500,
+                high: 90_500,
+                low: 89_000,
+                close: 90_000,
+              },
+              {
+                timestamp: Math.floor(task.to.getTime() / 1000),
+                price: 91_000,
+                open: 90_000,
+                high: 91_500,
+                low: 89_900,
+                close: 91_000,
+              },
+            ],
+          };
+        },
+      });
+
+      const sourceRows = app.db.db
+        .select()
+        .from(marketChartSourcePoints)
+        .where(eq(marketChartSourcePoints.coinId, 'bitcoin'))
+        .all();
+
+      expect(result).toMatchObject({
+        tasks_planned: 1,
+        targets_attempted: 1,
+        targets_failed: 0,
+        points_fetched: 2,
+        points_written: 2,
+        results: [
+          expect.objectContaining({
+            coin_id: 'bitcoin',
+            reason: 'missing',
+            status: 'synced',
+          }),
+        ],
+      });
+      expect(fetchedWindows).toEqual([
+        {
+          from: '2026-04-05T03:00:00.000Z',
+          to: '2026-05-05T03:00:00.000Z',
+          reason: 'missing',
+        },
+      ]);
+      expect(sourceRows).toHaveLength(2);
+      expect(sourceRows.every((row) => row.sourceKind === 'live' && row.sourceProvider === 'mock.chart')).toBe(true);
     } finally {
       await app.close();
     }

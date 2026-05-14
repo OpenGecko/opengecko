@@ -21,6 +21,7 @@ import {
   treasurySourceDocuments,
 } from '../db/schema';
 import { getEndpointFreshnessBudget } from './freshness-budgets';
+import { loadDefaultCoverageTargets } from './coverage-targets';
 
 export type DataOwnershipClass = 'live' | 'hybrid' | 'seeded' | 'synthetic' | 'fixture' | 'unavailable';
 
@@ -45,6 +46,24 @@ function latestDate<T>(rows: T[], selector: (row: T) => Date | null | undefined)
 
     return latest === null || value.getTime() > latest.getTime() ? value : latest;
   }, null);
+}
+
+function hasSourceBackedMarketSnapshot(row: { sourceCount: number; sourceProvidersJson: string }) {
+  if (row.sourceCount <= 0) {
+    return false;
+  }
+
+  try {
+    const providers = JSON.parse(row.sourceProvidersJson) as unknown;
+
+    return Array.isArray(providers) && providers.some((provider) => (
+      typeof provider === 'string'
+      && provider.trim().length > 0
+      && provider !== 'canonical-validation-snapshot'
+    ));
+  } catch {
+    return false;
+  }
 }
 
 function ageSeconds(now: Date, timestamp: Date | null) {
@@ -106,8 +125,17 @@ function buildEntry(config: CoverageMatrixEntryConfig, now: Date) {
 
 export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
   const observedAt = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+  const marketSnapshotRows = database.db.select().from(marketSnapshots).all();
+  const sourceBackedMarketSnapshotRows = marketSnapshotRows.filter(hasSourceBackedMarketSnapshot);
+  const enabledDefaultCoverageTargets = loadDefaultCoverageTargets().filter((target) => target.enabled);
+  const enabledHistoricalCoverageTargets = enabledDefaultCoverageTargets.filter(
+    (target) => target.family === 'market_charts' || target.family === 'ohlcv',
+  );
+  const enabledHistoricalCoverageKeyCount = new Set(
+    enabledHistoricalCoverageTargets.map((target) => [target.family, target.provider, target.entityId, target.interval, target.vsCurrency].join(':')),
+  ).size;
   const latestMarketSnapshotAt = latestDate(
-    database.db.select().from(marketSnapshots).all(),
+    sourceBackedMarketSnapshotRows,
     (row) => row.lastUpdated,
   );
   const latestExchangeTickerAt = latestDate(
@@ -208,7 +236,9 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
       providers: ['CCXT', 'DeFiLlama', 'currency-api'],
       lastSuccessfulRefreshAt: latestMarketSnapshotAt,
       evidence: ['tests/simple-price-parity.test.ts', 'tests/http-cache.test.ts'],
-      notes: 'Hot price routes are owned by the market snapshot runtime and quote conversion layer.',
+      notes: latestMarketSnapshotAt
+        ? 'Hot price routes are promoted only from source-attributed market snapshots; seeded snapshots remain fallback data.'
+        : 'Hot price routes are seeded until source-attributed market snapshots with providers are written.',
     }, observedAt),
     buildEntry({
       family: 'coins_markets',
@@ -217,7 +247,9 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
       providers: ['CCXT', 'DeFiLlama'],
       lastSuccessfulRefreshAt: latestMarketSnapshotAt,
       evidence: ['tests/coins-markets-parity.test.ts', 'tests/http-cache.test.ts'],
-      notes: 'Market lists use the same snapshot freshness as hot price routes with route-local response caching.',
+      notes: latestMarketSnapshotAt
+        ? 'Market lists use source-attributed snapshot freshness with route-local response caching.'
+        : 'Market lists remain seeded until source-attributed market snapshots with providers are written.',
     }, observedAt),
     buildEntry({
       family: 'coin_detail',
@@ -279,9 +311,9 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
       providers: ['CCXT OHLCV', 'market chart replay', 'seed chart corpus'],
       lastSuccessfulRefreshAt: latestMarketChartSourceAt ?? latestHistoricalCandleAt,
       evidence: ['tests/ohlcv-sync.test.ts', 'tests/provider-replay-market-charts.test.ts', 'tests/http-cache.test.ts'],
-      notes: latestMarketChartSourceAt
-        ? 'Historical chart and OHLC routes can read source-attributed replay/live rows before seeded chart or canonical candle fallback; replay rows must not be advertised as live.'
-        : 'Historical quality is judged by continuity and retention, not latest tick age.',
+      notes: latestMarketChartSourceAt || latestHistoricalCandleAt
+        ? `Historical chart and OHLC routes can read source-attributed replay/live rows before seeded chart or canonical candle fallback; ${enabledHistoricalCoverageKeyCount} enabled coverage targets define breadth/depth expectations. Future live classification requires documented breadth/depth thresholds.`
+        : `Historical quality is judged by continuity and retention, not latest tick age; ${enabledHistoricalCoverageKeyCount} enabled coverage targets are configured but not yet source-backed.` ,
     }, observedAt),
     buildEntry({
       family: 'supply_charts',
