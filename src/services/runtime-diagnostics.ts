@@ -9,6 +9,7 @@ export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
 export type ProviderCapabilitySurface = 'market_price' | 'ticker' | 'exchange' | 'chart';
 export type ProviderCapabilityState = 'pending' | 'contributed' | 'degraded' | 'unavailable';
 export type ProviderCapabilityOwnership = 'configured' | 'latest_contributor';
+export type ProviderCapabilityEvidence = Partial<Record<ProviderCapabilitySurface, Record<string, string>>>;
 
 export const PROVIDER_ALERT_STATUS_FAILING_FAILURE_COUNT = 3;
 export const PROVIDER_ALERT_STATUS_RECENT_RECOVERY_WINDOW_MS = 120_000;
@@ -121,6 +122,61 @@ function classifyProviderAlertStatus(provider: {
   return 'healthy';
 }
 
+const PROVIDER_ID_ALIASES: Record<string, string> = {
+  bybit_spot: 'bybit',
+  gdax: 'coinbase',
+  okex: 'okx',
+};
+
+export function normalizeProviderCapabilityId(providerId: string) {
+  const trimmedProviderId = providerId.trim();
+  const unprefixedProviderId = trimmedProviderId.startsWith('ccxt.')
+    ? trimmedProviderId.slice('ccxt.'.length)
+    : trimmedProviderId;
+
+  return PROVIDER_ID_ALIASES[unprefixedProviderId] ?? unprefixedProviderId;
+}
+
+function getCapabilityEvidenceAt(
+  evidence: ProviderCapabilityEvidence,
+  surface: ProviderCapabilitySurface,
+  providerId: string,
+) {
+  return evidence[surface]?.[normalizeProviderCapabilityId(providerId)] ?? null;
+}
+
+function buildEvidenceDrivenCapability(
+  surface: Exclude<ProviderCapabilitySurface, 'market_price'>,
+  endpointFamilies: string[],
+  provider: {
+    id: string;
+    state: 'closed' | 'open' | 'half_open';
+    last_failure_reason: string | null;
+  },
+  evidence: ProviderCapabilityEvidence,
+  initialSyncCompleted: boolean,
+) {
+  const providerIsDegraded = provider.state !== 'closed';
+  const evidenceAt = getCapabilityEvidenceAt(evidence, surface, provider.id);
+
+  return {
+    surface,
+    endpoint_families: endpointFamilies,
+    ownership: evidenceAt !== null ? 'latest_contributor' as const : 'configured' as const,
+    state: providerIsDegraded
+      ? 'degraded' as const
+      : evidenceAt !== null
+        ? 'contributed' as const
+        : initialSyncCompleted
+          ? 'unavailable' as const
+          : 'pending' as const,
+    last_contribution_at: evidenceAt,
+    degraded_reason: providerIsDegraded
+      ? provider.last_failure_reason ?? 'provider degraded'
+      : null,
+  };
+}
+
 function buildProviderCapabilities(
   provider: {
     id: string;
@@ -131,22 +187,11 @@ function buildProviderCapabilities(
   latestContributorProviders: Set<string>,
   latestContributorAt: string | null,
   initialSyncCompleted: boolean,
+  capabilityEvidence: ProviderCapabilityEvidence,
 ): ProviderRuntimeDiagnostics['capabilities'] {
   const providerIsDegraded = provider.state !== 'closed';
-  const genericContributionState = providerIsDegraded
-    ? 'degraded'
-    : provider.last_success_at !== null
-      ? 'contributed'
-      : initialSyncCompleted
-        ? 'unavailable'
-        : 'pending';
-  const genericDegradedReason = providerIsDegraded
-    ? provider.last_failure_reason ?? 'provider degraded'
-    : null;
-  const genericLastContributionAt = genericContributionState === 'contributed'
-    ? provider.last_success_at
-    : null;
-  const contributedMarketPrice = latestContributorProviders.has(provider.id);
+  const normalizedProviderId = normalizeProviderCapabilityId(provider.id);
+  const contributedMarketPrice = latestContributorProviders.has(normalizedProviderId);
 
   return [
     {
@@ -165,32 +210,27 @@ function buildProviderCapabilities(
         ? provider.last_failure_reason ?? 'provider degraded'
         : null,
     },
-    {
-      surface: 'ticker',
-      endpoint_families: ['/coins/{id}/tickers', '/exchanges/{id}/tickers'],
-      ownership: 'configured',
-      state: genericContributionState,
-      last_contribution_at: genericLastContributionAt,
-      degraded_reason: genericDegradedReason,
-    },
-    {
-      surface: 'exchange',
-      endpoint_families: ['/exchanges/list', '/exchanges', '/exchanges/{id}'],
-      ownership: 'configured',
-      state: genericContributionState,
-      last_contribution_at: genericLastContributionAt,
-      degraded_reason: genericDegradedReason,
-    },
-    {
-      surface: 'chart',
-      endpoint_families: ['/coins/{id}/market_chart', '/coins/{id}/ohlc'],
-      ownership: 'configured',
-      state: providerIsDegraded ? 'degraded' : 'unavailable',
-      last_contribution_at: null,
-      degraded_reason: providerIsDegraded
-        ? provider.last_failure_reason ?? 'provider degraded'
-        : 'no chart contribution recorded for provider',
-    },
+    buildEvidenceDrivenCapability(
+      'ticker',
+      ['/coins/{id}/tickers', '/exchanges/{id}/tickers'],
+      provider,
+      capabilityEvidence,
+      initialSyncCompleted,
+    ),
+    buildEvidenceDrivenCapability(
+      'exchange',
+      ['/exchanges/list', '/exchanges', '/exchanges/{id}'],
+      provider,
+      capabilityEvidence,
+      initialSyncCompleted,
+    ),
+    buildEvidenceDrivenCapability(
+      'chart',
+      ['/coins/{id}/market_chart', '/coins/{id}/ohlc'],
+      provider,
+      capabilityEvidence,
+      initialSyncCompleted,
+    ),
   ];
 }
 
@@ -199,6 +239,7 @@ export function buildRuntimeDiagnostics(
   latestUsdSnapshot: Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceProvidersJson' | 'sourceCount'> | null,
   marketFreshnessThresholdSeconds: number,
   now = Date.now(),
+  capabilityEvidence: ProviderCapabilityEvidence = {},
 ): RuntimeDiagnostics {
   const listenerBoundSeededBootstrap = runtimeState.listenerBound
     && runtimeState.validationOverride.mode === 'off'
@@ -253,11 +294,12 @@ export function buildRuntimeDiagnostics(
             last_success_at: lastSuccessAt,
             last_failure_reason: lastFailureReason,
           },
-          new Set(latestSnapshotFreshness?.providers ?? []),
+          new Set((latestSnapshotFreshness?.providers ?? []).map(normalizeProviderCapabilityId)),
           effectiveLatestUsdSnapshot?.sourceCount && effectiveLatestUsdSnapshot.sourceCount > 0
             ? effectiveLatestUsdSnapshot.lastUpdated.toISOString()
             : null,
           effectiveInitialSyncCompleted,
+          capabilityEvidence,
         ),
       };
     });

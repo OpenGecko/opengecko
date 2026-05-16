@@ -940,16 +940,16 @@ describe('runtime diagnostics', () => {
           surface: 'ticker',
           endpoint_families: ['/coins/{id}/tickers', '/exchanges/{id}/tickers'],
           ownership: 'configured',
-          state: 'contributed',
-          last_contribution_at: '2026-03-26T00:00:00.000Z',
+          state: 'unavailable',
+          last_contribution_at: null,
           degraded_reason: null,
         },
         {
           surface: 'exchange',
           endpoint_families: ['/exchanges/list', '/exchanges', '/exchanges/{id}'],
           ownership: 'configured',
-          state: 'contributed',
-          last_contribution_at: '2026-03-26T00:00:00.000Z',
+          state: 'unavailable',
+          last_contribution_at: null,
           degraded_reason: null,
         },
         {
@@ -958,7 +958,7 @@ describe('runtime diagnostics', () => {
           ownership: 'configured',
           state: 'unavailable',
           last_contribution_at: null,
-          degraded_reason: 'no chart contribution recorded for provider',
+          degraded_reason: null,
         },
       ],
     });
@@ -996,6 +996,124 @@ describe('runtime diagnostics', () => {
         }),
       ],
     });
+  });
+
+  it('marks ticker, exchange, and chart capabilities contributed only from surface-specific evidence', () => {
+    const providerBreakers = createProviderBreakerState(['binance', 'coinbase', 'kraken'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    const refreshedAt = new Date('2026-03-26T00:00:00.000Z').getTime();
+    recordProviderSuccess(providerBreakers, 'binance', refreshedAt);
+    recordProviderSuccess(providerBreakers, 'coinbase', refreshedAt + 1_000);
+    recordProviderSuccess(providerBreakers, 'kraken', refreshedAt + 2_000);
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date(refreshedAt),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      refreshedAt + 30_000,
+      {
+        ticker: {
+          binance: '2026-03-26T00:00:10.000Z',
+        },
+        exchange: {
+          kraken: '2026-03-26T00:00:20.000Z',
+        },
+        chart: {
+          coinbase: '2026-03-26T00:00:30.000Z',
+        },
+      },
+    );
+
+    expect(diagnostics.providers?.find((provider) => provider.id === 'binance')?.capabilities).toEqual([
+      expect.objectContaining({
+        surface: 'market_price',
+        ownership: 'latest_contributor',
+        state: 'contributed',
+        last_contribution_at: '2026-03-26T00:00:00.000Z',
+      }),
+      expect.objectContaining({
+        surface: 'ticker',
+        ownership: 'latest_contributor',
+        state: 'contributed',
+        last_contribution_at: '2026-03-26T00:00:10.000Z',
+      }),
+      expect.objectContaining({
+        surface: 'exchange',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'chart',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+    ]);
+
+    expect(diagnostics.providers?.find((provider) => provider.id === 'kraken')?.capabilities).toEqual([
+      expect.objectContaining({
+        surface: 'market_price',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'ticker',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'exchange',
+        ownership: 'latest_contributor',
+        state: 'contributed',
+        last_contribution_at: '2026-03-26T00:00:20.000Z',
+      }),
+      expect.objectContaining({
+        surface: 'chart',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+    ]);
+
+    expect(diagnostics.providers?.find((provider) => provider.id === 'coinbase')?.capabilities).toEqual([
+      expect.objectContaining({
+        surface: 'market_price',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'ticker',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'exchange',
+        ownership: 'configured',
+        state: 'unavailable',
+        last_contribution_at: null,
+      }),
+      expect.objectContaining({
+        surface: 'chart',
+        ownership: 'latest_contributor',
+        state: 'contributed',
+        last_contribution_at: '2026-03-26T00:00:30.000Z',
+      }),
+    ]);
   });
 
   it('reports injected provider failure state alongside degraded recovery fields', () => {

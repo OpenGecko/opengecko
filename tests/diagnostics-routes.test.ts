@@ -7,7 +7,15 @@ import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { chartPoints, marketChartSourcePoints, marketSnapshots, ohlcvCandles } from '../src/db/schema';
+import {
+  chartPoints,
+  coinTickers,
+  exchanges,
+  marketChartSourcePoints,
+  marketSnapshots,
+  ohlcvCandles,
+  ohlcvSyncTargets,
+} from '../src/db/schema';
 import { upsertCanonicalOhlcvCandle } from '../src/services/candle-store';
 import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
@@ -2617,6 +2625,145 @@ describe('diagnostics routes', () => {
     }
   });
 
+  it('derives runtime provider capabilities from ticker, exchange, and chart storage evidence', async () => {
+    await getApp().ready();
+    const seedTimestamp = new Date('2026-03-20T00:00:00.000Z');
+    const tickerFetchedAt = new Date('2026-05-05T00:10:00.000Z');
+    const exchangeSyncedAt = new Date('2026-05-05T00:20:00.000Z');
+    const ohlcvSyncedAt = new Date('2026-05-05T00:30:00.000Z');
+    const chartSourceFetchedAt = new Date('2026-05-05T00:40:00.000Z');
+
+    getApp().db.db.update(marketSnapshots).set({
+      sourceProvidersJson: '[]',
+      sourceCount: 0,
+      updatedAt: seedTimestamp,
+      lastUpdated: seedTimestamp,
+    }).run();
+    getApp().db.db.delete(coinTickers).run();
+    getApp().db.db.delete(ohlcvSyncTargets).run();
+    getApp().db.db.delete(marketChartSourcePoints).run();
+
+    for (const exchange of [
+      { id: 'binance', name: 'Binance', updatedAt: seedTimestamp },
+      { id: 'coinbase', name: 'Coinbase Exchange', updatedAt: exchangeSyncedAt },
+      { id: 'kraken', name: 'Kraken', updatedAt: seedTimestamp },
+      { id: 'okex', name: 'OKX', updatedAt: seedTimestamp },
+    ]) {
+      getApp().db.db.insert(exchanges).values({
+        id: exchange.id,
+        name: exchange.name,
+        description: '',
+        url: `https://${exchange.id}.example`,
+        hasTradingIncentive: false,
+        centralised: true,
+        otherUrlJson: '[]',
+        updatedAt: exchange.updatedAt,
+      }).onConflictDoUpdate({
+        target: exchanges.id,
+        set: {
+          name: exchange.name,
+          updatedAt: exchange.updatedAt,
+        },
+      }).run();
+    }
+
+    getApp().db.db.insert(coinTickers).values({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      base: 'BTC',
+      target: 'USDT',
+      marketName: 'BTC/USDT',
+      last: 90_000,
+      convertedLastUsd: 90_000,
+      lastFetchAt: tickerFetchedAt,
+      lastTradedAt: tickerFetchedAt,
+      isAnomaly: false,
+      isStale: false,
+    }).run();
+    getApp().db.db.insert(ohlcvSyncTargets).values({
+      coinId: 'bitcoin',
+      exchangeId: 'kraken',
+      symbol: 'BTC/USD',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      targetHistoryDays: 30,
+      status: 'idle',
+      lastAttemptAt: ohlcvSyncedAt,
+      lastSuccessAt: ohlcvSyncedAt,
+      createdAt: ohlcvSyncedAt,
+      updatedAt: ohlcvSyncedAt,
+    }).run();
+    getApp().db.db.insert(marketChartSourcePoints).values({
+      coinId: 'bitcoin',
+      vsCurrency: 'usd',
+      interval: '1d',
+      timestamp: chartSourceFetchedAt,
+      price: 90_000,
+      open: 89_000,
+      high: 91_000,
+      low: 88_000,
+      close: 90_000,
+      sourceKind: 'live',
+      sourceProvider: 'ccxt.okx',
+      sourceFetchedAt: chartSourceFetchedAt,
+    }).run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const providers = response.json().data.providers as Array<{
+      id: string;
+      capabilities: Array<{
+        surface: string;
+        ownership: string;
+        state: string;
+        last_contribution_at: string | null;
+      }>;
+    }>;
+    const capability = (providerId: string, surface: string) =>
+      providers.find((provider) => provider.id === providerId)?.capabilities.find((entry) => entry.surface === surface);
+
+    expect(capability('binance', 'ticker')).toMatchObject({
+      ownership: 'latest_contributor',
+      state: 'contributed',
+      last_contribution_at: tickerFetchedAt.toISOString(),
+    });
+    expect(capability('binance', 'exchange')).toMatchObject({
+      ownership: 'configured',
+      state: 'unavailable',
+      last_contribution_at: null,
+    });
+    expect(capability('coinbase', 'exchange')).toMatchObject({
+      ownership: 'latest_contributor',
+      state: 'contributed',
+      last_contribution_at: exchangeSyncedAt.toISOString(),
+    });
+    expect(capability('coinbase', 'ticker')).toMatchObject({
+      ownership: 'configured',
+      state: 'unavailable',
+      last_contribution_at: null,
+    });
+    expect(capability('kraken', 'chart')).toMatchObject({
+      ownership: 'latest_contributor',
+      state: 'contributed',
+      last_contribution_at: ohlcvSyncedAt.toISOString(),
+    });
+    expect(capability('okx', 'chart')).toMatchObject({
+      ownership: 'latest_contributor',
+      state: 'contributed',
+      last_contribution_at: chartSourceFetchedAt.toISOString(),
+    });
+    expect(capability('okx', 'exchange')).toMatchObject({
+      ownership: 'configured',
+      state: 'unavailable',
+      last_contribution_at: null,
+    });
+  });
+
   it('exposes configured provider diagnostics under the validation boot config before real breaker events', async () => {
     await getApp().close();
     app = buildApp({
@@ -2671,7 +2818,7 @@ describe('diagnostics routes', () => {
           expect.objectContaining({
             surface: 'chart',
             ownership: 'configured',
-            state: 'unavailable',
+            state: 'pending',
           }),
         ],
       },

@@ -3,7 +3,15 @@ import type { FastifyInstance } from 'fastify';
 import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
-import { assetPlatforms, coins, marketSnapshots } from '../db/schema';
+import {
+  assetPlatforms,
+  coinTickers,
+  coins,
+  exchanges,
+  marketChartSourcePoints,
+  marketSnapshots,
+  ohlcvSyncTargets,
+} from '../db/schema';
 import { sendCacheableJson } from '../http/cache';
 import { resolveCanonicalPlatform } from '../lib/platform-id';
 import { buildDerivativesProviderDiagnostics } from '../services/derivatives-venues';
@@ -21,12 +29,79 @@ import {
   type OptionalProviderJobRegistry,
 } from '../services/optional-provider-jobs';
 import { summarizeOhlcvSyncStatus } from '../services/ohlcv-runtime';
-import { buildRuntimeDiagnostics } from '../services/runtime-diagnostics';
+import {
+  buildRuntimeDiagnostics,
+  normalizeProviderCapabilityId,
+  type ProviderCapabilityEvidence,
+  type ProviderCapabilitySurface,
+} from '../services/runtime-diagnostics';
 import { buildSupplyChartProviderDiagnostics } from '../services/supply-chart-diagnostics';
 import {
   recordForcedProviderFailure,
   recordValidationRuntimeOverride,
 } from '../services/market-runtime-state';
+
+const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
+
+function toLatestIso(left: string | null, right: Date | null | undefined) {
+  if (!right || Number.isNaN(right.getTime())) {
+    return left;
+  }
+
+  const rightIso = right.toISOString();
+  if (left === null) {
+    return rightIso;
+  }
+
+  return Date.parse(rightIso) > Date.parse(left) ? rightIso : left;
+}
+
+function recordCapabilityEvidence(
+  evidence: ProviderCapabilityEvidence,
+  surface: ProviderCapabilitySurface,
+  providerId: string | null | undefined,
+  contributedAt: Date | null | undefined,
+) {
+  if (!providerId || contributedAt?.getTime() === SEEDED_EXCHANGE_TIMESTAMP_MS) {
+    return;
+  }
+
+  const normalizedProviderId = normalizeProviderCapabilityId(providerId);
+  evidence[surface] ??= {};
+  const surfaceEvidence = evidence[surface];
+  surfaceEvidence[normalizedProviderId] = toLatestIso(surfaceEvidence[normalizedProviderId] ?? null, contributedAt)
+    ?? surfaceEvidence[normalizedProviderId];
+}
+
+function buildRuntimeCapabilityEvidence(database: AppDatabase): ProviderCapabilityEvidence {
+  const evidence: ProviderCapabilityEvidence = {};
+
+  for (const row of database.db.select().from(coinTickers).all()) {
+    recordCapabilityEvidence(evidence, 'ticker', row.exchangeId, row.lastFetchAt ?? row.lastTradedAt);
+  }
+
+  for (const row of database.db.select().from(exchanges).all()) {
+    if (row.updatedAt.getTime() === SEEDED_EXCHANGE_TIMESTAMP_MS) {
+      continue;
+    }
+
+    recordCapabilityEvidence(evidence, 'exchange', row.id, row.updatedAt);
+  }
+
+  for (const row of database.db.select().from(ohlcvSyncTargets).all()) {
+    recordCapabilityEvidence(evidence, 'chart', row.exchangeId, row.lastSuccessAt);
+  }
+
+  for (const row of database.db.select().from(marketChartSourcePoints).all()) {
+    if (row.sourceKind !== 'live') {
+      continue;
+    }
+
+    recordCapabilityEvidence(evidence, 'chart', row.sourceProvider, row.sourceFetchedAt ?? row.timestamp);
+  }
+
+  return evidence;
+}
 
 export function registerDiagnosticsRoutes(
   app: FastifyInstance,
@@ -218,6 +293,7 @@ export function registerDiagnosticsRoutes(
       .orderBy(marketSnapshots.lastUpdated)
       .all()
       .at(-1) ?? null;
+    const capabilityEvidence = buildRuntimeCapabilityEvidence(database);
 
     return sendCacheableJson(request, reply, {
       data: {
@@ -226,6 +302,7 @@ export function registerDiagnosticsRoutes(
           latestUsdSnapshot,
           marketFreshnessThresholdSeconds,
           Date.now(),
+          capabilityEvidence,
         ),
         transport: {
           request_timeout_ms: transport.requestTimeoutMs,
