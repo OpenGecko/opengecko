@@ -12,6 +12,7 @@ vi.mock('../src/services/chain-catalog-sync', () => ({
 }));
 
 vi.mock('../src/services/market-refresh', () => ({
+  STARTUP_TICKER_FETCH_BUDGET_MS: 3_000,
   runMarketRefreshOnce: vi.fn().mockResolvedValue(undefined),
 }));
 

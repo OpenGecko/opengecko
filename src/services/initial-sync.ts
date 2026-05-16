@@ -7,12 +7,14 @@ import { mapWithConcurrency } from '../lib/async';
 import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
-import { runMarketRefreshOnce } from './market-refresh';
+import { runMarketRefreshOnce, STARTUP_TICKER_FETCH_BUDGET_MS } from './market-refresh';
 import { recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
 }
+
+const STARTUP_EXCHANGE_METADATA_BUDGET_MS = 3_000;
 
 const EXCHANGE_METADATA_OVERRIDES: Record<string, Partial<typeof exchanges.$inferInsert>> = {
   binance: {
@@ -101,6 +103,8 @@ export type InitialSyncProgressHandlers = {
   onTickerFetchComplete?: (exchangeId: string, durationMs: number) => void;
   onTickerFetchFailed?: (exchangeId: string, message: string, durationMs: number) => void;
   onWaitingExchangeStatus?: (exchangeIds: string[]) => void;
+  startupExchangeMetadataBudgetMs?: number;
+  startupTickerFetchBudgetMs?: number;
 };
 
 export type ExchangeSyncResult = {
@@ -114,12 +118,9 @@ export async function syncExchangesFromCCXT(
   logger: Logger,
   concurrency = exchangeIds.length,
   progress?: Pick<InitialSyncProgressHandlers, 'onExchangeResult'>,
+  options?: { startupExchangeMetadataBudgetMs?: number },
 ): Promise<ExchangeSyncResult> {
-  const results = await mapWithConcurrency(
-    exchangeIds,
-    concurrency,
-    async (exchangeId) => Promise.allSettled([fetchExchangeMarkets(exchangeId)]).then(([result]) => result),
-  );
+  const results = await fetchExchangeMarketResults(exchangeIds, concurrency, options?.startupExchangeMetadataBudgetMs);
 
   const now = new Date();
   let succeeded = 0;
@@ -174,6 +175,94 @@ export async function syncExchangesFromCCXT(
   return { succeededExchangeIds, failedExchangeIds };
 }
 
+async function fetchExchangeMarketResults(
+  exchangeIds: ExchangeId[],
+  concurrency: number,
+  startupExchangeMetadataBudgetMs?: number,
+) {
+  if (!startupExchangeMetadataBudgetMs || startupExchangeMetadataBudgetMs <= 0) {
+    return await mapWithConcurrency(
+      exchangeIds,
+      concurrency,
+      async (exchangeId) => Promise.allSettled([fetchExchangeMarkets(exchangeId)]).then(([result]) => result),
+    );
+  }
+
+  const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
+  const results = new Array<PromiseSettledResult<Awaited<ReturnType<typeof fetchExchangeMarkets>>> | undefined>(exchangeIds.length);
+  let nextIndex = 0;
+  let activeWorkers = 0;
+  let settledWorkers = 0;
+  let resolved = false;
+  let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const buildBudgetError = (exchangeId: string) => {
+    const error = new Error(`${exchangeId} startup exchange metadata budget exceeded after ${startupExchangeMetadataBudgetMs}ms`);
+    error.name = 'ExchangeMetadataStartupBudgetExceededError';
+    return error;
+  };
+
+  return await new Promise<PromiseSettledResult<Awaited<ReturnType<typeof fetchExchangeMarkets>>>[]>((resolve) => {
+    const resolveOnce = () => {
+      if (resolved) {
+        return;
+      }
+
+      resolved = true;
+      if (budgetTimer) {
+        clearTimeout(budgetTimer);
+        budgetTimer = null;
+      }
+      resolve(Array.from({ length: exchangeIds.length }, (_, index) => results[index] ?? {
+        status: 'rejected',
+        reason: buildBudgetError(exchangeIds[index]),
+      }));
+    };
+
+    const startNext = () => {
+      if (resolved) {
+        return;
+      }
+
+      while (activeWorkers < Math.min(normalizedConcurrency, exchangeIds.length) && nextIndex < exchangeIds.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        activeWorkers += 1;
+        const exchangeId = exchangeIds[currentIndex];
+
+        Promise.allSettled([fetchExchangeMarkets(exchangeId)])
+          .then(([settled]) => {
+            if (!resolved) {
+              results[currentIndex] = settled;
+            }
+          })
+          .catch((reason) => {
+            if (!resolved) {
+              results[currentIndex] = {
+                status: 'rejected',
+                reason: reason instanceof Error ? reason : new Error(String(reason)),
+              };
+            }
+          })
+          .finally(() => {
+            activeWorkers -= 1;
+            settledWorkers += 1;
+
+            if (settledWorkers === exchangeIds.length) {
+              resolveOnce();
+              return;
+            }
+
+            startNext();
+          });
+      }
+    };
+
+    budgetTimer = setTimeout(resolveOnce, startupExchangeMetadataBudgetMs);
+    startNext();
+  });
+}
+
 export type InitialSyncResult = {
   coinsDiscovered: number;
   chainsDiscovered: number;
@@ -207,6 +296,7 @@ export async function runInitialMarketSync(
     syncLogger,
     config.providerFanoutConcurrency,
     progress,
+    { startupExchangeMetadataBudgetMs: progress?.startupExchangeMetadataBudgetMs ?? STARTUP_EXCHANGE_METADATA_BUDGET_MS },
   );
   const activeExchangeIds = succeededExchangeIds.length > 0 ? succeededExchangeIds : exchangeIds;
 
@@ -264,6 +354,7 @@ export async function runInitialMarketSync(
     onWaitingExchangeStatus: (exchangeIds) => {
       progress?.onWaitingExchangeStatus?.(exchangeIds);
     },
+    startupTickerFetchBudgetMs: progress?.startupTickerFetchBudgetMs ?? STARTUP_TICKER_FETCH_BUDGET_MS,
     suppressSummaryLogs: !shouldEmitStartupLogger(progress),
   });
 

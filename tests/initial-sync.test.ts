@@ -16,7 +16,7 @@ vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeNetworks: vi.fn().mockResolvedValue([]),
   closeExchangePool: vi.fn().mockResolvedValue(undefined),
   isValidExchangeId: (value: string): value is string =>
-    ['binance', 'coinbase', 'kraken', 'bybit', 'okx', 'gate'].includes(value),
+    ['binance', 'coinbase', 'kraken', 'bybit', 'okx', 'gate', 'ascendex'].includes(value),
 }));
 
 import { fetchExchangeMarkets, fetchExchangeTickers, fetchExchangeOHLCV, fetchExchangeNetworks } from '../src/providers/ccxt';
@@ -290,6 +290,108 @@ describe('initial market sync', () => {
     expect(result.exchangesSynced).toBe(1);
     expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(1);
     expect(mockedFetchExchangeTickers).toHaveBeenCalledWith('binance', expect.any(Array));
+  });
+
+  it('bounds startup ticker waiting so slow default providers do not block prioritized market snapshots', async () => {
+    const never = new Promise<never>(() => {});
+    const tickerStarted: string[] = [];
+    const exchangeResults: Array<{ exchangeId: string; status: 'ok' | 'failed'; message?: string }> = [];
+    const progressFailures: Array<{ exchangeId: string; message: string }> = [];
+
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
+      if (exchangeId === 'kraken') {
+        return never;
+      }
+
+      if (exchangeId === 'ascendex') {
+        return [
+          { exchangeId, symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+        ];
+      }
+
+      if (exchangeId === 'binance' || exchangeId === 'coinbase') {
+        return [
+          { exchangeId, symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+        ];
+      }
+
+      return [];
+    });
+
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
+      tickerStarted.push(exchangeId);
+
+      if (exchangeId === 'kraken' || exchangeId === 'ascendex') {
+        return never;
+      }
+
+      return [{
+        exchangeId,
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: exchangeId === 'binance' ? 90_000 : 90_200,
+        bid: null,
+        ask: null,
+        high: null,
+        low: null,
+        baseVolume: 1_000,
+        quoteVolume: 90_000_000,
+        percentage: 2,
+        timestamp: Date.now(),
+        raw: {} as never,
+      }];
+    });
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
+
+    const startedAt = Date.now();
+    const result = await runInitialMarketSync(
+      database,
+      {
+        ccxtExchanges: ['kraken', 'binance', 'coinbase', 'ascendex'],
+        marketFreshnessThresholdSeconds: 300,
+        providerFanoutConcurrency: 2,
+      },
+      undefined,
+      {
+        onExchangeResult: (exchangeId, status, message) => {
+          exchangeResults.push({ exchangeId, status, message });
+        },
+        onTickerFetchFailed: (exchangeId, message) => {
+          progressFailures.push({ exchangeId, message });
+        },
+        startupExchangeMetadataBudgetMs: 25,
+        startupTickerFetchBudgetMs: 25,
+      },
+    );
+    const durationMs = Date.now() - startedAt;
+
+    expect(durationMs).toBeLessThan(1_000);
+    expect(result.snapshotsCreated).toBeGreaterThan(0);
+    expect(tickerStarted).toContain('binance');
+    expect(tickerStarted).toContain('coinbase');
+    expect(exchangeResults).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        exchangeId: 'kraken',
+        status: 'failed',
+        message: expect.stringContaining('startup exchange metadata budget exceeded'),
+      }),
+    ]));
+    expect(progressFailures).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        exchangeId: 'ascendex',
+        message: expect.stringContaining('startup ticker fetch budget exceeded'),
+      }),
+    ]));
+
+    const bitcoinSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+
+    expect(bitcoinSnapshot?.price).toBeGreaterThan(0);
+    expect(JSON.parse(bitcoinSnapshot?.sourceProvidersJson ?? '[]')).toEqual(expect.arrayContaining(['binance']));
   });
 
   it('discovers and upserts chain catalogs from exchange network metadata', async () => {
