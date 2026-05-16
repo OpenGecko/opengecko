@@ -119,6 +119,71 @@ describe('ohlcv runtime', () => {
     expect(deepenHistoricalOhlcvWindow).toHaveBeenCalledTimes(1);
   });
 
+  it('does not advance target freshness when every provider candle is filtered before persistence', async () => {
+    const syncRecentOhlcvWindow = vi.fn().mockResolvedValue([]);
+    const deepenHistoricalOhlcvWindow = vi.fn().mockResolvedValue([]);
+    const markOhlcvTargetSuccess = vi.fn();
+    const leaseNextOhlcvTarget = vi.fn().mockReturnValue({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+    });
+    const runtime = createOhlcvRuntime({} as never, { ccxtExchanges: ['binance'] }, logger, {
+      refreshTargets: vi.fn().mockResolvedValue(undefined),
+      leaseNextOhlcvTarget,
+      syncRecentOhlcvWindow,
+      deepenHistoricalOhlcvWindow,
+      markOhlcvTargetSuccess,
+      markOhlcvTargetFailure: vi.fn(),
+    });
+
+    await runtime.tick(new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(markOhlcvTargetSuccess).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+    }));
+  });
+
+  it('advances target freshness using the latest persisted-valid candle rather than the raw provider tail', async () => {
+    const syncRecentOhlcvWindow = vi.fn().mockResolvedValue([
+      { timestamp: Date.parse('2026-03-22T00:00:00.000Z') },
+    ]);
+    const deepenHistoricalOhlcvWindow = vi.fn().mockResolvedValue([]);
+    const markOhlcvTargetSuccess = vi.fn();
+    const leaseNextOhlcvTarget = vi.fn().mockReturnValue({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+    });
+    const runtime = createOhlcvRuntime({} as never, { ccxtExchanges: ['binance'] }, logger, {
+      refreshTargets: vi.fn().mockResolvedValue(undefined),
+      leaseNextOhlcvTarget,
+      syncRecentOhlcvWindow,
+      deepenHistoricalOhlcvWindow,
+      markOhlcvTargetSuccess,
+      markOhlcvTargetFailure: vi.fn(),
+    });
+
+    await runtime.tick(new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(markOhlcvTargetSuccess).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+    }));
+  });
+
   it('uses the runtime sync path to repair interior gaps once upstream eventually serves the missing window', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-'));
     const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));

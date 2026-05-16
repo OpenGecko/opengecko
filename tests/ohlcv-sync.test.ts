@@ -271,7 +271,7 @@ describe('ohlcv sync units', () => {
       },
     ]);
 
-    await syncRecentOhlcvWindow(database, {
+    const result = await syncRecentOhlcvWindow(database, {
       coinId: 'bitcoin',
       exchangeId: 'binance',
       symbol: 'BTC/USDT',
@@ -283,11 +283,116 @@ describe('ohlcv sync units', () => {
       targetHistoryDays: 30,
     }, new Date('2026-03-23T00:00:00.000Z'));
 
+    expect(result.rawFetchedCount).toBe(2);
+    expect(result.acceptedCount).toBe(1);
+    expect(result.persistedCount).toBe(1);
+    expect(result.map((candle) => candle.timestamp)).toEqual([Date.parse('2026-03-23T00:00:00.000Z')]);
+    expect(result.acceptedCandles.map((candle) => candle.timestamp)).toEqual([Date.parse('2026-03-23T00:00:00.000Z')]);
     expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d')).toEqual([
       expect.objectContaining({
         timestamp: new Date('2026-03-23T00:00:00.000Z'),
         close: 83_500,
       }),
     ]);
+  });
+
+  it('returns no accepted recent candles when every provider OHLCV row is malformed', async () => {
+    database.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+    mockedFetchExchangeOHLCV.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
+        open: 82_000,
+        high: 81_000,
+        low: 83_000,
+        close: 82_500,
+        volume: 1_200,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-23T00:00:00.000Z'),
+        open: 83_000,
+        high: 84_000,
+        low: 82_000,
+        close: 85_000,
+        volume: 1_300,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+    ]);
+
+    const result = await syncRecentOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(result).toEqual([]);
+    expect(result.rawFetchedCount).toBe(2);
+    expect(result.acceptedCount).toBe(0);
+    expect(result.persistedCount).toBe(0);
+    expect(result.acceptedCandles).toEqual([]);
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d')).toEqual([]);
+  });
+
+  it('returns historical cursor candidates from persisted-valid rows only', async () => {
+    const malformedTimestamp = Date.parse('2025-09-22T00:00:00.000Z');
+    const validTimestamp = Date.parse('2025-09-23T00:00:00.000Z');
+    mockedFetchExchangeOHLCV.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: malformedTimestamp,
+        open: 60_000,
+        high: 59_000,
+        low: 61_000,
+        close: 60_500,
+        volume: 900,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: validTimestamp,
+        open: 61_000,
+        high: 62_000,
+        low: 60_500,
+        close: 61_500,
+        volume: 950,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+    ]);
+
+    const result = await deepenHistoricalOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      targetHistoryDays: 365,
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(result.rawFetchedCount).toBe(2);
+    expect(result.acceptedCount).toBe(1);
+    expect(result[0]?.timestamp).toBe(validTimestamp);
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d', {
+      from: malformedTimestamp,
+      to: validTimestamp,
+    }).map((candle) => candle.timestamp.toISOString())).toEqual(['2025-09-23T00:00:00.000Z']);
   });
 });

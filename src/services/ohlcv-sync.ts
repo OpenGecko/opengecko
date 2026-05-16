@@ -10,6 +10,15 @@ import {
   upsertCanonicalOhlcvCandle,
 } from './candle-store';
 
+type FetchedOhlcvCandle = Awaited<ReturnType<typeof fetchExchangeOHLCV>>[number];
+
+export type OhlcvSyncResult = FetchedOhlcvCandle[] & {
+  readonly rawFetchedCount: number;
+  readonly acceptedCount: number;
+  readonly persistedCount: number;
+  readonly acceptedCandles: FetchedOhlcvCandle[];
+};
+
 type OhlcvSyncTargetLike = Pick<
   OhlcvSyncTargetRow,
   'coinId' | 'exchangeId' | 'symbol' | 'vsCurrency' | 'interval' | 'priorityTier' | 'latestSyncedAt' | 'oldestSyncedAt' | 'targetHistoryDays'
@@ -32,10 +41,36 @@ function getSupportedTargetInterval(target: OhlcvSyncTargetLike): CandleInterval
   throw new Error(`Unsupported OHLCV interval: ${target.interval}`);
 }
 
-function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: Awaited<ReturnType<typeof fetchExchangeOHLCV>>) {
-  const interval = getSupportedTargetInterval(target);
+function createOhlcvSyncResult(rawCandles: FetchedOhlcvCandle[], acceptedCandles: FetchedOhlcvCandle[]): OhlcvSyncResult {
+  const result = [...acceptedCandles] as OhlcvSyncResult;
 
-  for (const candle of candles.filter(hasValidOhlcInvariants)) {
+  Object.defineProperties(result, {
+    rawFetchedCount: {
+      value: rawCandles.length,
+      enumerable: false,
+    },
+    acceptedCount: {
+      value: acceptedCandles.length,
+      enumerable: false,
+    },
+    persistedCount: {
+      value: acceptedCandles.length,
+      enumerable: false,
+    },
+    acceptedCandles: {
+      value: acceptedCandles,
+      enumerable: false,
+    },
+  });
+
+  return result;
+}
+
+function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: FetchedOhlcvCandle[]) {
+  const interval = getSupportedTargetInterval(target);
+  const acceptedCandles = candles.filter(hasValidOhlcInvariants);
+
+  for (const candle of acceptedCandles) {
     upsertCanonicalOhlcvCandle(database, {
       coinId: target.coinId,
       vsCurrency: target.vsCurrency,
@@ -50,6 +85,8 @@ function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, cand
       replaceExisting: true,
     });
   }
+
+  return createOhlcvSyncResult(candles, acceptedCandles);
 }
 
 async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike) {
@@ -83,10 +120,10 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
   const candles = limit === undefined
     ? await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since)
     : await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  persistCandles(database, target, candles);
+  const result = persistCandles(database, target, candles);
   await repairPersistedGaps(database, target);
 
-  return candles;
+  return result;
 }
 
 export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target: OhlcvSyncTargetLike, now: Date) {
@@ -96,7 +133,7 @@ export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target:
   const oldestSyncedAt = target.oldestSyncedAt?.getTime();
 
   if (oldestSyncedAt !== undefined && oldestSyncedAt <= desiredOldest) {
-    return [];
+    return createOhlcvSyncResult([], []);
   }
 
   const referenceEnd = oldestSyncedAt ?? target.latestSyncedAt?.getTime() ?? now.getTime();
@@ -105,8 +142,8 @@ export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target:
   const limit = Math.max(Math.ceil((referenceEnd - since) / intervalMs), 1);
 
   const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  persistCandles(database, target, candles);
+  const result = persistCandles(database, target, candles);
   await repairPersistedGaps(database, target);
 
-  return candles;
+  return result;
 }
