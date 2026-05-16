@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
 import { seedStaticReferenceData } from '../src/db/client';
 import { coinTickers } from '../src/db/schema';
+import { runInitialMarketSync } from '../src/services/initial-sync';
 import { runMarketRefreshOnce } from '../src/services/market-refresh';
+import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -408,6 +410,68 @@ describe('exchange live fidelity contracts', () => {
     }
   });
 
+  it('keeps a prioritized exchange eligible for ticker bootstrap after startup metadata budget failures', async () => {
+    const timestamp = Date.parse('2026-03-28T05:13:15.000Z');
+    let marketCallCount = 0;
+    mockedFetchExchangeMarkets.mockImplementation(async () => {
+      marketCallCount += 1;
+      if (marketCallCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      return [
+        { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+      ];
+    });
+    mockedFetchExchangeTickers.mockResolvedValue([
+      { exchangeId: 'binance', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 66234.02, bid: 66230, ask: 66236, high: 67000, low: 65000, baseVolume: 27782.99853, quoteVolume: 1839443608, percentage: 1.8, timestamp, raw: {} as never },
+    ]);
+
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'metadata-budget-live-row.db'),
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      seedStaticReferenceData(app.db, { includeSeededExchanges: true });
+      const runtimeState = createMarketDataRuntimeState(['binance']);
+
+      await runInitialMarketSync(
+        app.db,
+        {
+          ccxtExchanges: ['binance'],
+          marketFreshnessThresholdSeconds: 300,
+          providerFanoutConcurrency: 1,
+        },
+        undefined,
+        {
+          startupExchangeMetadataBudgetMs: 1,
+          startupTickerFetchBudgetMs: 50,
+        },
+        runtimeState,
+      );
+
+      const rows = app.db.db.select().from(coinTickers).all();
+      const response = await app.inject({ method: 'GET', url: '/exchanges/binance/tickers?coin_ids=bitcoin' });
+
+      expect(rows.some((row) => row.exchangeId === 'binance' && row.coinId === 'bitcoin')).toBe(true);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().tickers).toEqual([
+        expect.objectContaining({
+          coin_id: 'bitcoin',
+          last: 66234.02,
+        }),
+      ]);
+      expect(runtimeState.providerBreakers?.providers.binance.lastSuccessAt).not.toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('rejects malformed ticker candidates while keeping healthy exchange tickers route-visible', async () => {
     const timestamp = Date.parse('2026-03-28T05:13:15.000Z');
     mockedFetchExchangeMarkets.mockResolvedValue([
@@ -438,6 +502,7 @@ describe('exchange live fidelity contracts', () => {
       await app.ready();
       const rows = app.db.db.select().from(coinTickers).all();
       const tickersResponse = await app.inject({ method: 'GET', url: '/exchanges/binance/tickers?page=1' });
+      const diagnosticsResponse = await app.inject({ method: 'GET', url: '/diagnostics/exchanges' });
 
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
@@ -456,6 +521,18 @@ describe('exchange live fidelity contracts', () => {
       }));
       expect(JSON.stringify(tickers)).not.toContain('Infinity');
       expect(JSON.stringify(tickers)).not.toContain('NaN');
+      expect(diagnosticsResponse.statusCode).toBe(200);
+      expect(diagnosticsResponse.json().data.exchanges.find((exchange: { id: string }) => exchange.id === 'binance')).toMatchObject({
+        evidence_class: 'live_ticker',
+        ingestion: {
+          accepted_ticker_rows: 1,
+          rejected_ticker_rows: expect.any(Number),
+          rejection_reasons: expect.objectContaining({
+            malformed_ticker_candidate: expect.any(Number),
+            unsupported_or_unmapped_symbol: expect.any(Number),
+          }),
+        },
+      });
     } finally {
       await app.close();
     }

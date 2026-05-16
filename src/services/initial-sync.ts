@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
-import { exchanges } from '../db/schema';
+import { coinTickers, exchanges } from '../db/schema';
 import type { Logger } from 'pino';
 import { createLogger } from '../lib/logger';
 import { mapWithConcurrency } from '../lib/async';
@@ -8,14 +8,16 @@ import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../pro
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce, STARTUP_TICKER_FETCH_BUDGET_MS } from './market-refresh';
-import { recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
-import { createProviderBreakerState, recordProviderFailure } from './provider-breaker';
+import { clearProviderFailureCooldown, recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
+import { createProviderBreakerState, recordProviderFailure, recordProviderSuccess } from './provider-breaker';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
 }
 
 const STARTUP_EXCHANGE_METADATA_BUDGET_MS = 3_000;
+const PRIORITIZED_STARTUP_TICKER_RESCUE_EXCHANGES = ['binance', 'coinbase', 'okx', 'kraken'] as const;
+const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
 
 const EXCHANGE_METADATA_OVERRIDES: Record<string, Partial<typeof exchanges.$inferInsert>> = {
   binance: {
@@ -92,6 +94,25 @@ function getExchangeInsertValues(exchangeId: ExchangeId, updatedAt: Date): typeo
 
 function shouldEmitStartupLogger(progress?: InitialSyncProgressHandlers) {
   return progress === undefined;
+}
+
+function hasLiveTickerRows(database: AppDatabase) {
+  try {
+    const query = database.db.select().from(coinTickers) as {
+      all?: () => Array<{ lastFetchAt?: Date | null }>;
+    };
+
+    return typeof query.all === 'function'
+      && query.all().some((row) => row.lastFetchAt instanceof Date && row.lastFetchAt.getTime() !== SEEDED_EXCHANGE_TIMESTAMP_MS);
+  } catch {
+    return false;
+  }
+}
+
+function selectStartupTickerRescueExchange(exchangeIds: ExchangeId[]) {
+  return PRIORITIZED_STARTUP_TICKER_RESCUE_EXCHANGES.find((exchangeId) =>
+    exchangeIds.includes(exchangeId),
+  ) ?? exchangeIds[0] ?? null;
 }
 
 export type InitialSyncProgressHandlers = {
@@ -308,6 +329,13 @@ export async function runInitialMarketSync(
     for (const failure of exchangeMetadataFailures) {
       recordProviderFailure(providerBreakers, failure.exchangeId, Date.now(), failure.message);
     }
+
+    if (succeededExchangeIds.length === 0) {
+      const rescueExchangeId = selectStartupTickerRescueExchange(exchangeIds);
+      if (rescueExchangeId) {
+        recordProviderSuccess(providerBreakers, rescueExchangeId, Date.now());
+      }
+    }
   }
   const activeExchangeIds = succeededExchangeIds.length > 0 ? succeededExchangeIds : exchangeIds;
 
@@ -346,28 +374,55 @@ export async function runInitialMarketSync(
   // Step 3: Fetch tickers and build market snapshots + coin tickers
   progress?.onStepChange?.('build_market_snapshots');
   syncLogger.debug('running market refresh');
-  await runMarketRefreshOnce(database, {
-    ccxtExchanges: activeExchangeIds,
-    providerFanoutConcurrency: config.providerFanoutConcurrency,
-  }, syncLogger, runtimeState, undefined, {
-    onLongPhaseStatus: (message) => {
+  const marketRefreshProgress = {
+    onLongPhaseStatus: (message: string) => {
       progress?.onStatusDetail?.(message);
     },
-    onExchangeFetchStart: (exchangeId) => {
+    onExchangeFetchStart: (exchangeId: string) => {
       progress?.onTickerFetchStart?.(exchangeId);
     },
-    onExchangeFetchComplete: (exchangeId, durationMs) => {
+    onExchangeFetchComplete: (exchangeId: string, durationMs: number) => {
       progress?.onTickerFetchComplete?.(exchangeId, durationMs);
     },
-    onExchangeFetchFailed: (exchangeId, message, durationMs) => {
+    onExchangeFetchFailed: (exchangeId: string, message: string, durationMs: number) => {
       progress?.onTickerFetchFailed?.(exchangeId, message, durationMs);
     },
-    onWaitingExchangeStatus: (exchangeIds) => {
+    onWaitingExchangeStatus: (exchangeIds: string[]) => {
       progress?.onWaitingExchangeStatus?.(exchangeIds);
     },
     startupTickerFetchBudgetMs: progress?.startupTickerFetchBudgetMs ?? STARTUP_TICKER_FETCH_BUDGET_MS,
     suppressSummaryLogs: !shouldEmitStartupLogger(progress),
-  });
+  };
+
+  let broadMarketRefreshError: unknown = null;
+  try {
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: activeExchangeIds,
+      providerFanoutConcurrency: config.providerFanoutConcurrency,
+    }, syncLogger, runtimeState, undefined, marketRefreshProgress);
+  } catch (error) {
+    broadMarketRefreshError = error;
+  }
+
+  if (broadMarketRefreshError && !hasLiveTickerRows(database)) {
+    const rescueExchangeId = selectStartupTickerRescueExchange(activeExchangeIds);
+    if (rescueExchangeId) {
+      if (runtimeState?.providerBreakers) {
+        recordProviderSuccess(runtimeState.providerBreakers, rescueExchangeId, Date.now());
+        clearProviderFailureCooldown(runtimeState);
+      }
+      progress?.onStatusDetail?.(`Retrying prioritized ticker bootstrap on ${rescueExchangeId}`);
+      await runMarketRefreshOnce(database, {
+        ccxtExchanges: [rescueExchangeId],
+        providerFanoutConcurrency: 1,
+      }, syncLogger, runtimeState, undefined, {
+        ...marketRefreshProgress,
+        startupTickerFetchBudgetMs: 0,
+      });
+    } else if (broadMarketRefreshError) {
+      throw broadMarketRefreshError;
+    }
+  }
 
   // Step 4: Count live snapshots
   const { marketSnapshots } = await import('../db/schema');

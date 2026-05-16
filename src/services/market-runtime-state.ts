@@ -20,6 +20,17 @@ export type MarketDataRuntimeState = {
     active: boolean;
     reason: string | null;
   };
+  exchangeTickerIngestion?: {
+    last_refresh_at: string | null;
+    exchange_results: Record<string, {
+      fetched_ticker_count: number;
+      matched_ticker_count: number;
+      accepted_ticker_rows: number;
+      rejected_ticker_rows: number;
+      rejection_reasons: Record<string, number>;
+      failed_reason: string | null;
+    }>;
+  };
   startupPrewarm: {
     enabled: boolean;
     budgetMs: number;
@@ -264,6 +275,10 @@ export function createMarketDataRuntimeState(providerIds: string[] = []): Market
     forcedProviderFailure: {
       active: false,
       reason: null,
+    },
+    exchangeTickerIngestion: {
+      last_refresh_at: null,
+      exchange_results: {},
     },
     startupPrewarm: {
       enabled: false,

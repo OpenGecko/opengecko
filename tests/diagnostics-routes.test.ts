@@ -11,6 +11,7 @@ import {
   chartPoints,
   coinTickers,
   exchanges,
+  exchangeVolumeSourcePoints,
   marketChartSourcePoints,
   marketSnapshots,
   ohlcvCandles,
@@ -285,6 +286,102 @@ describe('diagnostics routes', () => {
           disabled: false,
         }),
       ]),
+    });
+  });
+
+  it('exposes exchange coverage aliases and live ticker ingestion diagnostics', async () => {
+    const [coverageResponse, exchangeDiagnosticsResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/diagnostics/coverage',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/diagnostics/exchanges',
+      }),
+    ]);
+
+    expect(coverageResponse.statusCode).toBe(200);
+    expect(coverageResponse.json().data.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        family: 'exchanges',
+        ownership_class: expect.stringMatching(/^(hybrid|seeded)$/),
+      }),
+    ]));
+
+    expect(exchangeDiagnosticsResponse.statusCode).toBe(200);
+    expect(exchangeDiagnosticsResponse.json().data.exchanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'binance',
+        evidence_class: 'live_ticker',
+        ticker_evidence: expect.objectContaining({
+          live_row_count: expect.any(Number),
+          seeded_row_count: expect.any(Number),
+          last_live_ticker_at: expect.any(String),
+        }),
+        ingestion: expect.objectContaining({
+          accepted_ticker_rows: expect.any(Number),
+          rejected_ticker_rows: expect.any(Number),
+          rejection_reasons: expect.any(Object),
+        }),
+      }),
+    ]));
+  });
+
+  it('keeps seeded and replay-only exchange diagnostics distinct from live evidence', async () => {
+    const appDb = getApp().db;
+    appDb.db.insert(exchanges).values({
+      id: 'replay-only',
+      name: 'Replay Only',
+      yearEstablished: null,
+      country: null,
+      description: '',
+      url: 'https://example.com',
+      imageUrl: null,
+      hasTradingIncentive: false,
+      trustScore: null,
+      trustScoreRank: 999,
+      tradeVolume24hBtc: null,
+      tradeVolume24hBtcNormalized: null,
+      facebookUrl: null,
+      redditUrl: null,
+      telegramUrl: null,
+      slackUrl: null,
+      otherUrlJson: '[]',
+      twitterHandle: null,
+      centralised: true,
+      publicNotice: null,
+      alertNotice: null,
+      updatedAt: new Date('2026-03-20T00:00:00.000Z'),
+    }).run();
+    appDb.db.insert(exchangeVolumeSourcePoints).values({
+      exchangeId: 'replay-only',
+      timestamp: new Date('2026-05-14T00:00:00.000Z'),
+      volumeBtc: 12,
+      sourceKind: 'replay',
+      sourceProvider: 'exchange-volume-replay',
+      sourceFetchedAt: new Date('2026-05-14T00:01:00.000Z'),
+    }).run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/exchanges',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.exchanges.find((exchange: { id: string }) => exchange.id === 'replay-only')).toMatchObject({
+      evidence_class: 'replay_only',
+      ticker_evidence: {
+        live_row_count: 0,
+        seeded_row_count: 0,
+        last_live_ticker_at: null,
+      },
+      volume_evidence: {
+        live_row_count: 0,
+        replay_row_count: 1,
+        last_live_volume_at: null,
+        last_replay_volume_at: '2026-05-14T00:01:00.000Z',
+      },
     });
   });
 

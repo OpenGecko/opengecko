@@ -94,6 +94,8 @@ type RefreshTickerProcessingState = {
   exchangeQuoteVolumes: Map<string, number>;
 };
 
+type ExchangeTickerRefreshDiagnostic = NonNullable<MarketDataRuntimeState['exchangeTickerIngestion']>['exchange_results'][string];
+
 type MarketRefreshProgressHandlers = {
   onLongPhaseStatus?: (message: string) => void;
   onExchangeFetchStart?: (exchangeId: string) => void;
@@ -506,6 +508,29 @@ function recordExchangeQuoteVolume(exchangeQuoteVolumes: Map<string, number>, ex
     exchangeId,
     new BigNumber(exchangeQuoteVolumes.get(exchangeId) ?? 0).plus(quoteVolume).toNumber(),
   );
+}
+
+function createExchangeTickerRefreshDiagnostic(): ExchangeTickerRefreshDiagnostic {
+  return {
+    fetched_ticker_count: 0,
+    matched_ticker_count: 0,
+    accepted_ticker_rows: 0,
+    rejected_ticker_rows: 0,
+    rejection_reasons: {},
+    failed_reason: null,
+  };
+}
+
+function incrementTickerRejection(
+  diagnostic: ExchangeTickerRefreshDiagnostic | undefined,
+  reason: string,
+) {
+  if (!diagnostic) {
+    return;
+  }
+
+  diagnostic.rejected_ticker_rows += 1;
+  diagnostic.rejection_reasons[reason] = (diagnostic.rejection_reasons[reason] ?? 0) + 1;
 }
 
 function toFiniteNullableNonNegative(value: number | null) {
@@ -952,6 +977,10 @@ export async function runMarketRefreshOnce(
   symbolIndexPhase.stop();
   const requestedSymbols = [...tickerDiscoveryRequests.keys()];
   const processingState = createRefreshTickerProcessingState();
+  const exchangeTickerDiagnostics = new Map<ExchangeId, ExchangeTickerRefreshDiagnostic>();
+  for (const exchangeId of attemptedExchangeIds) {
+    exchangeTickerDiagnostics.set(exchangeId, createExchangeTickerRefreshDiagnostic());
+  }
   const exchangeTrustScoreById = new Map(
     database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
   );
@@ -1003,6 +1032,7 @@ export async function runMarketRefreshOnce(
   for (let i = 0; i < attemptedExchangeIds.length; i++) {
     const exchangeId = attemptedExchangeIds[i];
     const result = tickerResults[i];
+    const tickerDiagnostic = exchangeTickerDiagnostics.get(exchangeId);
     const exchangeLogger = refreshLogger?.child({ exchange: exchangeId });
     const exchangeStart = Date.now();
     const processingPhase = createLongPhaseReporter(progress);
@@ -1015,6 +1045,9 @@ export async function runMarketRefreshOnce(
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
         : { message: String(result.reason) };
+      if (tickerDiagnostic) {
+        tickerDiagnostic.failed_reason = errorInfo.message;
+      }
       if (providerBreakers) {
         recordProviderFailure(providerBreakers, exchangeId, Date.now(), errorInfo.message);
       }
@@ -1034,17 +1067,29 @@ export async function runMarketRefreshOnce(
 
     const tickers = Array.isArray(result.value) ? result.value : [];
     let matchedCount = 0;
+    if (tickerDiagnostic) {
+      tickerDiagnostic.fetched_ticker_count = tickers.length;
+    }
 
     for (const ticker of tickers) {
       const request = tickerDiscoveryRequests.get(ticker.symbol);
       const marketTarget = request?.marketTarget;
       const normalizedTicker = normalizeTickerForMarketSnapshot(ticker);
 
-      if (!marketTarget || normalizedTicker === null) {
+      if (!marketTarget) {
+        incrementTickerRejection(tickerDiagnostic, 'unsupported_or_unmapped_symbol');
+        continue;
+      }
+
+      if (normalizedTicker === null) {
+        incrementTickerRejection(tickerDiagnostic, 'malformed_ticker_candidate');
         continue;
       }
 
       matchedCount += 1;
+      if (tickerDiagnostic) {
+        tickerDiagnostic.matched_ticker_count += 1;
+      }
       recordMatchedTicker(exchangeTrustScoreById, knownExchangeIds, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
 
       const tickerVsCurrency = determineTickerVsCurrency(
@@ -1126,10 +1171,37 @@ export async function runMarketRefreshOnce(
   writeSnapshotsPhase.start(`Still working: writing ${processingState.marketSamples.size.toLocaleString()} market snapshots`);
   const usdPriceByCoinId = writeMarketSnapshots(database, processingState.marketSamples, now);
   const conversionContext = buildConversionContext(database, usdPriceByCoinId);
+  const knownExchangeIdsForDiagnostics = new Set(
+    database.db.select().from(exchanges).all().map((row) => row.id),
+  );
+  for (const pendingTicker of processingState.pendingCoinTickers) {
+    const diagnostic = exchangeTickerDiagnostics.get(pendingTicker.exchangeId);
+    if (!diagnostic) {
+      continue;
+    }
+
+    if (!knownExchangeIdsForDiagnostics.has(pendingTicker.exchangeId)) {
+      incrementTickerRejection(diagnostic, 'unknown_exchange_identity');
+      continue;
+    }
+
+    if (!consensusAcceptedSamples.has(pendingTicker.marketSample)) {
+      incrementTickerRejection(diagnostic, 'consensus_rejected');
+      continue;
+    }
+
+    diagnostic.accepted_ticker_rows += 1;
+  }
   writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
   upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext, consensusAcceptedSamples);
   writeSnapshotsPhase.stop();
   enforceQuoteSnapshotRetention(database);
+  if (runtimeState) {
+    runtimeState.exchangeTickerIngestion = {
+      last_refresh_at: now.toISOString(),
+      exchange_results: Object.fromEntries(exchangeTickerDiagnostics),
+    };
+  }
 
   const durationMs = Date.now() - startTime;
   if (!progress) {

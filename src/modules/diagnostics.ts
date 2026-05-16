@@ -24,6 +24,7 @@ import { buildMarketChartProviderDiagnostics } from '../services/market-chart-di
 import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
 import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
 import { sanitizeNullableDiagnosticText } from '../services/diagnostic-sanitizer';
+import { buildExchangeDiagnostics } from '../services/exchange-diagnostics';
 import {
   buildOptionalProviderJobDiagnostics,
   type OptionalProviderJobRegistry,
@@ -215,6 +216,18 @@ export function registerDiagnosticsRoutes(
   app.get('/diagnostics/coverage_matrix', async (request, reply) => {
     return sendCacheableJson(request, reply, {
       data: buildCoverageMatrix(database),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/coverage', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildCoverageMatrix(database),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/exchanges', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildExchangeDiagnostics(database, app.marketDataRuntimeState),
     }, dynamicDiagnosticsCachePolicy);
   });
 
