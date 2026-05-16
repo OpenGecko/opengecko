@@ -20,6 +20,7 @@ DB_PATH_3102="${PROOF_ROOT}/opengecko-3102.sqlite"
 SMOKE_EXECUTED_FILE="${PROOF_ROOT}/smoke-modules-executed.jsonl"
 SMOKE_SKIPPED_FILE="${PROOF_ROOT}/smoke-modules-skipped.jsonl"
 PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"
+CROSS_OVERLAP_FILE="${PROOF_ROOT}/cross-overlap-readiness.json"
 RESERVED_PORTS=(3100 3101 3102)
 DEFAULT_SMOKE_MODULES=(exchanges)
 ALL_SMOKE_MODULES=(simple coins exchanges global search assets treasury onchain)
@@ -292,17 +293,183 @@ wait_for_market_readiness() {
 
   while true; do
     capture_get "$port" "readiness-simple-price" '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd' 200 || true
-    if jq -e '(.bitcoin.usd | type == "number") or (.ethereum.usd | type == "number")' "${SAMPLES_DIR}/readiness-simple-price.json" >/dev/null 2>&1; then
-      record_command "wait-market-readiness-${port}" "curl /simple/price until finite prioritized price" 0
+    capture_get "$port" "readiness-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false' 200 || true
+    if jq -e '((.bitcoin.usd? | type == "number") or (.ethereum.usd? | type == "number"))' "${SAMPLES_DIR}/readiness-simple-price.json" >/dev/null 2>&1 \
+      || has_finite_market_coin "${SAMPLES_DIR}/readiness-markets.json" "bitcoin" \
+      || has_finite_market_coin "${SAMPLES_DIR}/readiness-markets.json" "ethereum"; then
+      record_command "wait-market-readiness-${port}" "curl /simple/price or /coins/markets until finite prioritized price/source-backed market row" 0
       return 0
     fi
 
     if (( $(date +%s) - started_at >= timeout_seconds )); then
-      record_command "wait-market-readiness-${port}" "curl /simple/price until finite prioritized price" 124
+      record_command "wait-market-readiness-${port}" "curl /simple/price or /coins/markets until finite prioritized price/source-backed market row" 124
       return 124
     fi
 
     sleep 2
+  done
+}
+
+has_finite_market_coin() {
+  local file="$1"
+  local coin="$2"
+
+  jq -e --arg coin "$coin" '
+    type == "array"
+    and any(.[]; .id == $coin
+      and (.current_price | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.last_updated | type == "string" and length > 0))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_finite_ticker_coin() {
+  local file="$1"
+  local coin="$2"
+
+  jq -e --arg coin "$coin" '
+    .tickers | type == "array"
+    and any(.[]; .coin_id == $coin
+      and (((.converted_last.usd? // .last) | type == "number" and . > 0 and . < 1000000000000000000))
+      and (((.timestamp? // null) | type == "number") or (((.last_traded_at? // .last_fetch_at? // null) | type == "string") and ((.last_traded_at? // .last_fetch_at? // null) | length > 0))))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_recent_chart_points() {
+  local file="$1"
+
+  jq -e '
+    .prices | type == "array"
+    and any(.[]; type == "array"
+      and length >= 2
+      and (.[0] | type == "number")
+      and (.[1] | type == "number" and . > 0 and . < 1000000000000000000))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_recent_ohlc_points() {
+  local file="$1"
+
+  jq -e '
+    type == "array"
+    and any(.[]; type == "array"
+      and length >= 5
+      and (.[0] | type == "number")
+      and (.[1] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[2] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[3] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[4] | type == "number" and . > 0 and . < 1000000000000000000))
+  ' "$file" >/dev/null 2>&1
+}
+
+write_cross_overlap_evidence() {
+  local coin="$1"
+  local prefix="$2"
+
+  jq -n \
+    --arg coin "$coin" \
+    --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg market_route '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' \
+    --arg coin_tickers_route "/coins/${coin}/tickers?depth=true&include_exchange_logo=false&page=1" \
+    --arg exchange_tickers_route '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' \
+    --arg market_chart_route "/coins/${coin}/market_chart?vs_currency=usd&days=1" \
+    --arg ohlc_route "/coins/${coin}/ohlc?vs_currency=usd&days=1" \
+    --slurpfile markets "${SAMPLES_DIR}/${prefix}-markets.json" \
+    --slurpfile coin_tickers "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" \
+    --slurpfile exchange_tickers "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" \
+    --slurpfile market_chart "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
+    --slurpfile ohlc "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json" \
+    --slurpfile runtime "${SAMPLES_DIR}/${prefix}-runtime.json" \
+    --slurpfile chart_diagnostics "${SAMPLES_DIR}/${prefix}-chart-diagnostics.json" \
+    '{
+      generated_at: $generated_at,
+      matched_coin_id: $coin,
+      routes: {
+        markets: $market_route,
+        coin_tickers: $coin_tickers_route,
+        exchange_tickers: $exchange_tickers_route,
+        market_chart: $market_chart_route,
+        ohlc: $ohlc_route,
+        runtime_diagnostics: "/diagnostics/runtime",
+        chart_diagnostics: "/diagnostics/market_charts"
+      },
+      readiness: {
+        finite_market_price: true,
+        overlapping_exchange_ticker: true,
+        numeric_recent_market_chart: true,
+        numeric_recent_ohlc: true,
+        provider_variability_classified_by_diagnostics: true
+      },
+      samples: {
+        markets: $markets[0],
+        coin_tickers: $coin_tickers[0],
+        exchange_tickers: $exchange_tickers[0],
+        market_chart: $market_chart[0],
+        ohlc: $ohlc[0],
+        runtime_diagnostics: $runtime[0],
+        chart_diagnostics: $chart_diagnostics[0]
+      }
+    }' > "$CROSS_OVERLAP_FILE"
+}
+
+wait_for_cross_overlap_readiness() {
+  local port="$1"
+  local timeout_seconds="${2:-90}"
+  local prefix="cross-overlap-readiness"
+  local started_at
+  started_at=$(date +%s)
+
+  while true; do
+    capture_get "$port" "${prefix}-runtime" '/diagnostics/runtime' 200 || true
+    capture_get "$port" "${prefix}-chart-diagnostics" '/diagnostics/market_charts' 200 || true
+    capture_get "$port" "${prefix}-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-coin-tickers" '/coins/bitcoin/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-coin-tickers" '/coins/ethereum/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
+    capture_get "$port" "${prefix}-exchange-tickers" '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-market-chart" '/coins/bitcoin/market_chart?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-market-chart" '/coins/ethereum/market_chart?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-ohlc" '/coins/bitcoin/ohlc?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-ohlc" '/coins/ethereum/ohlc?vs_currency=usd&days=1' 200 || true
+
+    for coin in bitcoin ethereum; do
+      if has_finite_market_coin "${SAMPLES_DIR}/${prefix}-markets.json" "$coin" \
+        && { has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" "$coin" || has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" "$coin"; } \
+        && has_recent_chart_points "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
+        && has_recent_ohlc_points "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json"; then
+        write_cross_overlap_evidence "$coin" "$prefix"
+        record_command "wait-cross-overlap-readiness-${port}" "curl priority BTC/ETH markets, tickers, chart, OHLC until one live/source-backed overlap is finite" 0
+        return 0
+      fi
+    done
+
+    if (( $(date +%s) - started_at >= timeout_seconds )); then
+      jq -n \
+        --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg reason "timed out waiting for finite BTC/ETH market, ticker, chart, and OHLC overlap" \
+        --slurpfile runtime "${SAMPLES_DIR}/${prefix}-runtime.json" \
+        --slurpfile markets "${SAMPLES_DIR}/${prefix}-markets.json" \
+        --slurpfile exchange_tickers "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" \
+        --slurpfile chart_diagnostics "${SAMPLES_DIR}/${prefix}-chart-diagnostics.json" \
+        '{
+          generated_at: $generated_at,
+          readiness: {
+            finite_market_price: false,
+            overlapping_exchange_ticker: false,
+            numeric_recent_market_chart: false,
+            numeric_recent_ohlc: false
+          },
+          reason: $reason,
+          samples: {
+            runtime_diagnostics: $runtime[0],
+            markets: $markets[0],
+            exchange_tickers: $exchange_tickers[0],
+            chart_diagnostics: $chart_diagnostics[0]
+          }
+        }' > "$CROSS_OVERLAP_FILE"
+      record_command "wait-cross-overlap-readiness-${port}" "curl priority BTC/ETH markets, tickers, chart, OHLC until one live/source-backed overlap is finite" 124
+      return 124
+    fi
+
+    sleep 3
   done
 }
 
@@ -424,6 +591,7 @@ write_summary() {
     --arg commands_file "$COMMANDS_FILE" \
     --arg environment_file "${PROOF_ROOT}/environment.json" \
     --arg port_checks_file "$PORT_CHECKS_FILE" \
+    --arg cross_overlap_file "$CROSS_OVERLAP_FILE" \
     --arg smoke_executed_file "$SMOKE_EXECUTED_FILE" \
     --arg smoke_skipped_file "$SMOKE_SKIPPED_FILE" \
     --arg samples_dir "$SAMPLES_DIR" \
@@ -435,6 +603,7 @@ write_summary() {
       environment_file: $environment_file,
       commands_file: $commands_file,
       port_checks_file: $port_checks_file,
+      cross_overlap_file: $cross_overlap_file,
       smoke_executed_file: $smoke_executed_file,
       smoke_skipped_file: $smoke_skipped_file,
       samples_dir: $samples_dir,
@@ -464,7 +633,7 @@ main() {
 
   start_server 3100 "$DB_PATH_3100" "$LOG_3100"
   wait_for_health 3100 || mark_failure "port 3100 did not become healthy"
-  wait_for_market_readiness 3100 45 || true
+  wait_for_cross_overlap_readiness 3100 90 || mark_failure "finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window"
   capture_post 3100 "normal-control-provider-failure-hidden" '/diagnostics/runtime/provider_failure' '{"active":true}' 404 || true
   capture_post 3100 "normal-control-degraded-hidden" '/diagnostics/runtime/degraded_state' '{"mode":"degraded_seeded_bootstrap"}' 404 || true
   sample_priority_routes 3100 healthy

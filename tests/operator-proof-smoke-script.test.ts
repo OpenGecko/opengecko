@@ -51,4 +51,23 @@ describe('operator proof smoke script contract', () => {
     expect(script).toContain('wait_for_port_clear 3100');
     expect(script).toContain('wait_for_port_clear 3102');
   });
+
+  it('gates cross-area proof on finite prioritized market, ticker, chart, and OHLC overlap', () => {
+    const script = readFileSync(SCRIPT_PATH, 'utf8');
+
+    expect(script).toContain('CROSS_OVERLAP_FILE');
+    expect(script).toContain('wait_for_cross_overlap_readiness 3100 90');
+    expect(script).toContain('has_finite_market_coin');
+    expect(script).toContain('has_finite_ticker_coin');
+    expect(script).toContain('has_recent_chart_points');
+    expect(script).toContain('has_recent_ohlc_points');
+    expect(script).toContain('/coins/markets?vs_currency=usd&ids=bitcoin,ethereum');
+    expect(script).toContain('/coins/bitcoin/tickers?depth=true');
+    expect(script).toContain('/coins/ethereum/tickers?depth=true');
+    expect(script).toContain('/exchanges/binance/tickers?coin_ids=bitcoin,ethereum');
+    expect(script).toContain('/coins/bitcoin/market_chart?vs_currency=usd&days=1');
+    expect(script).toContain('/coins/bitcoin/ohlc?vs_currency=usd&days=1');
+    expect(script).toContain('provider_variability_classified_by_diagnostics');
+    expect(script).toContain('finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window');
+  });
 });
