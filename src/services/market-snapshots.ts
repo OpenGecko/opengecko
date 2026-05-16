@@ -86,7 +86,7 @@ function isPriceSampleWithinConsensus(sample: MarketQuoteSample, consensusPrice:
   return smaller > 0 && larger / smaller <= MAX_MARKET_PRICE_OUTLIER_RATIO;
 }
 
-export function buildMarketQuoteAccumulator(samples: MarketQuoteSample[]) {
+export function filterMarketQuoteSamplesForConsensus(samples: MarketQuoteSample[]) {
   const finiteSamples = samples.filter((sample) =>
     Number.isFinite(sample.price)
     && sample.price > 0
@@ -97,13 +97,27 @@ export function buildMarketQuoteAccumulator(samples: MarketQuoteSample[]) {
   );
 
   if (finiteSamples.length === 0) {
-    return createMarketQuoteAccumulator();
+    return [];
+  }
+
+  const providerCount = new Set(finiteSamples.map((sample) => sample.provider)).size;
+  if (providerCount <= 1) {
+    return finiteSamples;
   }
 
   const consensusPrice = median(finiteSamples.map((sample) => sample.price));
-  const acceptedSamples = finiteSamples.length === 1
+  return finiteSamples.length === 1
     ? finiteSamples
     : finiteSamples.filter((sample) => isPriceSampleWithinConsensus(sample, consensusPrice));
+}
+
+export function buildMarketQuoteAccumulator(samples: MarketQuoteSample[]) {
+  const acceptedSamples = filterMarketQuoteSamplesForConsensus(samples);
+
+  if (acceptedSamples.length === 0) {
+    return createMarketQuoteAccumulator();
+  }
+
   const accumulator = createMarketQuoteAccumulator();
 
   for (const sample of acceptedSamples) {

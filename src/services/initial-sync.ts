@@ -9,6 +9,7 @@ import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce, STARTUP_TICKER_FETCH_BUDGET_MS } from './market-refresh';
 import { recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
+import { createProviderBreakerState, recordProviderFailure } from './provider-breaker';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
@@ -110,6 +111,7 @@ export type InitialSyncProgressHandlers = {
 export type ExchangeSyncResult = {
   succeededExchangeIds: ExchangeId[];
   failedExchangeIds: ExchangeId[];
+  failures: Array<{ exchangeId: ExchangeId; message: string }>;
 };
 
 export async function syncExchangesFromCCXT(
@@ -127,6 +129,7 @@ export async function syncExchangesFromCCXT(
   let failed = 0;
   const succeededExchangeIds: ExchangeId[] = [];
   const failedExchangeIds: ExchangeId[] = [];
+  const failures: Array<{ exchangeId: ExchangeId; message: string }> = [];
 
   for (let i = 0; i < exchangeIds.length; i++) {
     const exchangeId = exchangeIds[i];
@@ -139,6 +142,7 @@ export async function syncExchangesFromCCXT(
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message }
         : { message: String(result.reason) };
+      failures.push({ exchangeId, message: errorInfo.message });
       if (shouldEmitStartupLogger(progress)) {
         exchangeLogger.warn(errorInfo, 'exchange metadata sync failed');
       }
@@ -172,7 +176,7 @@ export async function syncExchangesFromCCXT(
   }
 
   logger.debug({ succeeded, failed }, 'exchange metadata sync complete');
-  return { succeededExchangeIds, failedExchangeIds };
+  return { succeededExchangeIds, failedExchangeIds, failures };
 }
 
 async function fetchExchangeMarketResults(
@@ -290,7 +294,7 @@ export async function runInitialMarketSync(
   // Step 1: Sync exchanges first (required for coin_tickers FK)
   progress?.onStepChange?.('sync_exchange_metadata');
   syncLogger.debug('syncing exchange metadata');
-  const { succeededExchangeIds } = await syncExchangesFromCCXT(
+  const { succeededExchangeIds, failures: exchangeMetadataFailures } = await syncExchangesFromCCXT(
     database,
     exchangeIds,
     syncLogger,
@@ -298,6 +302,13 @@ export async function runInitialMarketSync(
     progress,
     { startupExchangeMetadataBudgetMs: progress?.startupExchangeMetadataBudgetMs ?? STARTUP_EXCHANGE_METADATA_BUDGET_MS },
   );
+  if (runtimeState && exchangeMetadataFailures.length > 0) {
+    const providerBreakers = runtimeState.providerBreakers
+      ?? (runtimeState.providerBreakers = createProviderBreakerState(exchangeIds));
+    for (const failure of exchangeMetadataFailures) {
+      recordProviderFailure(providerBreakers, failure.exchangeId, Date.now(), failure.message);
+    }
+  }
   const activeExchangeIds = succeededExchangeIds.length > 0 ? succeededExchangeIds : exchangeIds;
 
   // Step 2: Discover coins from all exchanges

@@ -76,7 +76,7 @@ export function classifyProviderFailure(error: unknown): { kind: ProviderFailure
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.replace(/\s+/g, ' ').trim();
 
-  if (/timed?\s*out|timeout|ETIMEDOUT|AbortError/i.test(normalized)) {
+  if (/timed?\s*out|timeout|ETIMEDOUT|AbortError|budget exceeded/i.test(normalized)) {
     return { kind: 'timeout', reason: 'provider request timed out' };
   }
 

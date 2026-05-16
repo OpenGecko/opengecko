@@ -90,6 +90,56 @@ describe('coins markets parity', () => {
     expect(body.map((row: { name: string }) => row.name)).toEqual(['Bitcoin', 'Ethereum', 'Solana']);
   });
 
+  it('orders fresh source-backed market rows ahead of source-less rows when stale live data is disallowed', async () => {
+    await app.ready();
+    app.marketDataRuntimeState.initialSyncCompleted = true;
+    app.marketDataRuntimeState.allowStaleLiveService = false;
+    app.marketDataRuntimeState.validationOverride = {
+      mode: 'stale_disallowed',
+      reason: 'market quality scrutiny regression',
+      snapshotTimestampOverride: null,
+      snapshotSourceCountOverride: null,
+    };
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    const freshTimestamp = new Date();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 2_000,
+        marketCap: 240_000_000_000,
+        totalVolume: 10_000_000_000,
+        marketCapRank: 2,
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify([]),
+        sourceCount: 0,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&page=1&per_page=5&sparkline=false',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()[0]).toMatchObject({
+      id: 'ethereum',
+      current_price: 2_000,
+    });
+  });
+
 
   it('null-shapes bootstrap-only market completeness fields for seeded bootstrap rows', async () => {
     const validationApp = buildApp({

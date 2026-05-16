@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coinTickers, coins, exchanges, exchangeVolumePoints, marketSnapshots } from '../src/db/schema';
+import { coinTickers, coins, exchanges, exchangeVolumePoints, marketSnapshots, quoteSnapshots } from '../src/db/schema';
 import { runMarketRefreshOnce, withExchangeFetchTimeout } from '../src/services/market-refresh';
 import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 import { createMetricsRegistry } from '../src/services/metrics';
@@ -1010,6 +1010,10 @@ describe('market refresh service', () => {
   });
 
   it('writes source-backed normalized snapshots while rejecting malformed, stale, and outlier provider candidates', async () => {
+    const acceptedBinanceTimestamp = Date.now() - 5 * 60 * 1000;
+    const acceptedCoinbaseTimestamp = acceptedBinanceTimestamp + 60_000;
+    const outlierTimestamp = acceptedBinanceTimestamp + 120_000;
+    const acceptedEthereumTimestamp = acceptedBinanceTimestamp + 180_000;
     mockedFetchExchangeMarkets.mockResolvedValue([
       {
         exchangeId: 'binance',
@@ -1069,7 +1073,7 @@ describe('market refresh service', () => {
               baseVolume: 1_000,
               quoteVolume: 90_000_000,
               percentage: 1,
-              timestamp: 1_773_964_800,
+              timestamp: acceptedBinanceTimestamp,
               raw: {} as never,
             },
             {
@@ -1103,7 +1107,7 @@ describe('market refresh service', () => {
             baseVolume: 1_100,
             quoteVolume: 99_110_000,
             percentage: 2,
-            timestamp: Date.parse('2026-03-20T00:02:00.000Z'),
+            timestamp: acceptedCoinbaseTimestamp,
             raw: {} as never,
           }];
         case 'kraken':
@@ -1120,7 +1124,7 @@ describe('market refresh service', () => {
             baseVolume: 1,
             quoteVolume: 9_000_000,
             percentage: 50,
-            timestamp: Date.parse('2026-03-20T00:03:00.000Z'),
+            timestamp: outlierTimestamp,
             raw: {} as never,
           }];
         case 'bybit':
@@ -1138,7 +1142,7 @@ describe('market refresh service', () => {
               baseVolume: null,
               quoteVolume: null,
               percentage: null,
-              timestamp: Date.parse('2026-03-20T00:04:00.000Z'),
+              timestamp: acceptedEthereumTimestamp,
               raw: {} as never,
             },
             {
@@ -1200,7 +1204,7 @@ describe('market refresh service', () => {
       sourceCount: 2,
       sourceProvidersJson: JSON.stringify(['binance', 'coinbase']),
     });
-    expect(bitcoinSnapshot?.lastUpdated).toEqual(new Date('2026-03-20T00:02:00.000Z'));
+    expect(bitcoinSnapshot?.lastUpdated).toEqual(new Date(acceptedCoinbaseTimestamp));
     expect(ethereumSnapshot).toMatchObject({
       price: 2_200,
       totalVolume: null,
@@ -1221,8 +1225,32 @@ describe('market refresh service', () => {
         eq(coinTickers.exchangeId, 'bybit'),
       ))
       .get();
+    const krakenBitcoinTicker = database.db
+      .select()
+      .from(coinTickers)
+      .where(and(
+        eq(coinTickers.coinId, 'bitcoin'),
+        eq(coinTickers.exchangeId, 'kraken'),
+      ))
+      .get();
+    const krakenQuoteSnapshot = database.db
+      .select()
+      .from(quoteSnapshots)
+      .where(and(
+        eq(quoteSnapshots.coinId, 'bitcoin'),
+        eq(quoteSnapshots.exchangeId, 'kraken'),
+      ))
+      .get();
+    const acceptedQuoteSnapshots = database.db
+      .select()
+      .from(quoteSnapshots)
+      .where(eq(quoteSnapshots.coinId, 'bitcoin'))
+      .all();
 
     expect(bybitBitcoinTicker).toBeUndefined();
+    expect(krakenBitcoinTicker).toBeUndefined();
+    expect(krakenQuoteSnapshot).toBeUndefined();
+    expect(acceptedQuoteSnapshots.map((snapshot) => snapshot.exchangeId).sort()).toEqual(['binance', 'coinbase']);
   });
 
   it('preserves null public market fields for unknown optional provider values', async () => {

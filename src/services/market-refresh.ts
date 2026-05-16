@@ -11,7 +11,13 @@ import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { mapWithConcurrency } from '../lib/async';
 import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle, enforceQuoteSnapshotRetention } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
-import { buildLiveSnapshotValue, buildMarketQuoteAccumulator, normalizeMarketTimestamp, type MarketQuoteSample } from './market-snapshots';
+import {
+  buildLiveSnapshotValue,
+  buildMarketQuoteAccumulator,
+  filterMarketQuoteSamplesForConsensus,
+  normalizeMarketTimestamp,
+  type MarketQuoteSample,
+} from './market-snapshots';
 import { clearProviderFailureCooldown, recordProviderFailureCooldown, type MarketDataRuntimeState } from './market-runtime-state';
 import type { MetricsRegistry } from './metrics';
 import {
@@ -36,6 +42,7 @@ type TickerDiscoveryRequest = {
 };
 
 type PendingCoinTicker = {
+  marketSample: MarketQuoteSample;
   coinId: string;
   exchangeId: string;
   base: string;
@@ -56,6 +63,19 @@ type PendingCoinTicker = {
   vsCurrency: 'usd' | 'eur';
 };
 
+type PendingQuoteSnapshot = {
+  marketSample: MarketQuoteSample;
+  coinId: string;
+  vsCurrency: 'usd' | 'eur';
+  exchangeId: string;
+  symbol: string;
+  fetchedAt: Date;
+  price: number;
+  quoteVolume: number | null;
+  priceChangePercentage24h: number | null;
+  sourcePayloadJson: string;
+};
+
 type QuoteCandidate = {
   symbol: string;
   vsCurrency: 'usd' | 'eur';
@@ -69,6 +89,7 @@ type ConversionContext = {
 
 type RefreshTickerProcessingState = {
   marketSamples: Map<string, { coinId: string; vsCurrency: string; samples: MarketQuoteSample[] }>;
+  pendingQuoteSnapshots: PendingQuoteSnapshot[];
   pendingCoinTickers: PendingCoinTicker[];
   exchangeQuoteVolumes: Map<string, number>;
 };
@@ -426,6 +447,7 @@ function upsertLiveCoinTicker(
 function createRefreshTickerProcessingState(): RefreshTickerProcessingState {
   return {
     marketSamples: new Map(),
+    pendingQuoteSnapshots: [],
     pendingCoinTickers: [],
     exchangeQuoteVolumes: new Map(),
   };
@@ -516,18 +538,20 @@ function recordAccumulatorSample(
     samples: [],
   };
 
-  entry.samples.push({
+  const sample = {
     price: ticker.last!,
     quoteVolume: normalizedTicker.quoteVolume,
     changePercentage24h: normalizedTicker.percentage,
     timestamp: normalizedTicker.timestamp,
     provider: exchangeId,
-  });
+  };
+  entry.samples.push(sample);
   marketSamples.set(marketSampleKey, entry);
+
+  return sample;
 }
 
 function recordMatchedTicker(
-  database: AppDatabase,
   exchangeTrustScoreById: Map<string, number | null>,
   processingState: RefreshTickerProcessingState,
   exchangeId: ExchangeId,
@@ -537,10 +561,10 @@ function recordMatchedTicker(
 ) {
   const normalizedExchangeId = exchangeId;
   const fetchedAt = new Date(normalizedTicker.timestamp);
+  const marketSample = recordAccumulatorSample(processingState.marketSamples, marketTarget, exchangeId, ticker, normalizedTicker);
 
-  recordExchangeQuoteVolume(processingState.exchangeQuoteVolumes, normalizedExchangeId, normalizedTicker.quoteVolume);
-
-  recordQuoteSnapshot(database, {
+  processingState.pendingQuoteSnapshots.push({
+    marketSample,
     coinId: marketTarget.coinId,
     vsCurrency: marketTarget.vsCurrency,
     exchangeId: normalizedExchangeId,
@@ -553,6 +577,7 @@ function recordMatchedTicker(
   });
 
   processingState.pendingCoinTickers.push({
+    marketSample,
     coinId: marketTarget.coinId,
     exchangeId: normalizedExchangeId,
     base: ticker.base,
@@ -572,8 +597,6 @@ function recordMatchedTicker(
     coinGeckoUrl: `https://www.coingecko.com/en/coins/${marketTarget.coinId}`,
     vsCurrency: marketTarget.vsCurrency,
   });
-
-  recordAccumulatorSample(processingState.marketSamples, marketTarget, exchangeId, ticker, normalizedTicker);
 }
 
 function determineTickerVsCurrency(
@@ -647,6 +670,56 @@ function buildConversionContext(database: AppDatabase, usdPriceByCoinId: Map<str
     usdPriceByCoinId,
     btcUsdPrice,
   };
+}
+
+function getConsensusAcceptedSamples(marketSamples: RefreshTickerProcessingState['marketSamples']) {
+  const acceptedSamples = new Set<MarketQuoteSample>();
+
+  for (const entry of marketSamples.values()) {
+    for (const sample of filterMarketQuoteSamplesForConsensus(entry.samples)) {
+      acceptedSamples.add(sample);
+    }
+  }
+
+  return acceptedSamples;
+}
+
+function persistAcceptedQuoteSnapshots(
+  database: AppDatabase,
+  pendingQuoteSnapshots: PendingQuoteSnapshot[],
+  acceptedSamples: Set<MarketQuoteSample>,
+) {
+  for (const pendingSnapshot of pendingQuoteSnapshots) {
+    if (!acceptedSamples.has(pendingSnapshot.marketSample)) {
+      continue;
+    }
+
+    recordQuoteSnapshot(database, {
+      coinId: pendingSnapshot.coinId,
+      vsCurrency: pendingSnapshot.vsCurrency,
+      exchangeId: pendingSnapshot.exchangeId,
+      symbol: pendingSnapshot.symbol,
+      fetchedAt: pendingSnapshot.fetchedAt,
+      price: pendingSnapshot.price,
+      quoteVolume: pendingSnapshot.quoteVolume,
+      priceChangePercentage24h: pendingSnapshot.priceChangePercentage24h,
+      sourcePayloadJson: pendingSnapshot.sourcePayloadJson,
+    });
+  }
+}
+
+function recordAcceptedExchangeQuoteVolumes(
+  exchangeQuoteVolumes: Map<string, number>,
+  pendingCoinTickers: PendingCoinTicker[],
+  acceptedSamples: Set<MarketQuoteSample>,
+) {
+  for (const pendingTicker of pendingCoinTickers) {
+    if (!acceptedSamples.has(pendingTicker.marketSample)) {
+      continue;
+    }
+
+    recordExchangeQuoteVolume(exchangeQuoteVolumes, pendingTicker.exchangeId, pendingTicker.quoteVolume);
+  }
 }
 
 function writeMarketSnapshots(
@@ -735,12 +808,17 @@ function upsertPendingCoinTickers(
   database: AppDatabase,
   pendingCoinTickers: PendingCoinTicker[],
   conversionContext: ConversionContext,
+  acceptedSamples?: Set<MarketQuoteSample>,
 ) {
   const knownExchangeIds = new Set(
     database.db.select().from(exchanges).all().map((row) => row.id),
   );
 
   for (const pendingTicker of pendingCoinTickers) {
+    if (acceptedSamples && !acceptedSamples.has(pendingTicker.marketSample)) {
+      continue;
+    }
+
     if (!knownExchangeIds.has(pendingTicker.exchangeId)) {
       continue;
     }
@@ -919,7 +997,7 @@ export async function runMarketRefreshOnce(
       }
 
       matchedCount += 1;
-      recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
+      recordMatchedTicker(exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
 
       const tickerVsCurrency = determineTickerVsCurrency(
         quoteCandidatesByCoinId,
@@ -933,7 +1011,6 @@ export async function runMarketRefreshOnce(
       }
 
       recordMatchedTicker(
-        database,
         exchangeTrustScoreById,
         processingState,
         exchangeId,
@@ -988,13 +1065,20 @@ export async function runMarketRefreshOnce(
   );
 
   const now = new Date();
+  const consensusAcceptedSamples = getConsensusAcceptedSamples(processingState.marketSamples);
+  recordAcceptedExchangeQuoteVolumes(
+    processingState.exchangeQuoteVolumes,
+    processingState.pendingCoinTickers,
+    consensusAcceptedSamples,
+  );
+  persistAcceptedQuoteSnapshots(database, processingState.pendingQuoteSnapshots, consensusAcceptedSamples);
   updateExchangeVolumes(database, processingState.exchangeQuoteVolumes, now);
   const writeSnapshotsPhase = createLongPhaseReporter(progress);
   writeSnapshotsPhase.start(`Still working: writing ${processingState.marketSamples.size.toLocaleString()} market snapshots`);
   const usdPriceByCoinId = writeMarketSnapshots(database, processingState.marketSamples, now);
   const conversionContext = buildConversionContext(database, usdPriceByCoinId);
   writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
-  upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext);
+  upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext, consensusAcceptedSamples);
   writeSnapshotsPhase.stop();
   enforceQuoteSnapshotRetention(database);
 

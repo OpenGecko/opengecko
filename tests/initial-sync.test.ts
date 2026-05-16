@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase, migrateDatabase, seedStaticReferenceData } from '../src/db/client';
 import { coins, exchanges, marketSnapshots, coinTickers, ohlcvCandles, assetPlatforms } from '../src/db/schema';
 import { runInitialMarketSync, syncExchangesFromCCXT } from '../src/services/initial-sync';
+import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -345,6 +346,7 @@ describe('initial market sync', () => {
     mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     const startedAt = Date.now();
+    const runtimeState = createMarketDataRuntimeState(['kraken', 'binance', 'coinbase', 'ascendex']);
     const result = await runInitialMarketSync(
       database,
       {
@@ -363,6 +365,7 @@ describe('initial market sync', () => {
         startupExchangeMetadataBudgetMs: 25,
         startupTickerFetchBudgetMs: 25,
       },
+      runtimeState,
     );
     const durationMs = Date.now() - startedAt;
 
@@ -383,6 +386,16 @@ describe('initial market sync', () => {
         message: expect.stringContaining('startup ticker fetch budget exceeded'),
       }),
     ]));
+    expect(runtimeState.providerBreakers?.providers.kraken).toMatchObject({
+      status: 'open',
+      failureCount: 1,
+      lastFailureKind: 'timeout',
+      lastFailureReason: 'provider request timed out',
+    });
+    expect(runtimeState.providerBreakers?.providers.binance).toMatchObject({
+      status: 'closed',
+      failureCount: 0,
+    });
 
     const bitcoinSnapshot = database.db
       .select()

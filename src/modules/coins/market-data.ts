@@ -408,8 +408,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_desc':
     case 'gecko_desc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
-        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        left.snapshot?.marketCapRank,
+        right.snapshot?.marketCapRank,
         'asc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);
@@ -417,8 +417,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_asc':
     case 'gecko_asc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
-        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        left.snapshot?.marketCapRank,
+        right.snapshot?.marketCapRank,
         'desc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);
