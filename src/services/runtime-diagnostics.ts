@@ -6,6 +6,9 @@ import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
 import { summarizeProviderBreakerState } from './provider-breaker';
 
 export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
+export type ProviderCapabilitySurface = 'market_price' | 'ticker' | 'exchange' | 'chart';
+export type ProviderCapabilityState = 'pending' | 'contributed' | 'degraded' | 'unavailable';
+export type ProviderCapabilityOwnership = 'configured' | 'latest_contributor';
 
 export const PROVIDER_ALERT_STATUS_FAILING_FAILURE_COUNT = 3;
 export const PROVIDER_ALERT_STATUS_RECENT_RECOVERY_WINDOW_MS = 120_000;
@@ -19,6 +22,14 @@ export type ProviderRuntimeDiagnostics = {
   last_failure_reason: string | null;
   failure_count: number;
   next_retry_at: string | null;
+  capabilities: Array<{
+    surface: ProviderCapabilitySurface;
+    endpoint_families: string[];
+    ownership: ProviderCapabilityOwnership;
+    state: ProviderCapabilityState;
+    last_contribution_at: string | null;
+    degraded_reason: string | null;
+  }>;
 };
 
 export type RuntimeDiagnostics = {
@@ -108,6 +119,79 @@ function classifyProviderAlertStatus(provider: {
   return 'healthy';
 }
 
+function buildProviderCapabilities(
+  provider: {
+    id: string;
+    state: 'closed' | 'open' | 'half_open';
+    last_success_at: string | null;
+    last_failure_reason: string | null;
+  },
+  latestContributorProviders: Set<string>,
+  latestContributorAt: string | null,
+  initialSyncCompleted: boolean,
+): ProviderRuntimeDiagnostics['capabilities'] {
+  const providerIsDegraded = provider.state !== 'closed';
+  const genericContributionState = providerIsDegraded
+    ? 'degraded'
+    : provider.last_success_at !== null
+      ? 'contributed'
+      : initialSyncCompleted
+        ? 'unavailable'
+        : 'pending';
+  const genericDegradedReason = providerIsDegraded
+    ? provider.last_failure_reason ?? 'provider degraded'
+    : null;
+  const genericLastContributionAt = genericContributionState === 'contributed'
+    ? provider.last_success_at
+    : null;
+  const contributedMarketPrice = latestContributorProviders.has(provider.id);
+
+  return [
+    {
+      surface: 'market_price',
+      endpoint_families: ['/simple/price', '/coins/markets'],
+      ownership: contributedMarketPrice ? 'latest_contributor' : 'configured',
+      state: providerIsDegraded
+        ? 'degraded'
+        : contributedMarketPrice
+          ? 'contributed'
+          : initialSyncCompleted
+            ? 'unavailable'
+            : 'pending',
+      last_contribution_at: contributedMarketPrice ? latestContributorAt : null,
+      degraded_reason: providerIsDegraded
+        ? provider.last_failure_reason ?? 'provider degraded'
+        : null,
+    },
+    {
+      surface: 'ticker',
+      endpoint_families: ['/coins/{id}/tickers', '/exchanges/{id}/tickers'],
+      ownership: 'configured',
+      state: genericContributionState,
+      last_contribution_at: genericLastContributionAt,
+      degraded_reason: genericDegradedReason,
+    },
+    {
+      surface: 'exchange',
+      endpoint_families: ['/exchanges/list', '/exchanges', '/exchanges/{id}'],
+      ownership: 'configured',
+      state: genericContributionState,
+      last_contribution_at: genericLastContributionAt,
+      degraded_reason: genericDegradedReason,
+    },
+    {
+      surface: 'chart',
+      endpoint_families: ['/coins/{id}/market_chart', '/coins/{id}/ohlc'],
+      ownership: 'configured',
+      state: providerIsDegraded ? 'degraded' : 'unavailable',
+      last_contribution_at: null,
+      degraded_reason: providerIsDegraded
+        ? provider.last_failure_reason ?? 'provider degraded'
+        : 'no chart contribution recorded for provider',
+    },
+  ];
+}
+
 export function buildRuntimeDiagnostics(
   runtimeState: MarketDataRuntimeState,
   latestUsdSnapshot: Pick<MarketSnapshotRow, 'lastUpdated' | 'sourceProvidersJson' | 'sourceCount'> | null,
@@ -128,6 +212,18 @@ export function buildRuntimeDiagnostics(
   const storedLatestSnapshotFreshness = latestStoredUsdSnapshot && storedSnapshotOwnership === 'live'
     ? getSnapshotFreshness(latestStoredUsdSnapshot, marketFreshnessThresholdSeconds, now)
     : null;
+  const validationOverride = runtimeState.validationOverride ?? {
+    mode: 'off' as const,
+    reason: null,
+  };
+  const validationOverrideActive = validationOverride.mode !== 'off';
+  const effectiveInitialSyncCompleted = validationOverride.mode === 'degraded_seeded_bootstrap' || validationOverride.mode === 'seeded_bootstrap'
+    ? false
+    : validationOverride.mode === 'zero_live_completed_boot'
+      ? true
+    : validationOverrideActive
+      ? true
+      : runtimeState.initialSyncCompleted;
   const cooldownUntil = runtimeState.providerFailureCooldownUntil;
   const providerBreakerSummaries = runtimeState.providerBreakers
     ? summarizeProviderBreakerState(runtimeState.providerBreakers, now)
@@ -136,15 +232,30 @@ export function buildRuntimeDiagnostics(
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((provider) => {
       const nextRetryAt = provider.status === 'open' ? toIsoString(provider.opened_until) : null;
+      const lastFailureReason = sanitizeNullableDiagnosticText(provider.last_failure_reason);
+      const lastSuccessAt = toIsoString(provider.last_success_at);
       return {
         id: provider.id,
         state: provider.status,
         alert_status: classifyProviderAlertStatus(provider, now),
-        last_success_at: toIsoString(provider.last_success_at),
+        last_success_at: lastSuccessAt,
         last_failure_at: toIsoString(provider.last_failure_at),
-        last_failure_reason: sanitizeNullableDiagnosticText(provider.last_failure_reason),
+        last_failure_reason: lastFailureReason,
         failure_count: provider.failure_count,
         next_retry_at: nextRetryAt,
+        capabilities: buildProviderCapabilities(
+          {
+            id: provider.id,
+            state: provider.status,
+            last_success_at: lastSuccessAt,
+            last_failure_reason: lastFailureReason,
+          },
+          new Set(latestSnapshotFreshness?.providers ?? []),
+          effectiveLatestUsdSnapshot?.sourceCount && effectiveLatestUsdSnapshot.sourceCount > 0
+            ? effectiveLatestUsdSnapshot.lastUpdated.toISOString()
+            : null,
+          effectiveInitialSyncCompleted,
+        ),
       };
     });
   const providerBreakerDiagnostics = providerDiagnostics.map((provider) => ({
@@ -166,18 +277,6 @@ export function buildRuntimeDiagnostics(
     active: false,
     reason: null,
   };
-  const validationOverride = runtimeState.validationOverride ?? {
-    mode: 'off' as const,
-    reason: null,
-  };
-  const validationOverrideActive = validationOverride.mode !== 'off';
-  const effectiveInitialSyncCompleted = validationOverride.mode === 'degraded_seeded_bootstrap' || validationOverride.mode === 'seeded_bootstrap'
-    ? false
-    : validationOverride.mode === 'zero_live_completed_boot'
-      ? true
-    : validationOverrideActive
-      ? true
-      : runtimeState.initialSyncCompleted;
   const effectiveAllowStaleLiveService = validationOverride.mode === 'stale_disallowed'
     ? false
     : validationOverride.mode === 'stale_allowed'

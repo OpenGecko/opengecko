@@ -2650,6 +2650,28 @@ describe('diagnostics routes', () => {
         failure_count: 0,
         next_retry_at: null,
         alert_status: 'healthy',
+        capabilities: [
+          expect.objectContaining({
+            surface: 'market_price',
+            ownership: 'configured',
+            state: 'pending',
+          }),
+          expect.objectContaining({
+            surface: 'ticker',
+            ownership: 'configured',
+            state: 'pending',
+          }),
+          expect.objectContaining({
+            surface: 'exchange',
+            ownership: 'configured',
+            state: 'pending',
+          }),
+          expect.objectContaining({
+            surface: 'chart',
+            ownership: 'configured',
+            state: 'unavailable',
+          }),
+        ],
       },
     ]);
   });

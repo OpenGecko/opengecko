@@ -857,6 +857,103 @@ describe('runtime diagnostics', () => {
     ]);
   });
 
+  it('identifies provider capability ownership and last contribution by prioritized surface', () => {
+    const providerBreakers = createProviderBreakerState(['binance', 'kraken'], {
+      baseBackoffMs: 60_000,
+      jitterRatio: 0,
+    });
+    const refreshedAt = new Date('2026-03-26T00:00:00.000Z').getTime();
+    recordProviderSuccess(providerBreakers, 'binance', refreshedAt);
+    recordProviderFailure(providerBreakers, 'kraken', refreshedAt + 1_000, 'ticker timeout');
+
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        initialSyncCompleted: true,
+        listenerBound: true,
+        providerBreakers,
+      }),
+      {
+        lastUpdated: new Date(refreshedAt),
+        sourceProvidersJson: '["binance"]',
+        sourceCount: 1,
+      },
+      300,
+      refreshedAt + 30_000,
+    );
+
+    expect(diagnostics.providers?.find((provider) => provider.id === 'binance')).toMatchObject({
+      id: 'binance',
+      capabilities: [
+        {
+          surface: 'market_price',
+          endpoint_families: ['/simple/price', '/coins/markets'],
+          ownership: 'latest_contributor',
+          state: 'contributed',
+          last_contribution_at: '2026-03-26T00:00:00.000Z',
+          degraded_reason: null,
+        },
+        {
+          surface: 'ticker',
+          endpoint_families: ['/coins/{id}/tickers', '/exchanges/{id}/tickers'],
+          ownership: 'configured',
+          state: 'contributed',
+          last_contribution_at: '2026-03-26T00:00:00.000Z',
+          degraded_reason: null,
+        },
+        {
+          surface: 'exchange',
+          endpoint_families: ['/exchanges/list', '/exchanges', '/exchanges/{id}'],
+          ownership: 'configured',
+          state: 'contributed',
+          last_contribution_at: '2026-03-26T00:00:00.000Z',
+          degraded_reason: null,
+        },
+        {
+          surface: 'chart',
+          endpoint_families: ['/coins/{id}/market_chart', '/coins/{id}/ohlc'],
+          ownership: 'configured',
+          state: 'unavailable',
+          last_contribution_at: null,
+          degraded_reason: 'no chart contribution recorded for provider',
+        },
+      ],
+    });
+
+    expect(diagnostics.providers?.find((provider) => provider.id === 'kraken')).toMatchObject({
+      id: 'kraken',
+      capabilities: [
+        expect.objectContaining({
+          surface: 'market_price',
+          ownership: 'configured',
+          state: 'degraded',
+          last_contribution_at: null,
+          degraded_reason: 'ticker timeout',
+        }),
+        expect.objectContaining({
+          surface: 'ticker',
+          ownership: 'configured',
+          state: 'degraded',
+          last_contribution_at: null,
+          degraded_reason: 'ticker timeout',
+        }),
+        expect.objectContaining({
+          surface: 'exchange',
+          ownership: 'configured',
+          state: 'degraded',
+          last_contribution_at: null,
+          degraded_reason: 'ticker timeout',
+        }),
+        expect.objectContaining({
+          surface: 'chart',
+          ownership: 'configured',
+          state: 'degraded',
+          last_contribution_at: null,
+          degraded_reason: 'ticker timeout',
+        }),
+      ],
+    });
+  });
+
   it('reports injected provider failure state alongside degraded recovery fields', () => {
     const diagnostics = buildRuntimeDiagnostics(
       createState({
