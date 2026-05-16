@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canAttemptProvider,
+  classifyProviderFailure,
   createProviderBreakerState,
   recordProviderFailure,
   recordProviderSuccess,
@@ -39,7 +40,8 @@ describe('provider breaker', () => {
         failure_count: 1,
         opened_until: 11_000,
         last_failure_at: 10_000,
-        last_failure_reason: 'timeout',
+        failure_kind: 'timeout',
+        last_failure_reason: 'provider request timed out',
         retry_in_ms: 500,
       },
     ]);
@@ -122,7 +124,8 @@ describe('provider breaker', () => {
         status: 'half_open',
         failure_count: 2,
         opened_until: 13_100,
-        last_failure_reason: 'second timeout',
+        failure_kind: 'timeout',
+        last_failure_reason: 'provider request timed out',
       },
     ]);
   });
@@ -199,6 +202,52 @@ describe('provider breaker', () => {
       {
         opened_until: 11_600,
         retry_in_ms: 1_500,
+      },
+    ]);
+  });
+
+  it('classifies provider failures into controlled diagnostic states without raw upstream text', () => {
+    expect(classifyProviderFailure(new Error('binance ticker fetch timed out after 10000ms'))).toEqual({
+      kind: 'timeout',
+      reason: 'provider request timed out',
+    });
+    expect(classifyProviderFailure(new Error('403 Forbidden: cloudfront block access from your country'))).toEqual({
+      kind: 'regional_block',
+      reason: 'provider regionally blocked',
+    });
+    expect(classifyProviderFailure(new Error('429 Too Many Requests rate limit exceeded'))).toEqual({
+      kind: 'rate_limited',
+      reason: 'provider rate limited',
+    });
+    expect(classifyProviderFailure(new Error('BadSymbol: kraken does not have market symbol BTC/FOO'))).toEqual({
+      kind: 'unavailable_market',
+      reason: 'provider market unavailable',
+    });
+    expect(classifyProviderFailure(new Error('Unexpected token < in JSON at position 0'))).toEqual({
+      kind: 'malformed_response',
+      reason: 'provider response malformed',
+    });
+  });
+
+  it('records classified failure metadata for breaker summaries', () => {
+    const state = createProviderBreakerState(['bybit'], {
+      baseBackoffMs: 1_000,
+      jitterRatio: 0,
+    });
+
+    recordProviderFailure(
+      state,
+      'bybit',
+      10_000,
+      'ccxt bybit 403 Forbidden: block access from your country stack trace with request headers',
+    );
+
+    expect(summarizeProviderBreakerState(state, 10_000)).toMatchObject([
+      {
+        id: 'bybit',
+        status: 'open',
+        failure_kind: 'regional_block',
+        last_failure_reason: 'provider regionally blocked',
       },
     ]);
   });

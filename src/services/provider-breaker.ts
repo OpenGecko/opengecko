@@ -1,4 +1,12 @@
 export type ProviderBreakerStatus = 'closed' | 'open' | 'half_open';
+export type ProviderFailureKind =
+  | 'timeout'
+  | 'regional_block'
+  | 'rate_limited'
+  | 'unavailable_market'
+  | 'malformed_response'
+  | 'provider_unavailable'
+  | 'unknown';
 
 export type ProviderBreakerEntry = {
   id: string;
@@ -7,6 +15,7 @@ export type ProviderBreakerEntry = {
   openedUntil: number | null;
   lastSuccessAt: number | null;
   lastFailureAt: number | null;
+  lastFailureKind?: ProviderFailureKind | null;
   lastFailureReason: string | null;
 };
 
@@ -58,8 +67,40 @@ function createEntry(providerId: string): ProviderBreakerEntry {
     openedUntil: null,
     lastSuccessAt: null,
     lastFailureAt: null,
+    lastFailureKind: null,
     lastFailureReason: null,
   };
+}
+
+export function classifyProviderFailure(error: unknown): { kind: ProviderFailureKind; reason: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.replace(/\s+/g, ' ').trim();
+
+  if (/timed?\s*out|timeout|ETIMEDOUT|AbortError/i.test(normalized)) {
+    return { kind: 'timeout', reason: 'provider request timed out' };
+  }
+
+  if (/403|forbidden|block access from your country|regional block|geo(?:graphically)?(?: |-)?blocked/i.test(normalized)) {
+    return { kind: 'regional_block', reason: 'provider regionally blocked' };
+  }
+
+  if (/429|too many requests|rate[- ]?limit|RateLimitExceeded|DDoSProtection/i.test(normalized)) {
+    return { kind: 'rate_limited', reason: 'provider rate limited' };
+  }
+
+  if (/BadSymbol|does not have market symbol|market symbol|symbol .* not found|unavailable market|market unavailable/i.test(normalized)) {
+    return { kind: 'unavailable_market', reason: 'provider market unavailable' };
+  }
+
+  if (/malformed|unexpected token|invalid json|JSON|parse/i.test(normalized)) {
+    return { kind: 'malformed_response', reason: 'provider response malformed' };
+  }
+
+  if (/503|unavailable|ExchangeNotAvailable|temporarily unavailable|service unavailable|maintenance/i.test(normalized)) {
+    return { kind: 'provider_unavailable', reason: 'provider unavailable' };
+  }
+
+  return { kind: 'unknown', reason: 'provider failed' };
 }
 
 function getOrCreateEntry(state: ProviderBreakerState, providerId: string) {
@@ -98,6 +139,7 @@ export function recordProviderSuccess(state: ProviderBreakerState, providerId: s
   entry.failureCount = 0;
   entry.openedUntil = null;
   entry.lastSuccessAt = now;
+  entry.lastFailureKind = null;
   entry.lastFailureReason = null;
 }
 
@@ -121,7 +163,9 @@ export function recordProviderFailure(
   entry.failureCount += 1;
   entry.status = 'open';
   entry.lastFailureAt = now;
-  entry.lastFailureReason = reason ?? null;
+  const classification = classifyProviderFailure(reason ?? 'provider failed');
+  entry.lastFailureKind = classification.kind;
+  entry.lastFailureReason = classification.reason;
   entry.openedUntil = now + computeBackoffMs(state, providerId, entry.failureCount);
 }
 
@@ -137,6 +181,7 @@ export function summarizeProviderBreakerState(state: ProviderBreakerState, now =
       opened_until: entry.openedUntil,
       last_success_at: entry.lastSuccessAt,
       last_failure_at: entry.lastFailureAt,
+      failure_kind: entry.lastFailureKind ?? null,
       last_failure_reason: entry.lastFailureReason,
       retry_in_ms: entry.status === 'open' && entry.openedUntil !== null
         ? Math.max(0, entry.openedUntil - now)

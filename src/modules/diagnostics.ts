@@ -34,6 +34,8 @@ export function registerDiagnosticsRoutes(
   marketFreshnessThresholdSeconds: number,
   metrics: {
     renderPrometheus: () => string;
+    recordProviderRefresh?: (outcome: 'forced_failure', exchangeCount: number, failedExchangeCount: number) => void;
+    recordProviderForcedFailure?: (provider: string) => void;
   },
   transport: {
     requestTimeoutMs: number;
@@ -268,6 +270,13 @@ export function registerDiagnosticsRoutes(
       : null;
 
     recordForcedProviderFailure(app.marketDataRuntimeState, { active, reason });
+    if (active) {
+      const exchangeIds = app.appConfig.ccxtExchanges;
+      metrics.recordProviderRefresh?.('forced_failure', exchangeIds.length, exchangeIds.length);
+      for (const exchangeId of exchangeIds) {
+        metrics.recordProviderForcedFailure?.(exchangeId);
+      }
+    }
 
     return {
       data: {

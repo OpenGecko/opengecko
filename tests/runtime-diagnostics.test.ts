@@ -10,6 +10,7 @@ const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
   'last_success_at',
   'last_failure_at',
   'last_failure_reason',
+  'failure_kind',
   'failure_count',
   'next_retry_at',
   'alert_status',
@@ -630,12 +631,13 @@ describe('runtime diagnostics', () => {
         state: 'open',
         status: 'open',
         alert_status: 'degraded',
+        failure_kind: 'timeout',
         failure_count: 1,
         opened_until: '2026-03-26T00:01:00.000Z',
         next_retry_at: '2026-03-26T00:01:00.000Z',
         last_success_at: null,
         last_failure_at: '2026-03-26T00:00:00.000Z',
-        last_failure_reason: 'ticker fetch timed out',
+        last_failure_reason: 'provider request timed out',
         retry_in_ms: 30_000,
       },
       {
@@ -643,6 +645,7 @@ describe('runtime diagnostics', () => {
         state: 'closed',
         status: 'closed',
         alert_status: 'healthy',
+        failure_kind: null,
         failure_count: 0,
         opened_until: null,
         next_retry_at: null,
@@ -654,6 +657,45 @@ describe('runtime diagnostics', () => {
     ]);
     expect(JSON.stringify(diagnostics)).not.toContain('secret');
     expect(JSON.stringify(diagnostics)).not.toContain('api_key');
+  });
+
+  it('reports classified provider breaker failure states without raw upstream details', () => {
+    const state = createState();
+    state.providerBreakers = createProviderBreakerState(['bybit'], {
+      baseBackoffMs: 1_000,
+      jitterRatio: 0,
+    });
+    recordProviderFailure(
+      state.providerBreakers,
+      'bybit',
+      Date.parse('2026-03-21T00:00:00.000Z'),
+      'ccxt bybit 403 Forbidden block access from your country request id secret-header stack trace',
+    );
+
+    const diagnostics = buildRuntimeDiagnostics(
+      state,
+      null,
+      60,
+      Date.parse('2026-03-21T00:00:00.100Z'),
+    );
+
+    expect(diagnostics.degraded.provider_breakers).toEqual([
+      expect.objectContaining({
+        id: 'bybit',
+        state: 'open',
+        failure_kind: 'regional_block',
+        last_failure_reason: 'provider regionally blocked',
+      }),
+    ]);
+    expect(diagnostics.providers).toEqual([
+      expect.objectContaining({
+        id: 'bybit',
+        failure_kind: 'regional_block',
+        last_failure_reason: 'provider regionally blocked',
+      }),
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('secret-header');
+    expect(JSON.stringify(diagnostics)).not.toContain('stack trace');
   });
 
   it('lists required breaker state fields only for providers with real breaker state', () => {
@@ -701,8 +743,9 @@ describe('runtime diagnostics', () => {
       state: 'open',
       alert_status: 'degraded',
       failure_count: 1,
+      failure_kind: 'unknown',
       next_retry_at: '2026-03-26T00:01:00.000Z',
-      last_failure_reason: 'GET https://redacted:redacted@example.test/tickers?redacted authorization=[redacted]',
+      last_failure_reason: 'provider failed',
     });
     expect(JSON.stringify(providers)).not.toContain('api_key');
     expect(JSON.stringify(providers)).not.toContain('super-secret-token');
@@ -745,8 +788,9 @@ describe('runtime diagnostics', () => {
         state: 'open',
         alert_status: 'degraded',
         failure_count: 1,
+        failure_kind: 'unknown',
         last_failure_at: '2026-03-26T00:00:00.000Z',
-        last_failure_reason: 'DeFiLlama pool fetch failed',
+        last_failure_reason: 'provider failed',
         next_retry_at: '2026-03-26T00:01:00.000Z',
       }),
     ]);
@@ -927,28 +971,28 @@ describe('runtime diagnostics', () => {
           ownership: 'configured',
           state: 'degraded',
           last_contribution_at: null,
-          degraded_reason: 'ticker timeout',
+          degraded_reason: 'provider request timed out',
         }),
         expect.objectContaining({
           surface: 'ticker',
           ownership: 'configured',
           state: 'degraded',
           last_contribution_at: null,
-          degraded_reason: 'ticker timeout',
+          degraded_reason: 'provider request timed out',
         }),
         expect.objectContaining({
           surface: 'exchange',
           ownership: 'configured',
           state: 'degraded',
           last_contribution_at: null,
-          degraded_reason: 'ticker timeout',
+          degraded_reason: 'provider request timed out',
         }),
         expect.objectContaining({
           surface: 'chart',
           ownership: 'configured',
           state: 'degraded',
           last_contribution_at: null,
-          degraded_reason: 'ticker timeout',
+          degraded_reason: 'provider request timed out',
         }),
       ],
     });

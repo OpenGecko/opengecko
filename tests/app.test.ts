@@ -295,6 +295,15 @@ describe('OpenGecko app scaffold', () => {
         reason: null,
       });
 
+      const metricsResponse = await validationApp.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+
+      expect(metricsResponse.statusCode).toBe(200);
+      expect(metricsResponse.body).toContain('opengecko_provider_refresh_total{outcome="forced_failure"} 1');
+      expect(metricsResponse.body).toContain('provider_forced_failure_total{provider="binance"} 1');
+
       const clearResponse = await validationApp.inject({
         method: 'POST',
         url: '/diagnostics/runtime/provider_failure',

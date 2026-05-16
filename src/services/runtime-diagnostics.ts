@@ -3,7 +3,7 @@ import { getMarketRuntimePhase, type MarketDataRuntimeState, type MarketRuntimeP
 import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
 import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
-import { summarizeProviderBreakerState } from './provider-breaker';
+import { summarizeProviderBreakerState, type ProviderFailureKind } from './provider-breaker';
 
 export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
 export type ProviderCapabilitySurface = 'market_price' | 'ticker' | 'exchange' | 'chart';
@@ -17,6 +17,7 @@ export type ProviderRuntimeDiagnostics = {
   id: string;
   state: 'closed' | 'open' | 'half_open';
   alert_status: ProviderAlertStatus;
+  failure_kind: ProviderFailureKind | null;
   last_success_at: string | null;
   last_failure_at: string | null;
   last_failure_reason: string | null;
@@ -57,6 +58,7 @@ export type RuntimeDiagnostics = {
       state: 'closed' | 'open' | 'half_open';
       status: 'closed' | 'open' | 'half_open';
       alert_status: ProviderAlertStatus;
+      failure_kind: ProviderFailureKind | null;
       failure_count: number;
       opened_until: string | null;
       next_retry_at: string | null;
@@ -238,6 +240,7 @@ export function buildRuntimeDiagnostics(
         id: provider.id,
         state: provider.status,
         alert_status: classifyProviderAlertStatus(provider, now),
+        failure_kind: provider.failure_kind ?? null,
         last_success_at: lastSuccessAt,
         last_failure_at: toIsoString(provider.last_failure_at),
         last_failure_reason: lastFailureReason,
@@ -263,6 +266,7 @@ export function buildRuntimeDiagnostics(
     state: provider.state,
     status: provider.state,
     alert_status: provider.alert_status,
+    failure_kind: provider.failure_kind,
     failure_count: provider.failure_count,
     opened_until: provider.next_retry_at,
     next_retry_at: provider.next_retry_at,
