@@ -5,6 +5,7 @@ import { createDatabase, migrateDatabase, seedStaticReferenceData, type AppDatab
 import {
   derivativeTickers,
   exchanges,
+  exchangeVolumePoints,
   exchangeVolumeSourcePoints,
   marketChartSourcePoints,
   onchainPoolTrades,
@@ -146,6 +147,37 @@ describe('coverage matrix source-backed promotion', () => {
       sourceKind: 'replay',
       sourceProvider: 'exchange-volume-replay',
       sourceFetchedAt: new Date('2026-05-14T00:10:00.000Z'),
+    }).run();
+
+    expect(coverageEntry('exchanges')).toMatchObject({
+      ownership_class: 'seeded',
+      last_successful_refresh_at: null,
+    });
+  });
+
+  it('does not promote exchanges from canonical volume fallback rows alone', () => {
+    database.db.insert(exchanges).values({
+      id: 'binance',
+      name: 'Binance',
+      country: null,
+      yearEstablished: 2017,
+      url: 'https://www.binance.com',
+      imageUrl: null,
+      trustScore: 10,
+      trustScoreRank: 1,
+      tradeVolume24hBtc: null,
+      tradeVolume24hBtcNormalized: null,
+      description: '',
+      hasTradingIncentive: false,
+      centralised: true,
+      publicNotice: null,
+      alertNotice: null,
+      updatedAt: new Date('2026-05-14T00:00:00.000Z'),
+    }).onConflictDoNothing().run();
+    database.db.insert(exchangeVolumePoints).values({
+      exchangeId: 'binance',
+      timestamp: new Date('2026-05-14T00:00:00.000Z'),
+      volumeBtc: 141_000,
     }).run();
 
     expect(coverageEntry('exchanges')).toMatchObject({

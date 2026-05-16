@@ -261,6 +261,72 @@ describe('exchange live fidelity contracts', () => {
     }
   });
 
+  it('keeps coin ticker query semantics aligned with exchange ticker payloads', async () => {
+    const timestamp = Date.parse('2026-03-28T05:13:15.000Z');
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', active: true, spot: true, baseName: 'USD Coin', raw: {} },
+      { exchangeId: 'binance', symbol: 'BTC/USD', base: 'BTC', quote: 'USD', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+    ]);
+    mockedFetchExchangeTickers.mockResolvedValue([
+      { exchangeId: 'binance', symbol: 'USDC/USDT', base: 'USDC', quote: 'USDT', last: 1.0005, bid: 1.0004, ask: 1.0006, high: 1.001, low: 0.999, baseVolume: 1327840829, quoteVolume: 1327973348, percentage: 0.01, timestamp, raw: {} as never },
+      { exchangeId: 'binance', symbol: 'BTC/USD', base: 'BTC', quote: 'USD', last: 66234.02, bid: 66230, ask: 66236, high: 67000, low: 65000, baseVolume: 27782.99853, quoteVolume: 1839443608, percentage: 1.8, timestamp, raw: {} as never },
+    ]);
+
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'coin-ticker-contract.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const [coinTickersResponse, exchangeTickersResponse, noLogoResponse, invalidOrderResponse] = await Promise.all([
+        app.inject({ method: 'GET', url: '/coins/usd-coin/tickers?exchange_ids=binance&include_exchange_logo=true&depth=true&dex_pair_format=contract_address' }),
+        app.inject({ method: 'GET', url: '/exchanges/binance/tickers?coin_ids=usd-coin&include_exchange_logo=true&depth=true&dex_pair_format=contract_address' }),
+        app.inject({ method: 'GET', url: '/coins/usd-coin/tickers?exchange_ids=binance&include_exchange_logo=false' }),
+        app.inject({ method: 'GET', url: '/coins/usd-coin/tickers?order=unsupported' }),
+      ]);
+
+      expect(coinTickersResponse.statusCode).toBe(200);
+      expect(exchangeTickersResponse.statusCode).toBe(200);
+      expect(noLogoResponse.statusCode).toBe(200);
+      expect(invalidOrderResponse.statusCode).toBe(400);
+
+      const coinTicker = coinTickersResponse.json().tickers[0];
+      const exchangeTicker = exchangeTickersResponse.json().tickers[0];
+
+      expect(coinTicker).toMatchObject({
+        base: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        target: 'USDT',
+        coin_id: 'usd-coin',
+        target_coin_id: 'tether',
+        market: expect.objectContaining({
+          identifier: 'binance',
+          logo: expect.any(String),
+        }),
+        cost_to_move_up_usd: expect.any(Number),
+        cost_to_move_down_usd: expect.any(Number),
+      });
+      expect(coinTicker).toEqual(expect.objectContaining({
+        base: exchangeTicker.base,
+        target: exchangeTicker.target,
+        market: exchangeTicker.market,
+        converted_last: exchangeTicker.converted_last,
+        converted_volume: exchangeTicker.converted_volume,
+        is_stale: exchangeTicker.is_stale,
+      }));
+      expect(noLogoResponse.json().tickers[0].market).not.toHaveProperty('logo');
+      expect(invalidOrderResponse.json()).toEqual({
+        error: 'invalid_parameter',
+        message: 'Unsupported order value: unsupported',
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('preserves existing live ticker rows when a later provider refresh fails', async () => {
     const timestamp = Date.parse('2026-03-28T05:13:15.000Z');
     mockedFetchExchangeMarkets.mockResolvedValue([

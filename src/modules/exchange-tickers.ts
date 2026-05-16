@@ -14,7 +14,7 @@ type ExchangeTickerRow = {
   exchanges: ExchangeRow;
 };
 
-function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string | null, dexPairFormat: string) {
+export function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string | null, dexPairFormat: string) {
   if (dexPairFormat !== 'contract_address' || !coinId) {
     return symbol;
   }
@@ -28,7 +28,7 @@ function formatTickerAsset(database: AppDatabase, symbol: string, coinId: string
   return Object.values(parseJsonObject<Record<string, string>>(coin.platformsJson))[0] ?? symbol;
 }
 
-function resolveTargetCoinId(database: AppDatabase, targetSymbol: string) {
+export function resolveTargetCoinId(database: AppDatabase, targetSymbol: string) {
   const normalizedTarget = targetSymbol.trim().toLowerCase();
 
   if (normalizedTarget.length === 0) {

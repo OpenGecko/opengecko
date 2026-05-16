@@ -4,7 +4,6 @@ import {
   coinHistorySnapshots,
   coins,
   derivativeTickers,
-  exchangeVolumePoints,
   exchangeVolumeSourcePoints,
   exchanges,
   marketChartSourcePoints,
@@ -231,10 +230,6 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     ],
     (row) => row.timestamp,
   );
-  const latestExchangeVolumeAt = latestDate(
-    database.db.select().from(exchangeVolumePoints).all(),
-    (row) => row.timestamp,
-  );
   const exchangeVolumeSourceRows = database.db.select().from(exchangeVolumeSourcePoints).all();
   const liveExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'live');
   const replayExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'replay');
@@ -246,7 +241,6 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     [
       { timestamp: latestExchangeTickerAt },
       { timestamp: latestExchangeVolumeLiveSourceAt },
-      { timestamp: latestExchangeVolumeAt },
     ],
     (row) => row.timestamp,
   );
@@ -348,7 +342,7 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     buildEntry({
       family: 'exchanges',
       representativeRoutes: ['/exchanges', '/exchanges/:id', '/exchanges/:id/tickers', '/exchanges/:id/volume_chart'],
-      ownershipClass: latestExchangeTickerAt || latestExchangeVolumeLiveSourceAt || latestExchangeVolumeAt ? 'hybrid' : 'seeded',
+      ownershipClass: latestExchangeTickerAt || latestExchangeVolumeLiveSourceAt ? 'hybrid' : 'seeded',
       providers: ['CCXT', 'seed exchange catalog', 'exchange volume live/replay'],
       lastSuccessfulRefreshAt: latestExchangeDataAt,
       evidence: ['tests/exchange-fidelity.test.ts', 'tests/provider-replay-exchange-volumes.test.ts', 'tests/http-cache.test.ts'],

@@ -110,7 +110,7 @@ export function registerExchangeRoutes(
     const dexPairFormat = parseDexPairFormat(query.dex_pair_format);
     const exchange = getExchangeOrThrow(database, params.id);
 
-    const tickers = getExchangeTickers(database, params.id, {
+    const tickers = getExchangeTickers(database, exchange.id, {
       includeExchangeLogo: false,
       includeDepth: false,
       page: 1,
@@ -121,8 +121,8 @@ export function registerExchangeRoutes(
 
     return sendCacheableJson(request, reply, {
       ...buildExchangeDetail(exchange),
-      coins: new Set(getRawExchangeTickerRows(database, params.id).map((row) => row.coin_tickers.coinId)).size,
-      pairs: getRawExchangeTickerRows(database, params.id).length,
+      coins: new Set(getRawExchangeTickerRows(database, exchange.id).map((row) => row.coin_tickers.coinId)).size,
+      pairs: getRawExchangeTickerRows(database, exchange.id).length,
       tickers,
     }, EXCHANGE_HTTP_CACHE_POLICY);
   });
@@ -131,15 +131,15 @@ export function registerExchangeRoutes(
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = exchangeVolumeChartQuerySchema.parse(request.query);
 
-    getExchangeOrThrow(database, params.id);
-    const sourceBackedRows = getSourceBackedExchangeVolumeChart(database, params.id, query.days);
+    const exchange = getExchangeOrThrow(database, params.id);
+    const sourceBackedRows = getSourceBackedExchangeVolumeChart(database, exchange.id, query.days);
 
     return sendCacheableJson(
       request,
       reply,
       sourceBackedRows.length > 0
         ? sourceBackedRows
-        : getExchangeVolumeChart(database, params.id, query.days),
+        : getExchangeVolumeChart(database, exchange.id, query.days),
       EXCHANGE_VOLUME_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -148,15 +148,15 @@ export function registerExchangeRoutes(
     const params = z.object({ id: z.string() }).parse(request.params);
     const query = exchangeVolumeRangeQuerySchema.parse(request.query);
 
-    getExchangeOrThrow(database, params.id);
-    const sourceBackedRows = getSourceBackedExchangeVolumeChartRange(database, params.id, query.from, query.to);
+    const exchange = getExchangeOrThrow(database, params.id);
+    const sourceBackedRows = getSourceBackedExchangeVolumeChartRange(database, exchange.id, query.from, query.to);
 
     return sendCacheableJson(
       request,
       reply,
       sourceBackedRows.length > 0
         ? sourceBackedRows
-        : getExchangeVolumeChartRange(database, params.id, query.from, query.to),
+        : getExchangeVolumeChartRange(database, exchange.id, query.from, query.to),
       EXCHANGE_VOLUME_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -170,7 +170,7 @@ export function registerExchangeRoutes(
 
     return sendCacheableJson(request, reply, {
       name: exchange.name,
-      tickers: getExchangeTickers(database, params.id, {
+      tickers: getExchangeTickers(database, exchange.id, {
         coinIds: parseCsvQuery(query.coin_ids),
         includeExchangeLogo: parseBooleanQuery(query.include_exchange_logo, false),
         includeDepth: parseBooleanQuery(query.depth, false),

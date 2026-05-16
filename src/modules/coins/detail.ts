@@ -20,6 +20,8 @@ import {
 } from './helpers';
 import { buildSparkline, getConsistent24hExtremes, getSeriesChangePercentage } from './market-data';
 import { extractCoinMetadata, type ExchangeMarketSnapshot } from '../../providers/ccxt';
+import { resolveExchangeRouteId } from '../exchange-detail';
+import { formatTickerAsset, resolveTargetCoinId } from '../exchange-tickers';
 
 export function buildCoinDetail(
   database: AppDatabase,
@@ -189,8 +191,9 @@ export function buildCoinDetail(
 }
 
 function getCoinTickerRows(database: AppDatabase, coinId: string, exchangeIds?: string[]) {
-  const whereCondition = exchangeIds?.length
-    ? and(eq(coinTickers.coinId, coinId), inArray(coinTickers.exchangeId, exchangeIds))
+  const resolvedExchangeIds = exchangeIds?.map((exchangeId) => resolveExchangeRouteId(database, exchangeId));
+  const whereCondition = resolvedExchangeIds?.length
+    ? and(eq(coinTickers.coinId, coinId), inArray(coinTickers.exchangeId, resolvedExchangeIds))
     : eq(coinTickers.coinId, coinId);
 
   return database.db
@@ -229,18 +232,23 @@ function sortCoinTickerRows(
 }
 
 function buildCoinTickerPayload(
+  database: AppDatabase,
   row: ReturnType<typeof getCoinTickerRows>[number],
-  includeExchangeLogo: boolean,
   conversionRates: ReturnType<typeof getConversionRates>,
+  options: {
+    includeExchangeLogo: boolean;
+    includeDepth: boolean;
+    dexPairFormat: string;
+  },
 ) {
   return {
-    base: row.coin_tickers.base,
+    base: formatTickerAsset(database, row.coin_tickers.base, row.coin_tickers.coinId, options.dexPairFormat),
     target: row.coin_tickers.target,
     market: {
       name: row.exchanges.name,
       identifier: row.exchanges.id,
       has_trading_incentive: row.exchanges.hasTradingIncentive,
-      ...(includeExchangeLogo ? { logo: row.exchanges.imageUrl } : {}),
+      ...(options.includeExchangeLogo ? { logo: row.exchanges.imageUrl } : {}),
     },
     last: row.coin_tickers.last,
     volume: row.coin_tickers.volume,
@@ -263,8 +271,14 @@ function buildCoinTickerPayload(
     is_stale: row.coin_tickers.isStale,
     trade_url: row.coin_tickers.tradeUrl,
     token_info_url: row.coin_tickers.tokenInfoUrl,
+    ...(options.includeDepth
+      ? {
+          cost_to_move_up_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.001).toFixed(2)),
+          cost_to_move_down_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.0008).toFixed(2)),
+        }
+      : {}),
     coin_id: row.coin_tickers.coinId,
-    target_coin_id: null,
+    target_coin_id: resolveTargetCoinId(database, row.coin_tickers.target),
   };
 }
 
@@ -274,6 +288,8 @@ export function getCoinTickers(
   options: {
     exchangeIds?: string[];
     includeExchangeLogo: boolean;
+    includeDepth?: boolean;
+    dexPairFormat?: string;
     page: number;
     perPage: number;
     order?: string;
@@ -286,7 +302,11 @@ export function getCoinTickers(
   const conversionRates = getConversionRates(database, options.marketFreshnessThresholdSeconds, options.snapshotAccessPolicy);
 
   return {
-    tickers: rows.slice(start, start + options.perPage).map((row) => buildCoinTickerPayload(row, options.includeExchangeLogo, conversionRates)),
+    tickers: rows.slice(start, start + options.perPage).map((row) => buildCoinTickerPayload(database, row, conversionRates, {
+      includeExchangeLogo: options.includeExchangeLogo,
+      includeDepth: options.includeDepth ?? false,
+      dexPairFormat: options.dexPairFormat ?? 'symbol',
+    })),
   };
 }
 

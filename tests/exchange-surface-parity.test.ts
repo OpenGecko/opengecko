@@ -137,6 +137,64 @@ describe('exchange surface parity', () => {
     }
   });
 
+  it('serves legacy and provider exchange aliases through the same canonical ticker identity', async () => {
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId: string) => {
+      if (exchangeId !== 'okx') {
+        return [];
+      }
+
+      return [
+        { exchangeId: 'okx', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+      ];
+    });
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId: string) => {
+      if (exchangeId !== 'okx') {
+        return [];
+      }
+
+      return [
+        { exchangeId: 'okx', symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', last: 66234.02, bid: 66230, ask: 66236, high: 67000, low: 65000, baseVolume: 27782.99853, quoteVolume: 1839443608, percentage: 1.8, timestamp: Date.parse('2026-03-28T05:13:15.000Z'), raw: {} as never },
+      ];
+    });
+
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'alias-identity.db'),
+        ccxtExchanges: ['okx'],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      const [canonicalDetail, aliasDetail, canonicalTickers, aliasTickers] = await Promise.all([
+        app.inject({ method: 'GET', url: '/exchanges/okex' }),
+        app.inject({ method: 'GET', url: '/exchanges/okx' }),
+        app.inject({ method: 'GET', url: '/exchanges/okex/tickers?coin_ids=bitcoin' }),
+        app.inject({ method: 'GET', url: '/exchanges/okx/tickers?coin_ids=bitcoin' }),
+      ]);
+
+      expect(canonicalDetail.statusCode).toBe(200);
+      expect(aliasDetail.statusCode).toBe(200);
+      expect(canonicalTickers.statusCode).toBe(200);
+      expect(aliasTickers.statusCode).toBe(200);
+
+      expect(aliasDetail.json()).toMatchObject({
+        id: 'okex',
+        name: canonicalDetail.json().name,
+        coins: canonicalDetail.json().coins,
+        pairs: canonicalDetail.json().pairs,
+      });
+      expect(aliasTickers.json()).toEqual(canonicalTickers.json());
+      expect(aliasTickers.json().tickers[0]).toEqual(expect.objectContaining({
+        market: expect.objectContaining({ identifier: 'okex' }),
+        coin_id: 'bitcoin',
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
   it('preserves aggregate pair breadth on exchange detail even when serialized tickers dedupe duplicate market rows', async () => {
     mockedFetchExchangeMarkets.mockImplementation(async (exchangeId: string) => {
       if (exchangeId !== 'binance') {

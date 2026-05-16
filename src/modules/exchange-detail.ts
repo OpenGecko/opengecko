@@ -5,6 +5,30 @@ import { exchanges, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseJsonArray } from '../lib/shared';
 
+const EXCHANGE_ID_ALIASES: Record<string, string> = {
+  bybit: 'bybit_spot',
+  coinbase: 'gdax',
+  okx: 'okex',
+};
+
+export function resolveExchangeRouteId(database: AppDatabase, exchangeId: string) {
+  const normalizedExchangeId = exchangeId.trim().toLowerCase();
+  const exactExchange = database.db.select().from(exchanges).where(eq(exchanges.id, normalizedExchangeId)).limit(1).get();
+
+  if (exactExchange) {
+    return exactExchange.id;
+  }
+
+  const aliasedExchangeId = EXCHANGE_ID_ALIASES[normalizedExchangeId];
+  if (!aliasedExchangeId) {
+    return normalizedExchangeId;
+  }
+
+  const aliasedExchange = database.db.select().from(exchanges).where(eq(exchanges.id, aliasedExchangeId)).limit(1).get();
+
+  return aliasedExchange?.id ?? normalizedExchangeId;
+}
+
 export function buildExchangeSummary(row: ExchangeRow) {
   return {
     id: row.id,
@@ -57,7 +81,8 @@ export function buildExchangeDetail(row: ExchangeRow) {
 }
 
 export function getExchangeOrThrow(database: AppDatabase, exchangeId: string) {
-  const exchange = database.db.select().from(exchanges).where(eq(exchanges.id, exchangeId)).limit(1).get();
+  const resolvedExchangeId = resolveExchangeRouteId(database, exchangeId);
+  const exchange = database.db.select().from(exchanges).where(eq(exchanges.id, resolvedExchangeId)).limit(1).get();
 
   if (!exchange) {
     throw new HttpError(404, 'not_found', `Exchange not found: ${exchangeId}`);

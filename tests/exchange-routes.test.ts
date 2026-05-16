@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { exchanges, exchangeVolumePoints } from '../src/db/schema';
+import { exchanges, exchangeVolumePoints, exchangeVolumeSourcePoints } from '../src/db/schema';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn().mockResolvedValue([
@@ -320,6 +320,65 @@ describe('exchange routes', () => {
     expect(rangeResponse.json()).toEqual(
       [...rangeResponse.json()].sort((left: [number, number], right: [number, number]) => left[0] - right[0]),
     );
+  });
+
+  it('prefers live exchange volume source rows over replay rows at duplicate timestamps', async () => {
+    const timestamp = new Date('2026-03-28T05:00:00.000Z');
+    const appDb = getApp().db;
+    appDb.db.insert(exchanges).values({
+      id: 'binance',
+      name: 'Binance',
+      yearEstablished: 2017,
+      country: 'Cayman Islands',
+      description: 'Temporary seeded exchange row for volume ownership assertions.',
+      url: 'https://www.binance.com/',
+      imageUrl: 'https://coin-images.coingecko.com/markets/images/52/small/binance.jpg?1706864274',
+      hasTradingIncentive: false,
+      trustScore: 10,
+      trustScoreRank: 1,
+      tradeVolume24hBtc: 139508.1218951856,
+      tradeVolume24hBtcNormalized: null,
+      facebookUrl: null,
+      redditUrl: null,
+      telegramUrl: null,
+      slackUrl: null,
+      otherUrlJson: '[]',
+      twitterHandle: 'binance',
+      centralised: true,
+      publicNotice: null,
+      alertNotice: null,
+      updatedAt: new Date('2026-03-20T00:00:00.000Z'),
+    }).onConflictDoNothing().run();
+    appDb.db.delete(exchangeVolumePoints).where(eq(exchangeVolumePoints.exchangeId, 'binance')).run();
+
+    appDb.db.insert(exchangeVolumeSourcePoints).values([
+      {
+        exchangeId: 'binance',
+        timestamp,
+        volumeBtc: 10,
+        sourceKind: 'replay',
+        sourceProvider: 'exchange-volume-replay',
+        sourceFetchedAt: new Date('2026-03-28T05:01:00.000Z'),
+      },
+      {
+        exchangeId: 'binance',
+        timestamp,
+        volumeBtc: 20,
+        sourceKind: 'live',
+        sourceProvider: 'ccxt.binance',
+        sourceFetchedAt: new Date('2026-03-28T05:00:30.000Z'),
+      },
+    ]).run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/exchanges/binance/volume_chart/range?from=1774670400&to=1774677600',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      [timestamp.getTime(), 20],
+    ]);
   });
 
   it('returns exchange tickers and supports coin filters', async () => {
