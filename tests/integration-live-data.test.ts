@@ -300,7 +300,7 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.12.3');
+    expect(packageJson.version).toBe('0.12.4');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(packageJson.version.startsWith('0.12.')).toBe(true);
   });

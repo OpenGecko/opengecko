@@ -1,5 +1,5 @@
 import { loadConfig } from '../config/env';
-import { createDatabase, initializeDatabase } from '../db/client';
+import { createDatabase, initializeDatabase, seedStaticReferenceData } from '../db/client';
 import { runMarketRefreshOnce } from '../services/market-refresh';
 
 async function refreshMarketSnapshots() {
@@ -8,6 +8,7 @@ async function refreshMarketSnapshots() {
 
   try {
     initializeDatabase(database);
+    seedStaticReferenceData(database, { includeSeededExchanges: true });
     await runMarketRefreshOnce(database, config);
   } finally {
     database.client.close();

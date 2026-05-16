@@ -372,12 +372,56 @@ function buildBidAskSpreadPercentage(bid: number | null, ask: number | null) {
   return new BigNumber(ask).minus(bid).dividedBy(ask).multipliedBy(100).toNumber();
 }
 
+function hasValidBidAskPair(bid: number | null, ask: number | null) {
+  const hasBid = bid !== null;
+  const hasAsk = ask !== null;
+
+  if (!hasBid && !hasAsk) {
+    return true;
+  }
+
+  if ((hasBid && (!Number.isFinite(bid) || bid < 0)) || (hasAsk && (!Number.isFinite(ask) || ask <= 0))) {
+    return false;
+  }
+
+  if (hasBid && hasAsk && bid > ask) {
+    return false;
+  }
+
+  return true;
+}
+
+function tickerSymbolMatchesAssets(ticker: ExchangeTickerSnapshot) {
+  const [symbolBase, symbolQuote, ...extraParts] = ticker.symbol.split('/');
+
+  if (!symbolBase || !symbolQuote || extraParts.length > 0) {
+    return false;
+  }
+
+  return symbolBase.trim().toUpperCase() === ticker.base.trim().toUpperCase()
+    && symbolQuote.trim().toUpperCase() === ticker.quote.trim().toUpperCase();
+}
+
 function buildTradeUrl(exchangeId: ExchangeId, base: string, target: string) {
   return `https://www.${exchangeId}.com/trade/${base}-${target}`;
 }
 
 function buildTokenInfoUrl(_exchangeId: ExchangeId, _coinId: string) {
   return null;
+}
+
+function resolveCanonicalExchangeId(exchangeId: ExchangeId, knownExchangeIds: Set<string>) {
+  const canonicalExchangeIds: Record<string, string> = {
+    bybit: 'bybit_spot',
+    coinbase: 'gdax',
+    okx: 'okex',
+  };
+
+  const canonicalExchangeId = canonicalExchangeIds[exchangeId];
+
+  return canonicalExchangeId && !knownExchangeIds.has(exchangeId) && knownExchangeIds.has(canonicalExchangeId)
+    ? canonicalExchangeId
+    : exchangeId;
 }
 
 function upsertLiveCoinTicker(
@@ -499,14 +543,16 @@ function normalizeTickerForMarketSnapshot(ticker: ExchangeTickerSnapshot, nowMs 
   if (
     timestamp === null
     || typeof ticker.symbol !== 'string'
-    || ticker.symbol.length === 0
+    || ticker.symbol.trim().length === 0
     || typeof ticker.base !== 'string'
-    || ticker.base.length === 0
+    || ticker.base.trim().length === 0
     || typeof ticker.quote !== 'string'
-    || ticker.quote.length === 0
+    || ticker.quote.trim().length === 0
+    || !tickerSymbolMatchesAssets(ticker)
     || ticker.last === null
     || !Number.isFinite(ticker.last)
     || ticker.last <= 0
+    || !hasValidBidAskPair(ticker.bid, ticker.ask)
     || hasTruthyQualityFlag(ticker, ['isAnomaly', 'isStale'])
   ) {
     return null;
@@ -553,13 +599,14 @@ function recordAccumulatorSample(
 
 function recordMatchedTicker(
   exchangeTrustScoreById: Map<string, number | null>,
+  knownExchangeIds: Set<string>,
   processingState: RefreshTickerProcessingState,
   exchangeId: ExchangeId,
   marketTarget: SymbolIndexEntry,
   ticker: ExchangeTickerSnapshot,
   normalizedTicker: NonNullable<ReturnType<typeof normalizeTickerForMarketSnapshot>>,
 ) {
-  const normalizedExchangeId = exchangeId;
+  const normalizedExchangeId = resolveCanonicalExchangeId(exchangeId, knownExchangeIds);
   const fetchedAt = new Date(normalizedTicker.timestamp);
   const marketSample = recordAccumulatorSample(processingState.marketSamples, marketTarget, exchangeId, ticker, normalizedTicker);
 
@@ -567,7 +614,7 @@ function recordMatchedTicker(
     marketSample,
     coinId: marketTarget.coinId,
     vsCurrency: marketTarget.vsCurrency,
-    exchangeId: normalizedExchangeId,
+    exchangeId,
     symbol: ticker.symbol,
     fetchedAt,
     price: ticker.last!,
@@ -908,6 +955,7 @@ export async function runMarketRefreshOnce(
   const exchangeTrustScoreById = new Map(
     database.db.select().from(exchanges).all().map((row) => [row.id, row.trustScore]),
   );
+  const knownExchangeIds = new Set(exchangeTrustScoreById.keys());
 
   // Fetch all exchange tickers in parallel
   const pendingExchangeIds = new Set(attemptedExchangeIds);
@@ -997,7 +1045,7 @@ export async function runMarketRefreshOnce(
       }
 
       matchedCount += 1;
-      recordMatchedTicker(exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
+      recordMatchedTicker(exchangeTrustScoreById, knownExchangeIds, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
 
       const tickerVsCurrency = determineTickerVsCurrency(
         quoteCandidatesByCoinId,
@@ -1012,6 +1060,7 @@ export async function runMarketRefreshOnce(
 
       recordMatchedTicker(
         exchangeTrustScoreById,
+        knownExchangeIds,
         processingState,
         exchangeId,
         {
