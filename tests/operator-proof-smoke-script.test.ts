@@ -23,6 +23,9 @@ describe('operator proof smoke script contract', () => {
     expect(script).toContain('DATABASE_URL="${DB_PATH_3102}"');
     expect(script).toContain('PORT=3100');
     expect(script).toContain('PORT=3102');
+    expect(script).toContain('RESERVED_PORTS=(3100 3101 3102)');
+    expect(script).toContain('check_reserved_ports_clear "preflight"');
+    expect(script).toContain('check_reserved_ports_clear "post-cleanup"');
     expect(script).toContain('git rev-parse HEAD');
     expect(script).toContain('bun --version');
     expect(script).toContain('jq');
@@ -34,7 +37,12 @@ describe('operator proof smoke script contract', () => {
     const script = readFileSync(SCRIPT_PATH, 'utf8');
 
     expect(script).toContain('run_smoke_modules_serially');
+    expect(script).toContain('DEFAULT_SMOKE_MODULES=(exchanges)');
+    expect(script).toContain('SMOKE_EXECUTED_FILE');
+    expect(script).toContain('SMOKE_SKIPPED_FILE');
+    expect(script).toContain('using curated default modules');
     expect(script).toContain('for module in "${modules[@]}"');
+    expect(script).not.toContain('serial module smoke skipped');
     expect(script).toContain('/diagnostics/runtime/degraded_state');
     expect(script).toContain('/diagnostics/runtime/provider_failure');
     expect(script).toContain('mode":"degraded_seeded_bootstrap');

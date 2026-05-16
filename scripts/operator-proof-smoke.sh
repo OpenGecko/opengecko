@@ -17,6 +17,12 @@ LOG_3100="${PROOF_ROOT}/server-3100.log"
 LOG_3102="${PROOF_ROOT}/server-3102.log"
 DB_PATH_3100="${PROOF_ROOT}/opengecko-3100.sqlite"
 DB_PATH_3102="${PROOF_ROOT}/opengecko-3102.sqlite"
+SMOKE_EXECUTED_FILE="${PROOF_ROOT}/smoke-modules-executed.jsonl"
+SMOKE_SKIPPED_FILE="${PROOF_ROOT}/smoke-modules-skipped.jsonl"
+PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"
+RESERVED_PORTS=(3100 3101 3102)
+DEFAULT_SMOKE_MODULES=(exchanges)
+ALL_SMOKE_MODULES=(simple coins exchanges global search assets treasury onchain)
 # Startup proof command fragments intentionally use:
 # PORT=3100
 # PORT=3102
@@ -28,6 +34,9 @@ FAILURES=0
 
 mkdir -p "$SAMPLES_DIR"
 : > "$COMMANDS_FILE"
+: > "$SMOKE_EXECUTED_FILE"
+: > "$SMOKE_SKIPPED_FILE"
+: > "$PORT_CHECKS_FILE"
 
 json_escape() {
   if [[ "$#" -gt 0 ]]; then
@@ -48,6 +57,46 @@ record_command() {
     --argjson exit_code "$exit_code" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{timestamp: $timestamp, phase: $phase, command: $command, exit_code: $exit_code}' >> "$COMMANDS_FILE"
+}
+
+record_port_check() {
+  local phase="$1"
+  local port="$2"
+  local status="$3"
+  local detail="$4"
+  local exit_code="$5"
+
+  jq -nc \
+    --arg phase "$phase" \
+    --argjson port "$port" \
+    --arg status "$status" \
+    --arg detail "$detail" \
+    --argjson exit_code "$exit_code" \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{timestamp: $timestamp, phase: $phase, port: $port, status: $status, detail: $detail, exit_code: $exit_code}' >> "$PORT_CHECKS_FILE"
+}
+
+check_reserved_ports_clear() {
+  local phase="$1"
+  local failed=0
+
+  for port in "${RESERVED_PORTS[@]}"; do
+    local pids=""
+    pids="$(lsof -ti ":${port}" 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+      record_port_check "$phase" "$port" "occupied" "pids=${pids//$'\n'/,}; refusing to touch unknown process" 98
+      failed=1
+    else
+      record_port_check "$phase" "$port" "clear" "no listener found" 0
+    fi
+  done
+
+  if [[ "$failed" -ne 0 ]]; then
+    record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 98
+    return 98
+  fi
+
+  record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 0
 }
 
 run_recorded() {
@@ -124,7 +173,10 @@ write_versions() {
     echo "    \"3100\": $(json_escape "$DB_PATH_3100"),"
     echo "    \"3102\": $(json_escape "$DB_PATH_3102")"
     echo "  },"
-    echo "  \"ports\": [3100, 3102],"
+    echo "  \"ports\": [3100, 3101, 3102],"
+    echo "  \"runtime_ports\": [3100, 3102],"
+    echo "  \"reserved_ports_policy\": \"preflight and post-cleanup checks require 3100-3102 to be clear; the script refuses to touch unknown listeners\","
+    echo "  \"smoke_module_policy\": \"curated serial default: exchanges; skipped available modules are recorded with reasons\","
     echo "  \"credential_policy\": \"public providers only; no private API keys required\","
     echo "  \"repo_data_policy\": \"uses temp SQLite paths under /tmp; repo data directory is not required\""
     echo "}"
@@ -256,25 +308,58 @@ wait_for_market_readiness() {
 
 run_smoke_modules_serially() {
   local base_url="$1"
-  local module_list="${OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES-simple coins exchanges}"
+  local module_list="${OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES:-${DEFAULT_SMOKE_MODULES[*]}}"
   local modules=()
+  local available_module
 
   if [[ -z "${module_list// }" ]]; then
-    record_command "smoke-modules" "OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES is empty; serial module smoke skipped" 0
-    return 0
+    module_list="${DEFAULT_SMOKE_MODULES[*]}"
+    record_command "smoke-modules-default" "OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES is empty; using curated default modules: ${module_list}" 0
   fi
 
   read -r -a modules <<< "$module_list"
   if [[ "${module_list}" == "all" ]]; then
-    modules=(simple coins exchanges global search assets treasury onchain)
+    modules=("${ALL_SMOKE_MODULES[@]}")
   fi
+
+  for available_module in "${ALL_SMOKE_MODULES[@]}"; do
+    local selected=0
+    local selected_module
+    for selected_module in "${modules[@]}"; do
+      if [[ "$selected_module" == "$available_module" || "$selected_module" == "all-endpoints" ]]; then
+        selected=1
+        break
+      fi
+    done
+    if [[ "$selected" -eq 0 ]]; then
+      jq -nc \
+        --arg module "$available_module" \
+        --arg reason "not selected by OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES curated serial list" \
+        --arg selected_modules "${modules[*]}" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{timestamp: $timestamp, module: $module, reason: $reason, selected_modules: $selected_modules}' >> "$SMOKE_SKIPPED_FILE"
+    fi
+  done
 
   for module in "${modules[@]}"; do
     local command
+    local script_path="scripts/modules/${module}/${module}.sh"
     if [[ "$module" == "all-endpoints" ]]; then
       command="BASE_URL=${base_url} bun run test:endpoint"
     else
       command="BASE_URL=${base_url} bun run test:endpoint:${module}"
+    fi
+
+    if [[ "$module" != "all-endpoints" && ! -f "$script_path" ]]; then
+      jq -nc \
+        --arg module "$module" \
+        --arg reason "module script not found: ${script_path}" \
+        --arg command "$command" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{timestamp: $timestamp, module: $module, reason: $reason, command: $command}' >> "$SMOKE_SKIPPED_FILE"
+      record_command "smoke-${module}" "$command" 127
+      mark_failure "smoke module ${module} has no script"
+      continue
     fi
 
     echo "Running serial smoke module: ${module}"
@@ -292,6 +377,13 @@ run_smoke_modules_serially() {
       record_command "smoke-${module}" "$command" "$exit_code"
       mark_failure "smoke module ${module} failed"
     fi
+    jq -nc \
+      --arg module "$module" \
+      --arg command "$command" \
+      --arg log "${PROOF_ROOT}/smoke-${module}.log" \
+      --argjson exit_code "$exit_code" \
+      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{timestamp: $timestamp, module: $module, command: $command, exit_code: $exit_code, log: $log}' >> "$SMOKE_EXECUTED_FILE"
   done
 }
 
@@ -331,6 +423,9 @@ write_summary() {
     --arg proof_root "$PROOF_ROOT" \
     --arg commands_file "$COMMANDS_FILE" \
     --arg environment_file "${PROOF_ROOT}/environment.json" \
+    --arg port_checks_file "$PORT_CHECKS_FILE" \
+    --arg smoke_executed_file "$SMOKE_EXECUTED_FILE" \
+    --arg smoke_skipped_file "$SMOKE_SKIPPED_FILE" \
     --arg samples_dir "$SAMPLES_DIR" \
     --argjson failures "$FAILURES" \
     --argjson exit_code "$final_exit_code" \
@@ -339,6 +434,9 @@ write_summary() {
       proof_root: $proof_root,
       environment_file: $environment_file,
       commands_file: $commands_file,
+      port_checks_file: $port_checks_file,
+      smoke_executed_file: $smoke_executed_file,
+      smoke_skipped_file: $smoke_skipped_file,
       samples_dir: $samples_dir,
       failures: $failures,
       exit_code: $exit_code,
@@ -356,6 +454,13 @@ main() {
   require_tool node
 
   write_versions
+
+  if ! check_reserved_ports_clear "preflight"; then
+    write_summary 98
+    echo "Operator proof bundle: ${PROOF_ROOT}"
+    echo "Summary: ${SUMMARY_FILE}"
+    return 98
+  fi
 
   start_server 3100 "$DB_PATH_3100" "$LOG_3100"
   wait_for_health 3100 || mark_failure "port 3100 did not become healthy"
@@ -379,6 +484,7 @@ main() {
   sample_priority_routes 3102 recovered
   stop_server
   wait_for_port_clear 3102 || mark_failure "port 3102 not clear after validation-control proof"
+  check_reserved_ports_clear "post-cleanup" || mark_failure "one or more reserved ports remained occupied after cleanup"
 
   local exit_code=0
   if [[ "$FAILURES" -gt 0 ]]; then
