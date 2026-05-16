@@ -374,6 +374,71 @@ export function getSeriesChangePercentageForWindow(
   );
 }
 
+function compareOptionalNumbers(
+  left: number | null | undefined,
+  right: number | null | undefined,
+  direction: 'asc' | 'desc',
+) {
+  const leftKnown = typeof left === 'number' && Number.isFinite(left);
+  const rightKnown = typeof right === 'number' && Number.isFinite(right);
+
+  if (leftKnown && rightKnown) {
+    return direction === 'asc'
+      ? left - right
+      : right - left;
+  }
+
+  if (leftKnown) {
+    return -1;
+  }
+
+  if (rightKnown) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function compareMarketRowsForRouteOrder(
+  left: { coin: CoinRow; snapshot: MarketSnapshotRow | null },
+  right: { coin: CoinRow; snapshot: MarketSnapshotRow | null },
+  normalizedOrder: string,
+) {
+  switch (normalizedOrder) {
+    case 'market_cap_desc':
+    case 'gecko_desc': {
+      const rankCompare = compareOptionalNumbers(
+        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
+        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        'asc',
+      );
+      return rankCompare || left.coin.id.localeCompare(right.coin.id);
+    }
+    case 'market_cap_asc':
+    case 'gecko_asc': {
+      const rankCompare = compareOptionalNumbers(
+        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
+        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        'desc',
+      );
+      return rankCompare || left.coin.id.localeCompare(right.coin.id);
+    }
+    case 'volume_desc': {
+      const volumeCompare = compareOptionalNumbers(left.snapshot?.totalVolume, right.snapshot?.totalVolume, 'desc');
+      return volumeCompare || left.coin.id.localeCompare(right.coin.id);
+    }
+    case 'volume_asc': {
+      const volumeCompare = compareOptionalNumbers(left.snapshot?.totalVolume, right.snapshot?.totalVolume, 'asc');
+      return volumeCompare || left.coin.id.localeCompare(right.coin.id);
+    }
+    case 'id_desc':
+      return right.coin.id.localeCompare(left.coin.id);
+    case 'id_asc':
+    default:
+      return left.coin.id.localeCompare(right.coin.id);
+  }
+}
+
 export function buildMoverRow(
   database: AppDatabase,
   row: { coin: CoinRow; snapshot: MarketSnapshotRow | null },
@@ -406,21 +471,29 @@ export function parseMarketRowsRequest(
 ) {
   const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
   const marketOrder = parseMarketOrder(query.order);
+  const hasExplicitSelector = [
+    query.ids,
+    query.names,
+    query.symbols,
+  ].some((value) => parseCsvQuery(value).length > 0);
+  const rows = getMarketRows(database, 'usd', {
+    ids: parseCsvQuery(query.ids),
+    names: parseCsvQuery(query.names),
+    symbols: parseCsvQuery(query.symbols),
+    categoryId: query.category ? normalizeCategoryId(query.category) : undefined,
+  }, marketOrder.orderBy).map((row) => ({
+    coin: row.coin,
+    snapshot: getUsableSnapshot(
+      getEffectiveSnapshot(row.snapshot, runtimeState),
+      marketFreshnessThresholdSeconds,
+      snapshotAccessPolicy,
+    ),
+  }));
 
   return {
     snapshotAccessPolicy,
-    rows: getMarketRows(database, 'usd', {
-      ids: parseCsvQuery(query.ids),
-      names: parseCsvQuery(query.names),
-      symbols: parseCsvQuery(query.symbols),
-      categoryId: query.category ? normalizeCategoryId(query.category) : undefined,
-    }, marketOrder.orderBy).map((row) => ({
-      coin: row.coin,
-      snapshot: getUsableSnapshot(
-        getEffectiveSnapshot(row.snapshot, runtimeState),
-        marketFreshnessThresholdSeconds,
-        snapshotAccessPolicy,
-      ),
-    })),
+    rows: hasExplicitSelector
+      ? rows
+      : [...rows].sort((left, right) => compareMarketRowsForRouteOrder(left, right, marketOrder.normalizedOrder)),
   };
 }

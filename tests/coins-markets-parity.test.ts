@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app';
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { marketSnapshots } from '../src/db/schema';
 
 describe('coins markets parity', () => {
   let app: FastifyInstance;
@@ -444,5 +446,94 @@ describe('coins markets parity', () => {
       error: 'invalid_parameter',
       message: 'Invalid precision value: not-a-number',
     });
+  });
+
+  it('keeps fresh live rows ahead of stale disallowed rows for market metric sorting', async () => {
+    await app.ready();
+    app.marketDataRuntimeState.initialSyncCompleted = true;
+    app.marketDataRuntimeState.allowStaleLiveService = false;
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        totalVolume: 999_000_000_000,
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        totalVolume: 1_000,
+        sourceProvidersJson: JSON.stringify(['coinbase']),
+        sourceCount: 1,
+        lastUpdated: new Date(),
+      })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=volume_desc&per_page=20&page=1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()[0]).toMatchObject({
+      id: 'ethereum',
+      total_volume: 1000,
+    });
+    expect(response.json().some((row: { id: string; total_volume: number | null }) =>
+      row.id === 'bitcoin' && row.total_volume === null,
+    )).toBe(true);
+  });
+
+  it('invalidates the coins markets cache when stale-live access policy flips without a revision bump', async () => {
+    await app.ready();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        lastUpdated: new Date('2026-03-19T00:00:00.000Z'),
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    app.marketDataRuntimeState.initialSyncCompleted = true;
+    app.marketDataRuntimeState.allowStaleLiveService = true;
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    const staleAllowed = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin',
+    });
+    const revisionAfterWarm = app.marketDataRuntimeState.hotDataRevision;
+
+    app.marketDataRuntimeState.allowStaleLiveService = false;
+
+    const staleDisallowed = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?ids=bitcoin&vs_currency=usd',
+    });
+
+    expect(app.marketDataRuntimeState.hotDataRevision).toBe(revisionAfterWarm);
+    expect(staleAllowed.statusCode).toBe(200);
+    expect(staleAllowed.json()[0]).toMatchObject({
+      id: 'bitcoin',
+      current_price: expect.any(Number),
+      last_updated: expect.any(String),
+    });
+    expect(staleDisallowed.statusCode).toBe(200);
+    expect(staleDisallowed.json()).toEqual([
+      expect.objectContaining({
+        id: 'bitcoin',
+        current_price: null,
+        market_cap: null,
+        total_volume: null,
+        last_updated: null,
+      }),
+    ]);
   });
 });

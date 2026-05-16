@@ -347,7 +347,12 @@ export function registerCoinRoutes(
 
   app.get('/coins/markets', async (request, reply) => {
     const query = coinMarketsQuerySchema.parse(request.query);
-    const cacheKey = createCoinMarketsCacheKey(query);
+    const cacheAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+    const cacheKey = JSON.stringify({
+      query: createCoinMarketsCacheKey(query),
+      accessPolicy: cacheAccessPolicy,
+      validationOverride: runtimeState.validationOverride,
+    });
     const cached = coinMarketsCache.get(cacheKey);
     const now = Date.now();
 
