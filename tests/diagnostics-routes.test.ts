@@ -1349,6 +1349,8 @@ describe('diagnostics routes', () => {
       summary: {
         configured_targets: 1,
         source_backed_configured_targets: 0,
+        live_backed_configured_targets: 0,
+        replay_backed_configured_targets: 0,
         status_counts: {
           configured_pending: 1,
           live_backed: 0,
@@ -1480,6 +1482,8 @@ describe('diagnostics routes', () => {
     expect(freshDiagnostics.summary).toEqual({
       configured_targets: 2,
       source_backed_configured_targets: 2,
+      live_backed_configured_targets: 2,
+      replay_backed_configured_targets: 0,
       status_counts: {
         configured_pending: 0,
         live_backed: 2,

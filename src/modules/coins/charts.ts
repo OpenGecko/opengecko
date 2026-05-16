@@ -18,6 +18,71 @@ import { asc, eq } from 'drizzle-orm';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+type ChartPayloadRow = {
+  timestamp: Date;
+  price: number;
+  marketCap: number | null;
+  totalVolume: number | null;
+};
+
+type OhlcPayloadRow = {
+  timestamp: Date;
+  marketCap: number | null;
+  totalVolume: number | null;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isValidTimestamp(value: Date) {
+  return Number.isFinite(value.getTime()) && value.getTime() > 0;
+}
+
+function isValidPrice(value: number) {
+  return isFiniteNumber(value) && value > 0;
+}
+
+function nullableNonNegative(value: number | null | undefined) {
+  return isFiniteNumber(value) && value >= 0 ? value : null;
+}
+
+function normalizeChartRows<T extends ChartPayloadRow>(rows: T[]): T[] {
+  return rows
+    .filter((row) => isValidTimestamp(row.timestamp) && isValidPrice(row.price))
+    .map((row) => ({
+      ...row,
+      marketCap: nullableNonNegative(row.marketCap),
+      totalVolume: nullableNonNegative(row.totalVolume),
+    }));
+}
+
+function hasValidOhlcInvariants(row: OhlcPayloadRow) {
+  if (![row.open, row.high, row.low, row.close].every(isValidPrice)) {
+    return false;
+  }
+
+  return row.low <= row.open
+    && row.low <= row.close
+    && row.high >= row.open
+    && row.high >= row.close
+    && row.low <= row.high;
+}
+
+function normalizeOhlcRows<T extends OhlcPayloadRow>(rows: T[]): T[] {
+  return rows
+    .filter((row) => isValidTimestamp(row.timestamp) && hasValidOhlcInvariants(row))
+    .map((row) => ({
+      ...row,
+      marketCap: nullableNonNegative(row.marketCap),
+      totalVolume: nullableNonNegative(row.totalVolume),
+    }));
+}
+
 export function parseChartRange(query: { from: string; to: string }) {
   const from = parseUnixTimestampSeconds(query.from, 'from');
   const to = parseUnixTimestampSeconds(query.to, 'to');
@@ -51,7 +116,7 @@ export function getChartRowsForDays(database: AppDatabase, coinId: string, days:
 }
 
 export function getSourceBackedChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
-  return readMarketChartSourceRowsForDays(database, coinId, 'usd', days, interval);
+  return normalizeChartRows(readMarketChartSourceRowsForDays(database, coinId, 'usd', days, interval));
 }
 
 export function getCanonicalChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
@@ -72,7 +137,7 @@ export function getCanonicalChartRowsForDays(database: AppDatabase, coinId: stri
 
     const duration = rows.at(-1)!.timestamp.getTime() - rows[0]!.timestamp.getTime();
 
-    return downsampleTimeSeries(rows, getGranularityMs(duration, interval));
+    return normalizeChartRows(downsampleTimeSeries(rows, getGranularityMs(duration, interval)));
   }
 
   const dayCount = Number(days);
@@ -90,7 +155,7 @@ export function getCanonicalChartRowsForDays(database: AppDatabase, coinId: stri
   const cutoff = latestTimestamp - dayCount * 24 * 60 * 60 * 1000;
   const filteredRows = rows.filter((row) => row.timestamp.getTime() >= cutoff);
 
-  return downsampleTimeSeries(filteredRows, getGranularityMs(dayCount * 24 * 60 * 60 * 1000, interval));
+  return normalizeChartRows(downsampleTimeSeries(filteredRows, getGranularityMs(dayCount * 24 * 60 * 60 * 1000, interval)));
 }
 
 export async function fetchProviderChartRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
@@ -115,7 +180,7 @@ export function getChartRowsForRange(database: AppDatabase, coinId: string, rang
 }
 
 export function getSourceBackedChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
-  return readMarketChartSourceRowsForRange(database, coinId, 'usd', range, interval);
+  return normalizeChartRows(readMarketChartSourceRowsForRange(database, coinId, 'usd', range, interval));
 }
 
 export function getCanonicalChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
@@ -129,7 +194,7 @@ export function getCanonicalChartRowsForRange(database: AppDatabase, coinId: str
       totalVolume: row.totalVolume,
     }));
 
-  return downsampleTimeSeries(rows, getGranularityMs(getRangeDurationMs(range), interval));
+  return normalizeChartRows(downsampleTimeSeries(rows, getGranularityMs(getRangeDurationMs(range), interval)));
 }
 
 export async function fetchProviderChartRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
@@ -158,7 +223,7 @@ export function getCanonicalOhlcRowsForDays(database: AppDatabase, coinId: strin
   const rows = getCanonicalCandles(database, coinId, 'usd', candleInterval);
 
   if (days === 'max') {
-    return rows;
+    return normalizeOhlcRows(rows);
   }
 
   const dayCount = Number(days);
@@ -175,11 +240,11 @@ export function getCanonicalOhlcRowsForDays(database: AppDatabase, coinId: strin
 
   const cutoff = latestTimestamp - dayCount * 24 * 60 * 60 * 1000;
 
-  return rows.filter((row) => row.timestamp.getTime() >= cutoff);
+  return normalizeOhlcRows(rows.filter((row) => row.timestamp.getTime() >= cutoff));
 }
 
 export function getSourceBackedOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
-  return readMarketChartSourceOhlcRowsForDays(database, coinId, 'usd', days, interval);
+  return normalizeOhlcRows(readMarketChartSourceOhlcRowsForDays(database, coinId, 'usd', days, interval));
 }
 
 export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId: string, days: string, interval?: string) {
@@ -277,13 +342,13 @@ export function getOhlcRowsForRange(database: AppDatabase, coinId: string, range
 }
 
 export function getSourceBackedOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
-  return readMarketChartSourceOhlcRowsForRange(database, coinId, 'usd', range, interval);
+  return normalizeOhlcRows(readMarketChartSourceOhlcRowsForRange(database, coinId, 'usd', range, interval));
 }
 
 export function getCanonicalOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
   const candleInterval = parseChartInterval(interval) === 'hourly' ? '1m' : '1d';
 
-  return getCanonicalCandles(database, coinId, 'usd', candleInterval, range);
+  return normalizeOhlcRows(getCanonicalCandles(database, coinId, 'usd', candleInterval, range));
 }
 
 export function buildChartPayload(
@@ -295,11 +360,12 @@ export function buildChartPayload(
   precision: number | 'full',
 ) {
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+  const normalizedRows = normalizeChartRows(rows);
 
   return {
-    prices: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.price * rate, precision)]),
-    market_caps: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.marketCap ? row.marketCap * rate : null, precision)]),
-    total_volumes: rows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.totalVolume ? row.totalVolume * rate : null, precision)]),
+    prices: normalizedRows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.price * rate, precision)]),
+    market_caps: normalizedRows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.marketCap === null ? null : row.marketCap * rate, precision)]),
+    total_volumes: normalizedRows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.totalVolume === null ? null : row.totalVolume * rate, precision)]),
   };
 }
 

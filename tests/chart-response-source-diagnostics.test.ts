@@ -347,6 +347,85 @@ describe('chart response source diagnostics', () => {
     ]));
   });
 
+  it('does not treat replay-only chart rows as live target ownership for fallback pressure', () => {
+    const now = new Date('2026-05-06T00:00:00.000Z');
+    database.db.insert(coins).values({
+      id: 'bitcoin',
+      symbol: 'btc',
+      name: 'Bitcoin',
+      apiSymbol: 'bitcoin',
+      hashingAlgorithm: null,
+      blockTimeInMinutes: null,
+      categoriesJson: '[]',
+      descriptionJson: '{}',
+      linksJson: '{}',
+      imageThumbUrl: null,
+      imageSmallUrl: null,
+      imageLargeUrl: null,
+      marketCapRank: 1,
+      genesisDate: null,
+      platformsJson: '{}',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    database.db.insert(marketChartSourcePoints).values({
+      coinId: 'bitcoin',
+      vsCurrency: 'usd',
+      interval: '1d',
+      timestamp: new Date('2026-04-01T00:00:00.000Z'),
+      price: 91_000,
+      marketCap: null,
+      totalVolume: 1_000,
+      open: 90_000,
+      high: 92_000,
+      low: 89_000,
+      close: 91_000,
+      sourceKind: 'replay',
+      sourceProvider: 'coingecko.replay',
+      sourceFetchedAt: now,
+    }).run();
+
+    const diagnostics = buildMarketChartProviderDiagnostics(
+      database,
+      'coingecko.replay=bitcoin:1d:usd',
+      now,
+      undefined,
+      [
+        {
+          route: 'market_chart_range',
+          source: 'empty',
+          coin_id: 'bitcoin',
+          vs_currency: 'usd',
+          interval: 'daily',
+          request: { kind: 'range', days: null, from: '2026-04-01T00:00:00.000Z', to: '2026-04-01T00:00:00.000Z' },
+          observed_at: '2026-05-06T00:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(diagnostics.summary).toMatchObject({
+      source_backed_configured_targets: 0,
+      live_backed_configured_targets: 0,
+      replay_backed_configured_targets: 1,
+      status_counts: expect.objectContaining({
+        replay_backed: 1,
+      }),
+    });
+    expect(diagnostics.response_source_target_suggestions).toEqual([
+      expect.objectContaining({
+        coin_id: 'bitcoin',
+        target_template: '<provider>=bitcoin:1d:usd',
+      }),
+    ]);
+    expect(diagnostics.response_source_fallback_alert).toEqual(expect.objectContaining({
+      status: 'action_needed',
+      reason: 'unresolved_recent_fallback_pressure',
+      source_backed_events_suppressed: 0,
+      events_eligible_for_suggestion: 1,
+    }));
+  });
+
   it('limits target suggestions to the recent fallback event window', () => {
     const diagnostics = buildMarketChartProviderDiagnostics(
       database,

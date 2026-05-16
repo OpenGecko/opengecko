@@ -832,7 +832,7 @@ export function buildMarketChartProviderDiagnostics(
   });
   const configuredCoinDiagnostics = coinDiagnostics.filter((coin) => coin.configured_provider !== null);
   const sourceBackedTargetKeys = new Set(coinDiagnostics
-    .filter((coin) => coin.status === 'live_backed' || coin.status === 'replay_backed')
+    .filter((coin) => coin.status === 'live_backed')
     .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)));
   const responseSourceTargetSuggestions = responseSourceRecentEvents
     ? buildResponseSourceTargetSuggestions(responseSourceRecentEvents, sourceBackedTargetKeys, now)
@@ -857,7 +857,13 @@ export function buildMarketChartProviderDiagnostics(
     summary: {
       configured_targets: configuredTargets.length,
       source_backed_configured_targets: configuredCoinDiagnostics
-        .filter((coin) => coin.status === 'live_backed' || coin.status === 'replay_backed')
+        .filter((coin) => coin.status === 'live_backed')
+        .length,
+      live_backed_configured_targets: configuredCoinDiagnostics
+        .filter((coin) => coin.status === 'live_backed')
+        .length,
+      replay_backed_configured_targets: configuredCoinDiagnostics
+        .filter((coin) => coin.status === 'replay_backed')
         .length,
       status_counts: countBy(
         configuredCoinDiagnostics.map((coin) => coin.status),
