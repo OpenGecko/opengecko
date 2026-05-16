@@ -110,6 +110,7 @@ export function registerDiagnosticsRoutes(
   marketFreshnessThresholdSeconds: number,
   metrics: {
     renderPrometheus: () => string;
+    getCacheEventCounts?: (surface: string) => { hit: number; miss: number };
     recordProviderRefresh?: (outcome: 'forced_failure', exchangeCount: number, failedExchangeCount: number) => void;
     recordProviderForcedFailure?: (provider: string) => void;
   },
@@ -211,6 +212,51 @@ export function registerDiagnosticsRoutes(
         budgets: getEndpointFreshnessBudgets(),
       },
     }, stableDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/cache', async (request, reply) => {
+    const cacheEvents = (surface: string) => metrics.getCacheEventCounts?.(surface) ?? { hit: 0, miss: 0 };
+
+    return sendCacheableJson(request, reply, {
+      data: {
+        hot_data_revision: app.marketDataRuntimeState.hotDataRevision,
+        freshness: {
+          market_snapshot_threshold_seconds: marketFreshnessThresholdSeconds,
+        },
+        surfaces: {
+          coins_markets: {
+            ttl_seconds: 15,
+            http_cache: {
+              max_age_seconds: 15,
+              stale_while_revalidate_seconds: 15,
+              validators: ['etag', 'if-none-match'],
+            },
+            invalidated_by: ['hot_data_revision', 'validation_override', 'snapshot_access_policy'],
+            events: cacheEvents('coins_markets'),
+            operator_evidence: [
+              '/coins/markets cache headers (cache-control, etag, 304)',
+              '/diagnostics/runtime hot_paths.cache_revision',
+              '/metrics opengecko_cache_events_total{surface="coins_markets",outcome="hit|miss"}',
+            ],
+          },
+          simple_price: {
+            ttl_seconds: 15,
+            http_cache: {
+              max_age_seconds: 15,
+              stale_while_revalidate_seconds: 15,
+              validators: ['etag', 'if-none-match'],
+            },
+            invalidated_by: ['hot_data_revision'],
+            events: cacheEvents('simple_price'),
+            operator_evidence: [
+              '/simple/price cache headers (cache-control, etag, 304)',
+              '/diagnostics/runtime hot_paths.cache_revision',
+              '/metrics opengecko_cache_events_total{surface="simple_price",outcome="hit|miss"}',
+            ],
+          },
+        },
+      },
+    }, dynamicDiagnosticsCachePolicy);
   });
 
   app.get('/diagnostics/coverage_matrix', async (request, reply) => {

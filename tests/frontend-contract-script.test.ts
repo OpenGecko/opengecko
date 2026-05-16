@@ -119,7 +119,13 @@ describe('module contract verification scripts', () => {
     }
   });
 
-  async function expectScriptToPass(command: string, title: string, checks: string[]) {
+  async function expectScriptToPass(
+    command: string,
+    title: string,
+    checks: string[],
+    extraEnv: NodeJS.ProcessEnv = {},
+    absentChecks: string[] = [],
+  ) {
     const address = app.server.address();
 
     if (!address || typeof address === 'string') {
@@ -128,6 +134,7 @@ describe('module contract verification scripts', () => {
 
     const result = await runScript(command, {
       BASE_URL: `http://127.0.0.1:${address.port}`,
+      ...extraEnv,
     });
 
     if (result.code !== 0) {
@@ -139,6 +146,10 @@ describe('module contract verification scripts', () => {
 
     for (const check of checks) {
       expect(result.stdout).toContain(check);
+    }
+
+    for (const absentCheck of absentChecks) {
+      expect(result.stdout).not.toContain(absentCheck);
     }
   }
 
@@ -237,6 +248,25 @@ describe('module contract verification scripts', () => {
         'coin detail includes market data and ticker arrays by default',
         'categories mark fixture/live state and row freshness safely',
         'supply charts return fixture data envelopes',
+      ],
+    );
+  });
+
+  it('supports market-only coins smoke checks without out-of-scope ticker assertions', async () => {
+    await expectScriptToPass(
+      'scripts/modules/coins/coins.sh',
+      'OpenGecko Coins Market Smoke Checks',
+      [
+        'market rows expose core pricing fields',
+        'top gainers/losers exposes snapshot source metadata',
+        'runtime diagnostics expose market cache revision evidence',
+      ],
+      {
+        COINS_SMOKE_SCOPE: 'markets',
+      },
+      [
+        'coin tickers return exchange metadata and price fields',
+        'Tickers and Categories',
       ],
     );
   });

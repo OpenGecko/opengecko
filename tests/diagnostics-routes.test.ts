@@ -2726,6 +2726,57 @@ describe('diagnostics routes', () => {
     }
   });
 
+  it('exposes cache attribution diagnostics for market smoke evidence', async () => {
+    await getApp().ready();
+
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum',
+    });
+    await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum',
+    });
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/cache',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      hot_data_revision: getApp().marketDataRuntimeState.hotDataRevision,
+      freshness: {
+        market_snapshot_threshold_seconds: expect.any(Number),
+      },
+      surfaces: {
+        coins_markets: {
+          ttl_seconds: expect.any(Number),
+          invalidated_by: ['hot_data_revision', 'validation_override', 'snapshot_access_policy'],
+          events: {
+            hit: expect.any(Number),
+            miss: expect.any(Number),
+          },
+          operator_evidence: expect.arrayContaining([
+            '/coins/markets cache headers (cache-control, etag, 304)',
+            '/diagnostics/runtime hot_paths.cache_revision',
+            '/metrics opengecko_cache_events_total{surface="coins_markets",outcome="hit|miss"}',
+          ]),
+        },
+        simple_price: {
+          ttl_seconds: expect.any(Number),
+          invalidated_by: ['hot_data_revision'],
+          events: {
+            hit: expect.any(Number),
+            miss: expect.any(Number),
+          },
+        },
+      },
+    });
+    expect(response.json().data.surfaces.coins_markets.events.hit).toBeGreaterThanOrEqual(1);
+    expect(response.json().data.surfaces.coins_markets.events.miss).toBeGreaterThanOrEqual(1);
+  });
+
   it('derives runtime provider capabilities from ticker, exchange, and chart storage evidence', async () => {
     await getApp().ready();
     const seedTimestamp = new Date('2026-03-20T00:00:00.000Z');

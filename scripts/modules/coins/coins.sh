@@ -10,9 +10,32 @@ VS_CURRENCY="${VS_CURRENCY:-usd}"
 HISTORY_DATE="${HISTORY_DATE:-20-03-2026}"
 MARKET_CHART_RANGE_FROM="${MARKET_CHART_RANGE_FROM:-1773446400}"
 MARKET_CHART_RANGE_TO="${MARKET_CHART_RANGE_TO:-1773964800}"
+COINS_SMOKE_SCOPE="${COINS_SMOKE_SCOPE:-all}"
 
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
+
+if [[ "$COINS_SMOKE_SCOPE" != "all" && "$COINS_SMOKE_SCOPE" != "markets" ]]; then
+  echo "Unsupported COINS_SMOKE_SCOPE=${COINS_SMOKE_SCOPE}; expected all or markets." >&2
+  exit 2
+fi
+
+if [[ "$COINS_SMOKE_SCOPE" == "markets" ]]; then
+  module_title "OpenGecko Coins Market Smoke Checks"
+
+  module_section "Markets"
+  check_status "GET /coins/markets responds" "/coins/markets?vs_currency=${VS_CURRENCY}&per_page=10&page=1"
+  check_json_expr "market rows expose core pricing fields" "/coins/markets?vs_currency=${VS_CURRENCY}&per_page=10&page=1" 'type == "array" and length > 0 and ([.[0] | has("id") and has("current_price") and has("market_cap") and has("price_change_percentage_24h")] | all(.))' "market rows expose id, price, market cap, and 24h change"
+  check_json_expr "market category filters keep the request contract shape" "/coins/markets?vs_currency=${VS_CURRENCY}&category=smart-contract-platform" 'type == "array"' "category filter returns an array payload even when seeded categories are sparse"
+  check_status "GET /coins/top_gainers_losers responds" "/coins/top_gainers_losers?vs_currency=${VS_CURRENCY}"
+  check_json_expr "top gainers/losers returns both collections" "/coins/top_gainers_losers?vs_currency=${VS_CURRENCY}" 'has("top_gainers") and has("top_losers") and (.top_gainers | type) == "array" and (.top_losers | type) == "array"' "top gainers/losers returns paired arrays"
+  check_json_expr "top gainers/losers exposes snapshot source metadata" "/coins/top_gainers_losers?vs_currency=${VS_CURRENCY}" 'has("meta") and (.meta.source == "market_snapshots") and (.meta | has("fixture") and has("fallback") and has("snapshot_source") and has("updated_at")) and ([.meta.snapshot_source] | inside(["live","mixed","fixture","empty"])) and (.meta.fixture == (.meta.snapshot_source != "live"))' "top movers distinguish live snapshot results from fixture/fallback state"
+  check_json_expr "runtime diagnostics expose market cache revision evidence" "/diagnostics/runtime" '.data.hot_paths.cache_revision | type == "number"' "runtime diagnostics expose cache revision evidence for market cache attribution"
+  check_json_expr "cache diagnostics expose market cache event counters" "/diagnostics/cache" '.data.surfaces.coins_markets.events.hit as $hit | .data.surfaces.coins_markets.events.miss as $miss | ($hit | type) == "number" and ($miss | type) == "number" and (.data.surfaces.coins_markets.operator_evidence | type) == "array"' "cache diagnostics expose hit/miss counters and operator evidence paths"
+
+  module_summary
+  exit $?
+fi
 
 module_title "OpenGecko Coins Module Checks"
 

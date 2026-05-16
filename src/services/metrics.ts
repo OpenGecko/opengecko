@@ -55,6 +55,7 @@ export type MetricsRegistry = {
   recordRequest: (route: string, method: string, statusCode: number, durationMs: number) => void;
   recordCacheHit: (surface: string) => void;
   recordCacheMiss: (surface: string) => void;
+  getCacheEventCounts: (surface: string) => { hit: number; miss: number };
   recordProviderRefresh: (outcome: 'success' | 'partial_failure' | 'cooldown_skip' | 'breaker_skip' | 'forced_failure' | 'failure', exchangeCount: number, failedExchangeCount: number) => void;
   recordProviderForcedFailure: (provider: string) => void;
   recordProviderBlockedByBreaker: (provider: string) => void;
@@ -140,6 +141,19 @@ export function createMetricsRegistry(): MetricsRegistry {
       surface,
       outcome: 'miss',
     });
+  }
+
+  function getCacheEventCounts(surface: string) {
+    const hit = counters.get(buildKey('opengecko_cache_events_total', {
+      surface,
+      outcome: 'hit',
+    }))?.value ?? 0;
+    const miss = counters.get(buildKey('opengecko_cache_events_total', {
+      surface,
+      outcome: 'miss',
+    }))?.value ?? 0;
+
+    return { hit, miss };
   }
 
   function recordProviderRefresh(
@@ -233,6 +247,7 @@ export function createMetricsRegistry(): MetricsRegistry {
     recordRequest,
     recordCacheHit,
     recordCacheMiss,
+    getCacheEventCounts,
     recordProviderRefresh,
     recordProviderForcedFailure,
     recordProviderBlockedByBreaker,
