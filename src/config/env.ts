@@ -38,6 +38,7 @@ const envSchema = z.object({
   COIN_HISTORY_TARGETS: z.string().default(''),
   EXCHANGE_VOLUME_TARGETS: z.string().default(''),
   MARKET_CHART_TARGETS: z.string().default(''),
+  MARKET_CHART_USE_COVERAGE_PLAN: z.boolean().default(false),
   ONCHAIN_ANALYTICS_TARGETS: z.string().default(''),
   ONCHAIN_TRADE_TARGETS: z.string().default(''),
   SUPPLY_CHART_TARGETS: z.string().default(''),
@@ -99,6 +100,7 @@ export type AppConfig = {
   coinHistoryTargets: string;
   exchangeVolumeTargets: string;
   marketChartTargets: string;
+  marketChartUseCoveragePlan: boolean;
   onchainAnalyticsTargets: string;
   onchainTradeTargets: string;
   supplyChartTargets: string;
@@ -268,6 +270,7 @@ export function loadConfig(rawEnv: NodeJS.ProcessEnv = process.env): AppConfig {
     coinHistoryTargets: env.COIN_HISTORY_TARGETS,
     exchangeVolumeTargets: env.EXCHANGE_VOLUME_TARGETS,
     marketChartTargets: env.MARKET_CHART_TARGETS,
+    marketChartUseCoveragePlan: env.MARKET_CHART_USE_COVERAGE_PLAN,
     onchainAnalyticsTargets: env.ONCHAIN_ANALYTICS_TARGETS,
     onchainTradeTargets: env.ONCHAIN_TRADE_TARGETS,
     supplyChartTargets: env.SUPPLY_CHART_TARGETS,

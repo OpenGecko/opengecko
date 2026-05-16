@@ -46,8 +46,8 @@ type MarketChartSyncResult = {
   provider: string;
   coin_id: string;
   vs_currency: string;
-  interval: MarketChartInterval;
-  status: 'synced' | 'no_data' | 'failed';
+  interval: CoverageTarget['interval'];
+  status: 'synced' | 'no_data' | 'failed' | 'unsupported_interval';
   points_fetched: number;
   points_written: number;
   reason?: HistoryBackfillTask['reason'];
@@ -325,14 +325,14 @@ export async function syncMarketCharts(database: AppDatabase, options: MarketCha
 export async function syncMarketChartsFromCoveragePlan(database: AppDatabase, options: MarketChartPlannerSyncOptions) {
   const sourceFetchedAt = options.now ?? new Date();
   const marketChartTargets = options.coverageTargets.filter(
-    (target) => target.enabled && target.family === 'market_charts' && isMarketChartInterval(target.interval),
+    (target) => target.enabled && target.family === 'market_charts',
   );
   const observed = buildObservedMarketChartStates(database, marketChartTargets);
   const tasks = planHistoryBackfillTasks({
     targets: marketChartTargets,
     observed,
     now: sourceFetchedAt,
-  }).filter((task) => isMarketChartInterval(task.interval));
+  });
   const fetcher = options.fetcher ?? createHttpMarketChartPlannerFetcher(options.providerBaseUrl);
   const results: MarketChartSyncResult[] = [];
 
@@ -341,11 +341,22 @@ export async function syncMarketChartsFromCoveragePlan(database: AppDatabase, op
       provider: task.provider,
       coin_id: task.coinId,
       vs_currency: task.vsCurrency,
-      interval: task.interval as MarketChartInterval,
+      interval: task.interval,
       reason: task.reason,
       from: task.from.toISOString(),
       to: task.to.toISOString(),
     };
+
+    if (!isMarketChartInterval(task.interval)) {
+      results.push({
+        ...baseResult,
+        status: 'unsupported_interval',
+        points_fetched: 0,
+        points_written: 0,
+        error: `market chart coverage sync does not support interval ${task.interval}`,
+      });
+      continue;
+    }
 
     let raw: RawMarketChartReplay | null;
 

@@ -2,6 +2,7 @@ import type { AppDatabase } from '../db/client';
 import { DEFAULT_OHLCV_TARGET_HISTORY_DAYS } from '../config/runtime-policy';
 import { coins } from '../db/schema';
 import { fetchExchangeMarkets, type ExchangeId } from '../providers/ccxt';
+import type { CoverageTarget } from './coverage-targets';
 
 const USD_QUOTE_PRIORITY = ['USDT', 'USD'] as const;
 
@@ -19,9 +20,12 @@ export async function buildOhlcvSyncTargets(
   database: AppDatabase,
   enabledExchanges: ExchangeId[],
   topCoinIds: Set<string> = new Set(),
-  options: { targetHistoryDays?: number } = {},
+  options: { targetHistoryDays?: number; coverageTargets?: CoverageTarget[] } = {},
 ): Promise<OhlcvSyncTargetSeed[]> {
   const targetHistoryDays = options.targetHistoryDays ?? DEFAULT_OHLCV_TARGET_HISTORY_DAYS;
+  const requestedCoverageTargets = new Map((options.coverageTargets ?? [])
+    .filter((target) => target.enabled && target.family === 'ohlcv')
+    .map((target) => [`${target.provider}:${target.entityId}:${target.vsCurrency}:${target.interval}`, target]));
   const marketIndex = new Map<ExchangeId, Set<string>>();
 
   for (const exchangeId of enabledExchanges) {
@@ -54,12 +58,14 @@ export async function buildOhlcvSyncTargets(
       const matchedQuote = USD_QUOTE_PRIORITY.find((quote) => supportedSymbols.has(`${base}/${quote}`));
 
       if (matchedQuote) {
+        const coverageTarget = requestedCoverageTargets.get(`${exchangeId}:${row.id}:usd:1d`);
+
         return [{
           coinId: row.id,
           exchangeId,
           symbol: `${base}/${matchedQuote}`,
-          priorityTier: topCoinIds.has(row.id) ? 'top100' : 'long_tail',
-          targetHistoryDays,
+          priorityTier: topCoinIds.has(row.id) ? 'top100' : coverageTarget ? 'requested' : 'long_tail',
+          targetHistoryDays: coverageTarget?.targetHistoryDays ?? targetHistoryDays,
         } satisfies OhlcvSyncTargetSeed];
       }
     }

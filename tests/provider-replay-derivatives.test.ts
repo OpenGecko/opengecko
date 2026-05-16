@@ -153,10 +153,10 @@ describe('derivatives provider replay fixtures', () => {
       expect(coverageMatrixResponse.json().data.entries).toEqual(expect.arrayContaining([
         expect.objectContaining({
           family: 'derivatives',
-          ownership_class: 'hybrid',
+          ownership_class: 'fixture',
           last_successful_refresh_at: '2026-05-05T00:00:00.000Z',
           evidence: expect.objectContaining({
-            notes: expect.stringContaining('source-attributed'),
+            notes: expect.stringContaining('replay rows do not promote production coverage'),
           }),
         }),
       ]));

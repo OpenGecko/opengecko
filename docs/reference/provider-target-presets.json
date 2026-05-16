@@ -1,0 +1,61 @@
+{
+  "name": "opengecko-source-backed-provider-target-presets",
+  "description": "Starter presets for optional source-backed sync jobs beyond market charts. Presets are bounded examples for improving coverage diagnostics; credentials and upstream adapters stay outside OpenGecko.",
+  "presets": [
+    {
+      "family": "exchange_volumes",
+      "id": "exchange-volumes.major-cex.daily",
+      "base_url_env": "EXCHANGE_VOLUME_BASE_URL",
+      "target_env": "EXCHANGE_VOLUME_TARGETS",
+      "sync_command": "bun run exchange:volumes:sync",
+      "diagnostics_route": "GET /diagnostics/exchange_volumes",
+      "targets": "exchange-volume-replay=binance,exchange-volume-replay=coinbase,exchange-volume-replay=kraken,exchange-volume-replay=okx",
+      "priority": "Use after market chart/OHLCV freshness is stable; verifies exchange volume chart source rows before relying on retained public volume_chart history.",
+      "response_fixture": "tests/fixtures/provider-replay/exchange-volumes/binance-volume.json"
+    },
+    {
+      "family": "derivatives",
+      "id": "derivatives.ccxt-major-futures",
+      "base_url_env": null,
+      "target_env": "DERIVATIVES_CCXT_EXCHANGES",
+      "sync_command": "bun run derivatives:sync",
+      "diagnostics_route": "GET /diagnostics/derivatives",
+      "targets": "binance_futures=binanceusdm,bybit_futures=bybit,okx_swap=okx",
+      "priority": "Use for futures/swap ticker, funding, and open-interest source rows; seeded derivative fixtures remain fallback until these venues ingest successfully.",
+      "response_fixtures": [
+        "tests/fixtures/provider-replay/ccxt-derivatives/binance-futures-tickers.json",
+        "tests/fixtures/provider-replay/ccxt-derivatives/binance-funding-open-interest.json"
+      ]
+    },
+    {
+      "family": "onchain_trades",
+      "id": "onchain-trades.ethereum-bluechip-pools",
+      "base_url_env": "ONCHAIN_TRADE_BASE_URL",
+      "target_env": "ONCHAIN_TRADE_TARGETS",
+      "sync_command": "bun run onchain:trades:sync",
+      "diagnostics_route": "GET /diagnostics/onchain_trades",
+      "targets": "subsquid.ethereum=eth:0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640,subsquid.ethereum=eth:0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8",
+      "priority": "Use for source-attributed pool trades before expanding holder/trader analytics; synthetic trades must remain fallback-only.",
+      "response_fixture": "tests/fixtures/provider-replay/onchain-trades/eth-usdc-weth-pool-trades.json"
+    },
+    {
+      "family": "market_charts",
+      "id": "market-charts.coverage-plan.default",
+      "base_url_env": "MARKET_CHART_BASE_URL",
+      "target_env": "MARKET_CHART_USE_COVERAGE_PLAN",
+      "sync_command": "MARKET_CHART_USE_COVERAGE_PLAN=true bun run market:charts:sync",
+      "diagnostics_route": "GET /diagnostics/market_charts",
+      "targets": "docs/reference/default-coverage-targets.json",
+      "priority": "Preferred chart/OHLC route because it follows the coverage target manifest and history backfill planner instead of a hand-maintained target string.",
+      "response_fixtures": [
+        "tests/fixtures/provider-replay/market-charts/ccxt-binance-bitcoin-adapter-response.json",
+        "tests/fixtures/provider-replay/market-charts/intraday-archive-ethereum-adapter-response.json"
+      ]
+    }
+  ],
+  "operator_notes": [
+    "Run each sync command standalone first, then compare diagnostics before enabling OPTIONAL_PROVIDER_SYNC_ENABLED.",
+    "Do not interpret replay fixtures as live production coverage; they prove adapter contracts and route fallback shape.",
+    "Promote coverage only from diagnostics deltas: source rows written, stale/shallow gaps reduced, and coverage_matrix ownership gates satisfied."
+  ]
+}

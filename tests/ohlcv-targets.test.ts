@@ -196,4 +196,49 @@ describe('ohlcv targets', () => {
       }),
     );
   });
+
+  it('derives requested priority and history depth from enabled ohlcv coverage targets', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'LTC/USDT',
+        base: 'LTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Litecoin',
+        raw: {},
+      },
+    ]);
+
+    const targets = await buildOhlcvSyncTargets(database, ['binance'], new Set(), {
+      targetHistoryDays: 90,
+      coverageTargets: [
+        {
+          family: 'ohlcv',
+          provider: 'binance',
+          entityType: 'coin',
+          entityId: 'litecoin',
+          interval: '1d',
+          vsCurrency: 'usd',
+          tier: 'B',
+          targetHistoryDays: 730,
+          freshnessSloSeconds: 86_400,
+          productionFreshnessSloSeconds: 3_600,
+          enabled: true,
+          priority: 25,
+        },
+      ],
+    });
+
+    expect(targets).toEqual([
+      expect.objectContaining({
+        coinId: 'litecoin',
+        exchangeId: 'binance',
+        symbol: 'LTC/USDT',
+        priorityTier: 'requested',
+        targetHistoryDays: 730,
+      }),
+    ]);
+  });
 });

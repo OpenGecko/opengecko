@@ -129,10 +129,10 @@ describe('market chart provider replay fixtures', () => {
       expect(coverageMatrixResponse.json().data.entries).toEqual(expect.arrayContaining([
         expect.objectContaining({
           family: 'historical_charts',
-          ownership_class: 'hybrid',
-          last_successful_refresh_at: '2026-05-05T01:00:00.000Z',
+          ownership_class: 'seeded',
+          last_successful_refresh_at: null,
           evidence: expect.objectContaining({
-            notes: expect.stringContaining('source-attributed replay/live rows'),
+            notes: expect.stringContaining('live classification requires at least 30 live points'),
           }),
         }),
       ]));

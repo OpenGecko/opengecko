@@ -279,6 +279,7 @@ The API coverage table is guarded by `tests/docs-drift.test.ts` against the regi
 | `COIN_HISTORY_TARGETS` | empty | Optional `provider=coin:YYYY-MM-DD` source-backed dated coin history sync targets |
 | `EXCHANGE_VOLUME_TARGETS` | empty | Optional `provider=exchange` source-backed exchange volume sync targets |
 | `MARKET_CHART_TARGETS` | empty | Optional `provider=coin:interval:vs_currency` source-backed chart/OHLC sync targets; see `docs/reference/market-chart-targets.json` and `docs/reference/market-chart-provider-presets.json` |
+| `MARKET_CHART_USE_COVERAGE_PLAN` | `false` | Run `market:charts:sync` from the coverage target manifest and history backfill planner instead of only `MARKET_CHART_TARGETS` |
 | `ONCHAIN_ANALYTICS_TARGETS` | empty | Optional source-backed onchain holder/trader analytics sync targets |
 | `ONCHAIN_TRADE_TARGETS` | empty | Optional source-backed onchain pool trade sync targets |
 | `SUPPLY_CHART_TARGETS` | empty | Optional `provider=coin:supply_type` source-backed supply chart sync targets |
@@ -509,14 +510,14 @@ Retention removes storage rows only; it must not add fields to public CoinGecko-
 **Optional provider scheduler playbook:**
 
 1. Keep `OPTIONAL_PROVIDER_SYNC_ENABLED=false` until target envs and provider base URLs are configured and verified with the standalone commands above.
-2. Start with a bounded target set, such as the starter `MARKET_CHART_TARGETS` in `docs/reference/market-chart-targets.json`. It covers every seeded chart coin daily and intraday; `docs/reference/market-chart-provider-presets.json` shows provider-specific adapter IDs and request paths. Expand further by the gaps shown in `/diagnostics/market_charts`, `/diagnostics/coin_history`, `/diagnostics/exchange_volumes`, `/diagnostics/onchain_analytics`, `/diagnostics/onchain_trades`, and `/diagnostics/supply_charts`.
+2. Start with a bounded target set, such as the starter `MARKET_CHART_TARGETS` in `docs/reference/market-chart-targets.json`. It covers every seeded chart coin daily and intraday; `docs/reference/market-chart-provider-presets.json` shows chart adapter IDs and request paths, while `docs/reference/provider-target-presets.json` groups the broader source-backed presets. Start with `market-charts.coverage-plan.default`, then expand through `exchange-volumes.major-cex.daily`, `derivatives.ccxt-major-futures`, and `onchain-trades.ethereum-bluechip-pools` as diagnostics gaps shrink. Expand further by the gaps shown in `/diagnostics/market_charts`, `/diagnostics/coin_history`, `/diagnostics/exchange_volumes`, `/diagnostics/onchain_analytics`, `/diagnostics/onchain_trades`, and `/diagnostics/supply_charts`.
 3. Run `GET /diagnostics/jobs` after each standalone command. The route reports target counts, last start/finish timestamps, rows written, failure reasons, partial-failure reasons, bounded sanitized partial-failure target samples, retry-only target templates from persisted job state, and the market chart `production_freshness_cadence` advisory.
 4. Enable `OPTIONAL_PROVIDER_SYNC_ENABLED=true` only after diagnostics show the configured standalone jobs can succeed. Leave `OPTIONAL_PROVIDER_SYNC_INTERVAL_SECONDS=900` unless the provider and database can safely handle a tighter interval.
 5. Roll back by setting `OPTIONAL_PROVIDER_SYNC_ENABLED=false` and running the same standalone sync commands from cron or an external scheduler. Public API response shapes are unchanged either way.
 
 **Market chart preset example:**
 
-For the detailed chart/OHLC fallback remediation workflow, see [`docs/reference/market-chart-diagnostics-workflow.md`](docs/reference/market-chart-diagnostics-workflow.md). The README keeps a representative payload and command path here; the reference page is the source for operator triage steps.
+For the detailed chart/OHLC fallback remediation workflow, see [`docs/reference/market-chart-diagnostics-workflow.md`](docs/reference/market-chart-diagnostics-workflow.md). For the end-to-end sync, backfill, diagnostics, and before/after coverage validation playbook, see [`docs/reference/operator-validation-workflow.md`](docs/reference/operator-validation-workflow.md). The README keeps a representative payload and command path here; the reference pages are the source for operator triage steps.
 
 ```bash
 export MARKET_CHART_BASE_URL="https://charts-adapter.example"

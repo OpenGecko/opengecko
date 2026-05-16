@@ -112,9 +112,9 @@ describe('exchange volume provider replay fixtures', () => {
       expect(coverageMatrixResponse.json().data.entries).toEqual(expect.arrayContaining([
         expect.objectContaining({
           family: 'exchanges',
-          last_successful_refresh_at: '2026-05-05T00:20:00.000Z',
+          last_successful_refresh_at: '2026-03-20T00:00:00.000Z',
           evidence: expect.objectContaining({
-            notes: expect.stringContaining('source-attributed exchange volume'),
+            notes: expect.stringContaining('replay rows prove adapter shape but do not promote production coverage'),
           }),
         }),
       ]));

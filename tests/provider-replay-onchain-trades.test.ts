@@ -144,9 +144,9 @@ describe('onchain trade provider replay fixtures', () => {
       expect(coverageMatrixResponse.json().data.entries).toEqual(expect.arrayContaining([
         expect.objectContaining({
           family: 'onchain',
-          last_successful_refresh_at: '2026-05-05T00:09:00.000Z',
+          last_successful_refresh_at: '2026-03-20T00:00:00.000Z',
           evidence: expect.objectContaining({
-            notes: expect.stringContaining('trade'),
+            notes: expect.stringContaining('replay rows prove Subsquid normalization but do not promote production trade freshness'),
           }),
         }),
       ]));

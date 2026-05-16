@@ -1,14 +1,20 @@
 import { createDatabase, initializeDatabase } from '../db/client';
 import { createLogger } from '../lib/logger';
+import { loadDefaultCoverageTargets } from '../services/coverage-targets';
 import {
   parseMarketChartTargetConfig,
   syncMarketCharts,
+  syncMarketChartsFromCoveragePlan,
 } from '../services/market-chart-sync';
 import {
   recordOptionalProviderJobRunFailure,
   recordOptionalProviderJobRunRunning,
   recordOptionalProviderJobRunSuccess,
 } from '../services/optional-provider-jobs';
+
+function shouldUseCoveragePlan(env: NodeJS.ProcessEnv) {
+  return env.MARKET_CHART_USE_COVERAGE_PLAN === 'true' || env.MARKET_CHART_USE_COVERAGE_PLAN === '1';
+}
 
 export async function runMarketChartSyncJob(env: NodeJS.ProcessEnv = process.env) {
   const logger = createLogger({ level: env.LOG_LEVEL === 'silent' ? 'silent' : 'info', pretty: false });
@@ -18,25 +24,40 @@ export async function runMarketChartSyncJob(env: NodeJS.ProcessEnv = process.env
 
   try {
     initializeDatabase(database);
+    const useCoveragePlan = shouldUseCoveragePlan(env);
     const targets = parseMarketChartTargetConfig(env.MARKET_CHART_TARGETS);
-    targetsAttempted = targets.length;
-    recordOptionalProviderJobRunRunning(database, 'market_charts', startedAt, targetsAttempted);
 
-    if (targets.length === 0) {
-      logger.info('No market chart targets configured; set MARKET_CHART_TARGETS to run the optional sync job');
-      recordOptionalProviderJobRunSuccess(database, 'market_charts', {
-        startedAt,
-        finishedAt: new Date(),
-        targetsAttempted,
-        rowsWritten: 0,
-      });
-      return;
+    if (!useCoveragePlan) {
+      targetsAttempted = targets.length;
+      recordOptionalProviderJobRunRunning(database, 'market_charts', startedAt, targetsAttempted);
+
+      if (targets.length === 0) {
+        logger.info('No market chart targets configured; set MARKET_CHART_TARGETS or MARKET_CHART_USE_COVERAGE_PLAN=true to run the optional sync job');
+        recordOptionalProviderJobRunSuccess(database, 'market_charts', {
+          startedAt,
+          finishedAt: new Date(),
+          targetsAttempted,
+          rowsWritten: 0,
+        });
+        return;
+      }
+    } else {
+      const configuredCoverageTargets = loadDefaultCoverageTargets().filter(
+        (target) => target.enabled && target.family === 'market_charts',
+      );
+      targetsAttempted = configuredCoverageTargets.length;
+      recordOptionalProviderJobRunRunning(database, 'market_charts', startedAt, targetsAttempted);
     }
 
-    const result = await syncMarketCharts(database, {
-      targets,
-      providerBaseUrl: env.MARKET_CHART_BASE_URL,
-    });
+    const result = useCoveragePlan
+      ? await syncMarketChartsFromCoveragePlan(database, {
+        coverageTargets: loadDefaultCoverageTargets(),
+        providerBaseUrl: env.MARKET_CHART_BASE_URL,
+      })
+      : await syncMarketCharts(database, {
+        targets,
+        providerBaseUrl: env.MARKET_CHART_BASE_URL,
+      });
     const firstFailedTarget = result.results.find((targetResult) => targetResult.status === 'failed');
     recordOptionalProviderJobRunSuccess(database, 'market_charts', {
       startedAt,

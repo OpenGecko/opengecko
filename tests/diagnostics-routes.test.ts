@@ -558,11 +558,11 @@ describe('diagnostics routes', () => {
       last_successful_refresh_at: now.toISOString(),
     });
     expect(promotedEntries.find((entry) => entry.family === 'historical_charts')).toMatchObject({
-      ownership_class: 'hybrid',
-      last_successful_refresh_at: now.toISOString(),
+      ownership_class: 'seeded',
+      last_successful_refresh_at: null,
     });
     expect(promotedEntries.find((entry) => entry.family === 'historical_charts')?.evidence.notes).toContain(
-      'Future live classification requires documented breadth/depth thresholds',
+      'live classification requires at least 30 live points',
     );
   });
 

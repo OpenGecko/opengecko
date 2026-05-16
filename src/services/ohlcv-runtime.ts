@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import type { AppDatabase } from '../db/client';
 import { ohlcvSyncTargets } from '../db/schema';
+import { loadDefaultCoverageTargets } from './coverage-targets';
 import { refreshOhlcvPriorityTiers } from './ohlcv-priority';
 import { buildOhlcvSyncTargets } from './ohlcv-targets';
 import {
@@ -616,6 +617,7 @@ export function createOhlcvRuntime(
 
     const targets = await buildOhlcvSyncTargets(database, config.ccxtExchanges as never, undefined, {
       targetHistoryDays: config.ohlcvTargetHistoryDays,
+      coverageTargets: loadDefaultCoverageTargets(),
     });
     upsertOhlcvSyncTargets(database, targets, now);
     refreshOhlcvPriorityTiers(database, now);

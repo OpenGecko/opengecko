@@ -502,6 +502,7 @@ describe('documentation drift guards', () => {
     const packageJson = readRepoFile('package.json');
     const diagnosticsRoutes = readRepoFile('src/modules/diagnostics.ts');
     const marketChartPresets = readRepoFile('docs/reference/market-chart-provider-presets.json');
+    const providerTargetPresets = readRepoFile('docs/reference/provider-target-presets.json');
 
     for (const envVar of [
       'COIN_HISTORY_TARGETS',
@@ -561,6 +562,7 @@ describe('documentation drift guards', () => {
     }
 
     expect(readme).toContain('docs/reference/market-chart-provider-presets.json');
+    expect(readme).toContain('docs/reference/provider-target-presets.json');
     expect(marketChartPresets).toContain('MARKET_CHART_BASE_URL');
     expect(marketChartPresets).toContain('MARKET_CHART_TARGETS');
     expect(marketChartPresets).toContain('/providers/{provider}/coins/{coin_id}/market_chart');
@@ -576,6 +578,30 @@ describe('documentation drift guards', () => {
     expect(marketChartPresets).toContain(
       'tests/fixtures/provider-replay/market-charts/intraday-archive-solana-adapter-response.json',
     );
+
+    for (const expectedPresetDetail of [
+      'opengecko-source-backed-provider-target-presets',
+      'exchange-volumes.major-cex.daily',
+      'EXCHANGE_VOLUME_TARGETS',
+      'tests/fixtures/provider-replay/exchange-volumes/binance-volume.json',
+      'derivatives.ccxt-major-futures',
+      'DERIVATIVES_CCXT_EXCHANGES',
+      'tests/fixtures/provider-replay/ccxt-derivatives/binance-futures-tickers.json',
+      'tests/fixtures/provider-replay/ccxt-derivatives/binance-funding-open-interest.json',
+      'onchain-trades.ethereum-bluechip-pools',
+      'ONCHAIN_TRADE_TARGETS',
+      'tests/fixtures/provider-replay/onchain-trades/eth-usdc-weth-pool-trades.json',
+      'market-charts.coverage-plan.default',
+      'MARKET_CHART_USE_COVERAGE_PLAN',
+      'docs/reference/default-coverage-targets.json',
+      'Do not interpret replay fixtures as live production coverage',
+    ]) {
+      expect(providerTargetPresets).toContain(expectedPresetDetail);
+    }
+    expect(readme).toContain('exchange-volumes.major-cex.daily');
+    expect(readme).toContain('derivatives.ccxt-major-futures');
+    expect(readme).toContain('onchain-trades.ethereum-bluechip-pools');
+    expect(readme).toContain('market-charts.coverage-plan.default');
     expect(readme).toContain('retry-only target templates from persisted job state');
     expect(readme).toContain('production_freshness_cadence');
 

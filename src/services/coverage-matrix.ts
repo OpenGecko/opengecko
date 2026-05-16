@@ -66,6 +66,18 @@ function hasSourceBackedMarketSnapshot(row: { sourceCount: number; sourceProvide
   }
 }
 
+type HistoricalChartSourceCoverage = {
+  ownershipClass: Extract<DataOwnershipClass, 'live' | 'hybrid' | 'seeded'>;
+  latestSourceFetchedAt: Date | null;
+  liveTargetKeyCount: number;
+  replayTargetKeyCount: number;
+  enabledTargetKeyCount: number;
+  minPointsPerEnabledTarget: number;
+};
+
+const HISTORICAL_CHART_LIVE_MIN_TARGET_COVERAGE_RATIO = 0.25;
+const HISTORICAL_CHART_LIVE_MIN_POINTS_PER_TARGET = 30;
+
 function ageSeconds(now: Date, timestamp: Date | null) {
   if (!timestamp) {
     return null;
@@ -96,6 +108,71 @@ function classifyFreshness(
   }
 
   return 'stale';
+}
+
+function classifyHistoricalChartSourceCoverage(database: AppDatabase): HistoricalChartSourceCoverage {
+  const enabledTargets = loadDefaultCoverageTargets().filter(
+    (target) => target.enabled && target.family === 'market_charts',
+  );
+  const enabledTargetKeys = new Set(
+    enabledTargets.map((target) => [target.provider, target.entityId, target.vsCurrency, target.interval].join(':')),
+  );
+  const rows = database.db.select().from(marketChartSourcePoints).all();
+  const targetRows = new Map<string, typeof rows>();
+  let latestReplaySourceFetchedAt: Date | null = null;
+  let latestLiveSourceFetchedAt: Date | null = null;
+
+  for (const row of rows) {
+    if (row.sourceProvider === 'seed' || row.sourceProvider === 'canonical-validation-snapshot') {
+      continue;
+    }
+
+    const key = [row.sourceProvider, row.coinId, row.vsCurrency, row.interval].join(':');
+    if (!enabledTargetKeys.has(key)) {
+      continue;
+    }
+
+    targetRows.set(key, [...(targetRows.get(key) ?? []), row]);
+
+    if (row.sourceKind === 'live') {
+      latestLiveSourceFetchedAt = latestDate([{ timestamp: latestLiveSourceFetchedAt }, { timestamp: row.sourceFetchedAt }], (item) => item.timestamp);
+    } else if (row.sourceKind === 'replay') {
+      latestReplaySourceFetchedAt = latestDate([{ timestamp: latestReplaySourceFetchedAt }, { timestamp: row.sourceFetchedAt }], (item) => item.timestamp);
+    }
+  }
+
+  let liveTargetKeyCount = 0;
+  let replayTargetKeyCount = 0;
+  let minPointsPerEnabledTarget = Number.POSITIVE_INFINITY;
+
+  for (const key of Array.from(enabledTargetKeys)) {
+    const rowsForTarget = targetRows.get(key) ?? [];
+    const liveRowsForTarget = rowsForTarget.filter((row) => row.sourceKind === 'live');
+    const replayRowsForTarget = rowsForTarget.filter((row) => row.sourceKind === 'replay');
+    if (liveRowsForTarget.length > 0) {
+      liveTargetKeyCount += 1;
+      minPointsPerEnabledTarget = Math.min(minPointsPerEnabledTarget, liveRowsForTarget.length);
+    }
+    if (replayRowsForTarget.length > 0) {
+      replayTargetKeyCount += 1;
+    }
+  }
+
+  const requiredLiveTargetKeyCount = Math.max(
+    1,
+    Math.ceil(enabledTargetKeys.size * HISTORICAL_CHART_LIVE_MIN_TARGET_COVERAGE_RATIO),
+  );
+  const hasLiveBreadthAndDepth = liveTargetKeyCount >= requiredLiveTargetKeyCount
+    && minPointsPerEnabledTarget >= HISTORICAL_CHART_LIVE_MIN_POINTS_PER_TARGET;
+
+  return {
+    ownershipClass: hasLiveBreadthAndDepth ? 'live' : liveTargetKeyCount > 0 ? 'hybrid' : 'seeded',
+    latestSourceFetchedAt: latestLiveSourceFetchedAt ?? (liveTargetKeyCount > 0 ? latestReplaySourceFetchedAt : null),
+    liveTargetKeyCount,
+    replayTargetKeyCount,
+    enabledTargetKeyCount: enabledTargetKeys.size,
+    minPointsPerEnabledTarget: Number.isFinite(minPointsPerEnabledTarget) ? minPointsPerEnabledTarget : 0,
+  };
 }
 
 function buildEntry(config: CoverageMatrixEntryConfig, now: Date) {
@@ -158,14 +235,17 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     database.db.select().from(exchangeVolumePoints).all(),
     (row) => row.timestamp,
   );
-  const latestExchangeVolumeSourceAt = latestDate(
-    database.db.select().from(exchangeVolumeSourcePoints).all(),
+  const exchangeVolumeSourceRows = database.db.select().from(exchangeVolumeSourcePoints).all();
+  const liveExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'live');
+  const replayExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'replay');
+  const latestExchangeVolumeLiveSourceAt = latestDate(
+    liveExchangeVolumeSourceRows,
     (row) => row.sourceFetchedAt,
   );
   const latestExchangeDataAt = latestDate(
     [
       { timestamp: latestExchangeTickerAt },
-      { timestamp: latestExchangeVolumeSourceAt },
+      { timestamp: latestExchangeVolumeLiveSourceAt },
       { timestamp: latestExchangeVolumeAt },
     ],
     (row) => row.timestamp,
@@ -174,10 +254,9 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     database.db.select().from(ohlcvCandles).all(),
     (row) => row.timestamp,
   );
-  const latestMarketChartSourceAt = latestDate(
-    database.db.select().from(marketChartSourcePoints).all(),
-    (row) => row.sourceFetchedAt,
-  );
+  const historicalChartSourceCoverage = classifyHistoricalChartSourceCoverage(database);
+  const latestMarketChartSourceAt = historicalChartSourceCoverage.latestSourceFetchedAt;
+  const latestHistoricalSourceAt = latestMarketChartSourceAt ?? (historicalChartSourceCoverage.liveTargetKeyCount > 0 ? latestHistoricalCandleAt : null);
   const latestCatalogAt = latestDate(
     [
       ...database.db.select().from(coins).all(),
@@ -201,8 +280,11 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     ],
     (row) => row.sourceFetchedAt,
   );
+  const onchainTradeRows = database.db.select().from(onchainPoolTrades).all();
+  const liveOnchainTradeRows = onchainTradeRows.filter((row) => row.sourceKind === 'live');
+  const replayOnchainTradeRows = onchainTradeRows.filter((row) => row.sourceKind === 'replay');
   const latestOnchainTradeAt = latestDate(
-    database.db.select().from(onchainPoolTrades).all(),
+    liveOnchainTradeRows,
     (row) => row.sourceFetchedAt,
   );
   const latestSupplyChartAt = latestDate(
@@ -210,9 +292,10 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     (row) => row.sourceFetchedAt,
   );
   const derivativeRows = database.db.select().from(derivativeTickers).all();
-  const sourceBackedDerivativeRows = derivativeRows.filter((row) => row.sourceKind !== 'seed');
+  const liveDerivativeRows = derivativeRows.filter((row) => row.sourceKind === 'live');
+  const replayDerivativeRows = derivativeRows.filter((row) => row.sourceKind === 'replay');
   const latestDerivativeAt = latestDate(
-    sourceBackedDerivativeRows,
+    liveDerivativeRows,
     (row) => row.sourceFetchedAt ?? row.lastTradedAt,
   );
   const latestFixtureDerivativeAt = latestDate(
@@ -265,13 +348,15 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     buildEntry({
       family: 'exchanges',
       representativeRoutes: ['/exchanges', '/exchanges/:id', '/exchanges/:id/tickers', '/exchanges/:id/volume_chart'],
-      ownershipClass: latestExchangeTickerAt || latestExchangeVolumeSourceAt || latestExchangeVolumeAt ? 'hybrid' : 'seeded',
-      providers: ['CCXT', 'seed exchange catalog', 'exchange volume replay'],
+      ownershipClass: latestExchangeTickerAt || latestExchangeVolumeLiveSourceAt || latestExchangeVolumeAt ? 'hybrid' : 'seeded',
+      providers: ['CCXT', 'seed exchange catalog', 'exchange volume live/replay'],
       lastSuccessfulRefreshAt: latestExchangeDataAt,
       evidence: ['tests/exchange-fidelity.test.ts', 'tests/provider-replay-exchange-volumes.test.ts', 'tests/http-cache.test.ts'],
-      notes: latestExchangeVolumeSourceAt
-        ? 'Exchange metadata is seeded/catalog-backed; ticker routes are live-capable and volume charts can read source-attributed exchange volume replay/live rows before canonical fallback.'
-        : 'Exchange metadata is seeded/catalog-backed; ticker and volume surfaces are live-capable when provider rows exist.',
+      notes: latestExchangeVolumeLiveSourceAt
+        ? 'Exchange metadata is seeded/catalog-backed; ticker routes are live-capable and volume charts can read live source-attributed exchange volume rows before canonical fallback.'
+        : replayExchangeVolumeSourceRows.length > 0
+          ? 'Exchange metadata is seeded/catalog-backed; exchange volume replay rows prove adapter shape but do not promote production coverage.'
+          : 'Exchange metadata is seeded/catalog-backed; ticker and volume surfaces are live-capable when provider rows exist.',
     }, observedAt),
     buildEntry({
       family: 'onchain',
@@ -286,34 +371,44 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
       lastSuccessfulRefreshAt: latestOnchainTradeAt ?? latestOnchainAnalyticsAt ?? latestOnchainPoolOhlcvAt ?? latestOnchainPoolAt,
       evidence: ['tests/modules/onchain.test.ts', 'tests/http-cache.test.ts', 'tests/provider-replay-defillama.test.ts', 'tests/provider-replay-onchain-analytics.test.ts', 'tests/provider-replay-onchain-trades.test.ts'],
       notes: latestOnchainTradeAt
-        ? 'Pool discovery/detail routes are hybrid; trade, OHLCV, and token analytics routes can read source-attributed replay/live rows before fixture or synthetic fallbacks.'
-        : latestOnchainAnalyticsAt
-          ? 'Pool discovery/detail routes are hybrid; pool OHLCV and token analytics can read source-attributed replay/live rows before fixture fallbacks, but analytics replay must not be advertised as live.'
-          : latestOnchainPoolOhlcvAt
-            ? 'Pool discovery/detail routes are hybrid; pool OHLCV can read source-attributed replay/live rows before synthetic fallback; holders, traders, and trades still use fixture fallbacks.'
-            : 'Pool discovery/detail routes are hybrid; holders, traders, trades, and some OHLCV analytics still use fixture or synthetic fallbacks.',
+        ? 'Pool discovery/detail routes are hybrid; trade rows include live source-backed freshness evidence while OHLCV and token analytics may still use fixture or replay fallbacks.'
+        : replayOnchainTradeRows.length > 0
+          ? 'Pool discovery/detail routes are hybrid; onchain trade replay rows prove Subsquid normalization but do not promote production trade freshness.'
+          : latestOnchainAnalyticsAt
+            ? 'Pool discovery/detail routes are hybrid; pool OHLCV and token analytics can read source-attributed replay/live rows before fixture fallbacks, but analytics replay must not be advertised as live.'
+            : latestOnchainPoolOhlcvAt
+              ? 'Pool discovery/detail routes are hybrid; pool OHLCV can read source-attributed replay/live rows before synthetic fallback; holders, traders, and trades still use fixture fallbacks.'
+              : 'Pool discovery/detail routes are hybrid; holders, traders, trades, and some OHLCV analytics still use fixture or synthetic fallbacks.',
     }, observedAt),
     buildEntry({
       family: 'derivatives',
       representativeRoutes: ['/derivatives', '/derivatives/exchanges', '/derivatives/exchanges/:id'],
-      ownershipClass: sourceBackedDerivativeRows.length > 0 ? 'hybrid' : 'fixture',
-      providers: ['seed derivatives fixtures', 'CCXT derivatives replay'],
+      ownershipClass: liveDerivativeRows.length > 0 ? 'hybrid' : 'fixture',
+      providers: ['seed derivatives fixtures', 'CCXT derivatives live/replay'],
       lastSuccessfulRefreshAt: latestDerivativeAt ?? latestFixtureDerivativeAt,
       evidence: ['tests/compare-coingecko.test.ts', 'tests/provider-replay-derivatives.test.ts'],
-      notes: sourceBackedDerivativeRows.length > 0
-        ? 'Derivative rows include source-attributed replay/live-ingested rows; seeded fixture rows may still be present until full live futures/swap ingestion lands.'
-        : 'Derivative rows are seeded fixtures until live futures/swap ingestion lands; CCXT-style replay now proves raw ticker normalization and idempotent writes into public response shape.',
+      notes: liveDerivativeRows.length > 0
+        ? 'Derivative rows include live source-attributed futures/swap rows; seeded fixture rows may still be present until full live ingestion breadth lands.'
+        : replayDerivativeRows.length > 0
+          ? 'Derivative rows include replay rows that prove CCXT raw ticker normalization and idempotent writes, but replay rows do not promote production coverage.'
+          : 'Derivative rows are seeded fixtures until live futures/swap ingestion lands; CCXT-style replay proves raw ticker normalization without promoting live coverage.',
     }, observedAt),
     buildEntry({
       family: 'historical_charts',
       representativeRoutes: ['/coins/:id/market_chart', '/coins/:id/ohlc', '/exchanges/:id/volume_chart'],
-      ownershipClass: latestHistoricalCandleAt || latestMarketChartSourceAt ? 'hybrid' : 'seeded',
+      ownershipClass: historicalChartSourceCoverage.ownershipClass === 'live'
+        ? 'live'
+        : historicalChartSourceCoverage.liveTargetKeyCount > 0
+          ? 'hybrid'
+          : 'seeded',
       providers: ['CCXT OHLCV', 'market chart replay', 'seed chart corpus'],
-      lastSuccessfulRefreshAt: latestMarketChartSourceAt ?? latestHistoricalCandleAt,
+      lastSuccessfulRefreshAt: latestHistoricalSourceAt,
       evidence: ['tests/ohlcv-sync.test.ts', 'tests/provider-replay-market-charts.test.ts', 'tests/http-cache.test.ts'],
-      notes: latestMarketChartSourceAt || latestHistoricalCandleAt
-        ? `Historical chart and OHLC routes can read source-attributed replay/live rows before seeded chart or canonical candle fallback; ${enabledHistoricalCoverageKeyCount} enabled coverage targets define breadth/depth expectations. Future live classification requires documented breadth/depth thresholds.`
-        : `Historical quality is judged by continuity and retention, not latest tick age; ${enabledHistoricalCoverageKeyCount} enabled coverage targets are configured but not yet source-backed.` ,
+      notes: historicalChartSourceCoverage.ownershipClass === 'live'
+        ? `Historical chart rows satisfy source-backed live breadth/depth gates across ${historicalChartSourceCoverage.liveTargetKeyCount}/${historicalChartSourceCoverage.enabledTargetKeyCount} enabled market chart targets with at least ${historicalChartSourceCoverage.minPointsPerEnabledTarget} live points per covered target.`
+        : latestMarketChartSourceAt || latestHistoricalCandleAt
+          ? `Historical chart and OHLC routes can read source-attributed rows before seeded chart or canonical candle fallback, but live classification requires at least ${HISTORICAL_CHART_LIVE_MIN_POINTS_PER_TARGET} live points on ${Math.ceil(historicalChartSourceCoverage.enabledTargetKeyCount * HISTORICAL_CHART_LIVE_MIN_TARGET_COVERAGE_RATIO)} enabled market chart targets; current live/replay target coverage is ${historicalChartSourceCoverage.liveTargetKeyCount}/${historicalChartSourceCoverage.replayTargetKeyCount}.`
+          : `Historical quality is judged by continuity and retention, not latest tick age; ${enabledHistoricalCoverageKeyCount} enabled coverage targets are configured but not yet source-backed.` ,
     }, observedAt),
     buildEntry({
       family: 'supply_charts',

@@ -721,6 +721,68 @@ describe('market chart sync', () => {
     }
   });
 
+  it('reports unsupported coverage-plan market chart intervals without fetching them', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+
+      const fetcher = vi.fn(async () => {
+        throw new Error('unsupported interval should not be fetched');
+      });
+      const result = await syncMarketChartsFromCoveragePlan(app.db, {
+        now: new Date('2026-05-05T03:30:00.000Z'),
+        coverageTargets: [
+          {
+            family: 'market_charts',
+            provider: 'intraday.archive',
+            entityType: 'coin',
+            entityId: 'ethereum',
+            interval: '1h',
+            vsCurrency: 'usd',
+            tier: 'A',
+            targetHistoryDays: 30,
+            freshnessSloSeconds: 3_600,
+            productionFreshnessSloSeconds: 900,
+            enabled: true,
+            priority: 2,
+          },
+        ],
+        fetcher,
+      });
+
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        tasks_planned: 1,
+        targets_attempted: 1,
+        targets_failed: 0,
+        points_fetched: 0,
+        points_written: 0,
+        results: [
+          expect.objectContaining({
+            provider: 'intraday.archive',
+            coin_id: 'ethereum',
+            vs_currency: 'usd',
+            interval: '1h',
+            reason: 'missing',
+            status: 'unsupported_interval',
+            points_fetched: 0,
+            points_written: 0,
+            error: 'market chart coverage sync does not support interval 1h',
+          }),
+        ],
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('derives provider sync work from coverage backfill planner tasks', async () => {
     const app = buildApp({
       config: {
