@@ -6,12 +6,12 @@ import type { AppDatabase } from '../db/client';
 import { coinTickers, exchanges, exchangeVolumePoints, marketSnapshots } from '../db/schema';
 import { coins } from '../db/schema';
 import type { Logger } from 'pino';
-import { fetchExchangeTickers, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
+import { fetchExchangeTickers, isValidExchangeId, type ExchangeId, type ExchangeTickerSnapshot } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { mapWithConcurrency } from '../lib/async';
 import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle, enforceQuoteSnapshotRetention } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
-import { buildLiveSnapshotValue, createMarketQuoteAccumulator, type MarketQuoteAccumulator } from './market-snapshots';
+import { buildLiveSnapshotValue, buildMarketQuoteAccumulator, normalizeMarketTimestamp, type MarketQuoteSample } from './market-snapshots';
 import { clearProviderFailureCooldown, recordProviderFailureCooldown, type MarketDataRuntimeState } from './market-runtime-state';
 import type { MetricsRegistry } from './metrics';
 import {
@@ -67,7 +67,7 @@ type ConversionContext = {
 };
 
 type RefreshTickerProcessingState = {
-  accumulators: Map<string, { coinId: string; vsCurrency: string; accumulator: MarketQuoteAccumulator }>;
+  marketSamples: Map<string, { coinId: string; vsCurrency: string; samples: MarketQuoteSample[] }>;
   pendingCoinTickers: PendingCoinTicker[];
   exchangeQuoteVolumes: Map<string, number>;
 };
@@ -286,7 +286,7 @@ function upsertLiveCoinTicker(
 
 function createRefreshTickerProcessingState(): RefreshTickerProcessingState {
   return {
-    accumulators: new Map(),
+    marketSamples: new Map(),
     pendingCoinTickers: [],
     exchangeQuoteVolumes: new Map(),
   };
@@ -303,37 +303,88 @@ function recordExchangeQuoteVolume(exchangeQuoteVolumes: Map<string, number>, ex
   );
 }
 
+function toFiniteNullableNonNegative(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function toFiniteNullablePercentage(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return Number.isFinite(value) ? value : null;
+}
+
+function hasTruthyQualityFlag(ticker: ExchangeTickerSnapshot, flagNames: string[]) {
+  const tickerRecord = ticker as unknown as Record<string, unknown>;
+  const rawRecord = ticker.raw && typeof ticker.raw === 'object'
+    ? ticker.raw as unknown as Record<string, unknown>
+    : {};
+
+  return flagNames.some((flagName) =>
+    tickerRecord[flagName] === true
+    || rawRecord[flagName] === true
+    || rawRecord[flagName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)] === true,
+  );
+}
+
+function normalizeTickerForMarketSnapshot(ticker: ExchangeTickerSnapshot, nowMs = Date.now()) {
+  const timestamp = normalizeMarketTimestamp(ticker.timestamp, nowMs);
+
+  if (
+    timestamp === null
+    || typeof ticker.symbol !== 'string'
+    || ticker.symbol.length === 0
+    || typeof ticker.base !== 'string'
+    || ticker.base.length === 0
+    || typeof ticker.quote !== 'string'
+    || ticker.quote.length === 0
+    || ticker.last === null
+    || !Number.isFinite(ticker.last)
+    || ticker.last <= 0
+    || hasTruthyQualityFlag(ticker, ['isAnomaly', 'isStale'])
+  ) {
+    return null;
+  }
+
+  const baseVolume = toFiniteNullableNonNegative(ticker.baseVolume);
+  const quoteVolume = toFiniteNullableNonNegative(ticker.quoteVolume);
+  const percentage = toFiniteNullablePercentage(ticker.percentage);
+
+  return {
+    timestamp,
+    baseVolume,
+    quoteVolume,
+    percentage,
+  };
+}
+
 function recordAccumulatorSample(
-  accumulators: RefreshTickerProcessingState['accumulators'],
+  marketSamples: RefreshTickerProcessingState['marketSamples'],
   marketTarget: SymbolIndexEntry,
   exchangeId: ExchangeId,
-  ticker: Awaited<ReturnType<typeof fetchExchangeTickers>>[number],
+  ticker: ExchangeTickerSnapshot,
+  normalizedTicker: NonNullable<ReturnType<typeof normalizeTickerForMarketSnapshot>>,
 ) {
-  const accumulatorKey = `${marketTarget.coinId}:${marketTarget.vsCurrency}`;
-  const accumulator = accumulators.get(accumulatorKey)?.accumulator ?? createMarketQuoteAccumulator();
-  accumulator.priceTotal = accumulator.priceTotal.plus(ticker.last!);
-  accumulator.priceCount += 1;
-
-  if (ticker.quoteVolume !== null) {
-    accumulator.volumeTotal = accumulator.volumeTotal.plus(ticker.quoteVolume);
-    accumulator.volumeCount += 1;
-  }
-
-  if (ticker.percentage !== null) {
-    accumulator.changeTotal = accumulator.changeTotal.plus(ticker.percentage);
-    accumulator.changeCount += 1;
-  }
-
-  if (ticker.timestamp !== null) {
-    accumulator.latestTimestamp = Math.max(accumulator.latestTimestamp, ticker.timestamp);
-  }
-
-  accumulator.providers.add(exchangeId);
-  accumulators.set(accumulatorKey, {
+  const marketSampleKey = `${marketTarget.coinId}:${marketTarget.vsCurrency}`;
+  const entry = marketSamples.get(marketSampleKey) ?? {
     coinId: marketTarget.coinId,
     vsCurrency: marketTarget.vsCurrency,
-    accumulator,
+    samples: [],
+  };
+
+  entry.samples.push({
+    price: ticker.last!,
+    quoteVolume: normalizedTicker.quoteVolume,
+    changePercentage24h: normalizedTicker.percentage,
+    timestamp: normalizedTicker.timestamp,
+    provider: exchangeId,
   });
+  marketSamples.set(marketSampleKey, entry);
 }
 
 function recordMatchedTicker(
@@ -342,12 +393,13 @@ function recordMatchedTicker(
   processingState: RefreshTickerProcessingState,
   exchangeId: ExchangeId,
   marketTarget: SymbolIndexEntry,
-  ticker: Awaited<ReturnType<typeof fetchExchangeTickers>>[number],
+  ticker: ExchangeTickerSnapshot,
+  normalizedTicker: NonNullable<ReturnType<typeof normalizeTickerForMarketSnapshot>>,
 ) {
   const normalizedExchangeId = exchangeId;
-  const fetchedAt = new Date(ticker.timestamp ?? Date.now());
+  const fetchedAt = new Date(normalizedTicker.timestamp);
 
-  recordExchangeQuoteVolume(processingState.exchangeQuoteVolumes, normalizedExchangeId, ticker.quoteVolume);
+  recordExchangeQuoteVolume(processingState.exchangeQuoteVolumes, normalizedExchangeId, normalizedTicker.quoteVolume);
 
   recordQuoteSnapshot(database, {
     coinId: marketTarget.coinId,
@@ -356,8 +408,8 @@ function recordMatchedTicker(
     symbol: ticker.symbol,
     fetchedAt,
     price: ticker.last!,
-    quoteVolume: ticker.quoteVolume,
-    priceChangePercentage24h: ticker.percentage,
+    quoteVolume: normalizedTicker.quoteVolume,
+    priceChangePercentage24h: normalizedTicker.percentage,
     sourcePayloadJson: JSON.stringify(ticker.raw),
   });
 
@@ -368,8 +420,8 @@ function recordMatchedTicker(
     target: ticker.quote,
     marketName: ticker.symbol,
     last: ticker.last!,
-    volume: ticker.baseVolume,
-    quoteVolume: ticker.quoteVolume,
+    volume: normalizedTicker.baseVolume,
+    quoteVolume: normalizedTicker.quoteVolume,
     bidAskSpreadPercentage: buildBidAskSpreadPercentage(ticker.bid, ticker.ask),
     lastTradedAt: fetchedAt,
     lastFetchAt: fetchedAt,
@@ -382,7 +434,7 @@ function recordMatchedTicker(
     vsCurrency: marketTarget.vsCurrency,
   });
 
-  recordAccumulatorSample(processingState.accumulators, marketTarget, exchangeId, ticker);
+  recordAccumulatorSample(processingState.marketSamples, marketTarget, exchangeId, ticker, normalizedTicker);
 }
 
 function determineTickerVsCurrency(
@@ -460,12 +512,14 @@ function buildConversionContext(database: AppDatabase, usdPriceByCoinId: Map<str
 
 function writeMarketSnapshots(
   database: AppDatabase,
-  accumulators: RefreshTickerProcessingState['accumulators'],
+  marketSamples: RefreshTickerProcessingState['marketSamples'],
   now: Date,
 ) {
   const usdPriceByCoinId = new Map<string, number>();
 
-  for (const { coinId, vsCurrency, accumulator } of accumulators.values()) {
+  for (const { coinId, vsCurrency, samples } of marketSamples.values()) {
+    const accumulator = buildMarketQuoteAccumulator(samples);
+
     if (accumulator.priceCount === 0) {
       continue;
     }
@@ -724,13 +778,14 @@ export async function runMarketRefreshOnce(
     for (const ticker of tickers) {
       const request = tickerDiscoveryRequests.get(ticker.symbol);
       const marketTarget = request?.marketTarget;
+      const normalizedTicker = normalizeTickerForMarketSnapshot(ticker);
 
-      if (!marketTarget || ticker.last === null) {
+      if (!marketTarget || normalizedTicker === null) {
         continue;
       }
 
       matchedCount += 1;
-      recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker);
+      recordMatchedTicker(database, exchangeTrustScoreById, processingState, exchangeId, marketTarget, ticker, normalizedTicker);
 
       const tickerVsCurrency = determineTickerVsCurrency(
         quoteCandidatesByCoinId,
@@ -753,6 +808,7 @@ export async function runMarketRefreshOnce(
           vsCurrency: tickerVsCurrency,
         },
         ticker,
+        normalizedTicker,
       );
     }
     processingPhase.stop();
@@ -800,8 +856,8 @@ export async function runMarketRefreshOnce(
   const now = new Date();
   updateExchangeVolumes(database, processingState.exchangeQuoteVolumes, now);
   const writeSnapshotsPhase = createLongPhaseReporter(progress);
-  writeSnapshotsPhase.start(`Still working: writing ${processingState.accumulators.size.toLocaleString()} market snapshots`);
-  const usdPriceByCoinId = writeMarketSnapshots(database, processingState.accumulators, now);
+  writeSnapshotsPhase.start(`Still working: writing ${processingState.marketSamples.size.toLocaleString()} market snapshots`);
+  const usdPriceByCoinId = writeMarketSnapshots(database, processingState.marketSamples, now);
   const conversionContext = buildConversionContext(database, usdPriceByCoinId);
   writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
   upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext);
@@ -811,7 +867,7 @@ export async function runMarketRefreshOnce(
   const durationMs = Date.now() - startTime;
   if (!progress) {
     refreshLogger?.info({
-      snapshotCount: processingState.accumulators.size,
+      snapshotCount: processingState.marketSamples.size,
       tickerCount: processingState.pendingCoinTickers.length,
       exchangeCount: exchangeIds.length,
       failedExchangeCount: failedExchanges,

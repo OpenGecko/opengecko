@@ -1009,6 +1009,301 @@ describe('market refresh service', () => {
     expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
   });
 
+  it('writes source-backed normalized snapshots while rejecting malformed, stale, and outlier provider candidates', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'coinbase',
+        symbol: 'BTC/USD',
+        base: 'BTC',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'kraken',
+        symbol: 'BTC/USD',
+        base: 'BTC',
+        quote: 'USD',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'bybit',
+        symbol: 'ETH/USDT',
+        base: 'ETH',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Ethereum',
+        raw: {},
+      },
+    ]);
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId) => {
+      switch (exchangeId) {
+        case 'binance':
+          return [
+            {
+              exchangeId,
+              symbol: 'BTC/USDT',
+              base: 'BTC',
+              quote: 'USDT',
+              last: 90_000,
+              bid: 89_990,
+              ask: 90_010,
+              high: null,
+              low: null,
+              baseVolume: 1_000,
+              quoteVolume: 90_000_000,
+              percentage: 1,
+              timestamp: 1_773_964_800,
+              raw: {} as never,
+            },
+            {
+              exchangeId,
+              symbol: 'ETH/USDT',
+              base: 'ETH',
+              quote: 'USDT',
+              last: Number.NaN,
+              bid: null,
+              ask: null,
+              high: null,
+              low: null,
+              baseVolume: null,
+              quoteVolume: null,
+              percentage: null,
+              timestamp: Date.parse('2026-03-20T00:00:00.000Z'),
+              raw: {} as never,
+            },
+          ];
+        case 'coinbase':
+          return [{
+            exchangeId,
+            symbol: 'BTC/USD',
+            base: 'BTC',
+            quote: 'USD',
+            last: 90_100,
+            bid: 90_090,
+            ask: 90_110,
+            high: null,
+            low: null,
+            baseVolume: 1_100,
+            quoteVolume: 99_110_000,
+            percentage: 2,
+            timestamp: Date.parse('2026-03-20T00:02:00.000Z'),
+            raw: {} as never,
+          }];
+        case 'kraken':
+          return [{
+            exchangeId,
+            symbol: 'BTC/USD',
+            base: 'BTC',
+            quote: 'USD',
+            last: 9_000_000,
+            bid: 8_999_000,
+            ask: 9_001_000,
+            high: null,
+            low: null,
+            baseVolume: 1,
+            quoteVolume: 9_000_000,
+            percentage: 50,
+            timestamp: Date.parse('2026-03-20T00:03:00.000Z'),
+            raw: {} as never,
+          }];
+        case 'bybit':
+          return [
+            {
+              exchangeId,
+              symbol: 'ETH/USDT',
+              base: 'ETH',
+              quote: 'USDT',
+              last: 2_200,
+              bid: 2_199,
+              ask: 2_201,
+              high: null,
+              low: null,
+              baseVolume: null,
+              quoteVolume: null,
+              percentage: null,
+              timestamp: Date.parse('2026-03-20T00:04:00.000Z'),
+              raw: {} as never,
+            },
+            {
+              exchangeId,
+              symbol: 'BTC/USDT',
+              base: 'BTC',
+              quote: 'USDT',
+              last: 89_000,
+              bid: 88_990,
+              ask: 89_010,
+              high: null,
+              low: null,
+              baseVolume: 100,
+              quoteVolume: 8_900_000,
+              percentage: 1,
+              timestamp: Date.parse('2009-12-31T00:00:00.000Z'),
+              raw: {} as never,
+            },
+            {
+              exchangeId,
+              symbol: 'BTC/USDT',
+              base: 'BTC',
+              quote: 'USDT',
+              last: 91_000,
+              bid: 90_990,
+              ask: 91_010,
+              high: null,
+              low: null,
+              baseVolume: 100,
+              quoteVolume: 9_100_000,
+              percentage: 1,
+              timestamp: Date.parse('2026-03-20T00:05:00.000Z'),
+              raw: { isStale: true } as never,
+            },
+          ];
+        default:
+          return [];
+      }
+    });
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase', 'kraken', 'bybit'],
+      providerFanoutConcurrency: 4,
+    });
+
+    const bitcoinSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+    const ethereumSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'ethereum'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+
+    expect(bitcoinSnapshot).toMatchObject({
+      price: 90_050,
+      sourceCount: 2,
+      sourceProvidersJson: JSON.stringify(['binance', 'coinbase']),
+    });
+    expect(bitcoinSnapshot?.lastUpdated).toEqual(new Date('2026-03-20T00:02:00.000Z'));
+    expect(ethereumSnapshot).toMatchObject({
+      price: 2_200,
+      totalVolume: null,
+      priceChangePercentage24h: null,
+      sourceCount: 1,
+      sourceProvidersJson: JSON.stringify(['bybit']),
+    });
+    for (const snapshot of [bitcoinSnapshot, ethereumSnapshot]) {
+      expect(snapshot).toBeDefined();
+      expect(Object.values(snapshot!).some((value) => typeof value === 'number' && !Number.isFinite(value))).toBe(false);
+    }
+
+    const bybitBitcoinTicker = database.db
+      .select()
+      .from(coinTickers)
+      .where(and(
+        eq(coinTickers.coinId, 'bitcoin'),
+        eq(coinTickers.exchangeId, 'bybit'),
+      ))
+      .get();
+
+    expect(bybitBitcoinTicker).toBeUndefined();
+  });
+
+  it('preserves null public market fields for unknown optional provider values', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'nullable-fields.db'),
+        ccxtExchanges: [],
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+
+      app.db.db
+        .insert(marketSnapshots)
+        .values({
+          coinId: 'bitcoin',
+          vsCurrency: 'usd',
+          price: 90_000,
+          marketCap: null,
+          totalVolume: null,
+          marketCapRank: null,
+          fullyDilutedValuation: null,
+          circulatingSupply: null,
+          totalSupply: null,
+          maxSupply: null,
+          ath: null,
+          athChangePercentage: null,
+          athDate: null,
+          atl: null,
+          atlChangePercentage: null,
+          atlDate: null,
+          priceChange24h: null,
+          priceChangePercentage24h: null,
+          sourceProvidersJson: JSON.stringify(['binance']),
+          sourceCount: 1,
+          updatedAt: new Date(),
+          lastUpdated: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [marketSnapshots.coinId, marketSnapshots.vsCurrency],
+          set: {
+            price: 90_000,
+            marketCap: null,
+            totalVolume: null,
+            fullyDilutedValuation: null,
+            ath: null,
+            atl: null,
+            priceChange24h: null,
+            priceChangePercentage24h: null,
+            sourceProvidersJson: JSON.stringify(['binance']),
+            sourceCount: 1,
+            updatedAt: new Date(),
+            lastUpdated: new Date(),
+          },
+        })
+        .run();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/coins/markets?vs_currency=usd&ids=bitcoin&price_change_percentage=24h',
+      });
+      const [row] = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(row.current_price).toBe(90_000);
+      expect(row.market_cap).toBeNull();
+      expect(row.total_volume).toBeNull();
+      expect(row.fully_diluted_valuation).toBeNull();
+      expect(row.ath).toBeNull();
+      expect(row.atl).toBeNull();
+      expect(row.price_change_24h).toBeNull();
+      expect(row.price_change_percentage_24h).toBeNull();
+      expect(row.price_change_percentage_24h_in_currency).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('times out hung exchange ticker fetches after 60 seconds and continues with other exchanges', async () => {
     mockedFetchExchangeMarkets.mockResolvedValue([
       {
