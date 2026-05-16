@@ -10,6 +10,14 @@ const PRIORITY_RANK: Record<OhlcvPriorityTier, number> = {
   long_tail: 2,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const INTERVAL_RECENT_FRESHNESS_MS: Record<string, number> = {
+  '1m': 5 * 60 * 1000,
+  '1d': DAY_MS,
+};
+const INTERVAL_LEASE_RANK: Record<string, number> = {
+  '1m': 0,
+  '1d': 1,
+};
 
 type OhlcvTargetKey = {
   coinId: string;
@@ -98,6 +106,24 @@ export function leaseNextOhlcvTarget(database: AppDatabase, now: Date): OhlcvSyn
 
     if (leftRetryDue !== rightRetryDue) {
       return leftRetryDue - rightRetryDue;
+    }
+
+    const isRecentStale = (target: OhlcvSyncTargetRow) => {
+      const freshnessMs = INTERVAL_RECENT_FRESHNESS_MS[target.interval] ?? DAY_MS;
+
+      return !target.latestSyncedAt || target.latestSyncedAt.getTime() < now.getTime() - freshnessMs;
+    };
+    const leftRecentStale = isRecentStale(left) ? 0 : 1;
+    const rightRecentStale = isRecentStale(right) ? 0 : 1;
+
+    if (leftRecentStale !== rightRecentStale) {
+      return leftRecentStale - rightRecentStale;
+    }
+
+    const intervalDifference = (INTERVAL_LEASE_RANK[left.interval] ?? 10) - (INTERVAL_LEASE_RANK[right.interval] ?? 10);
+
+    if (intervalDifference !== 0) {
+      return intervalDifference;
     }
 
     const depthDifference = remainingDepthDays(right) - remainingDepthDays(left);

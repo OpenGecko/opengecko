@@ -30,10 +30,20 @@ export async function buildOhlcvSyncTargets(
   options: { targetHistoryDays?: number; coverageTargets?: CoverageTarget[] } = {},
 ): Promise<OhlcvSyncTargetSeed[]> {
   const targetHistoryDays = options.targetHistoryDays ?? DEFAULT_OHLCV_TARGET_HISTORY_DAYS;
-  const requestedCoverageTargets = new Map((options.coverageTargets ?? [])
-    .filter((target) => target.enabled && target.family === 'ohlcv')
+  const enabledCoverageTargets = (options.coverageTargets ?? [])
+    .filter((target) => target.enabled)
+    .filter((target) => target.entityType === 'coin')
+    .filter((target) => target.vsCurrency === 'usd')
+    .filter((target) => isSupportedOhlcvInterval(target.interval));
+  const requestedCoverageTargets = new Map(enabledCoverageTargets
+    .filter((target) => target.family === 'ohlcv')
     .filter((target) => isSupportedOhlcvInterval(target.interval))
     .map((target) => [`${target.provider}:${target.entityId}:${target.vsCurrency}:${target.interval}`, target]));
+  const bridgedMarketChartTargets = new Map(enabledCoverageTargets
+    .filter((target) => target.family === 'market_charts')
+    .filter((target) => target.provider === 'custom')
+    .filter((target) => target.interval === '1m')
+    .map((target) => [`${target.entityId}:${target.vsCurrency}:${target.interval}`, target]));
   const marketIndex = new Map<ExchangeId, Set<string>>();
 
   for (const exchangeId of enabledExchanges) {
@@ -73,10 +83,15 @@ export async function buildOhlcvSyncTargets(
             && target.vsCurrency === 'usd')
           .map((target) => target.interval)
           .filter(isSupportedOhlcvInterval);
-        const intervals = [...new Set<OhlcvTargetInterval>(['1d', ...requestedIntervals])];
+        const bridgedIntervals = [...bridgedMarketChartTargets.values()]
+          .filter((target) => target.entityId === row.id && target.vsCurrency === 'usd')
+          .map((target) => target.interval)
+          .filter(isSupportedOhlcvInterval);
+        const intervals = [...new Set<OhlcvTargetInterval>(['1d', ...requestedIntervals, ...bridgedIntervals])];
 
         return intervals.map((interval) => {
-          const coverageTarget = requestedCoverageTargets.get(`${exchangeId}:${row.id}:usd:${interval}`);
+          const coverageTarget = requestedCoverageTargets.get(`${exchangeId}:${row.id}:usd:${interval}`)
+            ?? bridgedMarketChartTargets.get(`${row.id}:usd:${interval}`);
 
           return {
             coinId: row.id,

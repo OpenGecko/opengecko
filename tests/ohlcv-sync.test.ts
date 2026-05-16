@@ -198,4 +198,96 @@ describe('ohlcv sync units', () => {
       to: Date.parse('2026-03-22T00:01:00.000Z'),
     })).toEqual([]);
   });
+
+  it('bounds never-synced 1m recent fetches to a near-current provider window', async () => {
+    mockedFetchExchangeOHLCV.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1m',
+        timestamp: Date.parse('2026-03-22T23:59:00.000Z'),
+        open: 82_000,
+        high: 82_050,
+        low: 81_950,
+        close: 82_025,
+        volume: 12,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+    ]);
+
+    await syncRecentOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1m',
+      priorityTier: 'top100',
+      latestSyncedAt: null,
+      oldestSyncedAt: null,
+      targetHistoryDays: 30,
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(fetchExchangeOHLCV).toHaveBeenCalledWith(
+      'binance',
+      'BTC/USDT',
+      '1m',
+      Date.parse('2026-03-22T23:00:00.000Z'),
+      60,
+    );
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1m')).toEqual([
+      expect.objectContaining({
+        timestamp: new Date('2026-03-22T23:59:00.000Z'),
+        close: 82_025,
+      }),
+    ]);
+  });
+
+  it('filters malformed provider OHLCV rows before persistence', async () => {
+    database.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+    mockedFetchExchangeOHLCV.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
+        open: 82_000,
+        high: 81_000,
+        low: 83_000,
+        close: 82_500,
+        volume: 1_200,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-23T00:00:00.000Z'),
+        open: 83_000,
+        high: 84_000,
+        low: 82_000,
+        close: 83_500,
+        volume: 1_300,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+    ]);
+
+    await syncRecentOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d')).toEqual([
+      expect.objectContaining({
+        timestamp: new Date('2026-03-23T00:00:00.000Z'),
+        close: 83_500,
+      }),
+    ]);
+  });
 });

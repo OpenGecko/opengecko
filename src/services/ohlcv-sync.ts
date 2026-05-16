@@ -2,7 +2,13 @@ import type { AppDatabase } from '../db/client';
 import type { OhlcvSyncTargetRow } from '../db/schema';
 import { fetchExchangeOHLCV } from '../providers/ccxt';
 import type { CandleInterval } from './candle-store';
-import { detectOhlcvGaps, enforceOhlcvRetention, repairOhlcvGaps, upsertCanonicalOhlcvCandle } from './candle-store';
+import {
+  detectOhlcvGaps,
+  enforceOhlcvRetention,
+  hasValidOhlcInvariants,
+  repairOhlcvGaps,
+  upsertCanonicalOhlcvCandle,
+} from './candle-store';
 
 type OhlcvSyncTargetLike = Pick<
   OhlcvSyncTargetRow,
@@ -12,6 +18,7 @@ type OhlcvSyncTargetLike = Pick<
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const HISTORICAL_DEEPEN_CHUNK_DAYS = 180;
 export const HISTORICAL_DEEPEN_OVERLAP_DAYS = 2;
+const NEVER_SYNCED_1M_RECENT_BOOTSTRAP_MINUTES = 60;
 
 function getIntervalMs(interval: CandleInterval) {
   return interval === '1m' ? 60_000 : DAY_MS;
@@ -28,7 +35,7 @@ function getSupportedTargetInterval(target: OhlcvSyncTargetLike): CandleInterval
 function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: Awaited<ReturnType<typeof fetchExchangeOHLCV>>) {
   const interval = getSupportedTargetInterval(target);
 
-  for (const candle of candles) {
+  for (const candle of candles.filter(hasValidOhlcInvariants)) {
     upsertCanonicalOhlcvCandle(database, {
       coinId: target.coinId,
       vsCurrency: target.vsCurrency,
@@ -63,11 +70,19 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
   const interval = getSupportedTargetInterval(target);
   const intervalMs = getIntervalMs(interval);
   const seededRecentSince = now.getTime() - 30 * DAY_MS;
+  const neverSyncedIntradaySince = now.getTime() - NEVER_SYNCED_1M_RECENT_BOOTSTRAP_MINUTES * 60_000;
   const since = target.latestSyncedAt
     ? target.latestSyncedAt.getTime() + intervalMs
-    : seededRecentSince;
+    : interval === '1m'
+      ? neverSyncedIntradaySince
+      : seededRecentSince;
+  const limit = !target.latestSyncedAt && interval === '1m'
+    ? NEVER_SYNCED_1M_RECENT_BOOTSTRAP_MINUTES
+    : undefined;
 
-  const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since);
+  const candles = limit === undefined
+    ? await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since)
+    : await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
   persistCandles(database, target, candles);
   await repairPersistedGaps(database, target);
 

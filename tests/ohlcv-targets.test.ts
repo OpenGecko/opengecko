@@ -310,4 +310,48 @@ describe('ohlcv targets', () => {
       }),
     ]));
   });
+
+  it('bridges default custom market chart intraday coverage targets into exchange-backed OHLCV targets', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+    ]);
+
+    const targets = await buildOhlcvSyncTargets(database, ['binance'], new Set(), {
+      targetHistoryDays: 365,
+      coverageTargets: [
+        {
+          family: 'market_charts',
+          provider: 'custom',
+          entityType: 'coin',
+          entityId: 'bitcoin',
+          interval: '1m',
+          vsCurrency: 'usd',
+          tier: 'S',
+          targetHistoryDays: 30,
+          freshnessSloSeconds: 300,
+          productionFreshnessSloSeconds: 120,
+          enabled: true,
+          priority: 1010,
+        },
+      ],
+    });
+
+    expect(targets).toContainEqual(expect.objectContaining({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1m',
+      priorityTier: 'requested',
+      targetHistoryDays: 30,
+    }));
+  });
 });

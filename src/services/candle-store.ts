@@ -113,6 +113,22 @@ export type HistoricalOhlcvStore = {
   }) => number;
 };
 
+function isFinitePositiveNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+export function hasValidOhlcInvariants(input: Pick<CanonicalOhlcvCandleInput, 'open' | 'high' | 'low' | 'close'>) {
+  if (![input.open, input.high, input.low, input.close].every(isFinitePositiveNumber)) {
+    return false;
+  }
+
+  return input.low <= input.open
+    && input.low <= input.close
+    && input.high >= input.open
+    && input.high >= input.close
+    && input.low <= input.high;
+}
+
 export function createSqliteHistoricalOhlcvStore(database: AppDatabase): HistoricalOhlcvStore {
   return {
     getCanonicalCandles: (coinId, vsCurrency, interval, range) =>
@@ -228,6 +244,10 @@ export function upsertCanonicalCandle(database: AppDatabase, input: CanonicalCan
 }
 
 export function upsertCanonicalOhlcvCandle(database: AppDatabase, input: CanonicalOhlcvCandleInput) {
+  if (!hasValidOhlcInvariants(input)) {
+    return;
+  }
+
   const source = input.source ?? 'canonical';
   const setValues = input.replaceExisting
     ? {
@@ -423,6 +443,9 @@ export async function repairOhlcvGaps(
 
     for (const candle of fetchedCandles) {
       if (!requestedTimestamps.has(candle.timestamp)) {
+        continue;
+      }
+      if (!hasValidOhlcInvariants(candle)) {
         continue;
       }
 

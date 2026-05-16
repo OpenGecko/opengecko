@@ -235,6 +235,38 @@ describe('ohlcv worker state', () => {
     expect(leased?.status).toBe('running');
   });
 
+  it('leases never-synced intraday targets before deep daily historical backfill in the same priority tier', () => {
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2021-03-23T00:00:00.000Z'),
+      targetHistoryDays: 3650,
+      lastSuccessAt: new Date('2026-03-22T00:00:00.000Z'),
+      nextRetryAt: null,
+    });
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1m',
+      priorityTier: 'top100',
+      latestSyncedAt: null,
+      oldestSyncedAt: null,
+      targetHistoryDays: 30,
+      lastSuccessAt: null,
+      nextRetryAt: null,
+    });
+
+    const leased = leaseNextOhlcvTarget(database, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(leased?.interval).toBe('1m');
+    expect(leased?.status).toBe('running');
+  });
+
   it('skips targets still under retry backoff', () => {
     seedTarget({
       coinId: 'bitcoin',

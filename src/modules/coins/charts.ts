@@ -299,23 +299,7 @@ async function fetchProviderOhlcRows(database: AppDatabase, coinId: string, sinc
     return null;
   }
 
-  for (const candle of candles) {
-    upsertCanonicalOhlcvCandle(database, {
-      coinId,
-      vsCurrency: 'usd',
-      interval: '1d',
-      timestamp: new Date(candle.timestamp),
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-      volume: candle.volume,
-      totalVolume: candle.volume,
-      replaceExisting: true,
-    });
-  }
-
-  return candles.map((candle) => ({
+  const rows = normalizeOhlcRows(candles.map((candle) => ({
     coinId,
     vsCurrency: 'usd',
     source: 'canonical',
@@ -328,7 +312,25 @@ async function fetchProviderOhlcRows(database: AppDatabase, coinId: string, sinc
     volume: candle.volume,
     marketCap: null,
     totalVolume: candle.volume,
-  }));
+  })));
+
+  for (const candle of rows) {
+    upsertCanonicalOhlcvCandle(database, {
+      coinId,
+      vsCurrency: 'usd',
+      interval: '1d',
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      totalVolume: candle.volume,
+      replaceExisting: true,
+    });
+  }
+
+  return rows;
 }
 
 export function getOhlcRowsForRange(database: AppDatabase, coinId: string, range: { from: number; to: number }, interval?: string) {
