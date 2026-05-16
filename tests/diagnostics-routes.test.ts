@@ -23,6 +23,10 @@ import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
 import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates';
 import {
+  COINS_MARKETS_ROUTE_CACHE_POLICY,
+  SIMPLE_PRICE_ROUTE_CACHE_POLICY,
+} from '../src/modules/route-cache-policies';
+import {
   ingestCoinHistoryReplay,
   type RawCoinHistoryReplay,
 } from '../src/services/coin-history-ingestion';
@@ -2729,13 +2733,17 @@ describe('diagnostics routes', () => {
   it('exposes cache attribution diagnostics for market smoke evidence', async () => {
     await getApp().ready();
 
-    await getApp().inject({
+    const coinsMarketsResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum',
     });
     await getApp().inject({
       method: 'GET',
       url: '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum',
+    });
+    const simplePriceResponse = await getApp().inject({
+      method: 'GET',
+      url: '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd',
     });
 
     const response = await getApp().inject({
@@ -2743,6 +2751,22 @@ describe('diagnostics routes', () => {
       url: '/diagnostics/cache',
     });
 
+    expect(COINS_MARKETS_ROUTE_CACHE_POLICY).toMatchObject({
+      ttlSeconds: 5,
+      httpCache: {
+        maxAgeSeconds: 5,
+        staleWhileRevalidateSeconds: 5,
+      },
+    });
+    expect(SIMPLE_PRICE_ROUTE_CACHE_POLICY).toMatchObject({
+      ttlSeconds: 5,
+      httpCache: {
+        maxAgeSeconds: 5,
+        staleWhileRevalidateSeconds: 5,
+      },
+    });
+    expect(coinsMarketsResponse.headers['cache-control']).toBe('public, max-age=5, stale-while-revalidate=5');
+    expect(simplePriceResponse.headers['cache-control']).toBe('public, max-age=5, stale-while-revalidate=5');
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toMatchObject({
       hot_data_revision: getApp().marketDataRuntimeState.hotDataRevision,
@@ -2751,7 +2775,12 @@ describe('diagnostics routes', () => {
       },
       surfaces: {
         coins_markets: {
-          ttl_seconds: expect.any(Number),
+          ttl_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.ttlSeconds,
+          http_cache: {
+            max_age_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.httpCache.maxAgeSeconds,
+            stale_while_revalidate_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.httpCache.staleWhileRevalidateSeconds,
+            validators: ['etag', 'if-none-match'],
+          },
           invalidated_by: ['hot_data_revision', 'validation_override', 'snapshot_access_policy'],
           events: {
             hit: expect.any(Number),
@@ -2764,7 +2793,12 @@ describe('diagnostics routes', () => {
           ]),
         },
         simple_price: {
-          ttl_seconds: expect.any(Number),
+          ttl_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.ttlSeconds,
+          http_cache: {
+            max_age_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.httpCache.maxAgeSeconds,
+            stale_while_revalidate_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.httpCache.staleWhileRevalidateSeconds,
+            validators: ['etag', 'if-none-match'],
+          },
           invalidated_by: ['hot_data_revision'],
           events: {
             hit: expect.any(Number),

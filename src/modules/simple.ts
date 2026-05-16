@@ -10,9 +10,12 @@ import { buildExchangeRatesPayload, getConversionRate } from '../lib/conversion'
 import type { MarketDataRuntimeState } from '../services/market-runtime-state';
 import { createResponseCache, type ResponseCache } from '../services/response-cache';
 import { getSupportedVsCurrencies } from '../services/currency-rates';
-import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
 import { getCoinByContract, getMarketRows, resolveCoinPlatformContract } from './catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, type SnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
+import {
+  SIMPLE_PRICE_CACHE_TTL_MS,
+  SIMPLE_PRICE_ROUTE_CACHE_POLICY,
+} from './route-cache-policies';
 
 export type SimplePriceResponse = Record<string, Record<string, number | null>>;
 export type SimplePriceCache = ResponseCache<SimplePriceResponse>;
@@ -28,17 +31,8 @@ export type WarmSimplePriceCacheOptions = {
   app?: Pick<FastifyInstance, 'metrics'>;
 };
 
-const SIMPLE_PRICE_CACHE_TTL_MS = 5_000;
 const SIMPLE_PRICE_CACHE_MAX_ENTRIES = 1_000;
-const SIMPLE_FRESHNESS_BUDGET = getEndpointFreshnessBudget('simple');
-const SIMPLE_HTTP_CACHE_MAX_AGE_SECONDS = Math.min(
-  SIMPLE_PRICE_CACHE_TTL_MS / 1_000,
-  SIMPLE_FRESHNESS_BUDGET?.target_freshness_seconds ?? SIMPLE_PRICE_CACHE_TTL_MS / 1_000,
-);
-const SIMPLE_HTTP_CACHE_POLICY = {
-  maxAgeSeconds: SIMPLE_HTTP_CACHE_MAX_AGE_SECONDS,
-  staleWhileRevalidateSeconds: SIMPLE_HTTP_CACHE_MAX_AGE_SECONDS,
-};
+const SIMPLE_HTTP_CACHE_POLICY = SIMPLE_PRICE_ROUTE_CACHE_POLICY.httpCache;
 
 const simplePriceQuerySchema = z.object({
   ids: z.string().optional(),

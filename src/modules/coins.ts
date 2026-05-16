@@ -64,21 +64,14 @@ import {
   sortNumber,
   toNumberOrNull,
 } from './coins/helpers';
+import { COINS_MARKETS_ROUTE_CACHE_POLICY } from './route-cache-policies';
 
 const coinsListQuerySchema = z.object({
   include_platform: z.enum(['true', 'false']).optional(),
   status: z.enum(['active', 'inactive', 'all']).optional(),
 });
 
-const COINS_MARKETS_FRESHNESS_BUDGET = getEndpointFreshnessBudget('coins_markets');
-const COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS = Math.min(
-  COINS_MARKETS_CACHE_TTL_MS / 1_000,
-  COINS_MARKETS_FRESHNESS_BUDGET?.target_freshness_seconds ?? COINS_MARKETS_CACHE_TTL_MS / 1_000,
-);
-const COINS_MARKETS_HTTP_CACHE_POLICY = {
-  maxAgeSeconds: COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS,
-  staleWhileRevalidateSeconds: COINS_MARKETS_HTTP_CACHE_MAX_AGE_SECONDS,
-};
+const COINS_MARKETS_HTTP_CACHE_POLICY = COINS_MARKETS_ROUTE_CACHE_POLICY.httpCache;
 const COIN_DETAIL_FRESHNESS_BUDGET = getEndpointFreshnessBudget('coin_detail');
 const COIN_DETAIL_HTTP_CACHE_MAX_AGE_SECONDS = Math.min(
   60,

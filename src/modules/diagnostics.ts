@@ -41,6 +41,10 @@ import {
   recordForcedProviderFailure,
   recordValidationRuntimeOverride,
 } from '../services/market-runtime-state';
+import {
+  COINS_MARKETS_ROUTE_CACHE_POLICY,
+  SIMPLE_PRICE_ROUTE_CACHE_POLICY,
+} from './route-cache-policies';
 
 const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
 
@@ -225,10 +229,10 @@ export function registerDiagnosticsRoutes(
         },
         surfaces: {
           coins_markets: {
-            ttl_seconds: 15,
+            ttl_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.ttlSeconds,
             http_cache: {
-              max_age_seconds: 15,
-              stale_while_revalidate_seconds: 15,
+              max_age_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.httpCache.maxAgeSeconds,
+              stale_while_revalidate_seconds: COINS_MARKETS_ROUTE_CACHE_POLICY.httpCache.staleWhileRevalidateSeconds,
               validators: ['etag', 'if-none-match'],
             },
             invalidated_by: ['hot_data_revision', 'validation_override', 'snapshot_access_policy'],
@@ -240,10 +244,10 @@ export function registerDiagnosticsRoutes(
             ],
           },
           simple_price: {
-            ttl_seconds: 15,
+            ttl_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.ttlSeconds,
             http_cache: {
-              max_age_seconds: 15,
-              stale_while_revalidate_seconds: 15,
+              max_age_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.httpCache.maxAgeSeconds,
+              stale_while_revalidate_seconds: SIMPLE_PRICE_ROUTE_CACHE_POLICY.httpCache.staleWhileRevalidateSeconds,
               validators: ['etag', 'if-none-match'],
             },
             invalidated_by: ['hot_data_revision'],
