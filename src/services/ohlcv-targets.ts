@@ -5,16 +5,23 @@ import { fetchExchangeMarkets, type ExchangeId } from '../providers/ccxt';
 import type { CoverageTarget } from './coverage-targets';
 
 const USD_QUOTE_PRIORITY = ['USDT', 'USD'] as const;
+const SUPPORTED_OHLCV_INTERVALS = ['1d', '1m'] as const;
 
 export type OhlcvPriorityTier = 'top100' | 'requested' | 'long_tail';
+export type OhlcvTargetInterval = typeof SUPPORTED_OHLCV_INTERVALS[number];
 
 export type OhlcvSyncTargetSeed = {
   coinId: string;
   exchangeId: ExchangeId;
   symbol: string;
+  interval: OhlcvTargetInterval;
   priorityTier: OhlcvPriorityTier;
   targetHistoryDays: number;
 };
+
+function isSupportedOhlcvInterval(value: string): value is OhlcvTargetInterval {
+  return (SUPPORTED_OHLCV_INTERVALS as readonly string[]).includes(value);
+}
 
 export async function buildOhlcvSyncTargets(
   database: AppDatabase,
@@ -25,6 +32,7 @@ export async function buildOhlcvSyncTargets(
   const targetHistoryDays = options.targetHistoryDays ?? DEFAULT_OHLCV_TARGET_HISTORY_DAYS;
   const requestedCoverageTargets = new Map((options.coverageTargets ?? [])
     .filter((target) => target.enabled && target.family === 'ohlcv')
+    .filter((target) => isSupportedOhlcvInterval(target.interval))
     .map((target) => [`${target.provider}:${target.entityId}:${target.vsCurrency}:${target.interval}`, target]));
   const marketIndex = new Map<ExchangeId, Set<string>>();
 
@@ -58,15 +66,27 @@ export async function buildOhlcvSyncTargets(
       const matchedQuote = USD_QUOTE_PRIORITY.find((quote) => supportedSymbols.has(`${base}/${quote}`));
 
       if (matchedQuote) {
-        const coverageTarget = requestedCoverageTargets.get(`${exchangeId}:${row.id}:usd:1d`);
+        const requestedIntervals = [...requestedCoverageTargets.values()]
+          .filter((target) =>
+            target.provider === exchangeId
+            && target.entityId === row.id
+            && target.vsCurrency === 'usd')
+          .map((target) => target.interval)
+          .filter(isSupportedOhlcvInterval);
+        const intervals = [...new Set<OhlcvTargetInterval>(['1d', ...requestedIntervals])];
 
-        return [{
-          coinId: row.id,
-          exchangeId,
-          symbol: `${base}/${matchedQuote}`,
-          priorityTier: topCoinIds.has(row.id) ? 'top100' : coverageTarget ? 'requested' : 'long_tail',
-          targetHistoryDays: coverageTarget?.targetHistoryDays ?? targetHistoryDays,
-        } satisfies OhlcvSyncTargetSeed];
+        return intervals.map((interval) => {
+          const coverageTarget = requestedCoverageTargets.get(`${exchangeId}:${row.id}:usd:${interval}`);
+
+          return {
+            coinId: row.id,
+            exchangeId,
+            symbol: `${base}/${matchedQuote}`,
+            interval,
+            priorityTier: topCoinIds.has(row.id) ? 'top100' : coverageTarget ? 'requested' : 'long_tail',
+            targetHistoryDays: coverageTarget?.targetHistoryDays ?? targetHistoryDays,
+          } satisfies OhlcvSyncTargetSeed;
+        });
       }
     }
 

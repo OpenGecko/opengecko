@@ -236,9 +236,78 @@ describe('ohlcv targets', () => {
         coinId: 'litecoin',
         exchangeId: 'binance',
         symbol: 'LTC/USDT',
+        interval: '1d',
         priorityTier: 'requested',
         targetHistoryDays: 730,
       }),
     ]);
+  });
+
+  it('emits both daily and supported intraday targets for prioritized coverage requests', async () => {
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+    ]);
+
+    const targets = await buildOhlcvSyncTargets(database, ['binance'], new Set(['bitcoin']), {
+      targetHistoryDays: 90,
+      coverageTargets: [
+        {
+          family: 'ohlcv',
+          provider: 'binance',
+          entityType: 'coin',
+          entityId: 'bitcoin',
+          interval: '1d',
+          vsCurrency: 'usd',
+          tier: 'S',
+          targetHistoryDays: 365,
+          freshnessSloSeconds: 86_400,
+          productionFreshnessSloSeconds: 3_600,
+          enabled: true,
+          priority: 1,
+        },
+        {
+          family: 'ohlcv',
+          provider: 'binance',
+          entityType: 'coin',
+          entityId: 'bitcoin',
+          interval: '1m',
+          vsCurrency: 'usd',
+          tier: 'S',
+          targetHistoryDays: 7,
+          freshnessSloSeconds: 300,
+          productionFreshnessSloSeconds: 300,
+          enabled: true,
+          priority: 2,
+        },
+      ],
+    });
+
+    expect(targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        interval: '1d',
+        priorityTier: 'top100',
+        targetHistoryDays: 365,
+      }),
+      expect.objectContaining({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        interval: '1m',
+        priorityTier: 'top100',
+        targetHistoryDays: 7,
+      }),
+    ]));
   });
 });

@@ -28,7 +28,7 @@ export function upsertOhlcvSyncTargets(database: AppDatabase, targets: OhlcvSync
         exchangeId: target.exchangeId,
         symbol: target.symbol,
         vsCurrency: 'usd',
-        interval: '1d',
+        interval: target.interval,
         priorityTier: target.priorityTier,
         latestSyncedAt: null,
         oldestSyncedAt: null,
