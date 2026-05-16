@@ -38,6 +38,7 @@ The result: a decentralized, open market data layer that anyone can deploy, audi
 - **Zero vendor lock-in** — No API keys. No rate limits. No subscription. Own your infrastructure.
 - **Deploy in one command** — `bun install && bun run dev`. SQLite under the hood. No external services required.
 - **60-second fresh data** — Hot market snapshots refresh continuously. No stale cache surprises.
+- **Operator-visible data quality** — Provider liveness, stale/failing classification, cache behavior, market freshness, exchange live rows, ticker coverage, and chart/OHLC gaps are exposed through diagnostics instead of hidden behind fallback responses.
 - **Unified automation loop** — In-memory scheduling owns refresh, sweep, retention, and optional source-sync jobs with `/diagnostics/jobs` visibility.
 - **Fully auditable** — Every intentional divergence from CoinGecko is documented. No black-box surprises.
 - **Built on open data** — CCXT, TrustWallet, [OpenGecko Assets](https://github.com/opengecko/assets), public on-chain sources. No proprietary data lock-in.
@@ -75,6 +76,9 @@ curl "http://localhost:3000/ping"
 curl "http://localhost:3000/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
 curl "http://localhost:3000/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&page=1"
 curl "http://localhost:3000/diagnostics/runtime"
+curl "http://localhost:3000/diagnostics/cache"
+curl "http://localhost:3000/diagnostics/exchanges"
+curl "http://localhost:3000/diagnostics/market_charts"
 curl "http://localhost:3000/diagnostics/jobs"
 ```
 
@@ -111,6 +115,7 @@ bun run onchain:analytics:sync           # optional holder/trader analytics sync
 bun run onchain:trades:sync              # optional onchain pool trade sync
 bun run supply:charts:sync               # optional supply chart sync
 bun run benchmark:hot-routes             # benchmark hot API routes
+bash scripts/operator-proof-smoke.sh     # end-to-end operator proof bundle
 bun run coingecko:snapshots:capture      # capture CoinGecko snapshots
 bun run coingecko:replay:offline         # replay captured CoinGecko snapshots offline
 bun run coingecko:report:diff            # report snapshot diffs
@@ -343,9 +348,13 @@ Full central schema in `src/config/env.ts`. The optional `*_BASE_URL` adapter se
 |---|---|
 | `GET /health` | Liveness probe |
 | `GET /diagnostics/runtime` | Startup state, stale fallback, provider and cache status, including per-provider `alert_status` (`healthy` / `degraded` / `failing`) derived from the runtime constants in `src/services/runtime-diagnostics.ts` |
+| `GET /diagnostics/cache` | Market snapshot revision, route cache TTL/header policy, hit/miss counters, invalidation reasons, and operator evidence for `/coins/markets` and `/simple/price` |
 | `GET /diagnostics/ohlcv_sync` | OHLCV worker progress, sync health, estimated remaining history backfill chunks, and capped most-behind target samples |
 | `GET /diagnostics/chain_coverage` | Chain/network normalization coverage |
-| `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, freshness/depth status, and fallback-only gaps |
+| `GET /diagnostics/coverage_matrix` | Endpoint-family data ownership and live/hybrid/seeded/fixture coverage matrix |
+| `GET /diagnostics/exchanges` | Exchange catalog/ticker diagnostics, including live row counts, configured exchange coverage, ticker freshness, and degraded/fallback evidence |
+| `GET /diagnostics/exchange_volumes` | Source-backed exchange volume target coverage, row counts, freshness/depth status, and configured-target gaps |
+| `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, freshness/depth status, continuity/fallback pressure, daily/intraday target suggestions, and fallback-only gaps |
 | `GET /diagnostics/jobs` | Unified scheduler and optional provider sync job target counts, run state, sanitized failures, retention/sweep outcomes, and last persisted or in-process run outcome |
 | `GET /metrics` | Prometheus-compatible metrics |
 
@@ -490,6 +499,18 @@ Use `/diagnostics/ohlcv_sync` and `history.completion_estimate` for the whole-wo
 When several OHLCV targets are eligible, the worker leases by priority tier first (`top100`, then `requested`, then `long_tail`). Within the same tier it prefers retry-due failed targets, then targets with the largest `remaining_depth_days`, then the oldest `last_success_at`, and finally coin ID for deterministic tie-breaking. This means a complete long-tail target can wait behind top100 history deepening and retry recovery; it does not mean every high-priority target will receive an upstream provider call on every tick.
 
 Daily `/coins/{id}/ohlc/range` requests use source-backed rows first, then canonical OHLCV storage, and can fall back to the configured ticker provider when the requested range is empty. Daily `/coins/{id}/market_chart` and `/coins/{id}/market_chart/range` requests use the same fallback path and expose provider OHLCV close prices as chart prices with stable market-cap and volume arrays. Successful fallback candles are persisted into canonical OHLCV storage so the same day window or range can be served locally on later requests; hourly ranges remain storage-backed only.
+
+**Chart/OHLC continuity and intraday hardening:**
+
+Market chart diagnostics now separate daily and intraday target pressure, report continuity gaps without changing public response shapes, and provide batch-ready `MARKET_CHART_TARGETS` templates for operator remediation. Use `/diagnostics/market_charts` after public chart or OHLC traffic to distinguish source-backed, canonical, provider-filled, and empty responses, then expand daily or intraday targets before enabling scheduled optional sync.
+
+**Operator proof smoke:**
+
+```bash
+bash scripts/operator-proof-smoke.sh
+```
+
+The proof script starts isolated temp-SQLite runtimes, runs serial endpoint and diagnostics checks, captures provider liveness/failure-control evidence, verifies BTC/ETH market/ticker/chart/OHLC overlap readiness, records command exit codes, and writes a proof bundle under `${OPENGECKO_OPERATOR_PROOF_DIR}` or a temporary `/tmp/opengecko-operator-proof.*` directory.
 
 **Snapshot retention contract:**
 
