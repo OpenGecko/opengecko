@@ -5,10 +5,16 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 VERBOSE="${VERBOSE:-0}"
 MAX_BODY_CHARS="${MAX_BODY_CHARS:-1200}"
+ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
 PASS=0
 FAIL=0
 SKIP=0
 TOTAL=0
+
+if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds" >&2
+  exit 2
+fi
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -37,6 +43,7 @@ module_title() {
   echo -e "${BOLD}${name}${NC}"
   echo -e "Target: ${CYAN}${BASE_URL}${NC}"
   echo -e "Time:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo -e "Timeout:${CYAN} ${ENDPOINT_CURL_MAX_TIME}s${NC} (set ENDPOINT_CURL_MAX_TIME to tune endpoint request budget)"
   print_rule
   echo
 }
@@ -98,7 +105,7 @@ check_status() {
   local metrics
   local curl_exit_code=0
 
-  metrics=$(curl -sS -o "$body_file" -w '%{http_code}|%{time_total}|%{content_type}' --max-time 10 "${BASE_URL}${path}" 2>"$err_file") || curl_exit_code=$?
+  metrics=$(curl -sS -o "$body_file" -w '%{http_code}|%{time_total}|%{content_type}' --max-time "$ENDPOINT_CURL_MAX_TIME" "${BASE_URL}${path}" 2>"$err_file") || curl_exit_code=$?
 
   local http_code time_total content_type
   IFS='|' read -r http_code time_total content_type <<<"${metrics:-000|0|unknown}"
@@ -140,7 +147,7 @@ check_json() {
   local call_id="${TOTAL}"
   local body_file="$TMP_DIR/body-json-${call_id}.txt"
   local body
-  body=$(curl -sS --max-time 10 "${BASE_URL}${path}") || body=""
+  body=$(curl -sS --max-time "$ENDPOINT_CURL_MAX_TIME" "${BASE_URL}${path}") || body=""
   printf '%s' "$body" > "$body_file"
 
   local actual
@@ -173,7 +180,7 @@ check_json_expr() {
   local call_id="${TOTAL}"
   local body_file="$TMP_DIR/body-json-expr-${call_id}.txt"
   local body
-  body=$(curl -sS --max-time 10 "${BASE_URL}${path}") || body=""
+  body=$(curl -sS --max-time "$ENDPOINT_CURL_MAX_TIME" "${BASE_URL}${path}") || body=""
   printf '%s' "$body" > "$body_file"
 
   local actual

@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 
 const SCRIPT_PATH = join(process.cwd(), 'scripts/operator-proof-smoke.sh');
 const HELPERS_PATH = join(process.cwd(), 'scripts/lib/operator-proof-helpers.sh');
+const ENDPOINT_SMOKE_PATH = join(process.cwd(), 'scripts/test-endpoints.sh');
+const MODULE_COMMON_PATH = join(process.cwd(), 'scripts/modules/lib/common.sh');
 
 describe('operator proof smoke script contract', () => {
   it('is shell-parseable', () => {
@@ -240,5 +242,19 @@ fi
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it('documents and reuses a configurable endpoint smoke curl timeout budget', () => {
+    const endpointSmoke = readFileSync(ENDPOINT_SMOKE_PATH, 'utf8');
+    const moduleCommon = readFileSync(MODULE_COMMON_PATH, 'utf8');
+    const contract = `${endpointSmoke}\n${moduleCommon}`;
+
+    expect(contract).toContain('ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"');
+    expect(contract).toContain('ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds');
+    expect(contract).toContain('set ENDPOINT_CURL_MAX_TIME to tune endpoint request budget');
+    expect(endpointSmoke).toContain('--max-time "$ENDPOINT_CURL_MAX_TIME" "$full_url"');
+    expect(moduleCommon).toContain('--max-time "$ENDPOINT_CURL_MAX_TIME" "${BASE_URL}${path}"');
+    expect(endpointSmoke).not.toContain('--max-time 10');
+    expect(moduleCommon).not.toContain('--max-time 10');
   });
 });

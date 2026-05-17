@@ -7,11 +7,17 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 VERBOSE="${VERBOSE:-0}"
 MAX_BODY_CHARS="${MAX_BODY_CHARS:-2000}"
+ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
 PASS=0
 FAIL=0
 SKIP=0
 TOTAL=0
 MARKET_DATA_READY=0
+
+if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds" >&2
+  exit 2
+fi
 
 TMP_DIR="$(mktemp -d /tmp/opengecko-endpoints.XXXXXX)"
 
@@ -48,7 +54,7 @@ check() {
   local metrics
   local curl_exit_code=0
 
-  metrics=$(curl -sS -D "$headers_file" -o "$body_file" -w '%{http_code}|%{time_total}|%{size_download}|%{content_type}|%{remote_ip}' --max-time 10 "$full_url" 2>"$err_file") || curl_exit_code=$?
+  metrics=$(curl -sS -D "$headers_file" -o "$body_file" -w '%{http_code}|%{time_total}|%{size_download}|%{content_type}|%{remote_ip}' --max-time "$ENDPOINT_CURL_MAX_TIME" "$full_url" 2>"$err_file") || curl_exit_code=$?
 
   local http_code
   local time_total
@@ -108,7 +114,7 @@ check_json() {
 
   local full_url="${BASE_URL}${url}"
   local body
-  body=$(curl -sS --max-time 10 "$full_url" 2>/dev/null) || body=""
+  body=$(curl -sS --max-time "$ENDPOINT_CURL_MAX_TIME" "$full_url" 2>/dev/null) || body=""
 
   local actual
   actual=$(echo "$body" | jq -r "$jq_filter" 2>/dev/null) || actual="JQ_ERROR"
@@ -145,7 +151,7 @@ peek() {
   local full_url="${BASE_URL}${url}"
 
   local body
-  body=$(curl -s --max-time 10 "$full_url" 2>/dev/null) || body="{}"
+  body=$(curl -s --max-time "$ENDPOINT_CURL_MAX_TIME" "$full_url" 2>/dev/null) || body="{}"
 
   echo -e "  ${CYAN}🔍 ${label}${NC}"
   echo -e "     ${full_url}"
@@ -199,6 +205,7 @@ echo -e "${BOLD}OpenGecko Endpoint Tester${NC}"
 echo -e "Target: ${CYAN}${BASE_URL}${NC}"
 echo -e "Time:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo -e "Verbose:${CYAN} ${VERBOSE}${NC} (set VERBOSE=1 for timing/info on passing checks)"
+echo -e "Timeout:${CYAN} ${ENDPOINT_CURL_MAX_TIME}s${NC} (set ENDPOINT_CURL_MAX_TIME to tune endpoint request budget)"
 echo -e "Body:   ${CYAN}full responses on pass/fail checks${NC}"
 hr
 
