@@ -79,6 +79,29 @@ describe('search routes', () => {
     expect(response.json()).toMatchObject(contractFixtures.searchEth);
   });
 
+  it('ranks canonical exact ID/name/symbol matches near the top for catalog quality assertions', async () => {
+    const targets = [
+      { query: 'bitcoin', expectedId: 'bitcoin', maxRank: 1 },
+      { query: 'BTC', expectedId: 'bitcoin', maxRank: 3 },
+      { query: 'eth', expectedId: 'ethereum', maxRank: 3 },
+      { query: 'usdc', expectedId: 'usd-coin', maxRank: 3 },
+    ];
+
+    for (const target of targets) {
+      const response = await getApp().inject({
+        method: 'GET',
+        url: `/search?query=${encodeURIComponent(target.query)}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const coinIds = response.json().coins.map((coin: { id: string }) => coin.id);
+      const rank = coinIds.indexOf(target.expectedId) + 1;
+
+      expect(rank).toBeGreaterThan(0);
+      expect(rank).toBeLessThanOrEqual(target.maxRank);
+    }
+  });
+
   it('keeps search response families bounded to 10 results each', async () => {
     await getApp().ready();
 

@@ -95,7 +95,10 @@ describe('supply chart provider replay fixtures', () => {
           coin_id: 'bitcoin',
           supply_type: 'circulating',
           source: 'replay',
+          source_mode: 'replay',
           source_providers: ['supply-replay'],
+          point_count: 3,
+          latest_source_fetched_at: '2026-05-05T00:12:00.000Z',
         },
       });
       expect(totalResponse.statusCode).toBe(200);
@@ -109,6 +112,9 @@ describe('supply chart provider replay fixtures', () => {
           fixture: false,
           supply_type: 'total',
           source: 'replay',
+          source_mode: 'replay',
+          point_count: 3,
+          latest_source_fetched_at: '2026-05-05T00:12:00.000Z',
         },
       });
       expect(rangeResponse.statusCode).toBe(200);

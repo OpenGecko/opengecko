@@ -135,6 +135,28 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   const latestPoolUpdatedAt = (rows: Array<{ updatedAt: Date }>) =>
     rows.reduce<Date | null>((latest, row) =>
       latest === null || row.updatedAt.getTime() > latest.getTime() ? row.updatedAt : latest, null);
+  const buildOnchainFieldProvenance = (source: 'live' | 'seeded' | 'fixture' | 'replay') => ({
+    reserve_usd: {
+      source,
+      provider: source === 'live' ? 'DeFiLlama' : 'seed onchain catalog',
+      unavailable_behavior: 'null_when_unavailable',
+    },
+    volume_usd: {
+      source,
+      provider: source === 'live' ? 'DeFiLlama/SQD' : 'seed onchain catalog or replay fixture',
+      unavailable_behavior: 'null_when_unavailable_no_silent_zero_fill',
+    },
+    price_usd: {
+      source,
+      provider: source === 'live' ? 'DeFiLlama/simple-token-price' : 'seed onchain catalog',
+      unavailable_behavior: 'null_when_unavailable',
+    },
+    trades_ohlcv_analytics: {
+      source,
+      provider: source === 'live' ? 'SQD/DeFiLlama' : 'replay or fixture fallback',
+      unavailable_behavior: 'fixture_or_out_of_scope_marked_in_meta',
+    },
+  });
   const buildOnchainSourceMeta = (options: {
     source: 'live' | 'seeded' | 'fixture' | 'replay';
     updatedAt?: Date | null;
@@ -143,6 +165,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
     fixture: options.source === 'seeded' || options.source === 'fixture',
     source: options.source,
     updated_at: options.updatedAt?.toISOString() ?? null,
+    field_provenance: buildOnchainFieldProvenance(options.source),
     ...options.extra,
   });
   const latestTradeUpdatedAt = (trades: Array<{ id: string; sourceFetchedAt?: Date | null }>) =>

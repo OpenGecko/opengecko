@@ -4051,12 +4051,13 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(poolTradesResponse.statusCode).toBe(200);
-    expect(poolTradesResponse.json().meta).toEqual({
+    expect(poolTradesResponse.json().meta).toMatchObject({
       fixture: false,
       network: 'eth',
       pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
       source: 'live',
       updated_at: expect.any(String),
+      field_provenance: expect.any(Object),
     });
     expect(poolTradesResponse.json().data).toEqual(
       expect.arrayContaining([
@@ -4102,12 +4103,13 @@ describe('OpenGecko app scaffold', () => {
     expect(pagedPoolTradesResponse.json().data[0].attributes.block_timestamp).toBe(1710000000);
 
     expect(tokenTradesResponse.statusCode).toBe(200);
-    expect(tokenTradesResponse.json().meta).toEqual({
+    expect(tokenTradesResponse.json().meta).toMatchObject({
       fixture: false,
       network: 'eth',
       token_address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
       source: 'live',
       updated_at: expect.any(String),
+      field_provenance: expect.any(Object),
     });
     expect(tokenTradesResponse.json().data).toEqual(
       expect.arrayContaining([
@@ -8009,6 +8011,11 @@ describe('OpenGecko app scaffold', () => {
       meta: {
         fixture: true,
         coin_id: 'bitcoin',
+        supply_type: 'circulating',
+        source: 'empty',
+        source_mode: 'empty',
+        point_count: 0,
+        latest_source_fetched_at: null,
         note: 'Circulating supply chart data is not available',
       },
     });
@@ -8017,6 +8024,11 @@ describe('OpenGecko app scaffold', () => {
       meta: {
         fixture: true,
         coin_id: 'bitcoin',
+        supply_type: 'total',
+        source: 'empty',
+        source_mode: 'empty',
+        point_count: 0,
+        latest_source_fetched_at: null,
         note: 'Total supply chart data is not available',
       },
     });
@@ -8051,6 +8063,11 @@ describe('OpenGecko app scaffold', () => {
         meta: {
           fixture: true,
           coin_id: 'bitcoin',
+          supply_type: expectedNote.startsWith('Circulating') ? 'circulating' : 'total',
+          source: 'empty',
+          source_mode: 'empty',
+          point_count: 0,
+          latest_source_fetched_at: null,
           note: expectedNote,
         },
       });

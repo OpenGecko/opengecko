@@ -254,6 +254,46 @@ describe('onchain pool discovery', () => {
     }
   });
 
+  it('exposes aggregate onchain diagnostics alias for specialized analytics and trades surfaces', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/onchain',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      analytics: expect.any(Object),
+      trades: expect.any(Object),
+      equivalence: {
+        alias_path: '/diagnostics/onchain',
+        specialized_paths: expect.arrayContaining(['/diagnostics/onchain_analytics', '/diagnostics/onchain_trades']),
+      },
+    });
+  });
+
+  it('includes field-level provenance metadata on representative onchain numeric surfaces', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().meta.field_provenance).toMatchObject({
+      reserve_usd: expect.objectContaining({
+        unavailable_behavior: 'null_when_unavailable',
+      }),
+      volume_usd: expect.objectContaining({
+        unavailable_behavior: 'null_when_unavailable_no_silent_zero_fill',
+      }),
+      price_usd: expect.objectContaining({
+        unavailable_behavior: 'null_when_unavailable',
+      }),
+      trades_ohlcv_analytics: expect.objectContaining({
+        unavailable_behavior: 'fixture_or_out_of_scope_marked_in_meta',
+      }),
+    });
+  });
+
   it('filters discovered pools by chain', async () => {
     vi.spyOn(defillamaProvider, 'fetchDefillamaPoolData').mockResolvedValue({
       protocols: [],

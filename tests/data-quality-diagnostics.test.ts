@@ -375,6 +375,132 @@ describe('data quality diagnostics', () => {
     expect(derivatives?.evidence.derivatives_quality?.reason_codes).toContain('derivatives_live_fidelity_below_contract_score');
   });
 
+  it('exposes catalog hybrid quality evidence for search, assets, treasury, onchain, and supply assertions', async () => {
+    await getApp().ready();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const families = response.json().data.families as Array<{
+      family: string;
+      counts: Record<string, number>;
+      evidence: {
+        search_quality?: {
+          assertions: string[];
+          representative_queries: string[];
+          canonical_rank_targets: Array<{ query: string; expected_coin_id: string; max_rank: number }>;
+          source_mode: string;
+        };
+        asset_image_quality?: {
+          assertions: string[];
+          mapped_token_count: number;
+          token_list_logo_count: number;
+          deterministic_url_checks: { accepted_prefixes: string[]; placeholder_domains_rejected: string[] };
+          canonical_identity_checks: { platform: string; contracts: Array<{ coin_id: string; address: string | null }> };
+        };
+        treasury_reconciliation?: {
+          assertions: string[];
+          holding_row_count: number;
+          fixture_fallback_holding_count: number;
+          totals_by_coin: Array<{ coin_id: string; reconciled: boolean; holding_transaction_delta: number }>;
+          source_mode: string;
+        };
+        onchain_provenance?: {
+          assertions: string[];
+          network_count: number;
+          pool_count: number;
+          field_provenance: Record<string, unknown>;
+          diagnostics_equivalence: { alias_path: string; specialized_paths: string[] };
+        };
+        supply_variant_quality?: {
+          assertions: string[];
+          variant_count: number;
+          variants: Array<{ id: string; source_mode: string; point_count: number }>;
+          diagnostics_path: string;
+        };
+        hybrid_provenance?: {
+          assertions: string[];
+          families: string[];
+          required_metadata_fields: string[];
+          source_modes: Record<string, string>;
+        };
+      };
+    }>;
+
+    const byFamily = new Map(families.map((family) => [family.family, family]));
+
+    expect(byFamily.get('search')?.evidence.search_quality).toMatchObject({
+      assertions: expect.arrayContaining(['VAL-CATALOG-025']),
+      representative_queries: expect.arrayContaining(['bitcoin', 'BTC', 'eth', 'usdc']),
+      canonical_rank_targets: expect.arrayContaining([
+        expect.objectContaining({ query: 'bitcoin', expected_coin_id: 'bitcoin', max_rank: 1 }),
+      ]),
+      source_mode: 'stable_catalog',
+    });
+
+    expect(byFamily.get('assets')?.evidence.asset_image_quality).toMatchObject({
+      assertions: expect.arrayContaining(['VAL-CATALOG-010', 'VAL-CATALOG-026', 'VAL-CATALOG-030']),
+      mapped_token_count: expect.any(Number),
+      deterministic_url_checks: {
+        accepted_prefixes: expect.arrayContaining(['https://']),
+        placeholder_domains_rejected: expect.arrayContaining(['placeholder.invalid']),
+      },
+      canonical_identity_checks: expect.objectContaining({ platform: 'ethereum' }),
+    });
+    expect(byFamily.get('assets')?.counts.mapped_token_count).toBeGreaterThan(0);
+    expect(byFamily.get('assets')?.evidence.asset_image_quality?.token_list_logo_count).toBeGreaterThan(0);
+
+    expect(byFamily.get('treasury')?.evidence.treasury_reconciliation).toMatchObject({
+      assertions: expect.arrayContaining(['VAL-CATALOG-027']),
+      holding_row_count: expect.any(Number),
+      fixture_fallback_holding_count: expect.any(Number),
+      source_mode: 'fixture',
+    });
+    expect(byFamily.get('treasury')?.evidence.treasury_reconciliation?.totals_by_coin).toEqual(expect.arrayContaining([
+      expect.objectContaining({ coin_id: 'bitcoin', reconciled: true, holding_transaction_delta: 0 }),
+    ]));
+
+    expect(byFamily.get('onchain')?.evidence.onchain_provenance).toMatchObject({
+      assertions: expect.arrayContaining(['VAL-CATALOG-028']),
+      network_count: expect.any(Number),
+      pool_count: expect.any(Number),
+      field_provenance: expect.objectContaining({
+        reserve_usd: expect.any(Object),
+        volume_usd_h24: expect.any(Object),
+        trades: expect.any(Object),
+        ohlcv: expect.any(Object),
+        analytics: expect.any(Object),
+      }),
+      diagnostics_equivalence: {
+        alias_path: '/diagnostics/onchain',
+        specialized_paths: expect.arrayContaining(['/diagnostics/onchain_analytics', '/diagnostics/onchain_trades']),
+      },
+    });
+
+    expect(byFamily.get('supply')?.evidence.supply_variant_quality).toMatchObject({
+      assertions: expect.arrayContaining(['VAL-CATALOG-029']),
+      variant_count: 4,
+      diagnostics_path: '/diagnostics/supply_charts',
+    });
+    expect(byFamily.get('supply')?.evidence.supply_variant_quality?.variants.map((variant) => variant.id).sort()).toEqual([
+      'circulating_days',
+      'circulating_range',
+      'total_days',
+      'total_range',
+    ].sort());
+
+    for (const family of ['search', 'assets', 'treasury', 'onchain', 'supply']) {
+      expect(byFamily.get(family)?.evidence.hybrid_provenance).toMatchObject({
+        assertions: expect.arrayContaining(['VAL-CATALOG-023', 'VAL-CATALOG-024']),
+        families: expect.arrayContaining(['search', 'assets', 'treasury', 'onchain', 'supply']),
+        required_metadata_fields: expect.arrayContaining(['family', 'source_mode', 'source_identifier', 'timestamp_or_version', 'degraded_reason']),
+      });
+    }
+  });
+
   it('propagates controlled runtime degradation into affected quality scores', async () => {
     await getApp().ready();
 

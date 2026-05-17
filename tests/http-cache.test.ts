@@ -394,7 +394,7 @@ describe('HTTP cache semantics', () => {
         if (name === 'onchain_pool') {
           const payload = body as {
             data?: { attributes?: { price_usd?: unknown; reserve_usd?: unknown; volume_usd?: { h24?: unknown } } };
-            meta?: { data_source?: unknown; fixture?: unknown; source?: unknown };
+            meta?: { data_source?: unknown; fixture?: unknown; source?: unknown; field_provenance?: unknown };
           };
           if (payload.data?.attributes) {
             payload.data.attributes.price_usd = '<provider-dependent>';
@@ -407,6 +407,7 @@ describe('HTTP cache semantics', () => {
             payload.meta.data_source = '<provider-dependent>';
             payload.meta.fixture = '<provider-dependent>';
             payload.meta.source = '<provider-dependent>';
+            delete payload.meta.field_provenance;
           }
         }
         baseline[name] = body;

@@ -66,6 +66,37 @@ function compareAscendingRankWithNullsLast(
   return left.coinId.localeCompare(right.coinId);
 }
 
+function searchRelevanceScore(coin: {
+  id: string;
+  name: string;
+  symbol: string;
+  apiSymbol: string;
+  marketCapRank: number | null;
+}, query: string, ftsRank: number, ftsIndex: number) {
+  const normalizedQuery = query.toLowerCase();
+  const normalizedName = coin.name.toLowerCase();
+  const normalizedSymbol = coin.symbol.toLowerCase();
+  const normalizedApiSymbol = coin.apiSymbol.toLowerCase();
+  let score = ftsRank;
+
+  if (coin.id === normalizedQuery || normalizedName === normalizedQuery || normalizedSymbol === normalizedQuery || normalizedApiSymbol === normalizedQuery) {
+    score -= 100;
+  } else if (
+    coin.id.startsWith(normalizedQuery)
+    || normalizedName.startsWith(normalizedQuery)
+    || normalizedSymbol.startsWith(normalizedQuery)
+    || normalizedApiSymbol.startsWith(normalizedQuery)
+  ) {
+    score -= 25;
+  }
+
+  if (coin.marketCapRank !== null) {
+    score -= Math.max(0, 10 - Math.min(coin.marketCapRank, 10));
+  }
+
+  return score + (ftsIndex / 1_000_000);
+}
+
 export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase) {
   app.get('/search', async (request, reply) => {
     const query = searchQuerySchema.parse(request.query).query.toLowerCase();
@@ -77,9 +108,27 @@ export function registerSearchRoutes(app: FastifyInstance, database: AppDatabase
     const categoryById = new Map(getCategories(database).map((category) => [category.id, category]));
     const exchangeById = new Map(database.db.select().from(exchanges).orderBy(asc(exchanges.id)).all().map((exchange) => [exchange.id, exchange]));
 
+    const ftsRankByCoinId = new Map(matches
+      .filter((match) => match.docType === 'coin')
+      .map((match, index) => [match.refId, { rank: match.rank, index }]));
     const coins = clampFamilyResults(coinOrder
       .map((coinId) => coinById.get(coinId))
       .filter((coin): coin is NonNullable<typeof coin> => Boolean(coin))
+      .sort((left, right) => {
+        const leftRank = ftsRankByCoinId.get(left.id) ?? { rank: 0, index: Number.MAX_SAFE_INTEGER };
+        const rightRank = ftsRankByCoinId.get(right.id) ?? { rank: 0, index: Number.MAX_SAFE_INTEGER };
+        const relevanceDelta = searchRelevanceScore(left, query, leftRank.rank, leftRank.index)
+          - searchRelevanceScore(right, query, rightRank.rank, rightRank.index);
+
+        if (relevanceDelta !== 0) {
+          return relevanceDelta;
+        }
+
+        return compareAscendingRankWithNullsLast(
+          { marketCapRank: left.marketCapRank, coinId: left.id },
+          { marketCapRank: right.marketCapRank, coinId: right.id },
+        );
+      })
       .map((coin) => {
         return {
           id: coin.id,

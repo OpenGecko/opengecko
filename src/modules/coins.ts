@@ -278,12 +278,25 @@ function buildSupplyChartResponse(
   rows: ReturnType<typeof readSupplyChartRowsForDays>,
   fallbackNote: string,
 ) {
+  const latestSourceFetchedAt = rows.reduce<Date | null>((latest, row) => {
+    if (!row.sourceFetchedAt) {
+      return latest;
+    }
+
+    return latest === null || row.sourceFetchedAt.getTime() > latest.getTime() ? row.sourceFetchedAt : latest;
+  }, null);
+
   if (rows.length === 0) {
     return {
       data: [],
       meta: {
         fixture: true,
         coin_id: coinId,
+        supply_type: supplyType,
+        source: 'empty',
+        source_mode: 'empty',
+        point_count: 0,
+        latest_source_fetched_at: null,
         note: fallbackNote,
       },
     };
@@ -298,7 +311,10 @@ function buildSupplyChartResponse(
       coin_id: coinId,
       supply_type: supplyType,
       source: rows.some((row) => row.sourceKind === 'live') ? 'live' : 'replay',
+      source_mode: rows.some((row) => row.sourceKind === 'live') ? 'live' : 'replay',
       source_providers: sourceProviders,
+      point_count: rows.length,
+      latest_source_fetched_at: latestSourceFetchedAt?.toISOString() ?? null,
     },
   };
 }

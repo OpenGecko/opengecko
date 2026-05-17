@@ -336,6 +336,22 @@ export function registerDiagnosticsRoutes(
     }, dynamicDiagnosticsCachePolicy);
   });
 
+  const buildOnchainDiagnosticsPayload = () => ({
+    analytics: buildOnchainAnalyticsProviderDiagnostics(database, onchainAnalytics.targets),
+    trades: buildOnchainTradeProviderDiagnostics(database, onchainTrades.targets),
+    equivalence: {
+      alias_path: '/diagnostics/onchain',
+      specialized_paths: ['/diagnostics/onchain_analytics', '/diagnostics/onchain_trades'],
+      note: '/diagnostics/onchain is an aggregate alias for the supported specialized onchain diagnostics surfaces.',
+    },
+  });
+
+  app.get('/diagnostics/onchain', async (request, reply) => {
+    return sendCacheableJson(request, reply, {
+      data: buildOnchainDiagnosticsPayload(),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
   app.get('/diagnostics/onchain_analytics', async (request, reply) => {
     return sendCacheableJson(request, reply, {
       data: buildOnchainAnalyticsProviderDiagnostics(database, onchainAnalytics.targets),
