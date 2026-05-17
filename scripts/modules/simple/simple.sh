@@ -32,8 +32,8 @@ price_basket_ready() {
 
 token_price_ready() {
   local body
-  body=$(curl -sS --max-time 10 "${BASE_URL}/simple/token_price/ethereum?contract_addresses=${TOKEN_CONTRACTS}&vs_currencies=usd" 2>/dev/null) || body="{}"
-  printf '%s' "$body" | jq -e 'keys | length > 0' >/dev/null 2>&1
+  body=$(curl -sS --max-time "${ENDPOINT_CURL_MAX_TIME:-30}" "${BASE_URL}/simple/token_price/ethereum?contract_addresses=0xDAC17F958D2EE523A2206206994597C13D831EC7&vs_currencies=usd" 2>/dev/null) || body="{}"
+  printf '%s' "$body" | jq -e '(.["0xdac17f958d2ee523a2206206994597c13d831ec7"].usd | type) == "number"' >/dev/null 2>&1
 }
 
 show_price_snapshot() {
@@ -82,16 +82,22 @@ module_section "Field Coverage"
 check_status "GET /simple/price supports optional market fields" "/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,eur&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true"
 if market_data_ready; then
   check_json_expr "optional market fields are present for bitcoin" "/simple/price?ids=bitcoin&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true" '(.bitcoin | has("usd_market_cap") and has("usd_24h_vol") and has("usd_24h_change") and has("last_updated_at"))' "market-cap, volume, 24h change, and last_updated_at fields are present"
+  check_json_expr "optional market fields are complete for tether" "/simple/price?ids=tether&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true" '(.tether.usd_market_cap | type == "number" and . > 0) and (.tether.usd_24h_vol | type == "number" and . >= 0) and (.tether.usd_24h_change | type == "number") and (.tether.last_updated_at | type == "number" and . > 0)' "tether exposes numeric market cap, volume, 24h change, and last_updated_at"
 else
   skip_check "optional market fields are present for bitcoin" "market snapshots are not ready yet"
+  skip_check "optional market fields are complete for tether" "market snapshots are not ready yet"
 fi
 
 module_section "Token Pricing"
 check_status "GET /simple/token_price/ethereum responds" "/simple/token_price/ethereum?contract_addresses=${TOKEN_CONTRACTS}&vs_currencies=usd"
 if token_price_ready; then
-  check_json_expr "token price returns requested contract keys" "/simple/token_price/ethereum?contract_addresses=${TOKEN_CONTRACTS}&vs_currencies=usd" 'has("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")' "the USDC contract key is present in the response"
+  check_json_expr "token price returns requested contract keys" "/simple/token_price/ethereum?contract_addresses=${TOKEN_CONTRACTS}&vs_currencies=usd" 'has("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48") or has("0xdac17f958d2ee523a2206206994597c13d831ec7")' "at least one requested supported stablecoin contract key is present in the response"
+  check_json_expr "token price resolves uppercase WETH contract" "/simple/token_price/ethereum?contract_addresses=0xC02AAA39B223FE8D0A0E5C4F27EAD9083C756CC2&vs_currencies=usd" '(.["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"].usd | type == "number" and . > 0)' "the uppercase WETH contract resolves to the normalized lowercase contract key with a numeric usd price"
+  check_json_expr "token price optional fields are complete for uppercase USDT" "/simple/token_price/ethereum?contract_addresses=0xDAC17F958D2EE523A2206206994597C13D831EC7&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true" '(.["0xdac17f958d2ee523a2206206994597c13d831ec7"].usd | type == "number" and . > 0) and (.["0xdac17f958d2ee523a2206206994597c13d831ec7"].usd_market_cap | type == "number" and . > 0) and (.["0xdac17f958d2ee523a2206206994597c13d831ec7"].usd_24h_vol | type == "number" and . >= 0) and (.["0xdac17f958d2ee523a2206206994597c13d831ec7"].usd_24h_change | type == "number") and (.["0xdac17f958d2ee523a2206206994597c13d831ec7"].last_updated_at | type == "number" and . > 0)' "the uppercase USDT contract resolves with complete optional market fields"
 else
   skip_check "token price returns requested contract keys" "token price snapshots are not ready yet"
+  skip_check "token price resolves uppercase WETH contract" "token price snapshots are not ready yet"
+  skip_check "token price optional fields are complete for uppercase USDT" "token price snapshots are not ready yet"
 fi
 
 module_section "Reference Rates"

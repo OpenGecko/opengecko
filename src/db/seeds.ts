@@ -13,6 +13,7 @@ import {
   onchainDexes,
   onchainNetworks,
   onchainPools,
+  supplyChartPoints,
   treasuryEntities,
   treasuryHoldings,
   treasuryTransactions,
@@ -97,6 +98,7 @@ const seededChartPointValues = {
   solana: { prices: [90.41360474280566, 86.47, 85.18, 84.02, 83.41, 82.14, 82.41], marketCaps: [51_800_000_000, 49_600_000_000, 48_900_000_000, 48_200_000_000, 47_900_000_000, 47_100_000_000, 47_168_389_011], volumes: [3_382_702_577, 3_900_000_000, 3_700_000_000, 3_550_000_000, 3_480_000_000, 3_382_702_577, 3_382_702_577] },
   dogecoin: { prices: [0.24, 0.245, 0.252, 0.258, 0.265, 0.273, 0.28], marketCaps: [35_000_000_000, 36_000_000_000, 37_000_000_000, 38_000_000_000, 39_000_000_000, 40_000_000_000, 41_000_000_000], volumes: [2_400_000_000, 2_600_000_000, 2_800_000_000, 3_000_000_000, 3_200_000_000, 3_500_000_000, 3_800_000_000] },
   'usd-coin': { prices: [0.999, 1.001, 1.0, 1.0, 0.9995, 1.0002, 1.0], marketCaps: [59_700_000_000, 59_800_000_000, 59_850_000_000, 59_900_000_000, 59_950_000_000, 59_980_000_000, 60_000_000_000], volumes: [5_500_000_000, 5_600_000_000, 5_700_000_000, 5_800_000_000, 5_900_000_000, 5_950_000_000, 6_000_000_000] },
+  tether: { prices: [1.0, 0.9997, 1.0002, 0.9999, 1.0, 1.0001, 1.0], marketCaps: [109_700_000_000, 109_800_000_000, 109_850_000_000, 109_900_000_000, 109_950_000_000, 109_980_000_000, 110_000_000_000], volumes: [23_500_000_000, 23_800_000_000, 24_100_000_000, 24_500_000_000, 24_700_000_000, 24_900_000_000, 25_000_000_000] },
   cardano: { prices: [0.94, 0.96, 0.98, 1.0, 1.01, 1.03, 1.05], marketCaps: [33_000_000_000, 33_600_000_000, 34_300_000_000, 35_000_000_000, 35_500_000_000, 36_200_000_000, 37_000_000_000], volumes: [1_200_000_000, 1_300_000_000, 1_400_000_000, 1_500_000_000, 1_600_000_000, 1_750_000_000, 1_900_000_000] },
   chainlink: { prices: [20.5, 21, 21.5, 22.1, 22.8, 23.4, 24], marketCaps: [12_800_000_000, 13_100_000_000, 13_400_000_000, 13_800_000_000, 14_200_000_000, 14_600_000_000, 15_000_000_000], volumes: [820_000_000, 880_000_000, 940_000_000, 1_000_000_000, 1_050_000_000, 1_120_000_000, 1_200_000_000] },
 } satisfies Record<string, { prices: number[]; marketCaps: number[]; volumes: number[] }>;
@@ -122,6 +124,7 @@ const seededMinimalCoins = [
   { id: 'solana', symbol: 'sol', name: 'Solana', imageThumbUrl: 'https://coin-images.coingecko.com/coins/images/4128/thumb/solana.png?1718769756', imageSmallUrl: 'https://coin-images.coingecko.com/coins/images/4128/small/solana.png?1718769756', imageLargeUrl: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756' },
   { id: 'dogecoin', symbol: 'doge', name: 'Dogecoin' },
   { id: 'usd-coin', symbol: 'usdc', name: 'USD Coin' },
+  { id: 'tether', symbol: 'usdt', name: 'Tether' },
   { id: 'cardano', symbol: 'ada', name: 'Cardano' },
   { id: 'chainlink', symbol: 'link', name: 'Chainlink' },
 ].map((coin, index) => ({
@@ -137,12 +140,30 @@ const seededMinimalCoins = [
   imageLargeUrl: coin.imageLargeUrl ?? `https://assets.opengecko.test/coins/${coin.id}-large.png`,
   marketCapRank: index + 1,
   genesisDate: coin.id === 'bitcoin' ? '2009-01-03' : null,
-  platformsJson: coin.id === 'usd-coin' ? JSON.stringify({ ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' }) : '{}',
+  platformsJson: coin.id === 'usd-coin'
+    ? JSON.stringify({ ethereum: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' })
+    : coin.id === 'tether'
+      ? JSON.stringify({ ethereum: '0xdac17f958d2ee523a2206206994597c13d831ec7' })
+      : coin.id === 'ethereum'
+        ? JSON.stringify({ ethereum: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' })
+        : '{}',
   status: 'active' as const,
   activatedAt: new Date(seedTimestamp),
   createdAt: new Date(seedTimestamp),
   updatedAt: new Date(seedTimestamp),
 }));
+
+const seededSupplyChartPoints = [
+  {
+    coinId: 'tether',
+    supplyType: 'circulating' as const,
+    timestamp: new Date(seedTimestamp),
+    value: 110_000_000_000,
+    sourceKind: 'replay' as const,
+    sourceProvider: 'canonical-validation-snapshot',
+    sourceFetchedAt: new Date(seedTimestamp),
+  },
+];
 
 export type SeedStaticReferenceDataOptions = {
   includeSeededExchanges?: boolean;
@@ -171,6 +192,7 @@ export function seedStaticReferenceData(
   database.db.insert(onchainPools).values(seededOnchainPools).onConflictDoNothing().run();
   database.db.insert(chartPoints).values(seededChartPoints).onConflictDoNothing().run();
   database.db.insert(ohlcvCandles).values(seedDailyCandlesFromCloseSeries(seededChartPoints)).onConflictDoNothing().run();
+  database.db.insert(supplyChartPoints).values(seededSupplyChartPoints).onConflictDoNothing().run();
 }
 
 export function initializeDatabase(database: AppDatabase) {

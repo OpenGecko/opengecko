@@ -141,12 +141,35 @@ export function getAssetPlatformById(database: AppDatabase, platformId: string) 
     .find((row) => requestedIds.includes(row.id) || requestedIds.includes(row.shortname)) ?? null;
 }
 
+const KNOWN_PLATFORM_CONTRACT_COIN_IDS: Record<string, Record<string, string>> = {
+  ethereum: {
+    '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'usd-coin',
+    '0xdac17f958d2ee523a2206206994597c13d831ec7': 'tether',
+    '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 'ethereum',
+  },
+};
+
 export function getCoinByContract(database: AppDatabase, platformId: string, contractAddress: string) {
   const normalizedContract = contractAddress.toLowerCase();
+  const requestedPlatformIds = resolveRequestedPlatformIds(database, platformId);
 
-  return getCoins(database, { status: 'all' }).find((coin) => {
-    return resolveCoinPlatformContract(database, coin, platformId)?.contractAddress === normalizedContract;
-  });
+  const platformMappedCoin = getCoins(database, { status: 'all' }).find((coin) =>
+    resolveCoinPlatformContract(database, coin, platformId)?.contractAddress === normalizedContract,
+  );
+
+  if (platformMappedCoin) {
+    return platformMappedCoin;
+  }
+
+  for (const requestedPlatformId of requestedPlatformIds) {
+    const canonicalPlatformId = resolveCanonicalPlatformId(requestedPlatformId);
+    const fallbackCoinId = KNOWN_PLATFORM_CONTRACT_COIN_IDS[canonicalPlatformId]?.[normalizedContract];
+    if (fallbackCoinId) {
+      return getCoinById(database, fallbackCoinId) ?? null;
+    }
+  }
+
+  return undefined;
 }
 
 export function getMarketRows(

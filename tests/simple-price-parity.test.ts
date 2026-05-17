@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coins, marketSnapshots } from '../src/db/schema';
+import { coins, marketSnapshots, supplyChartPoints } from '../src/db/schema';
 import {
   createSimplePriceCache,
   getSimplePriceAvailabilityFailure,
@@ -37,6 +37,16 @@ function seedSimpleParityData(database: AppDatabase) {
       totalVolume: 18_589_171_218.177616,
       priceChangePercentage24h: -3.509680921533086,
       lastUpdated: new Date('2026-03-28T10:21:13.000Z'),
+    },
+    {
+      id: 'tether',
+      symbol: 'usdt',
+      name: 'Tether',
+      price: 1,
+      marketCap: null,
+      totalVolume: 25_000_000_000,
+      priceChangePercentage24h: 0.01,
+      lastUpdated: new Date('2026-03-28T10:21:10.000Z'),
     },
   ];
 
@@ -95,6 +105,16 @@ function seedSimpleParityData(database: AppDatabase) {
       lastUpdated: row.lastUpdated,
     }).run();
   }
+
+  database.db.insert(supplyChartPoints).values({
+    coinId: 'tether',
+    supplyType: 'circulating',
+    timestamp: new Date('2026-03-28T00:00:00.000Z'),
+    value: 110_000_000_000,
+    sourceKind: 'replay',
+    sourceProvider: 'canonical-validation-snapshot',
+    sourceFetchedAt: now,
+  }).run();
 }
 
 function createRuntimeState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
@@ -161,7 +181,7 @@ describe('simple price parity helpers', () => {
       },
     });
     const query: SimplePriceRequestQuery = {
-      ids: 'bitcoin,ethereum',
+      ids: 'bitcoin,ethereum,tether',
       vs_currencies: 'usd',
       include_market_cap: 'true',
       include_24hr_vol: 'true',
@@ -191,6 +211,13 @@ describe('simple price parity helpers', () => {
         usd_24h_vol: 18_589_171_218.177616,
         usd_24h_change: -3.509680921533086,
         last_updated_at: 1_774_693_273,
+      },
+      tether: {
+        usd: 1,
+        usd_market_cap: 110_000_000_000,
+        usd_24h_vol: 25_000_000_000,
+        usd_24h_change: 0.01,
+        last_updated_at: 1_774_693_270,
       },
     });
 

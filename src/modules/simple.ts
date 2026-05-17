@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AppDatabase } from '../db/client';
-import type { MarketSnapshotRow } from '../db/schema';
+import { supplyChartPoints, type MarketSnapshotRow } from '../db/schema';
 import { sendCacheableJson } from '../http/cache';
 import { HttpError } from '../http/errors';
 import { parseBooleanQuery, parseCsvQuery, parsePrecision } from '../http/params';
@@ -68,8 +69,52 @@ function toPreciseNumber(value: number | null | undefined, precision: number | '
   return Number(value.toFixed(precision));
 }
 
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function getLatestCirculatingSupply(database: AppDatabase, coinId: string) {
+  return database.db
+    .select()
+    .from(supplyChartPoints)
+    .where(and(
+      eq(supplyChartPoints.coinId, coinId),
+      eq(supplyChartPoints.supplyType, 'circulating'),
+      gt(supplyChartPoints.value, 0),
+    ))
+    .all()
+    .filter((row) => Number.isFinite(row.value))
+    .sort((left, right) => {
+      const sourceRankDiff = (right.sourceKind === 'live' ? 1 : 0) - (left.sourceKind === 'live' ? 1 : 0);
+      if (sourceRankDiff !== 0) {
+        return sourceRankDiff;
+      }
+
+      const timestampDiff = right.timestamp.getTime() - left.timestamp.getTime();
+      if (timestampDiff !== 0) {
+        return timestampDiff;
+      }
+
+      return (right.sourceFetchedAt?.getTime() ?? 0) - (left.sourceFetchedAt?.getTime() ?? 0);
+    })[0]?.value ?? null;
+}
+
+function deriveMarketCap(database: AppDatabase, coinId: string, snapshot: MarketSnapshotRow) {
+  if (isPositiveFiniteNumber(snapshot.marketCap)) {
+    return snapshot.marketCap;
+  }
+
+  const circulatingSupply = getLatestCirculatingSupply(database, coinId);
+  if (!isPositiveFiniteNumber(circulatingSupply)) {
+    return null;
+  }
+
+  return snapshot.price * circulatingSupply;
+}
+
 function buildSimplePayload(
   database: AppDatabase,
+  coinId: string,
   snapshot: MarketSnapshotRow,
   requestedCurrencies: string[],
   marketFreshnessThresholdSeconds: number,
@@ -85,10 +130,11 @@ function buildSimplePayload(
   return Object.fromEntries(
     requestedCurrencies.flatMap((vsCurrency) => {
       const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+      const marketCap = deriveMarketCap(database, coinId, snapshot);
       const entries: Array<[string, number | null]> = [[vsCurrency, toPreciseNumber(snapshot.price * rate, options.precision)]];
 
       if (options.includeMarketCap) {
-        entries.push([`${vsCurrency}_market_cap`, toPreciseNumber((snapshot.marketCap ?? null) === null ? null : (snapshot.marketCap ?? 0) * rate, options.precision)]);
+        entries.push([`${vsCurrency}_market_cap`, toPreciseNumber(marketCap === null ? null : marketCap * rate, options.precision)]);
       }
 
       if (options.include24hrVol) {
@@ -212,7 +258,7 @@ export async function warmSimplePriceCache(
         .filter((row) => row.snapshot)
         .map((row) => [
           row.coin.id,
-          buildSimplePayload(database, row.snapshot!, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+          buildSimplePayload(database, row.coin.id, row.snapshot!, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
             includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
             include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
             include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
@@ -336,7 +382,7 @@ export function registerSimpleRoutes(
 
         return [[
           normalizedAddress,
-          buildSimplePayload(database, snapshot, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
+          buildSimplePayload(database, coin.id, snapshot, requestedCurrencies, marketFreshnessThresholdSeconds, snapshotAccessPolicy, {
             includeMarketCap: parseBooleanQuery(query.include_market_cap, false),
             include24hrVol: parseBooleanQuery(query.include_24hr_vol, false),
             include24hrChange: parseBooleanQuery(query.include_24hr_change, false),
