@@ -3,10 +3,10 @@
 ## Summary
 
 - Matrix endpoints audited: 83 table entries (76 active non-summary endpoints plus 7 NFT endpoints retained as removed-roadmap context).
-- Implemented: 76
+- Implemented: 77
 - Not started: 7
 - Status labels: `implemented`, `partial`, `stub`, `not_started`.
-- Active non-NFT parity: 76 / 76 matrix endpoints outside the removed NFT family are route-registered.
+- Active non-NFT parity: 77 / 77 matrix endpoints outside the removed NFT family are route-registered.
 
 > [!IMPORTANT]
 > This audit measures endpoint-surface and response-shape coverage, not current live-data parity. `Implemented` here means the route exists with audited contract intent; release confidence should still be read together with the current validation gate and `docs/status/implementation-tracker.md`.
@@ -99,6 +99,7 @@
 | `/exchanges/{id}/volume_chart/range` | Exchanges + Derivatives | implemented | Route registered in src/modules/exchanges.ts. | Fields reproduced: explicit-range volume tuples. Divergence: ownership is hybrid-from-live via accumulated ticker refreshes, but retained history depth is still bounded. |
 | `/derivatives` | Exchanges + Derivatives | implemented | Route registered in src/modules/derivatives.ts. | Fields reproduced: derivatives contract rows with funding/open interest fields. |
 | `/derivatives/exchanges/{id}` | Exchanges + Derivatives | implemented | Route registered in src/modules/derivatives.ts. | Fields reproduced: derivatives venue detail and optional tickers. |
+| `/derivatives/exchanges/{id}/tickers` | Exchanges + Derivatives | implemented | Route registered in src/modules/derivatives.ts. | Fields reproduced: derivatives venue ticker rows with source/fallback metadata. |
 | `/entities/list` | Public Treasury | implemented | Route registered in src/modules/treasury.ts with pagination/filtering. | Fields reproduced: treasury entity list rows. |
 | `/{entity}/public_treasury/{coin_id}` | Public Treasury | implemented | Route registered in src/modules/treasury.ts. | Fields reproduced: grouped treasury holdings summary. Divergence: finance-derived metrics remain simplified. |
 | `/public_treasury/{entity_id}` | Public Treasury | implemented | Route registered in src/modules/treasury.ts. | Fields reproduced: entity treasury profile with holdings[] and PnL metrics. |

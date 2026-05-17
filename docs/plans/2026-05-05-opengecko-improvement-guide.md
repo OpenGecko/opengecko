@@ -14,7 +14,7 @@ The project already has broad CoinGecko-compatible route coverage. The next step
 
 OpenGecko has a strong compatibility foundation:
 
-- 76 / 76 active non-NFT CoinGecko-compatible routes are registered according to the compatibility audit.
+- 77 / 77 active non-NFT CoinGecko-compatible routes are registered according to the compatibility audit.
 - Runtime support already includes hot market snapshots, background refresh, OHLCV workers, FTS5 search, diagnostics, metrics, gzip transport compression, startup prewarm, replay/diff tooling, and route-family tests.
 - Live data coverage is materially better than a seed-only implementation, with CCXT, DeFiLlama, Subsquid, and currency-api ownership across the strongest endpoint families.
 - The documentation is explicit that some surfaces are fixture-backed, seeded, or hybrid rather than live.

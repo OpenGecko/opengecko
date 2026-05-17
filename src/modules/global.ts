@@ -49,6 +49,76 @@ function safePercentage(numerator: number, denominator: number) {
   return (numerator / denominator) * 100;
 }
 
+function getLatestSnapshotTimestamp(
+  rows: Array<{ snapshot: MarketSnapshotRow }>,
+) {
+  return rows.reduce<Date | null>((latest, row) => {
+    const value = row.snapshot.lastUpdated ?? row.snapshot.updatedAt;
+
+    if (!value) {
+      return latest;
+    }
+
+    return latest === null || value.getTime() > latest.getTime() ? value : latest;
+  }, null);
+}
+
+function getSnapshotProviderIds(rows: Array<{ snapshot: MarketSnapshotRow }>) {
+  return [...new Set(rows.flatMap((row) => parseJsonArray<string>(row.snapshot.sourceProvidersJson)))]
+    .filter((providerId) => providerId.trim().length > 0)
+    .sort();
+}
+
+function buildDefiGlobalMeta(
+  activeMarketRows: Array<{ snapshot: MarketSnapshotRow }>,
+  defiMarketRows: Array<{ snapshot: MarketSnapshotRow }>,
+) {
+  const marketCapRowCount = defiMarketRows.filter((row) => Number.isFinite(row.snapshot.marketCap) && (row.snapshot.marketCap ?? 0) > 0).length;
+  const volumeRowCount = defiMarketRows.filter((row) => Number.isFinite(row.snapshot.totalVolume) && (row.snapshot.totalVolume ?? 0) >= 0).length;
+  const latestSourceAt = getLatestSnapshotTimestamp(activeMarketRows);
+  const providerIds = getSnapshotProviderIds(activeMarketRows);
+  const reasonCodes: string[] = [];
+
+  if (activeMarketRows.length === 0) {
+    reasonCodes.push('defi_source_unavailable');
+  }
+
+  if (defiMarketRows.length === 0 || marketCapRowCount === 0) {
+    reasonCodes.push('defi_market_rows_sparse');
+  }
+
+  if (!latestSourceAt) {
+    reasonCodes.push('missing_defi_source_timestamp');
+  }
+
+  const state = activeMarketRows.length === 0
+    ? 'unavailable'
+    : reasonCodes.length === 0
+      ? 'live'
+      : 'degraded';
+
+  return {
+    source: state === 'unavailable' ? 'unavailable' : 'market_snapshots',
+    state,
+    source_state: state,
+    classification: state,
+    live: state === 'live',
+    unavailable: state === 'unavailable',
+    degraded: state === 'degraded',
+    fallback: state !== 'live',
+    provider_ids: providerIds,
+    latest_source_at: latestSourceAt?.toISOString() ?? null,
+    usable_market_row_count: activeMarketRows.length,
+    defi_market_row_count: defiMarketRows.length,
+    market_cap_row_count: marketCapRowCount,
+    volume_row_count: volumeRowCount,
+    reason_codes: reasonCodes,
+    note: state === 'live'
+      ? 'DeFi global aggregates are derived from current market snapshot rows with provider and freshness evidence.'
+      : 'DeFi global aggregates are returned with explicit degraded or unavailable provenance when source market snapshot coverage is sparse.',
+  };
+}
+
 const globalMarketCapChartQuerySchema = z.object({
   vs_currency: z.string(),
   days: z.string(),
@@ -231,6 +301,7 @@ export function registerGlobalRoutes(
         top_coin_name: topCoin?.coin.name ?? null,
         top_coin_defi_dominance: defiMarketCap > 0 ? (topCoinMarketCap / defiMarketCap) * 100 : null,
       },
+      meta: buildDefiGlobalMeta(activeMarketRows, defiMarketRows),
     }, GLOBAL_HTTP_CACHE_POLICY);
   });
 

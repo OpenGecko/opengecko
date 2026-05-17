@@ -136,7 +136,7 @@ const FAMILY_CONFIGS: QualityFamilyConfig[] = [
     aliases: ['derivative_tickers', 'derivative_exchanges'],
     runtimeFamilyIds: ['derivatives'],
     required: true,
-    representativeRoutes: ['/derivatives', '/derivatives/exchanges', '/derivatives/exchanges/:id'],
+    representativeRoutes: ['/derivatives', '/derivatives/exchanges', '/derivatives/exchanges/:id', '/derivatives/exchanges/:id/tickers'],
     coverageFamily: 'derivatives',
     contractEvidence: ['tests/derivatives-routes.test.ts', 'tests/provider-replay-derivatives.test.ts'],
   },

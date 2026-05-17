@@ -218,6 +218,7 @@ Exchange listings, volumes, and derivatives venues.
 | `GET /derivatives/exchanges/list` | List of derivatives exchanges |
 | `GET /derivatives/exchanges` | Derivatives exchange data with OI and funding |
 | `GET /derivatives/exchanges/{id}` | Detailed derivatives exchange data |
+| `GET /derivatives/exchanges/{id}/tickers` | Derivatives exchange contract tickers |
 | `GET /derivatives` | All derivatives contracts with funding, spread, and expiry |
 
 ### Public Treasury

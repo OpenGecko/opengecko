@@ -142,6 +142,7 @@ describe('global routes', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body).toHaveProperty('data');
+    expect(body).toHaveProperty('meta');
     expect(typeof body.data.defi_market_cap).toBe('number');
     expect(typeof body.data.eth_market_cap).toBe('number');
     expect(typeof body.data.trading_volume_24h).toBe('number');
@@ -158,6 +159,26 @@ describe('global routes', () => {
       }
 
       expect(key).not.toBe('');
+    }
+
+    expect(body.meta).toMatchObject({
+      source: expect.stringMatching(/market_snapshots|unavailable/),
+      state: expect.stringMatching(/live|degraded|unavailable/),
+      provider_ids: expect.any(Array),
+      usable_market_row_count: expect.any(Number),
+      defi_market_row_count: expect.any(Number),
+      market_cap_row_count: expect.any(Number),
+      volume_row_count: expect.any(Number),
+      latest_source_at: expect.anything(),
+      reason_codes: expect.any(Array),
+      note: expect.any(String),
+    });
+    expect(body.meta.live).toBe(body.meta.state === 'live');
+    if (body.meta.state === 'live') {
+      expect(body.meta.latest_source_at).toEqual(expect.any(String));
+      expect(body.meta.reason_codes).toEqual([]);
+    } else {
+      expect(body.meta.reason_codes.length).toBeGreaterThan(0);
     }
   });
 

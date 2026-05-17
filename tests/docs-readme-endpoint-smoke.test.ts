@@ -76,6 +76,7 @@ const readmeRouteSmokeRequests: Record<string, string> = {
   '/derivatives/exchanges/list': '/derivatives/exchanges/list',
   '/derivatives/exchanges': '/derivatives/exchanges',
   '/derivatives/exchanges/{param}': '/derivatives/exchanges/binance_futures',
+  '/derivatives/exchanges/{param}/tickers': '/derivatives/exchanges/binance_futures/tickers',
   '/derivatives': '/derivatives',
   '/entities/list': '/entities/list',
   '/{param}/public_treasury/{param}': '/companies/public_treasury/bitcoin',

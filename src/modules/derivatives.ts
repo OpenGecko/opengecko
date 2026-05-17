@@ -196,6 +196,21 @@ export function registerDerivativeRoutes(app: FastifyInstance, database: AppData
     }, DERIVATIVES_HTTP_CACHE_POLICY);
   });
 
+  app.get('/derivatives/exchanges/:id/tickers', async (request, reply) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const exchange = getDerivativesExchangeOrThrow(database, params.id);
+    const rows = getDerivativeRows(database).filter((row) => row.derivative_tickers.exchangeId === params.id);
+
+    return sendCacheableJson(request, reply, {
+      data: {
+        id: exchange.id,
+        name: exchange.name,
+        tickers: rows.map(buildDerivativeTickerPayload),
+      },
+      meta: buildDerivativesMeta(rows),
+    }, DERIVATIVES_HTTP_CACHE_POLICY);
+  });
+
   app.get('/derivatives', async (request, reply) => {
     const rows = sortDerivativeRows(getDerivativeRows(database));
 

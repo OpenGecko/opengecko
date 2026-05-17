@@ -141,6 +141,53 @@ describe('derivatives routes', () => {
     ]));
   });
 
+  it('returns derivatives exchange ticker route with classified contract rows', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives/exchanges/binance_futures/tickers',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toMatchObject({
+      data: {
+        id: 'binance_futures',
+        name: 'Binance Futures',
+        tickers: expect.any(Array),
+      },
+      meta: {
+        fixture: true,
+        frozen_at: '2026-03-20',
+        source_backed_tickers: 0,
+        fallback_tickers: expect.any(Number),
+      },
+    });
+    expect(body.data.tickers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        market: 'Binance Futures',
+        market_id: 'binance_futures',
+        symbol: 'BTCUSDT',
+        contract_type: 'perpetual',
+        trade_volume_24h_btc: expect.any(Number),
+      }),
+    ]));
+    expect(body.meta.fallback_tickers).toBe(body.data.tickers.length);
+  });
+
+  it('returns predictable JSON errors for unknown derivatives exchange ticker routes', async () => {
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/derivatives/exchanges/not-a-venue/tickers',
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.json()).toMatchObject({
+      error: 'not_found',
+      message: expect.stringContaining('Derivatives exchange not found'),
+    });
+  });
+
   it('returns derivatives tickers', async () => {
     const response = await getApp().inject({
       method: 'GET',

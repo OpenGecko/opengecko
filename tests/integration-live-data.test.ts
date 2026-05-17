@@ -300,9 +300,9 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.13.6');
+    expect(packageJson.version).toBe('0.14.0');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(packageJson.version.startsWith('0.13.')).toBe(true);
+    expect(packageJson.version.startsWith('0.14.')).toBe(true);
   });
 
   it('keeps CeFi and DeFi USD prices within the contract coherence threshold on the onchain simple token price path', async () => {
@@ -389,8 +389,8 @@ describe('live data integration', () => {
       'utf8',
     );
 
-    expect(compatibilityAudit).toContain('Implemented: 76');
-    expect(compatibilityAudit).toContain('Active non-NFT parity: 76 / 76');
+    expect(compatibilityAudit).toContain('Implemented: 77');
+    expect(compatibilityAudit).toContain('Active non-NFT parity: 77 / 77');
 
     for (const family of auditFamilies) {
       expect(compatibilityAudit).toContain(`### ${family}`);
