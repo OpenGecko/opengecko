@@ -227,10 +227,22 @@ describe('coins markets parity', () => {
             total_supply_evidence_count: number;
             persisted_market_cap_evidence_count: number;
             source_backed_market_cap_derivation_count: number;
+            price_completeness_ratio: number;
+            market_cap_completeness_ratio: number;
+            volume_completeness_ratio: number;
             null_quality_row_count: number;
             null_quality_first_page_ids: string[];
             missing_market_cap_ids: string[];
           };
+          exceptions?: Array<{
+            field: string;
+            reason_code: string;
+            configured_denominator?: number;
+            measured_denominator?: number;
+            complete_count?: number;
+            unavailable_count?: number;
+            affected_ids?: string[];
+          }>;
         };
         replayable_evidence?: {
           base_url_env: string;
@@ -263,11 +275,34 @@ describe('coins markets parity', () => {
         total_supply_evidence_count: expect.any(Number),
         persisted_market_cap_evidence_count: expect.any(Number),
         source_backed_market_cap_derivation_count: expect.any(Number),
+        price_completeness_ratio: expect.any(Number),
+        market_cap_completeness_ratio: expect.any(Number),
+        volume_completeness_ratio: expect.any(Number),
         null_quality_row_count: expect.any(Number),
         null_quality_first_page_ids: expect.any(Array),
         missing_market_cap_ids: expect.any(Array),
       },
     });
+    const topN = coinsFamily?.evidence.market_quality?.top_n;
+    expect(topN).toBeDefined();
+    expect(topN?.measured_denominator).toBeLessThanOrEqual(topN?.configured_denominator ?? 0);
+    expect(topN?.price_completeness_ratio).toBe((topN?.price_complete_count ?? 0) / 100);
+    expect(topN?.market_cap_completeness_ratio).toBe((topN?.market_cap_complete_count ?? 0) / 100);
+    expect(topN?.volume_completeness_ratio).toBe((topN?.volume_complete_count ?? 0) / 100);
+    expect(topN?.price_completeness_ratio).toBeLessThanOrEqual((topN?.price_complete_count ?? 0) / Math.max(topN?.measured_denominator ?? 1, 1));
+
+    const marketCapException = coinsFamily?.evidence.market_quality?.exceptions?.find(
+      (exception) => exception.field === 'market_cap' && exception.reason_code === 'source_unavailable',
+    );
+    if ((topN?.market_cap_complete_count ?? 0) < 80) {
+      expect(marketCapException).toMatchObject({
+        configured_denominator: 100,
+        measured_denominator: topN?.measured_denominator,
+        complete_count: topN?.market_cap_complete_count,
+        unavailable_count: 100 - (topN?.market_cap_complete_count ?? 0),
+        affected_ids: topN?.missing_market_cap_ids,
+      });
+    }
     expect(coinsFamily?.evidence.replayable_evidence).toMatchObject({
       base_url_env: 'BASE_URL',
       request_paths: expect.arrayContaining([

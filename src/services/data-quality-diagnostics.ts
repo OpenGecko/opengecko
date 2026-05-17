@@ -506,16 +506,20 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
     row.snapshot.marketCap,
     row.snapshot.totalVolume,
   ].every((value) => !isFinitePositive(value)));
-  const measuredDenominator = Math.min(MARKET_TOP_N_DENOMINATOR, rows.length);
-  const priceCompletenessRatio = measuredDenominator === 0 ? 0 : priceCompleteCount / measuredDenominator;
-  const marketCapCompletenessRatio = measuredDenominator === 0 ? 0 : marketCapCompleteCount / measuredDenominator;
-  const volumeCompletenessRatio = measuredDenominator === 0 ? 0 : volumeCompleteCount / measuredDenominator;
+  const measuredDenominator = rows.length;
+  const priceCompletenessRatio = priceCompleteCount / MARKET_TOP_N_DENOMINATOR;
+  const marketCapCompletenessRatio = marketCapCompleteCount / MARKET_TOP_N_DENOMINATOR;
+  const volumeCompletenessRatio = volumeCompleteCount / MARKET_TOP_N_DENOMINATOR;
   const exceptions = [
     ...(marketCapCompletenessRatio < 0.8
       ? [{
           field: 'market_cap',
           reason_code: 'source_unavailable',
           message: 'Live exchange ticker sources do not provide market-cap directly and no usable persisted market-cap or source-backed supply evidence exists for the listed top-N rows.',
+          configured_denominator: MARKET_TOP_N_DENOMINATOR,
+          measured_denominator: measuredDenominator,
+          complete_count: marketCapCompleteCount,
+          unavailable_count: MARKET_TOP_N_DENOMINATOR - marketCapCompleteCount,
           affected_ids: missingMarketCapIds.slice(0, 25),
         }]
       : []),
