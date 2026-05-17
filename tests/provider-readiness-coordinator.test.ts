@@ -52,6 +52,32 @@ describe('provider readiness coordinator', () => {
     ]));
   });
 
+  it('records synchronous run throws as isolated provider failures and continues fanout', async () => {
+    const failures: string[] = [];
+
+    const results = await runBudgetedProviderFanout({
+      items: ['binance', 'coinbase', 'kraken'],
+      concurrency: 2,
+      buildBudgetError: (provider, _index, budgetMs) => new Error(`${provider} exceeded ${budgetMs}ms`),
+      onFailure: (provider, _index, error) => failures.push(`${provider}:${error.message}`),
+      run: (provider) => {
+        if (provider === 'coinbase') {
+          throw new Error('synchronous provider setup failed');
+        }
+
+        return Promise.resolve(`${provider}:ready`);
+      },
+    });
+
+    expect(results).toEqual([
+      { status: 'fulfilled', value: 'binance:ready' },
+      { status: 'rejected', reason: expect.any(Error) },
+      { status: 'fulfilled', value: 'kraken:ready' },
+    ]);
+    expect((results[1] as PromiseRejectedResult).reason.message).toBe('synchronous provider setup failed');
+    expect(failures).toEqual(['coinbase:synchronous provider setup failed']);
+  });
+
   it('returns budget failures in deterministic item order without waiting for hung providers', async () => {
     vi.useFakeTimers();
     const progressFailures: string[] = [];

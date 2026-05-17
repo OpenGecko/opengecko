@@ -10,7 +10,7 @@ export type BudgetedProviderFanoutOptions<TItem, TResult> = BudgetedProviderFano
   items: readonly TItem[];
   concurrency: number;
   budgetMs?: number;
-  run: (item: TItem, index: number) => Promise<TResult>;
+  run: (item: TItem, index: number) => Promise<TResult> | TResult;
   buildBudgetError: (item: TItem, index: number, budgetMs: number) => Error;
   reportBudgetFailure?: boolean;
 };
@@ -96,7 +96,8 @@ export async function runBudgetedProviderFanout<TItem, TResult>(
         const startedAt = Date.now();
         options.onStart?.(item, currentIndex);
 
-        Promise.resolve(options.run(item, currentIndex))
+        Promise.resolve()
+          .then(() => options.run(item, currentIndex))
           .then((value) => {
             if (resolved) {
               return;
