@@ -91,6 +91,7 @@ bun run lint                             # ESLint over src/
 bun run typecheck                        # TypeScript type check
 bun run test                             # run full test suite
 bun run test:coverage                    # run full test suite with coverage
+bun run test:data-quality                # run data-quality regression gate
 bun run test:endpoint                    # smoke-test all endpoint families
 bun run test:endpoint:simple
 bun run test:endpoint:coins
