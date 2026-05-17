@@ -375,6 +375,70 @@ describe('data quality diagnostics', () => {
     expect(derivatives?.evidence.derivatives_quality?.reason_codes).toContain('derivatives_live_fidelity_below_contract_score');
   });
 
+  it('compares global recomputation diagnostics against the public /global route values', async () => {
+    await getApp().ready();
+
+    const [qualityResponse, globalResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/diagnostics/data_quality',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/global',
+      }),
+    ]);
+
+    expect(qualityResponse.statusCode).toBe(200);
+    expect(globalResponse.statusCode).toBe(200);
+
+    const globalFamily = (qualityResponse.json().data.families as Array<{
+      family: string;
+      evidence: {
+        global_quality?: {
+          public_route_values: {
+            route: string;
+            total_market_cap_usd: number;
+            total_volume_usd: number;
+            market_cap_percentage: Record<string, number | null>;
+          };
+          public_route_comparison: {
+            compared_route: string;
+            market_cap_delta_ratio: number;
+            volume_delta_ratio: number;
+            dominance_delta_ratios: Record<string, number>;
+            within_tolerance: boolean;
+          };
+        };
+      };
+    }>).find((family) => family.family === 'global');
+
+    const publicGlobal = globalResponse.json().data as {
+      total_market_cap: { usd: number };
+      total_volume: { usd: number };
+      market_cap_percentage: Record<string, number>;
+    };
+
+    expect(globalFamily?.evidence.global_quality?.public_route_values).toMatchObject({
+      route: '/global',
+      total_market_cap_usd: publicGlobal.total_market_cap.usd,
+      total_volume_usd: publicGlobal.total_volume.usd,
+    });
+    expect(globalFamily?.evidence.global_quality?.public_route_values.market_cap_percentage).toEqual(
+      expect.objectContaining({
+        btc: publicGlobal.market_cap_percentage.btc,
+        eth: publicGlobal.market_cap_percentage.eth,
+        usdc: publicGlobal.market_cap_percentage.usdc,
+      }),
+    );
+    expect(globalFamily?.evidence.global_quality?.public_route_comparison).toMatchObject({
+      compared_route: '/global',
+      market_cap_delta_ratio: 0,
+      volume_delta_ratio: 0,
+      within_tolerance: true,
+    });
+  });
+
   it('exposes catalog hybrid quality evidence for search, assets, treasury, onchain, and supply assertions', async () => {
     await getApp().ready();
 

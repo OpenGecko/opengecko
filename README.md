@@ -354,6 +354,7 @@ Full central schema in `src/config/env.ts`. The optional `*_BASE_URL` adapter se
 | `GET /diagnostics/ohlcv_sync` | OHLCV worker progress, sync health, estimated remaining history backfill chunks, and capped most-behind target samples |
 | `GET /diagnostics/chain_coverage` | Chain/network normalization coverage |
 | `GET /diagnostics/coverage_matrix` | Endpoint-family data ownership and live/hybrid/seeded/fixture coverage matrix |
+| `GET /diagnostics/data_quality` | Endpoint-family 0-10 quality scores, dimensions, source/fallback state, coverage consistency evidence, global recomputation comparison against `/global`, and regression-gate status |
 | `GET /diagnostics/exchanges` | Exchange catalog/ticker diagnostics, including live row counts, configured exchange coverage, ticker freshness, and degraded/fallback evidence |
 | `GET /diagnostics/exchange_volumes` | Source-backed exchange volume target coverage, row counts, freshness/depth status, and configured-target gaps |
 | `GET /diagnostics/market_charts` | Configured market chart targets, live/replay row counts, freshness/depth status, continuity/fallback pressure, daily/intraday target suggestions, and fallback-only gaps |
@@ -362,6 +363,32 @@ Full central schema in `src/config/env.ts`. The optional `*_BASE_URL` adapter se
 
 > [!TIP]
 > For production, monitor `/diagnostics/runtime`, `/diagnostics/jobs`, and `/metrics` together to capture contract uptime, scheduler health, data freshness, and fallback/degraded states.
+
+**Final data-quality regression gates:**
+
+Run these gates against an isolated OpenGecko API (for example `HOST=127.0.0.1 PORT=3103 DATABASE_URL=/tmp/opengecko-quality-3103.db bun run dev`) after `/diagnostics/runtime` reports `initial_sync_completed=true`:
+
+```bash
+bun run lint
+bun run typecheck
+TMPDIR=/home/whoami/dev/opengecko/data bun run test -- --maxWorkers=4
+bun run build
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/test-endpoints.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/simple/simple.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/coins/coins.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/exchanges/exchanges.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/global/global.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/search/search.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/assets/assets.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/treasury/treasury.sh
+BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/modules/onchain/onchain.sh
+OPENGECKO_QUALITY_EVIDENCE_DIR=/tmp/opengecko-quality-evidence \
+  BASE_URL=http://127.0.0.1:3103 ENDPOINT_CURL_MAX_TIME=30 bash scripts/data-quality-gate.sh
+```
+
+Interpret `/diagnostics/data_quality` by checking `data.gate.threshold == 9`, every required family in `data.families[]` has `score >= 9`, and `data.gate.below_target_families` is empty. The gate also records stable evidence fields for CI (`base_url`, `run_timestamp`, `request_url`, HTTP status/content type, raw diagnostics, parsed metrics, assertion table, and mismatch report) when `OPENGECKO_QUALITY_EVIDENCE_DIR` is set. Treat `source.state`, dimension `reason_codes`, and `/diagnostics/coverage_matrix` as authoritative for whether a high score reflects live fidelity or contract-compatible fixture/hybrid transparency; fixture, seeded, unavailable, and degraded surfaces must remain labeled rather than counted as full live parity. The `global` family includes `global_quality.public_route_comparison`, which compares recomputed market rows to public `/global` USD totals and dominance values.
+
+No paid secrets are required for these gates. Do not print or commit optional provider credentials; `COINGECKO_API_KEY` is only for separate snapshot capture workflows. Asset image validation uses deterministic URL-format and diagnostics evidence as the baseline. Bounded image `HEAD` checks are optional and should only be enabled when `ASSET_IMAGE_BASE_URL` is configured to a reachable host.
 
 **Background jobs:**
 

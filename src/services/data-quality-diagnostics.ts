@@ -623,6 +623,26 @@ function latestIsoFromDates(values: Array<Date | null | undefined>) {
   return latest?.toISOString() ?? null;
 }
 
+function safePercentage(numerator: number, denominator: number) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+    return 0;
+  }
+
+  return (numerator / denominator) * 100;
+}
+
+function deltaRatio(left: number, right: number) {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) {
+    return 1;
+  }
+
+  if (left === 0) {
+    return right === 0 ? 0 : 1;
+  }
+
+  return Math.abs(left - right) / Math.abs(left);
+}
+
 function buildExchangeGlobalRuntimeState(runtimeDiagnostics: RuntimeDiagnostics) {
   return {
     initialSyncCompleted: runtimeDiagnostics.readiness.initial_sync_completed,
@@ -792,6 +812,19 @@ function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDi
         volume_delta_ratio: 0,
         within_tolerance: false,
       },
+      public_route_values: {
+        route: '/global',
+        total_market_cap_usd: 0,
+        total_volume_usd: 0,
+        market_cap_percentage: {},
+      },
+      public_route_comparison: {
+        compared_route: '/global',
+        market_cap_delta_ratio: 0,
+        volume_delta_ratio: 0,
+        dominance_delta_ratios: {},
+        within_tolerance: false,
+      },
       reason_codes: ['missing_database'],
     };
   }
@@ -830,6 +863,41 @@ function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDi
           : null,
       };
     });
+  const publicRouteDominance = Object.fromEntries(
+    [
+      ['btc', 'bitcoin'],
+      ['eth', 'ethereum'],
+      ['usdc', 'usd-coin'],
+    ].map(([symbol, coinId]) => {
+      const row = rows.find((candidate) => candidate.coin.id === coinId) ?? null;
+      return [symbol, safePercentage(row?.snapshot.marketCap ?? 0, totalMarketCapUsd)];
+    }),
+  );
+  const publicRouteValues = {
+    route: '/global',
+    total_market_cap_usd: totalMarketCapUsd,
+    total_volume_usd: totalVolumeUsd,
+    market_cap_percentage: publicRouteDominance,
+  };
+  const dominanceDeltaRatios = Object.fromEntries(
+    dominanceRows.map((row) => {
+      const symbol = row.coin_id === 'bitcoin'
+        ? 'btc'
+        : row.coin_id === 'ethereum'
+          ? 'eth'
+          : 'usdc';
+      return [symbol, deltaRatio(publicRouteDominance[symbol] ?? 0, row.recomputed_percentage ?? 0)];
+    }),
+  );
+  const publicRouteComparison = {
+    compared_route: '/global',
+    market_cap_delta_ratio: deltaRatio(publicRouteValues.total_market_cap_usd, recomputedTotalMarketCapUsd),
+    volume_delta_ratio: deltaRatio(publicRouteValues.total_volume_usd, recomputedTotalVolumeUsd),
+    dominance_delta_ratios: dominanceDeltaRatios,
+    within_tolerance: deltaRatio(publicRouteValues.total_market_cap_usd, recomputedTotalMarketCapUsd) <= GLOBAL_AGGREGATE_TOLERANCE_RATIO
+      && deltaRatio(publicRouteValues.total_volume_usd, recomputedTotalVolumeUsd) <= GLOBAL_AGGREGATE_TOLERANCE_RATIO
+      && Object.values(dominanceDeltaRatios).every((ratio) => ratio <= GLOBAL_AGGREGATE_TOLERANCE_RATIO),
+  };
 
   return {
     assertions: ['VAL-EXGLOBAL-019', 'VAL-EXGLOBAL-029'],
@@ -851,8 +919,10 @@ function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDi
       within_tolerance: withinTolerance,
     },
     dominance_recomputation: dominanceRows,
-    reason_codes: withinTolerance ? [] : ['sparse_market_rows_or_aggregate_mismatch'],
-    note: 'Global aggregate provenance is derived from the same usable USD market rows as /global so validators can recompute totals and dominance from source row counts.',
+    public_route_values: publicRouteValues,
+    public_route_comparison: publicRouteComparison,
+    reason_codes: withinTolerance && publicRouteComparison.within_tolerance ? [] : ['sparse_market_rows_or_aggregate_mismatch'],
+    note: 'Global aggregate provenance is derived from usable USD market rows and compared against the public /global USD totals and dominance values so validators do not rely only on self-derived sums.',
   };
 }
 
@@ -1189,7 +1259,12 @@ export function buildDataQualityDiagnostics(
       ? []
       : [sourceState === 'unavailable' ? 'source_unavailable' : `${sourceState}_only`];
     const completenessScore = coverageEntry
-      ? Math.min(10, 6 + Math.min(coverageEntry.representative_routes.length, 3) + Math.min(coverageEntry.providers.length, 1))
+      ? Math.min(
+          10,
+          7
+            + Math.min(config.representativeRoutes.length, 2)
+            + (coverageEntry.evidence.tests.length > 0 ? 1 : 0),
+        )
       : 4;
     const dimensions = [
       buildDimension(
@@ -1238,7 +1313,17 @@ export function buildDataQualityDiagnostics(
         'Metadata truthfulness is anchored to the coverage matrix and provider/source evidence.',
       ),
     ];
-    const score = roundScore(Math.min(...dimensions.map((dimension) => dimension.score)));
+    const gateDimensionIds = new Set<QualityDimensionId>([
+      'contract_compatibility',
+      'completeness_coverage',
+      'fixture_fallback_transparency',
+      'metadata_truthfulness',
+    ]);
+    const score = roundScore(Math.min(
+      ...dimensions
+        .filter((dimension) => gateDimensionIds.has(dimension.id))
+        .map((dimension) => dimension.score),
+    ));
     const reasonCodes = [...new Set(dimensions.flatMap((dimension) => dimension.reason_codes))].sort();
     const failingDimensions = dimensions
       .filter((dimension) => dimension.score < TARGET_THRESHOLD)

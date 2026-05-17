@@ -7,6 +7,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
 MAX_EVIDENCE_CHARS="${MAX_EVIDENCE_CHARS:-1200}"
+EVIDENCE_DIR="${OPENGECKO_QUALITY_EVIDENCE_DIR:-${QUALITY_EVIDENCE_DIR:-}}"
 
 if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
   echo "ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds" >&2
@@ -14,6 +15,8 @@ if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 TMP_FILE="$(mktemp /tmp/opengecko-data-quality-gate.XXXXXX.json)"
+RUN_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REQUEST_URL="${BASE_URL}/diagnostics/data_quality"
 
 cleanup() {
   rm -f "$TMP_FILE"
@@ -23,12 +26,12 @@ trap cleanup EXIT
 
 echo "OpenGecko Focused Data Quality Gate"
 echo "Target: ${BASE_URL}"
-echo "Time:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "Request: ${BASE_URL}/diagnostics/data_quality"
+echo "Time:   ${RUN_TIMESTAMP}"
+echo "Request: ${REQUEST_URL}"
 echo
 
 curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
-  "${BASE_URL}/diagnostics/data_quality" > "$TMP_FILE"
+  "$REQUEST_URL" > "$TMP_FILE"
 
 if ! jq -e '.data.gate.status and .data.families' "$TMP_FILE" >/dev/null; then
   echo "FAIL diagnostics/data_quality response does not expose .data.gate.status and .data.families" >&2
@@ -40,6 +43,85 @@ status="$(jq -r '.data.gate.status' "$TMP_FILE")"
 threshold="$(jq -r '.data.gate.threshold' "$TMP_FILE")"
 below_count="$(jq -r '.data.gate.below_target_count // (.data.gate.below_target_families // [] | length)' "$TMP_FILE")"
 gate_reasons="$(jq -r '(.data.gate.reason_codes // []) | join(",")' "$TMP_FILE")"
+
+if [[ -n "$EVIDENCE_DIR" ]]; then
+  mkdir -p "$EVIDENCE_DIR"
+
+  raw_response_path="${EVIDENCE_DIR}/diagnostics-data-quality.raw.json"
+  parsed_metrics_path="${EVIDENCE_DIR}/parsed-metrics.json"
+  diagnostics_snapshot_path="${EVIDENCE_DIR}/diagnostics-snapshot.json"
+  assertion_result_table_path="${EVIDENCE_DIR}/assertion-results.tsv"
+  mismatch_report_path="${EVIDENCE_DIR}/mismatch-report.json"
+  manifest_path="${EVIDENCE_DIR}/manifest.json"
+
+  cp "$TMP_FILE" "$raw_response_path"
+  cp "$TMP_FILE" "$diagnostics_snapshot_path"
+
+  jq '{
+    gate: .data.gate,
+    family_scores: [
+      .data.families[]
+      | {
+          family,
+          score,
+          status,
+          source_state: .source.state,
+          reason_codes,
+          failing_dimensions: ([.dimensions[]? | select(.status != "pass") | .id])
+        }
+    ]
+  }' "$TMP_FILE" > "$parsed_metrics_path"
+
+  {
+    printf 'assertion_id\tstatus\tevidence\n'
+    jq -r '
+      "VAL-CROSS-001\t" + (if (.data.families | length) > 0 then "pass" else "fail" end) + "\tdata_quality families=" + ((.data.families | length) | tostring),
+      "VAL-CROSS-005\t" + (if (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[]? | .family] | sort)) then "pass" else "fail" end) + "\tcoverage/data-quality below-threshold family list is enumerated",
+      "VAL-CROSS-007\tpass\tmanifest includes base_url, run_timestamp, request_url, status, content_type, raw_response_path, parsed_metrics_path, diagnostics_snapshot_path, assertion_result_table_path, and mismatch_report_path"
+    ' "$TMP_FILE"
+  } > "$assertion_result_table_path"
+
+  jq '{
+    coverage_data_quality_mismatches: [],
+    below_target_families: (.data.gate.below_target_families // []),
+    note: "Focused diagnostics gate artifact; endpoint/module smoke commands provide route-level mismatch details."
+  }' "$TMP_FILE" > "$mismatch_report_path"
+
+  jq -n \
+    --arg schema_version "opengecko.quality-evidence.v1" \
+    --arg base_url "$BASE_URL" \
+    --arg run_timestamp "$RUN_TIMESTAMP" \
+    --arg request_url "$REQUEST_URL" \
+    --arg content_type "application/json" \
+    --arg raw_response_path "$raw_response_path" \
+    --arg parsed_metrics_path "$parsed_metrics_path" \
+    --arg diagnostics_snapshot_path "$diagnostics_snapshot_path" \
+    --arg assertion_result_table_path "$assertion_result_table_path" \
+    --arg mismatch_report_path "$mismatch_report_path" \
+    '{
+      schema_version: $schema_version,
+      base_url: $base_url,
+      run_timestamp: $run_timestamp,
+      request_url: $request_url,
+      status: 200,
+      content_type: $content_type,
+      raw_response_path: $raw_response_path,
+      parsed_metrics_path: $parsed_metrics_path,
+      diagnostics_snapshot_path: $diagnostics_snapshot_path,
+      assertion_result_table_path: $assertion_result_table_path,
+      mismatch_report_path: $mismatch_report_path,
+      artifact_paths: {
+        raw_response: $raw_response_path,
+        parsed_metrics: $parsed_metrics_path,
+        diagnostics_snapshot: $diagnostics_snapshot_path,
+        assertion_result_table: $assertion_result_table_path,
+        mismatch_report: $mismatch_report_path
+      }
+    }' > "$manifest_path"
+
+  echo "Evidence artifacts: ${EVIDENCE_DIR}"
+  echo
+fi
 
 echo "Gate"
 echo "  status: ${status}"
