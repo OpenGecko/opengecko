@@ -28,6 +28,21 @@ export type MarketQuoteAccumulator = {
   providers: Set<string>;
 };
 
+type PreviousMarketSnapshotEvidence = Pick<
+  MarketSnapshotRow,
+  | 'marketCap'
+  | 'marketCapRank'
+  | 'fullyDilutedValuation'
+  | 'circulatingSupply'
+  | 'totalSupply'
+  | 'maxSupply'
+  | 'ath'
+  | 'athDate'
+  | 'atl'
+  | 'atlDate'
+  | 'priceChangePercentage24h'
+> & { price: number | null };
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -171,21 +186,7 @@ export function getSnapshotOwnership(snapshot: Pick<MarketSnapshotRow, 'sourceCo
 export function buildLiveSnapshotValue(
   coinId: string,
   accumulator: MarketQuoteAccumulator,
-  previousSnapshot: Pick<
-    MarketSnapshotRow,
-    | 'price'
-    | 'marketCap'
-    | 'marketCapRank'
-    | 'fullyDilutedValuation'
-    | 'circulatingSupply'
-    | 'totalSupply'
-    | 'maxSupply'
-    | 'ath'
-    | 'athDate'
-    | 'atl'
-    | 'atlDate'
-    | 'priceChangePercentage24h'
-  > | null,
+  previousSnapshot: PreviousMarketSnapshotEvidence | null,
   vsCurrency: string,
   now: Date,
 ) {

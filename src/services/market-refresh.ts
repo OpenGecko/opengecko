@@ -3,7 +3,7 @@ import BigNumber from 'bignumber.js';
 
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
-import { coinTickers, exchanges, exchangeVolumePoints, marketSnapshots } from '../db/schema';
+import { coinHistorySnapshots, coinTickers, exchanges, exchangeVolumePoints, marketSnapshots, supplyChartPoints } from '../db/schema';
 import { coins } from '../db/schema';
 import type { Logger } from 'pino';
 import { fetchExchangeTickers, isValidExchangeId, type ExchangeId, type ExchangeTickerSnapshot } from '../providers/ccxt';
@@ -88,6 +88,12 @@ type ConversionContext = {
   eurPerUsd: number;
   usdPriceByCoinId: Map<string, number>;
   btcUsdPrice: number | null;
+};
+
+type MarketSnapshotEvidence = Parameters<typeof buildLiveSnapshotValue>[2];
+type SourceRankedRow = {
+  sourceKind: 'live' | 'replay';
+  sourceFetchedAt: Date | null;
 };
 
 type RefreshTickerProcessingState = {
@@ -561,6 +567,154 @@ function persistAcceptedQuoteSnapshots(
   }
 }
 
+function readLatestSupplyEvidence(database: AppDatabase, coinId: string) {
+  const rows = database.db
+    .select()
+    .from(supplyChartPoints)
+    .where(eq(supplyChartPoints.coinId, coinId))
+    .all();
+  const supplyEvidence = new Map<'circulating' | 'total', typeof rows[number]>();
+
+  for (const row of rows) {
+    if (row.value <= 0 || !Number.isFinite(row.value)) {
+      continue;
+    }
+
+    const existing = supplyEvidence.get(row.supplyType);
+    if (!existing) {
+      supplyEvidence.set(row.supplyType, row);
+      continue;
+    }
+
+    const rowSourceRank = row.sourceKind === 'live' ? 1 : 0;
+    const existingSourceRank = existing.sourceKind === 'live' ? 1 : 0;
+    const rowTimestamp = row.timestamp.getTime();
+    const existingTimestamp = existing.timestamp.getTime();
+    const rowFetchedAt = row.sourceFetchedAt?.getTime() ?? 0;
+    const existingFetchedAt = existing.sourceFetchedAt?.getTime() ?? 0;
+
+    if (
+      rowSourceRank > existingSourceRank
+      || (
+        rowSourceRank === existingSourceRank
+        && (rowTimestamp > existingTimestamp || (rowTimestamp === existingTimestamp && rowFetchedAt > existingFetchedAt))
+      )
+    ) {
+      supplyEvidence.set(row.supplyType, row);
+    }
+  }
+
+  return {
+    circulatingSupply: supplyEvidence.get('circulating')?.value,
+    totalSupply: supplyEvidence.get('total')?.value,
+  };
+}
+
+function compareSourceRankedRows(
+  candidate: SourceRankedRow & { timestamp?: Date; snapshotAt?: Date },
+  existing: SourceRankedRow & { timestamp?: Date; snapshotAt?: Date },
+) {
+  const candidateSourceRank = candidate.sourceKind === 'live' ? 1 : 0;
+  const existingSourceRank = existing.sourceKind === 'live' ? 1 : 0;
+
+  if (candidateSourceRank !== existingSourceRank) {
+    return candidateSourceRank - existingSourceRank;
+  }
+
+  const candidateTimestamp = (candidate.timestamp ?? candidate.snapshotAt)?.getTime() ?? 0;
+  const existingTimestamp = (existing.timestamp ?? existing.snapshotAt)?.getTime() ?? 0;
+
+  if (candidateTimestamp !== existingTimestamp) {
+    return candidateTimestamp - existingTimestamp;
+  }
+
+  return (candidate.sourceFetchedAt?.getTime() ?? 0) - (existing.sourceFetchedAt?.getTime() ?? 0);
+}
+
+function readLatestCoinHistoryEvidence(database: AppDatabase, coinId: string, vsCurrency: string) {
+  const rows = database.db
+    .select()
+    .from(coinHistorySnapshots)
+    .where(and(
+      eq(coinHistorySnapshots.coinId, coinId),
+      eq(coinHistorySnapshots.vsCurrency, vsCurrency),
+    ))
+    .all();
+
+  return rows.reduce<typeof rows[number] | null>((bestRow, row) => {
+    if (!bestRow) {
+      return row;
+    }
+
+    return compareSourceRankedRows(row, bestRow) > 0 ? row : bestRow;
+  }, null);
+}
+
+function hasUsableSupplyEvidence(supplyEvidence: ReturnType<typeof readLatestSupplyEvidence>) {
+  return supplyEvidence.circulatingSupply !== undefined || supplyEvidence.totalSupply !== undefined;
+}
+
+function isPositiveFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function selectSupplyEvidenceValue(currentValue: number | null | undefined, evidenceValue: number | undefined) {
+  if (isPositiveFiniteNumber(currentValue)) {
+    return currentValue;
+  }
+
+  return evidenceValue ?? null;
+}
+
+function selectEvidenceValue(currentValue: number | null | undefined, evidenceValue: number | null | undefined) {
+  if (isPositiveFiniteNumber(currentValue)) {
+    return currentValue;
+  }
+
+  return isPositiveFiniteNumber(evidenceValue) ? evidenceValue : null;
+}
+
+function mergeSourceBackedSupplyEvidence(
+  database: AppDatabase,
+  coinId: string,
+  previousSnapshot: MarketSnapshotEvidence,
+  vsCurrency: string,
+): MarketSnapshotEvidence {
+  const supplyEvidence = readLatestSupplyEvidence(database, coinId);
+  const coinHistoryEvidence = readLatestCoinHistoryEvidence(database, coinId, vsCurrency);
+
+  if (!hasUsableSupplyEvidence(supplyEvidence) && !coinHistoryEvidence) {
+    return previousSnapshot;
+  }
+
+  const marketCapEvidence = isPositiveFiniteNumber(previousSnapshot?.marketCap)
+    ? { marketCap: previousSnapshot.marketCap, price: previousSnapshot.price }
+    : isPositiveFiniteNumber(coinHistoryEvidence?.marketCap)
+      ? { marketCap: coinHistoryEvidence.marketCap, price: coinHistoryEvidence.price }
+      : null;
+
+  return {
+    price: marketCapEvidence?.price ?? selectEvidenceValue(previousSnapshot?.price, coinHistoryEvidence?.price),
+    marketCap: marketCapEvidence?.marketCap ?? null,
+    marketCapRank: previousSnapshot?.marketCapRank ?? coinHistoryEvidence?.marketCapRank ?? null,
+    fullyDilutedValuation: selectEvidenceValue(previousSnapshot?.fullyDilutedValuation, coinHistoryEvidence?.fullyDilutedValuation),
+    circulatingSupply: selectSupplyEvidenceValue(
+      previousSnapshot?.circulatingSupply ?? coinHistoryEvidence?.circulatingSupply ?? null,
+      supplyEvidence.circulatingSupply,
+    ),
+    totalSupply: selectSupplyEvidenceValue(
+      previousSnapshot?.totalSupply ?? coinHistoryEvidence?.totalSupply ?? null,
+      supplyEvidence.totalSupply,
+    ),
+    maxSupply: selectEvidenceValue(previousSnapshot?.maxSupply, coinHistoryEvidence?.maxSupply),
+    ath: selectEvidenceValue(previousSnapshot?.ath, coinHistoryEvidence?.ath),
+    athDate: previousSnapshot?.athDate ?? coinHistoryEvidence?.athDate ?? null,
+    atl: selectEvidenceValue(previousSnapshot?.atl, coinHistoryEvidence?.atl),
+    atlDate: previousSnapshot?.atlDate ?? coinHistoryEvidence?.atlDate ?? null,
+    priceChangePercentage24h: previousSnapshot?.priceChangePercentage24h ?? coinHistoryEvidence?.priceChangePercentage24h ?? null,
+  };
+}
+
 function writeMarketSnapshots(
   database: AppDatabase,
   marketSamples: RefreshTickerProcessingState['marketSamples'],
@@ -581,7 +735,8 @@ function writeMarketSnapshots(
       .where(and(eq(marketSnapshots.coinId, coinId), eq(marketSnapshots.vsCurrency, vsCurrency)))
       .limit(1)
       .get() ?? null;
-    const nextSnapshot = buildLiveSnapshotValue(coinId, accumulator, previousSnapshot, vsCurrency, now);
+    const sourceBackedSnapshotEvidence = mergeSourceBackedSupplyEvidence(database, coinId, previousSnapshot, vsCurrency);
+    const nextSnapshot = buildLiveSnapshotValue(coinId, accumulator, sourceBackedSnapshotEvidence, vsCurrency, now);
     const candleTimestampMs = accumulator.latestTimestamp || now.getTime();
 
     if (vsCurrency === 'usd') {

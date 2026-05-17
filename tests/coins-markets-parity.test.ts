@@ -223,8 +223,13 @@ describe('coins markets parity', () => {
             price_complete_count: number;
             market_cap_complete_count: number;
             volume_complete_count: number;
+            circulating_supply_evidence_count: number;
+            total_supply_evidence_count: number;
+            persisted_market_cap_evidence_count: number;
+            source_backed_market_cap_derivation_count: number;
             null_quality_row_count: number;
             null_quality_first_page_ids: string[];
+            missing_market_cap_ids: string[];
           };
         };
         replayable_evidence?: {
@@ -254,8 +259,13 @@ describe('coins markets parity', () => {
         price_complete_count: expect.any(Number),
         market_cap_complete_count: expect.any(Number),
         volume_complete_count: expect.any(Number),
+        circulating_supply_evidence_count: expect.any(Number),
+        total_supply_evidence_count: expect.any(Number),
+        persisted_market_cap_evidence_count: expect.any(Number),
+        source_backed_market_cap_derivation_count: expect.any(Number),
         null_quality_row_count: expect.any(Number),
         null_quality_first_page_ids: expect.any(Array),
+        missing_market_cap_ids: expect.any(Array),
       },
     });
     expect(coinsFamily?.evidence.replayable_evidence).toMatchObject({

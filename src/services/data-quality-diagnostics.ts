@@ -328,11 +328,16 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
         price_complete_count: 0,
         market_cap_complete_count: 0,
         volume_complete_count: 0,
+        circulating_supply_evidence_count: 0,
+        total_supply_evidence_count: 0,
+        persisted_market_cap_evidence_count: 0,
+        source_backed_market_cap_derivation_count: 0,
         price_completeness_ratio: 0,
         market_cap_completeness_ratio: 0,
         volume_completeness_ratio: 0,
         null_quality_row_count: 0,
         null_quality_first_page_ids: [],
+        missing_market_cap_ids: [],
       },
       note: 'Market quality evidence was requested without database access.',
     };
@@ -402,6 +407,15 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
   const priceCompleteCount = rows.filter((row) => isFinitePositive(row.snapshot?.price)).length;
   const marketCapCompleteCount = rows.filter((row) => isFinitePositive(row.snapshot?.marketCap)).length;
   const volumeCompleteCount = rows.filter((row) => isFiniteNonNegative(row.snapshot?.totalVolume)).length;
+  const circulatingSupplyEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.circulatingSupply)).length;
+  const totalSupplyEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.totalSupply)).length;
+  const persistedMarketCapEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.marketCap)).length;
+  const sourceBackedMarketCapDerivationCount = rows.filter((row) =>
+    isFinitePositive(row.snapshot?.marketCap) && isFinitePositive(row.snapshot?.circulatingSupply),
+  ).length;
+  const missingMarketCapIds = rows
+    .filter((row) => !isFinitePositive(row.snapshot?.marketCap))
+    .map((row) => row.coin.id);
   const nullQualityRows = rows.filter((row) => !row.snapshot || [
     row.snapshot.price,
     row.snapshot.marketCap,
@@ -416,7 +430,8 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
       ? [{
           field: 'market_cap',
           reason_code: 'source_unavailable',
-          message: 'Live exchange ticker sources do not provide market-cap directly and no usable carried-forward market-cap evidence exists for enough top-N rows.',
+          message: 'Live exchange ticker sources do not provide market-cap directly and no usable persisted market-cap or source-backed supply evidence exists for the listed top-N rows.',
+          affected_ids: missingMarketCapIds.slice(0, 25),
         }]
       : []),
     ...(priceCompletenessRatio < 0.9
@@ -445,11 +460,16 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
       price_complete_count: priceCompleteCount,
       market_cap_complete_count: marketCapCompleteCount,
       volume_complete_count: volumeCompleteCount,
+      circulating_supply_evidence_count: circulatingSupplyEvidenceCount,
+      total_supply_evidence_count: totalSupplyEvidenceCount,
+      persisted_market_cap_evidence_count: persistedMarketCapEvidenceCount,
+      source_backed_market_cap_derivation_count: sourceBackedMarketCapDerivationCount,
       price_completeness_ratio: priceCompletenessRatio,
       market_cap_completeness_ratio: marketCapCompletenessRatio,
       volume_completeness_ratio: volumeCompletenessRatio,
       null_quality_row_count: nullQualityRows.length,
       null_quality_first_page_ids: nullQualityRows.map((row) => row.coin.id),
+      missing_market_cap_ids: missingMarketCapIds.slice(0, 25),
     },
     exceptions,
     note: 'Top-N completeness uses the stable configured denominator and records request paths for replay.',

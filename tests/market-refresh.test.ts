@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coinTickers, coins, exchanges, exchangeVolumePoints, marketSnapshots, quoteSnapshots } from '../src/db/schema';
+import { coinHistorySnapshots, coinTickers, coins, exchanges, exchangeVolumePoints, marketSnapshots, quoteSnapshots, supplyChartPoints } from '../src/db/schema';
 import { runMarketRefreshOnce, withExchangeFetchTimeout } from '../src/services/market-refresh';
 import { createMarketDataRuntimeState } from '../src/services/market-runtime-state';
 import { createMetricsRegistry } from '../src/services/metrics';
@@ -330,6 +330,215 @@ describe('market refresh service', () => {
       .get();
 
     expect(bitcoinSnapshots?.tradeVolume24hBtc).toBeGreaterThan(0);
+  });
+
+  it('derives market cap from source-backed persisted supply evidence during live ticker refresh', async () => {
+    const olderReplayFetchedAt = new Date('2026-03-19T00:00:00.000Z');
+    const liveFetchedAt = new Date('2026-03-21T00:00:00.000Z');
+
+    database.db.insert(supplyChartPoints).values([
+      {
+        coinId: 'bitcoin',
+        supplyType: 'circulating',
+        timestamp: new Date('2026-03-19T00:00:00.000Z'),
+        value: 19_000_000,
+        sourceKind: 'replay',
+        sourceProvider: 'fixture-replay',
+        sourceFetchedAt: olderReplayFetchedAt,
+      },
+      {
+        coinId: 'bitcoin',
+        supplyType: 'circulating',
+        timestamp: new Date('2026-03-21T00:00:00.000Z'),
+        value: 19_850_000,
+        sourceKind: 'live',
+        sourceProvider: 'public-supply-provider',
+        sourceFetchedAt: liveFetchedAt,
+      },
+      {
+        coinId: 'bitcoin',
+        supplyType: 'total',
+        timestamp: new Date('2026-03-21T00:00:00.000Z'),
+        value: 21_000_000,
+        sourceKind: 'live',
+        sourceProvider: 'public-supply-provider',
+        sourceFetchedAt: liveFetchedAt,
+      },
+    ]).run();
+    database.db.insert(coinHistorySnapshots).values({
+      coinId: 'ethereum',
+      vsCurrency: 'usd',
+      snapshotAt: new Date('2026-03-20T00:00:00.000Z'),
+      price: 2_000,
+      marketCap: 240_000_000_000,
+      totalVolume: 10_000_000_000,
+      marketCapRank: 2,
+      fullyDilutedValuation: 260_000_000_000,
+      circulatingSupply: 120_000_000,
+      totalSupply: 130_000_000,
+      maxSupply: null,
+      ath: 4_800,
+      athChangePercentage: null,
+      athDate: new Date('2021-11-10T00:00:00.000Z'),
+      atl: 80,
+      atlChangePercentage: null,
+      atlDate: new Date('2015-10-20T00:00:00.000Z'),
+      priceChange24h: null,
+      priceChangePercentage24h: 2,
+      sourceKind: 'replay',
+      sourceProvider: 'coingecko-snapshot',
+      sourceFetchedAt: new Date('2026-03-20T00:05:00.000Z'),
+      rawPayloadJson: '{}',
+      updatedAt: new Date('2026-03-20T00:05:00.000Z'),
+      lastUpdated: new Date('2026-03-20T00:00:00.000Z'),
+    }).run();
+    database.db.insert(coins).values({
+      id: 'no-evidence-coin',
+      symbol: 'nec',
+      name: 'No Evidence Coin',
+      apiSymbol: 'no-evidence-coin',
+      hashingAlgorithm: null,
+      blockTimeInMinutes: null,
+      categoriesJson: '[]',
+      descriptionJson: '{}',
+      linksJson: '{}',
+      imageThumbUrl: null,
+      imageSmallUrl: null,
+      imageLargeUrl: null,
+      marketCapRank: 999,
+      genesisDate: null,
+      platformsJson: '{}',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    mockedFetchExchangeMarkets.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Bitcoin',
+        raw: {},
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'NEC/USDT',
+        base: 'NEC',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'No Evidence Coin',
+        raw: {},
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        base: 'ETH',
+        quote: 'USDT',
+        active: true,
+        spot: true,
+        baseName: 'Ethereum',
+        raw: {},
+      },
+    ]);
+    mockedFetchExchangeTickers.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        base: 'BTC',
+        quote: 'USDT',
+        last: 90_000,
+        bid: 89_950,
+        ask: 90_050,
+        high: null,
+        low: null,
+        baseVolume: 1_234,
+        quoteVolume: 111_060_000,
+        percentage: 5,
+        timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+        raw: {} as never,
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'NEC/USDT',
+        base: 'NEC',
+        quote: 'USDT',
+        last: 150,
+        bid: 149,
+        ask: 151,
+        high: null,
+        low: null,
+        baseVolume: 10_000,
+        quoteVolume: 1_500_000,
+        percentage: 1,
+        timestamp: Date.parse('2026-03-21T00:02:00.000Z'),
+        raw: {} as never,
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'ETH/USDT',
+        base: 'ETH',
+        quote: 'USDT',
+        last: 2_100,
+        bid: 2_099,
+        ask: 2_101,
+        high: null,
+        low: null,
+        baseVolume: 5_000,
+        quoteVolume: 10_500_000,
+        percentage: 3,
+        timestamp: Date.parse('2026-03-21T00:01:00.000Z'),
+        raw: {} as never,
+      },
+    ]);
+
+    await runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance'],
+      providerFanoutConcurrency: 1,
+    });
+
+    const bitcoinSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+    const ethereumSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'ethereum'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+    const noEvidenceSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(and(eq(marketSnapshots.coinId, 'no-evidence-coin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .get();
+
+    expect(bitcoinSnapshot).toMatchObject({
+      price: 90_000,
+      circulatingSupply: 19_850_000,
+      totalSupply: 21_000_000,
+      marketCap: 1_786_500_000_000,
+      fullyDilutedValuation: 1_890_000_000_000,
+      sourceProvidersJson: JSON.stringify(['binance']),
+      sourceCount: 1,
+    });
+    expect(ethereumSnapshot).toMatchObject({
+      price: 2_100,
+      circulatingSupply: 120_000_000,
+      totalSupply: 130_000_000,
+      marketCap: 252_000_000_000,
+      fullyDilutedValuation: 273_000_000_000,
+    });
+    expect(noEvidenceSnapshot).toMatchObject({
+      price: 150,
+      circulatingSupply: null,
+      totalSupply: null,
+      marketCap: null,
+    });
   });
 
   it('imports current ticker indexes from the persisted database during seeded bootstrap', async () => {
