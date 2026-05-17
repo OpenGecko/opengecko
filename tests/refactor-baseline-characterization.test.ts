@@ -7,8 +7,12 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { coinTickers, coins, ohlcvSyncTargets, quoteSnapshots } from '../src/db/schema';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
+import { runMarketRefreshOnce } from '../src/services/market-refresh';
+import { syncRecentOhlcvWindow } from '../src/services/ohlcv-sync';
+import { leaseNextOhlcvTarget } from '../src/services/ohlcv-worker-state';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeMarkets: vi.fn(),
@@ -31,7 +35,7 @@ type JsonRecord = Record<string, unknown>;
 
 interface BaselineRouteSample {
   id: string;
-  method: 'GET';
+  method: 'GET' | 'POST';
   url: string;
   status: number;
   body_kind: 'array' | 'object';
@@ -46,8 +50,9 @@ interface BaselineRouteSample {
 
 interface BaselineErrorSample {
   id: string;
-  method: 'GET';
+  method: 'GET' | 'POST';
   url: string;
+  body?: JsonRecord;
   status: number;
   error: string;
   message: string;
@@ -55,6 +60,7 @@ interface BaselineErrorSample {
 
 interface BaselineSamples {
   routes: BaselineRouteSample[];
+  degraded_routes: BaselineRouteSample[];
   errors: BaselineErrorSample[];
 }
 
@@ -192,6 +198,7 @@ describe('pre-refactor characterization baseline', () => {
     app = buildApp({
       config: {
         databaseUrl: join(tempDir, 'test.db'),
+        port: 3102,
         ccxtExchanges: ['binance', 'coinbase'],
         logLevel: 'silent',
         marketFreshnessThresholdSeconds: 300,
@@ -268,6 +275,7 @@ describe('pre-refactor characterization baseline', () => {
       const response = await app!.inject({
         method: sample.method,
         url: sample.url,
+        payload: sample.body,
       });
       const body = asRecord(response.json());
 
@@ -280,10 +288,312 @@ describe('pre-refactor characterization baseline', () => {
     }
   });
 
+  it('replays degraded and unavailable-provider route/diagnostics baseline samples', async () => {
+    const baseline = await loadBaselineSamples();
+
+    for (const sample of baseline.degraded_routes) {
+      if (sample.id.startsWith('provider-failure')) {
+        const controlResponse = await app!.inject({
+          method: 'POST',
+          url: '/diagnostics/runtime/provider_failure',
+          payload: {
+            active: true,
+            reason: 'validator forced outage',
+          },
+        });
+        expect(controlResponse.statusCode, `${sample.id}: provider failure control`).toBe(200);
+      }
+
+      if (sample.id.startsWith('degraded-seeded')) {
+        const controlResponse = await app!.inject({
+          method: 'POST',
+          url: '/diagnostics/runtime/degraded_state',
+          payload: {
+            mode: 'degraded_seeded_bootstrap',
+            reason: 'validator degraded boot',
+          },
+        });
+        expect(controlResponse.statusCode, `${sample.id}: degraded state control`).toBe(200);
+      }
+
+      const response = await app!.inject({
+        method: sample.method,
+        url: sample.url,
+      });
+      expect(response.statusCode, sample.id).toBe(sample.status);
+
+      const body = response.json() as unknown;
+      if (sample.body_kind === 'array') {
+        expect(Array.isArray(body), sample.id).toBe(true);
+        const bodyArray = body as unknown[];
+        expect(bodyArray.length, sample.id).toBeGreaterThan(0);
+        if (sample.item_key_subset) {
+          expectKeySubset(asRecord(bodyArray[0]), sample.item_key_subset);
+        }
+        if (sample.id === 'degraded-seeded-coins-markets') {
+          expect(asRecord(bodyArray[0])).toMatchObject({
+            id: 'bitcoin',
+            market_cap: null,
+            market_cap_rank: null,
+            total_volume: null,
+            last_updated: null,
+          });
+        }
+        continue;
+      }
+
+      const bodyRecord = asRecord(body);
+      if (sample.key_subset) {
+        expectKeySubset(bodyRecord, sample.key_subset);
+      }
+      if (sample.data_key_subset) {
+        expectKeySubset(asRecord(bodyRecord.data), sample.data_key_subset);
+      }
+
+      const data = asRecord(bodyRecord.data);
+      if (sample.id === 'provider-failure-diagnostics-runtime') {
+        expect(asRecord(data.degraded)).toMatchObject({
+          active: false,
+          injected_provider_failure: {
+            active: true,
+            reason: 'validator forced outage',
+          },
+        });
+      }
+      if (sample.id === 'degraded-seeded-diagnostics-runtime') {
+        expect(asRecord(data.readiness)).toMatchObject({
+          state: 'degraded',
+          validation_override_active: true,
+        });
+        expect(asRecord(asRecord(data.hot_paths).shared_market_snapshot)).toMatchObject({
+          source_class: 'degraded_seeded_bootstrap',
+          provider_count: 0,
+        });
+      }
+
+      await app!.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/provider_failure',
+        payload: { active: false },
+      });
+      await app!.inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/degraded_state',
+        payload: { mode: 'off' },
+      });
+    }
+  });
+
+  it('characterizes table-driven OHLCV lease ordering and cursor promotion boundaries', async () => {
+    const now = new Date('2026-03-23T00:00:00.000Z');
+    const ensureCoin = (id: string, rank: number) => {
+      app!.db.db.insert(coins).values({
+        id,
+        symbol: id.slice(0, 3),
+        name: id,
+        apiSymbol: id,
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: rank,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing().run();
+    };
+    const seedTarget = (values: Partial<typeof ohlcvSyncTargets.$inferInsert> & Pick<typeof ohlcvSyncTargets.$inferInsert, 'coinId' | 'exchangeId' | 'symbol'>) => {
+      app!.db.db.insert(ohlcvSyncTargets).values({
+        coinId: values.coinId,
+        exchangeId: values.exchangeId,
+        symbol: values.symbol,
+        vsCurrency: values.vsCurrency ?? 'usd',
+        interval: values.interval ?? '1d',
+        priorityTier: values.priorityTier ?? 'long_tail',
+        latestSyncedAt: values.latestSyncedAt ?? null,
+        oldestSyncedAt: values.oldestSyncedAt ?? null,
+        targetHistoryDays: values.targetHistoryDays ?? 365,
+        status: values.status ?? 'idle',
+        lastAttemptAt: values.lastAttemptAt ?? null,
+        lastSuccessAt: values.lastSuccessAt ?? null,
+        lastError: values.lastError ?? null,
+        failureCount: values.failureCount ?? 0,
+        nextRetryAt: values.nextRetryAt ?? null,
+        lastRequestedAt: values.lastRequestedAt ?? null,
+        createdAt: values.createdAt ?? new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: values.updatedAt ?? new Date('2026-03-22T00:00:00.000Z'),
+      }).run();
+    };
+
+    const leaseCases = [
+      {
+        name: 'top100 target ranks ahead of long-tail target',
+        targets: [
+          { coinId: 'some-microcap', exchangeId: 'binance', symbol: 'SMC/USDT', priorityTier: 'long_tail' as const },
+          { coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', priorityTier: 'top100' as const },
+        ],
+        expected: { coinId: 'bitcoin', interval: '1d' },
+      },
+      {
+        name: 'retry-due failure ranks ahead of idle peer in same tier',
+        targets: [
+          { coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', priorityTier: 'top100' as const, status: 'idle' as const },
+          { coinId: 'ethereum', exchangeId: 'binance', symbol: 'ETH/USDT', priorityTier: 'top100' as const, status: 'failed' as const, failureCount: 1, nextRetryAt: new Date('2026-03-22T23:59:00.000Z') },
+        ],
+        expected: { coinId: 'ethereum', interval: '1d' },
+      },
+      {
+        name: 'never-synced intraday target ranks ahead of complete daily backfill',
+        targets: [
+          { coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', interval: '1d' as const, priorityTier: 'top100' as const, latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'), oldestSyncedAt: new Date('2021-03-23T00:00:00.000Z'), targetHistoryDays: 3650, lastSuccessAt: new Date('2026-03-22T00:00:00.000Z') },
+          { coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', interval: '1m' as const, priorityTier: 'top100' as const, targetHistoryDays: 30 },
+        ],
+        expected: { coinId: 'bitcoin', interval: '1m' },
+      },
+      {
+        name: 'retry-backoff target is not eligible',
+        targets: [
+          { coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', priorityTier: 'top100' as const, status: 'failed' as const, failureCount: 2, nextRetryAt: new Date('2026-03-23T00:10:00.000Z') },
+        ],
+        expected: null,
+      },
+    ];
+
+    for (const leaseCase of leaseCases) {
+      app!.db.client.prepare('DELETE FROM ohlcv_sync_targets').run();
+      for (const [index, coinId] of ['bitcoin', 'ethereum', 'some-microcap'].entries()) {
+        ensureCoin(coinId, index + 1);
+      }
+      for (const target of leaseCase.targets) {
+        seedTarget(target);
+      }
+
+      const leased = leaseNextOhlcvTarget(app!.db, now);
+      if (leaseCase.expected === null) {
+        expect(leased, leaseCase.name).toBeNull();
+      } else {
+        expect(leased, leaseCase.name).toMatchObject({
+          ...leaseCase.expected,
+          status: 'running',
+          lastAttemptAt: now,
+        });
+      }
+    }
+
+    app!.db.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+    mockedFetchExchangeOHLCV.mockResolvedValue([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
+        open: 82_000,
+        high: 81_000,
+        low: 83_000,
+        close: 82_500,
+        volume: 1_200,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-23T00:00:00.000Z'),
+        open: 83_000,
+        high: 84_000,
+        low: 82_000,
+        close: 83_500,
+        volume: 1_300,
+        raw: [0, 0, 0, 0, 0, 0],
+      },
+    ]);
+
+    const result = await syncRecentOhlcvWindow(app!.db, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+    }, now);
+
+    expect(result.rawFetchedCount).toBe(2);
+    expect(result.acceptedCount).toBe(1);
+    expect(result.persistedCount).toBe(1);
+    expect(result.acceptedCandles.map((candle) => candle.timestamp)).toEqual([Date.parse('2026-03-23T00:00:00.000Z')]);
+  });
+
+  it('characterizes table-driven market and ticker ingestion acceptance and rejection decisions', async () => {
+    const cases = [
+      {
+        name: 'accepts finite supported BTC/USD ticker',
+        exchangeId: 'binance',
+        market: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', active: true, spot: true, baseName: 'Bitcoin' },
+        ticker: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', last: 90_000, bid: 89_990, ask: 90_010, baseVolume: 10, quoteVolume: 900_000, timestamp: Date.now() - 60_000, raw: {} },
+        accepted: true,
+      },
+      {
+        name: 'rejects non-finite price',
+        exchangeId: 'coinbase',
+        market: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', active: true, spot: true, baseName: 'Bitcoin' },
+        ticker: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', last: Number.NaN, bid: null, ask: null, baseVolume: null, quoteVolume: null, timestamp: Date.now() - 60_000, raw: {} },
+        accepted: false,
+      },
+      {
+        name: 'rejects provider-stale candidate',
+        exchangeId: 'kraken',
+        market: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', active: true, spot: true, baseName: 'Bitcoin' },
+        ticker: { symbol: 'BTC/USD', base: 'BTC', quote: 'USD', last: 91_000, bid: 90_990, ask: 91_010, baseVolume: 10, quoteVolume: 910_000, timestamp: Date.now() - 60_000, raw: { isStale: true } },
+        accepted: false,
+      },
+    ];
+
+    for (const ingestionCase of cases) {
+      app!.db.client.prepare('DELETE FROM coin_tickers').run();
+      app!.db.client.prepare('DELETE FROM quote_snapshots').run();
+      mockedFetchExchangeMarkets.mockImplementation(async (exchangeId: string) => exchangeId === ingestionCase.exchangeId
+        ? [{ exchangeId, raw: {}, ...ingestionCase.market }]
+        : []);
+      mockedFetchExchangeTickers.mockImplementation(async (exchangeId: string) => exchangeId === ingestionCase.exchangeId
+        ? [{ exchangeId, high: null, low: null, percentage: null, ...ingestionCase.ticker } as never]
+        : []);
+
+      await runMarketRefreshOnce(app!.db, {
+        ccxtExchanges: [ingestionCase.exchangeId],
+        providerFanoutConcurrency: 1,
+      });
+
+      const tickers = app!.db.db.select().from(coinTickers).all();
+      const quotes = app!.db.db.select().from(quoteSnapshots).all();
+      if (ingestionCase.accepted) {
+        expect(tickers, ingestionCase.name).toHaveLength(1);
+        expect(quotes, ingestionCase.name).toHaveLength(1);
+        expect(tickers[0]).toMatchObject({
+          coinId: 'bitcoin',
+          exchangeId: ingestionCase.exchangeId,
+          convertedLastUsd: 90_000,
+        });
+      } else {
+        expect(tickers, ingestionCase.name).toHaveLength(0);
+        expect(quotes, ingestionCase.name).toHaveLength(0);
+      }
+    }
+  });
+
   it('documents representative runtime, scheduling, ingestion, OHLCV, and proof guards in the baseline suite', async () => {
     const baseline = await loadBaselineSamples();
     const baselineIds = new Set([
       ...baseline.routes.map((sample) => sample.id),
+      ...baseline.degraded_routes.map((sample) => sample.id),
       ...baseline.errors.map((sample) => sample.id),
     ]);
 
@@ -294,11 +604,15 @@ describe('pre-refactor characterization baseline', () => {
       'diagnostics-coverage-matrix',
       'diagnostics-market-charts',
       'diagnostics-jobs',
+      'provider-failure-diagnostics-runtime',
+      'degraded-seeded-diagnostics-runtime',
+      'degraded-seeded-coins-markets',
       'coins-markets',
       'exchange-tickers',
       'market-chart',
       'ohlc',
       'simple-price-missing-selector',
+      'invalid-degraded-state-mode',
       'coins-markets-unsupported-order',
       'exchange-tickers-unsupported-order',
     ]));

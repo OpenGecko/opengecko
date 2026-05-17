@@ -152,6 +152,48 @@
       "data_key_subset": ["scheduler", "jobs", "optional_provider_jobs"]
     }
   ],
+  "degraded_routes": [
+    {
+      "id": "provider-failure-diagnostics-runtime",
+      "method": "GET",
+      "url": "/diagnostics/runtime",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["readiness", "degraded", "hot_paths", "transport", "startup_prewarm"]
+    },
+    {
+      "id": "degraded-seeded-diagnostics-runtime",
+      "method": "GET",
+      "url": "/diagnostics/runtime",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["readiness", "degraded", "hot_paths", "transport", "startup_prewarm"]
+    },
+    {
+      "id": "degraded-seeded-coins-markets",
+      "method": "GET",
+      "url": "/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&price_change_percentage=24h&sparkline=false",
+      "status": 200,
+      "body_kind": "array",
+      "item_key_subset": [
+        "id",
+        "symbol",
+        "name",
+        "image",
+        "current_price",
+        "market_cap",
+        "market_cap_rank",
+        "total_volume",
+        "high_24h",
+        "low_24h",
+        "price_change_24h",
+        "price_change_percentage_24h",
+        "last_updated"
+      ]
+    }
+  ],
   "errors": [
     {
       "id": "simple-price-missing-selector",
@@ -184,6 +226,17 @@
       "status": 404,
       "error": "not_found",
       "message": "Coin not found: not-a-coin"
+    },
+    {
+      "id": "invalid-degraded-state-mode",
+      "method": "POST",
+      "url": "/diagnostics/runtime/degraded_state",
+      "body": {
+        "mode": "not_a_mode"
+      },
+      "status": 400,
+      "error": "invalid_parameter",
+      "message": "mode must be one of off, stale_disallowed, stale_allowed, degraded_seeded_bootstrap, seeded_bootstrap, zero_live_completed_boot."
     },
     {
       "id": "exchange-tickers-unsupported-order",
