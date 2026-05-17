@@ -618,11 +618,13 @@ describe('pre-refactor characterization baseline', () => {
     ]));
 
     const proofScript = await readFile(join(process.cwd(), 'scripts/operator-proof-smoke.sh'), 'utf8');
-    expect(proofScript).toContain('RESERVED_PORTS=(3100 3101 3102)');
-    expect(proofScript).toContain('check_reserved_ports_clear "preflight"');
-    expect(proofScript).toContain('check_reserved_ports_clear "post-cleanup"');
-    expect(proofScript).toContain('/diagnostics/runtime/degraded_state');
-    expect(proofScript).toContain('/diagnostics/runtime/provider_failure');
+    const proofHelpers = await readFile(join(process.cwd(), 'scripts/lib/operator-proof-helpers.sh'), 'utf8');
+    const proofContract = `${proofScript}\n${proofHelpers}`;
+    expect(proofContract).toContain('RESERVED_PORTS=(3100 3101 3102)');
+    expect(proofContract).toContain('check_reserved_ports_clear "preflight"');
+    expect(proofContract).toContain('check_reserved_ports_clear "post-cleanup"');
+    expect(proofContract).toContain('/diagnostics/runtime/degraded_state');
+    expect(proofContract).toContain('/diagnostics/runtime/provider_failure');
 
     const proofScriptResponse = await app!.inject({
       method: 'GET',

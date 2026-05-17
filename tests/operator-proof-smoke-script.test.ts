@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SCRIPT_PATH = join(process.cwd(), 'scripts/operator-proof-smoke.sh');
+const HELPERS_PATH = join(process.cwd(), 'scripts/lib/operator-proof-helpers.sh');
 
 describe('operator proof smoke script contract', () => {
   it('is shell-parseable', () => {
@@ -14,60 +15,121 @@ describe('operator proof smoke script contract', () => {
     });
 
     expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
+
+    const helperSyntaxCheck = spawnSync('bash', ['-n', HELPERS_PATH], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+
+    expect(helperSyntaxCheck.status, helperSyntaxCheck.stderr).toBe(0);
   });
 
   it('records reproducible operator evidence while using only temp state and public routes', () => {
     const script = readFileSync(SCRIPT_PATH, 'utf8');
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+    const contract = `${script}\n${helpers}`;
 
-    expect(script).toContain('DATABASE_URL="${DB_PATH_3100}"');
-    expect(script).toContain('DATABASE_URL="${DB_PATH_3102}"');
-    expect(script).toContain('PORT=3100');
-    expect(script).toContain('PORT=3102');
-    expect(script).toContain('RESERVED_PORTS=(3100 3101 3102)');
-    expect(script).toContain('check_reserved_ports_clear "preflight"');
-    expect(script).toContain('check_reserved_ports_clear "post-cleanup"');
-    expect(script).toContain('git rev-parse HEAD');
-    expect(script).toContain('bun --version');
-    expect(script).toContain('jq');
-    expect(script).not.toContain('COINGECKO_API_KEY');
-    expect(script).not.toContain('/home/whoami/dev/opengecko/data');
+    expect(script).toContain('source "${REPO_ROOT}/scripts/lib/operator-proof-helpers.sh"');
+    expect(contract).toContain('DATABASE_URL="${DB_PATH_3100}"');
+    expect(contract).toContain('DATABASE_URL="${DB_PATH_3102}"');
+    expect(contract).toContain('PORT=3100');
+    expect(contract).toContain('PORT=3102');
+    expect(contract).toContain('RESERVED_PORTS=(3100 3101 3102)');
+    expect(contract).toContain('check_reserved_ports_clear "preflight"');
+    expect(contract).toContain('check_reserved_ports_clear "post-cleanup"');
+    expect(contract).toContain('git rev-parse HEAD');
+    expect(contract).toContain('bun --version');
+    expect(contract).toContain('jq');
+    expect(contract).not.toContain('COINGECKO_API_KEY');
+    expect(contract).not.toContain('/home/whoami/dev/opengecko/data');
   });
 
   it('runs endpoint smoke modules serially and proves degraded and recovered states', () => {
     const script = readFileSync(SCRIPT_PATH, 'utf8');
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+    const contract = `${script}\n${helpers}`;
 
-    expect(script).toContain('run_smoke_modules_serially');
-    expect(script).toContain('DEFAULT_SMOKE_MODULES=(exchanges)');
-    expect(script).toContain('SMOKE_EXECUTED_FILE');
-    expect(script).toContain('SMOKE_SKIPPED_FILE');
-    expect(script).toContain('using curated default modules');
-    expect(script).toContain('for module in "${modules[@]}"');
-    expect(script).not.toContain('serial module smoke skipped');
-    expect(script).toContain('/diagnostics/runtime/degraded_state');
-    expect(script).toContain('/diagnostics/runtime/provider_failure');
-    expect(script).toContain('mode":"degraded_seeded_bootstrap');
-    expect(script).toContain('active":true');
-    expect(script).toContain('active":false');
-    expect(script).toContain('wait_for_port_clear 3100');
-    expect(script).toContain('wait_for_port_clear 3102');
+    expect(contract).toContain('run_smoke_modules_serially');
+    expect(contract).toContain('DEFAULT_SMOKE_MODULES=(exchanges)');
+    expect(contract).toContain('SMOKE_EXECUTED_FILE');
+    expect(contract).toContain('SMOKE_SKIPPED_FILE');
+    expect(contract).toContain('using curated default modules');
+    expect(contract).toContain('for module in "${modules[@]}"');
+    expect(contract).not.toContain('serial module smoke skipped');
+    expect(contract).toContain('/diagnostics/runtime/degraded_state');
+    expect(contract).toContain('/diagnostics/runtime/provider_failure');
+    expect(contract).toContain('mode":"degraded_seeded_bootstrap');
+    expect(contract).toContain('active":true');
+    expect(contract).toContain('active":false');
+    expect(contract).toContain('wait_for_port_clear 3100');
+    expect(contract).toContain('wait_for_port_clear 3102');
   });
 
   it('gates cross-area proof on finite prioritized market, ticker, chart, and OHLC overlap', () => {
     const script = readFileSync(SCRIPT_PATH, 'utf8');
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+    const contract = `${script}\n${helpers}`;
 
-    expect(script).toContain('CROSS_OVERLAP_FILE');
-    expect(script).toContain('wait_for_cross_overlap_readiness 3100 90');
-    expect(script).toContain('has_finite_market_coin');
-    expect(script).toContain('has_finite_ticker_coin');
-    expect(script).toContain('has_recent_chart_points');
-    expect(script).toContain('has_recent_ohlc_points');
-    expect(script).toContain('/coins/markets?vs_currency=usd&ids=bitcoin,ethereum');
-    expect(script).toContain('/coins/bitcoin/tickers?depth=true');
-    expect(script).toContain('/coins/ethereum/tickers?depth=true');
-    expect(script).toContain('/exchanges/binance/tickers?coin_ids=bitcoin,ethereum');
-    expect(script).toContain('/coins/bitcoin/market_chart?vs_currency=usd&days=1');
-    expect(script).toContain('/coins/bitcoin/ohlc?vs_currency=usd&days=1');
-    expect(script).toContain('provider_variability_classified_by_diagnostics');
-    expect(script).toContain('finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window');
+    expect(contract).toContain('CROSS_OVERLAP_FILE');
+    expect(contract).toContain('wait_for_cross_overlap_readiness 3100 90');
+    expect(contract).toContain('has_finite_market_coin');
+    expect(contract).toContain('has_finite_ticker_coin');
+    expect(contract).toContain('has_recent_chart_points');
+    expect(contract).toContain('has_recent_ohlc_points');
+    expect(contract).toContain('/coins/markets?vs_currency=usd&ids=bitcoin,ethereum');
+    expect(contract).toContain('/coins/bitcoin/tickers?depth=true');
+    expect(contract).toContain('/coins/ethereum/tickers?depth=true');
+    expect(contract).toContain('/exchanges/binance/tickers?coin_ids=bitcoin,ethereum');
+    expect(contract).toContain('/coins/bitcoin/market_chart?vs_currency=usd&days=1');
+    expect(contract).toContain('/coins/bitcoin/ohlc?vs_currency=usd&days=1');
+    expect(contract).toContain('provider_variability_classified_by_diagnostics');
+    expect(contract).toContain('finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window');
+  });
+
+  it('exposes reusable helpers for port checks, command logs, samples, jq assertions, bundles, and module execution', () => {
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+
+    for (const helperName of [
+      'check_reserved_ports_clear',
+      'stop_server',
+      'record_command',
+      'capture_get',
+      'capture_post',
+      'assert_jq',
+      'write_summary',
+      'write_versions',
+      'run_smoke_modules_serially',
+    ]) {
+      expect(helpers).toContain(`${helperName}()`);
+    }
+  });
+
+  it('helper command and port recorders write the stable jsonl contract', () => {
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          'set -euo pipefail',
+          'PROOF_ROOT="$(mktemp -d /tmp/opengecko-proof-helper-test.XXXXXX)"',
+          'COMMANDS_FILE="${PROOF_ROOT}/commands.jsonl"',
+          'PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"',
+          'SERVER_PID=""',
+          'CURRENT_PORT=""',
+          'FAILURES=0',
+          `source "${HELPERS_PATH}"`,
+          'record_command "phase" "echo ok" 0',
+          'record_port_check "preflight" 3100 "clear" "no listener found" 0',
+          'jq -e \'select(.phase == "phase" and .command == "echo ok" and .exit_code == 0)\' "$COMMANDS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "preflight" and .port == 3100 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
+        ].join('\n'),
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      },
+    );
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 });

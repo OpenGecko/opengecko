@@ -1,0 +1,580 @@
+#!/usr/bin/env bash
+# Shared helpers for the operator proof smoke script.
+# This file is sourced by scripts/operator-proof-smoke.sh and expects that script
+# to initialize the proof bundle path variables and counters before sourcing.
+
+json_escape() {
+  if [[ "$#" -gt 0 ]]; then
+    jq -Rsa . <<<"$1"
+  else
+    jq -Rsa .
+  fi
+}
+
+record_command() {
+  local phase="$1"
+  local command="$2"
+  local exit_code="$3"
+
+  jq -nc \
+    --arg phase "$phase" \
+    --arg command "$command" \
+    --argjson exit_code "$exit_code" \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{timestamp: $timestamp, phase: $phase, command: $command, exit_code: $exit_code}' >> "$COMMANDS_FILE"
+}
+
+record_port_check() {
+  local phase="$1"
+  local port="$2"
+  local status="$3"
+  local detail="$4"
+  local exit_code="$5"
+
+  jq -nc \
+    --arg phase "$phase" \
+    --argjson port "$port" \
+    --arg status "$status" \
+    --arg detail "$detail" \
+    --argjson exit_code "$exit_code" \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{timestamp: $timestamp, phase: $phase, port: $port, status: $status, detail: $detail, exit_code: $exit_code}' >> "$PORT_CHECKS_FILE"
+}
+
+check_reserved_ports_clear() {
+  local phase="$1"
+  local failed=0
+
+  for port in "${RESERVED_PORTS[@]}"; do
+    local pids=""
+    pids="$(lsof -ti ":${port}" 2>/dev/null || true)"
+    if [[ -n "$pids" ]]; then
+      record_port_check "$phase" "$port" "occupied" "pids=${pids//$'\n'/,}; refusing to touch unknown process" 98
+      failed=1
+    else
+      record_port_check "$phase" "$port" "clear" "no listener found" 0
+    fi
+  done
+
+  if [[ "$failed" -ne 0 ]]; then
+    record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 98
+    return 98
+  fi
+
+  record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 0
+}
+
+run_recorded() {
+  local phase="$1"
+  shift
+  local command="$*"
+  local exit_code=0
+
+  "$@" || exit_code=$?
+  record_command "$phase" "$command" "$exit_code"
+  return "$exit_code"
+}
+
+mark_failure() {
+  local message="$1"
+  echo "FAIL: ${message}" >&2
+  FAILURES=$((FAILURES + 1))
+}
+
+wait_for_port_clear() {
+  local port="$1"
+  local started_at
+  started_at=$(date +%s)
+
+  while lsof -ti ":${port}" >/dev/null 2>&1; do
+    if (( $(date +%s) - started_at > 20 )); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+stop_server() {
+  if [[ -n "${SERVER_PID}" ]]; then
+    if kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+      kill "$SERVER_PID" >/dev/null 2>&1 || true
+      wait "$SERVER_PID" >/dev/null 2>&1 || true
+    fi
+    SERVER_PID=""
+  fi
+
+  if [[ -n "${CURRENT_PORT}" ]]; then
+    wait_for_port_clear "$CURRENT_PORT" || mark_failure "port ${CURRENT_PORT} remained occupied after stopping owned server"
+    CURRENT_PORT=""
+  fi
+}
+
+cleanup() {
+  stop_server
+}
+
+trap cleanup EXIT
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Required tool not found: ${tool}" >&2
+    exit 127
+  fi
+}
+
+write_versions() {
+  {
+    echo "{"
+    echo "  \"timestamp\": $(json_escape "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),"
+    echo "  \"git_commit\": $(json_escape "$(git rev-parse HEAD)"),"
+    echo "  \"git_branch\": $(json_escape "$(git rev-parse --abbrev-ref HEAD)"),"
+    echo "  \"package_version\": $(jq -r '.version' package.json | json_escape),"
+    echo "  \"package_manager\": $(jq -r '.packageManager' package.json | json_escape),"
+    echo "  \"bun_version\": $(bun --version | json_escape),"
+    echo "  \"node_version\": $(node --version | json_escape),"
+    echo "  \"proof_root\": $(json_escape "$PROOF_ROOT"),"
+    echo "  \"database_paths\": {"
+    echo "    \"3100\": $(json_escape "$DB_PATH_3100"),"
+    echo "    \"3102\": $(json_escape "$DB_PATH_3102")"
+    echo "  },"
+    echo "  \"ports\": [3100, 3101, 3102],"
+    echo "  \"runtime_ports\": [3100, 3102],"
+    echo "  \"reserved_ports_policy\": \"preflight and post-cleanup checks require 3100-3102 to be clear; the script refuses to touch unknown listeners\","
+    echo "  \"smoke_module_policy\": \"curated serial default: exchanges; skipped available modules are recorded with reasons\","
+    echo "  \"credential_policy\": \"public providers only; no private API keys required\","
+    echo "  \"repo_data_policy\": \"uses temp SQLite paths under /tmp; repo data directory is not required\""
+    echo "}"
+  } > "${PROOF_ROOT}/environment.json"
+}
+
+start_server() {
+  local port="$1"
+  local db_path="$2"
+  local log_path="$3"
+  local command="HOST=127.0.0.1 PORT=${port} DATABASE_URL=\"${db_path}\" LOG_LEVEL=warn LOG_PRETTY=false bun run dev"
+
+  if lsof -ti ":${port}" >/dev/null 2>&1; then
+    echo "Port ${port} is already in use; refusing to touch unknown process." >&2
+    exit 98
+  fi
+
+  echo "Starting OpenGecko on port ${port} with temp DB ${db_path}"
+  HOST=127.0.0.1 PORT="$port" DATABASE_URL="${db_path}" LOG_LEVEL=warn LOG_PRETTY=false bun run dev >"$log_path" 2>&1 &
+  SERVER_PID="$!"
+  CURRENT_PORT="$port"
+  record_command "start-${port}" "$command" 0
+  echo "$SERVER_PID" > "${PROOF_ROOT}/server-${port}.pid"
+}
+
+wait_for_health() {
+  local port="$1"
+  local started_at
+  started_at=$(date +%s)
+
+  while true; do
+    if curl -sf --max-time 5 "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      record_command "wait-health-${port}" "curl -sf http://127.0.0.1:${port}/health" 0
+      return 0
+    fi
+
+    if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+      record_command "wait-health-${port}" "curl -sf http://127.0.0.1:${port}/health" 1
+      return 1
+    fi
+
+    if (( $(date +%s) - started_at > 90 )); then
+      record_command "wait-health-${port}" "curl -sf http://127.0.0.1:${port}/health" 124
+      return 124
+    fi
+
+    sleep 1
+  done
+}
+
+capture_get() {
+  local port="$1"
+  local label="$2"
+  local path="$3"
+  local expected_status="${4:-200}"
+  local output="${SAMPLES_DIR}/${label}.json"
+  local status
+  local command="curl -sS -w %{http_code} -o ${output} http://127.0.0.1:${port}${path}"
+
+  status=$(curl -sS --max-time 15 -w '%{http_code}' -o "$output" "http://127.0.0.1:${port}${path}" 2>"${output}.err" || true)
+  if [[ "$status" == "$expected_status" ]]; then
+    record_command "$label" "$command" 0
+    return 0
+  fi
+
+  record_command "$label" "$command" 1
+  mark_failure "${label} returned HTTP ${status:-000}, expected ${expected_status}"
+  return 1
+}
+
+capture_post() {
+  local port="$1"
+  local label="$2"
+  local path="$3"
+  local body="$4"
+  local expected_status="${5:-200}"
+  local output="${SAMPLES_DIR}/${label}.json"
+  local status
+  local command="curl -sS -X POST -H content-type:application/json -d ${body} -w %{http_code} -o ${output} http://127.0.0.1:${port}${path}"
+
+  status=$(curl -sS --max-time 15 -X POST -H 'content-type: application/json' -d "$body" -w '%{http_code}' -o "$output" "http://127.0.0.1:${port}${path}" 2>"${output}.err" || true)
+  if [[ "$status" == "$expected_status" ]]; then
+    record_command "$label" "$command" 0
+    return 0
+  fi
+
+  record_command "$label" "$command" 1
+  mark_failure "${label} returned HTTP ${status:-000}, expected ${expected_status}"
+  return 1
+}
+
+assert_jq() {
+  local label="$1"
+  local file="$2"
+  local filter="$3"
+  local command="jq -e ${filter} ${file}"
+
+  if jq -e "$filter" "$file" >/dev/null 2>&1; then
+    record_command "assert-${label}" "$command" 0
+    return 0
+  fi
+
+  record_command "assert-${label}" "$command" 1
+  mark_failure "jq assertion failed for ${label}: ${filter}"
+  return 1
+}
+
+wait_for_market_readiness() {
+  local port="$1"
+  local timeout_seconds="${2:-45}"
+  local started_at
+  started_at=$(date +%s)
+
+  while true; do
+    capture_get "$port" "readiness-simple-price" '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd' 200 || true
+    capture_get "$port" "readiness-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false' 200 || true
+    if jq -e '((.bitcoin.usd? | type == "number") or (.ethereum.usd? | type == "number"))' "${SAMPLES_DIR}/readiness-simple-price.json" >/dev/null 2>&1 \
+      || has_finite_market_coin "${SAMPLES_DIR}/readiness-markets.json" "bitcoin" \
+      || has_finite_market_coin "${SAMPLES_DIR}/readiness-markets.json" "ethereum"; then
+      record_command "wait-market-readiness-${port}" "curl /simple/price or /coins/markets until finite prioritized price/source-backed market row" 0
+      return 0
+    fi
+
+    if (( $(date +%s) - started_at >= timeout_seconds )); then
+      record_command "wait-market-readiness-${port}" "curl /simple/price or /coins/markets until finite prioritized price/source-backed market row" 124
+      return 124
+    fi
+
+    sleep 2
+  done
+}
+
+has_finite_market_coin() {
+  local file="$1"
+  local coin="$2"
+
+  jq -e --arg coin "$coin" '
+    type == "array"
+    and any(.[]; .id == $coin
+      and (.current_price | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.last_updated | type == "string" and length > 0))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_finite_ticker_coin() {
+  local file="$1"
+  local coin="$2"
+
+  jq -e --arg coin "$coin" '
+    .tickers | type == "array"
+    and any(.[]; .coin_id == $coin
+      and (((.converted_last.usd? // .last) | type == "number" and . > 0 and . < 1000000000000000000))
+      and (((.timestamp? // null) | type == "number") or (((.last_traded_at? // .last_fetch_at? // null) | type == "string") and ((.last_traded_at? // .last_fetch_at? // null) | length > 0))))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_recent_chart_points() {
+  local file="$1"
+
+  jq -e '
+    .prices | type == "array"
+    and any(.[]; type == "array"
+      and length >= 2
+      and (.[0] | type == "number")
+      and (.[1] | type == "number" and . > 0 and . < 1000000000000000000))
+  ' "$file" >/dev/null 2>&1
+}
+
+has_recent_ohlc_points() {
+  local file="$1"
+
+  jq -e '
+    type == "array"
+    and any(.[]; type == "array"
+      and length >= 5
+      and (.[0] | type == "number")
+      and (.[1] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[2] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[3] | type == "number" and . > 0 and . < 1000000000000000000)
+      and (.[4] | type == "number" and . > 0 and . < 1000000000000000000))
+  ' "$file" >/dev/null 2>&1
+}
+
+write_cross_overlap_evidence() {
+  local coin="$1"
+  local prefix="$2"
+
+  jq -n \
+    --arg coin "$coin" \
+    --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg market_route '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' \
+    --arg coin_tickers_route "/coins/${coin}/tickers?depth=true&include_exchange_logo=false&page=1" \
+    --arg exchange_tickers_route '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' \
+    --arg market_chart_route "/coins/${coin}/market_chart?vs_currency=usd&days=1" \
+    --arg ohlc_route "/coins/${coin}/ohlc?vs_currency=usd&days=1" \
+    --slurpfile markets "${SAMPLES_DIR}/${prefix}-markets.json" \
+    --slurpfile coin_tickers "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" \
+    --slurpfile exchange_tickers "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" \
+    --slurpfile market_chart "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
+    --slurpfile ohlc "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json" \
+    --slurpfile runtime "${SAMPLES_DIR}/${prefix}-runtime.json" \
+    --slurpfile chart_diagnostics "${SAMPLES_DIR}/${prefix}-chart-diagnostics.json" \
+    '{
+      generated_at: $generated_at,
+      matched_coin_id: $coin,
+      routes: {
+        markets: $market_route,
+        coin_tickers: $coin_tickers_route,
+        exchange_tickers: $exchange_tickers_route,
+        market_chart: $market_chart_route,
+        ohlc: $ohlc_route,
+        runtime_diagnostics: "/diagnostics/runtime",
+        chart_diagnostics: "/diagnostics/market_charts"
+      },
+      readiness: {
+        finite_market_price: true,
+        overlapping_exchange_ticker: true,
+        numeric_recent_market_chart: true,
+        numeric_recent_ohlc: true,
+        provider_variability_classified_by_diagnostics: true
+      },
+      samples: {
+        markets: $markets[0],
+        coin_tickers: $coin_tickers[0],
+        exchange_tickers: $exchange_tickers[0],
+        market_chart: $market_chart[0],
+        ohlc: $ohlc[0],
+        runtime_diagnostics: $runtime[0],
+        chart_diagnostics: $chart_diagnostics[0]
+      }
+    }' > "$CROSS_OVERLAP_FILE"
+}
+
+wait_for_cross_overlap_readiness() {
+  local port="$1"
+  local timeout_seconds="${2:-90}"
+  local prefix="cross-overlap-readiness"
+  local started_at
+  started_at=$(date +%s)
+
+  while true; do
+    capture_get "$port" "${prefix}-runtime" '/diagnostics/runtime' 200 || true
+    capture_get "$port" "${prefix}-chart-diagnostics" '/diagnostics/market_charts' 200 || true
+    capture_get "$port" "${prefix}-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-coin-tickers" '/coins/bitcoin/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-coin-tickers" '/coins/ethereum/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
+    capture_get "$port" "${prefix}-exchange-tickers" '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-market-chart" '/coins/bitcoin/market_chart?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-market-chart" '/coins/ethereum/market_chart?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-bitcoin-ohlc" '/coins/bitcoin/ohlc?vs_currency=usd&days=1' 200 || true
+    capture_get "$port" "${prefix}-ethereum-ohlc" '/coins/ethereum/ohlc?vs_currency=usd&days=1' 200 || true
+
+    for coin in bitcoin ethereum; do
+      if has_finite_market_coin "${SAMPLES_DIR}/${prefix}-markets.json" "$coin" \
+        && { has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" "$coin" || has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" "$coin"; } \
+        && has_recent_chart_points "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
+        && has_recent_ohlc_points "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json"; then
+        write_cross_overlap_evidence "$coin" "$prefix"
+        record_command "wait-cross-overlap-readiness-${port}" "curl priority BTC/ETH markets, tickers, chart, OHLC until one live/source-backed overlap is finite" 0
+        return 0
+      fi
+    done
+
+    if (( $(date +%s) - started_at >= timeout_seconds )); then
+      jq -n \
+        --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg reason "timed out waiting for finite BTC/ETH market, ticker, chart, and OHLC overlap" \
+        --slurpfile runtime "${SAMPLES_DIR}/${prefix}-runtime.json" \
+        --slurpfile markets "${SAMPLES_DIR}/${prefix}-markets.json" \
+        --slurpfile exchange_tickers "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" \
+        --slurpfile chart_diagnostics "${SAMPLES_DIR}/${prefix}-chart-diagnostics.json" \
+        '{
+          generated_at: $generated_at,
+          readiness: {
+            finite_market_price: false,
+            overlapping_exchange_ticker: false,
+            numeric_recent_market_chart: false,
+            numeric_recent_ohlc: false
+          },
+          reason: $reason,
+          samples: {
+            runtime_diagnostics: $runtime[0],
+            markets: $markets[0],
+            exchange_tickers: $exchange_tickers[0],
+            chart_diagnostics: $chart_diagnostics[0]
+          }
+        }' > "$CROSS_OVERLAP_FILE"
+      record_command "wait-cross-overlap-readiness-${port}" "curl priority BTC/ETH markets, tickers, chart, OHLC until one live/source-backed overlap is finite" 124
+      return 124
+    fi
+
+    sleep 3
+  done
+}
+
+run_smoke_modules_serially() {
+  local base_url="$1"
+  local module_list="${OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES:-${DEFAULT_SMOKE_MODULES[*]}}"
+  local modules=()
+  local available_module
+
+  if [[ -z "${module_list// }" ]]; then
+    module_list="${DEFAULT_SMOKE_MODULES[*]}"
+    record_command "smoke-modules-default" "OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES is empty; using curated default modules: ${module_list}" 0
+  fi
+
+  read -r -a modules <<< "$module_list"
+  if [[ "${module_list}" == "all" ]]; then
+    modules=("${ALL_SMOKE_MODULES[@]}")
+  fi
+
+  for available_module in "${ALL_SMOKE_MODULES[@]}"; do
+    local selected=0
+    local selected_module
+    for selected_module in "${modules[@]}"; do
+      if [[ "$selected_module" == "$available_module" || "$selected_module" == "all-endpoints" ]]; then
+        selected=1
+        break
+      fi
+    done
+    if [[ "$selected" -eq 0 ]]; then
+      jq -nc \
+        --arg module "$available_module" \
+        --arg reason "not selected by OPENGECKO_OPERATOR_PROOF_SMOKE_MODULES curated serial list" \
+        --arg selected_modules "${modules[*]}" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{timestamp: $timestamp, module: $module, reason: $reason, selected_modules: $selected_modules}' >> "$SMOKE_SKIPPED_FILE"
+    fi
+  done
+
+  for module in "${modules[@]}"; do
+    local command
+    local script_path="scripts/modules/${module}/${module}.sh"
+    if [[ "$module" == "all-endpoints" ]]; then
+      command="BASE_URL=${base_url} bun run test:endpoint"
+    else
+      command="BASE_URL=${base_url} bun run test:endpoint:${module}"
+    fi
+
+    if [[ "$module" != "all-endpoints" && ! -f "$script_path" ]]; then
+      jq -nc \
+        --arg module "$module" \
+        --arg reason "module script not found: ${script_path}" \
+        --arg command "$command" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{timestamp: $timestamp, module: $module, reason: $reason, command: $command}' >> "$SMOKE_SKIPPED_FILE"
+      record_command "smoke-${module}" "$command" 127
+      mark_failure "smoke module ${module} has no script"
+      continue
+    fi
+
+    echo "Running serial smoke module: ${module}"
+    set +e
+    if [[ "$module" == "all-endpoints" ]]; then
+      BASE_URL="$base_url" bun run test:endpoint > "${PROOF_ROOT}/smoke-${module}.log" 2>&1
+    else
+      BASE_URL="$base_url" bun run "test:endpoint:${module}" > "${PROOF_ROOT}/smoke-${module}.log" 2>&1
+    fi
+    local exit_code=$?
+    set -e
+    if [[ "$exit_code" -eq 0 ]]; then
+      record_command "smoke-${module}" "$command" 0
+    else
+      record_command "smoke-${module}" "$command" "$exit_code"
+      mark_failure "smoke module ${module} failed"
+    fi
+    jq -nc \
+      --arg module "$module" \
+      --arg command "$command" \
+      --arg log "${PROOF_ROOT}/smoke-${module}.log" \
+      --argjson exit_code "$exit_code" \
+      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{timestamp: $timestamp, module: $module, command: $command, exit_code: $exit_code, log: $log}' >> "$SMOKE_EXECUTED_FILE"
+  done
+}
+
+sample_priority_routes() {
+  local port="$1"
+  local prefix="$2"
+
+  capture_get "$port" "${prefix}-ping" '/ping' 200 || true
+  capture_get "$port" "${prefix}-health" '/health' 200 || true
+  capture_get "$port" "${prefix}-runtime" '/diagnostics/runtime' 200 || true
+  capture_get "$port" "${prefix}-jobs" '/diagnostics/jobs' 200 || true
+  capture_get "$port" "${prefix}-cache" '/diagnostics/cache' 200 || true
+  capture_get "$port" "${prefix}-coverage" '/diagnostics/coverage_matrix' 200 || true
+  capture_get "$port" "${prefix}-chart-diagnostics" '/diagnostics/market_charts' 200 || true
+  capture_get "$port" "${prefix}-simple-price" '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_last_updated_at=true' 200 || true
+  capture_get "$port" "${prefix}-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' 200 || true
+  capture_get "$port" "${prefix}-coin-detail" '/coins/bitcoin?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false' 200 || true
+  capture_get "$port" "${prefix}-coin-tickers" '/coins/bitcoin/tickers?exchange_ids=binance&depth=true&include_exchange_logo=false&page=1' 200 || true
+  capture_get "$port" "${prefix}-exchanges" '/exchanges?per_page=5&page=1' 200 || true
+  capture_get "$port" "${prefix}-exchange-tickers" '/exchanges/binance/tickers?coin_ids=bitcoin&depth=true&page=1' 200 || true
+  capture_get "$port" "${prefix}-market-chart" '/coins/bitcoin/market_chart?vs_currency=usd&days=1' 200 || true
+  capture_get "$port" "${prefix}-ohlc" '/coins/bitcoin/ohlc?vs_currency=usd&days=1' 200 || true
+
+  assert_jq "${prefix}-runtime-has-readiness" "${SAMPLES_DIR}/${prefix}-runtime.json" '.data.readiness.state | type == "string"' || true
+  assert_jq "${prefix}-jobs-has-scheduler" "${SAMPLES_DIR}/${prefix}-jobs.json" '.data.scheduler.enabled | type == "boolean"' || true
+  assert_jq "${prefix}-markets-is-array" "${SAMPLES_DIR}/${prefix}-markets.json" 'type == "array"' || true
+  assert_jq "${prefix}-exchange-tickers-shape" "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" '.tickers | type == "array"' || true
+  assert_jq "${prefix}-chart-shape" "${SAMPLES_DIR}/${prefix}-market-chart.json" '.prices | type == "array"' || true
+  assert_jq "${prefix}-ohlc-shape" "${SAMPLES_DIR}/${prefix}-ohlc.json" 'type == "array"' || true
+}
+
+write_summary() {
+  local final_exit_code="$1"
+
+  jq -n \
+    --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg proof_root "$PROOF_ROOT" \
+    --arg commands_file "$COMMANDS_FILE" \
+    --arg environment_file "${PROOF_ROOT}/environment.json" \
+    --arg port_checks_file "$PORT_CHECKS_FILE" \
+    --arg cross_overlap_file "$CROSS_OVERLAP_FILE" \
+    --arg smoke_executed_file "$SMOKE_EXECUTED_FILE" \
+    --arg smoke_skipped_file "$SMOKE_SKIPPED_FILE" \
+    --arg samples_dir "$SAMPLES_DIR" \
+    --argjson failures "$FAILURES" \
+    --argjson exit_code "$final_exit_code" \
+    '{
+      generated_at: $generated_at,
+      proof_root: $proof_root,
+      environment_file: $environment_file,
+      commands_file: $commands_file,
+      port_checks_file: $port_checks_file,
+      cross_overlap_file: $cross_overlap_file,
+      smoke_executed_file: $smoke_executed_file,
+      smoke_skipped_file: $smoke_skipped_file,
+      samples_dir: $samples_dir,
+      failures: $failures,
+      exit_code: $exit_code,
+      states: ["first_run_ready", "healthy", "degraded_but_serving", "recovered"],
+      assertions: ["VAL-CROSS-001", "VAL-CROSS-002", "VAL-CROSS-003", "VAL-CROSS-004", "VAL-CROSS-005", "VAL-CROSS-006", "VAL-CROSS-007", "VAL-CROSS-008", "VAL-CROSS-009", "VAL-CROSS-010", "VAL-CROSS-011"]
+    }' > "$SUMMARY_FILE"
+}
+
