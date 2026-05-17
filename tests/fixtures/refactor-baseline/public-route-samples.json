@@ -1,0 +1,197 @@
+{
+  "routes": [
+    {
+      "id": "ping",
+      "method": "GET",
+      "url": "/ping",
+      "status": 200,
+      "body_kind": "object",
+      "key_set": ["gecko_says"]
+    },
+    {
+      "id": "health",
+      "method": "GET",
+      "url": "/health",
+      "status": 200,
+      "body_kind": "object",
+      "key_set": ["gecko_says"]
+    },
+    {
+      "id": "simple-price",
+      "method": "GET",
+      "url": "/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["bitcoin", "ethereum"],
+      "nested_key_subsets": {
+        "bitcoin": ["usd", "usd_market_cap", "usd_24h_vol", "usd_24h_change", "last_updated_at"],
+        "ethereum": ["usd", "usd_market_cap", "usd_24h_vol", "usd_24h_change", "last_updated_at"]
+      }
+    },
+    {
+      "id": "coins-markets",
+      "method": "GET",
+      "url": "/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1",
+      "status": 200,
+      "body_kind": "array",
+      "item_key_subset": [
+        "id",
+        "symbol",
+        "name",
+        "image",
+        "current_price",
+        "market_cap",
+        "market_cap_rank",
+        "total_volume",
+        "high_24h",
+        "low_24h",
+        "price_change_24h",
+        "price_change_percentage_24h",
+        "last_updated"
+      ]
+    },
+    {
+      "id": "exchanges",
+      "method": "GET",
+      "url": "/exchanges",
+      "status": 200,
+      "body_kind": "array",
+      "item_key_subset": [
+        "id",
+        "name",
+        "year_established",
+        "country",
+        "description",
+        "url",
+        "image",
+        "trust_score",
+        "trust_score_rank",
+        "trade_volume_24h_btc",
+        "trade_volume_24h_btc_normalized"
+      ]
+    },
+    {
+      "id": "exchange-tickers",
+      "method": "GET",
+      "url": "/exchanges/binance/tickers?coin_ids=bitcoin,ethereum",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["name", "tickers"],
+      "nested_array_key_subsets": {
+        "tickers": ["base", "target", "market", "last", "volume", "converted_last", "converted_volume", "coin_id", "is_stale"]
+      }
+    },
+    {
+      "id": "market-chart",
+      "method": "GET",
+      "url": "/coins/bitcoin/market_chart?vs_currency=usd&days=7",
+      "status": 200,
+      "body_kind": "object",
+      "key_set": ["market_caps", "prices", "total_volumes"]
+    },
+    {
+      "id": "ohlc",
+      "method": "GET",
+      "url": "/coins/bitcoin/ohlc?vs_currency=usd&days=7",
+      "status": 200,
+      "body_kind": "array",
+      "array_tuple_length": 5
+    },
+    {
+      "id": "diagnostics-runtime",
+      "method": "GET",
+      "url": "/diagnostics/runtime",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["readiness", "degraded", "hot_paths", "transport", "startup_prewarm"]
+    },
+    {
+      "id": "diagnostics-cache",
+      "method": "GET",
+      "url": "/diagnostics/cache",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["hot_data_revision", "freshness", "surfaces"]
+    },
+    {
+      "id": "diagnostics-exchanges",
+      "method": "GET",
+      "url": "/diagnostics/exchanges",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["generated_at", "last_ticker_refresh_at", "exchanges"]
+    },
+    {
+      "id": "diagnostics-coverage-matrix",
+      "method": "GET",
+      "url": "/diagnostics/coverage_matrix",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["generated_at", "entries"]
+    },
+    {
+      "id": "diagnostics-market-charts",
+      "method": "GET",
+      "url": "/diagnostics/market_charts",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["configured_targets", "summary", "coins", "gaps", "notes"]
+    },
+    {
+      "id": "diagnostics-jobs",
+      "method": "GET",
+      "url": "/diagnostics/jobs",
+      "status": 200,
+      "body_kind": "object",
+      "key_subset": ["data"],
+      "data_key_subset": ["scheduler", "jobs", "optional_provider_jobs"]
+    }
+  ],
+  "errors": [
+    {
+      "id": "simple-price-missing-selector",
+      "method": "GET",
+      "url": "/simple/price?vs_currencies=usd",
+      "status": 400,
+      "error": "invalid_parameter",
+      "message": "One of ids, names, or symbols must be provided."
+    },
+    {
+      "id": "coins-markets-unsupported-order",
+      "method": "GET",
+      "url": "/coins/markets?vs_currency=usd&order=unsupported",
+      "status": 400,
+      "error": "invalid_parameter",
+      "message": "Unsupported order value: unsupported"
+    },
+    {
+      "id": "coin-market-chart-bad-range",
+      "method": "GET",
+      "url": "/coins/bitcoin/market_chart/range?vs_currency=usd&from=10&to=1",
+      "status": 400,
+      "error": "invalid_parameter",
+      "message": "Invalid time range: from must be less than or equal to to."
+    },
+    {
+      "id": "unknown-coin",
+      "method": "GET",
+      "url": "/coins/not-a-coin",
+      "status": 404,
+      "error": "not_found",
+      "message": "Coin not found: not-a-coin"
+    },
+    {
+      "id": "exchange-tickers-unsupported-order",
+      "method": "GET",
+      "url": "/exchanges/binance/tickers?order=unsupported",
+      "status": 400,
+      "error": "invalid_parameter",
+      "message": "Unsupported order value: unsupported"
+    }
+  ]
+}
