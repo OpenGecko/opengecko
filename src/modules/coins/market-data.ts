@@ -399,11 +399,38 @@ function compareOptionalNumbers(
   return 0;
 }
 
+function isFinitePositiveNumber(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function marketRowQualityRank(row: { snapshot: MarketSnapshotRow | null }) {
+  const snapshot = row.snapshot;
+
+  if (!snapshot) {
+    return 0;
+  }
+
+  return [
+    snapshot.price,
+    snapshot.marketCap,
+    snapshot.totalVolume,
+  ].filter(isFinitePositiveNumber).length;
+}
+
 function compareMarketRowsForRouteOrder(
   left: { coin: CoinRow; snapshot: MarketSnapshotRow | null },
   right: { coin: CoinRow; snapshot: MarketSnapshotRow | null },
   normalizedOrder: string,
 ) {
+  const leftQualityRank = marketRowQualityRank(left);
+  const rightQualityRank = marketRowQualityRank(right);
+  const leftNullQuality = leftQualityRank === 0;
+  const rightNullQuality = rightQualityRank === 0;
+
+  if (leftNullQuality !== rightNullQuality) {
+    return leftNullQuality ? 1 : -1;
+  }
+
   switch (normalizedOrder) {
     case 'market_cap_desc':
     case 'gecko_desc': {

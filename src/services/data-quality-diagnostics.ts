@@ -1,5 +1,8 @@
 import type { buildCoverageMatrix } from './coverage-matrix';
 import type { RuntimeDiagnostics } from './runtime-diagnostics';
+import type { AppDatabase } from '../db/client';
+import { getMarketRows } from '../modules/catalog';
+import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
@@ -36,6 +39,7 @@ type QualityFamilyConfig = {
 };
 
 const TARGET_THRESHOLD = 9;
+const MARKET_TOP_N_DENOMINATOR = 100;
 
 const FAMILY_CONFIGS: QualityFamilyConfig[] = [
   {
@@ -302,13 +306,165 @@ function providerReasonCodes(runtimeDiagnostics: RuntimeDiagnostics) {
   return [...codes].sort();
 }
 
+function isFinitePositive(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function isFiniteNonNegative(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDiagnostics: RuntimeDiagnostics) {
+  const requestPath = '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1';
+
+  if (!database) {
+    return {
+      assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022'],
+      request_path: requestPath,
+      top_n: {
+        configured_denominator: MARKET_TOP_N_DENOMINATOR,
+        measured_denominator: 0,
+        returned_rows: 0,
+        price_complete_count: 0,
+        market_cap_complete_count: 0,
+        volume_complete_count: 0,
+        price_completeness_ratio: 0,
+        market_cap_completeness_ratio: 0,
+        volume_completeness_ratio: 0,
+        null_quality_row_count: 0,
+        null_quality_first_page_ids: [],
+      },
+      note: 'Market quality evidence was requested without database access.',
+    };
+  }
+
+  const runtimeState = {
+    initialSyncCompleted: runtimeDiagnostics.readiness.initial_sync_completed,
+    listenerBindDeferred: runtimeDiagnostics.readiness.listener_bind_deferred,
+    initialSyncCompletedWithoutUsableLiveSnapshots: runtimeDiagnostics.readiness.zero_live_completed_boot,
+    allowStaleLiveService: runtimeDiagnostics.degraded.stale_live_enabled,
+    syncFailureReason: runtimeDiagnostics.degraded.reason,
+    validationOverride: {
+      mode: runtimeDiagnostics.degraded.validation_override.mode,
+      reason: runtimeDiagnostics.degraded.validation_override.reason,
+      snapshotTimestampOverride: null,
+      snapshotSourceCountOverride: null,
+    },
+    providerFailureCooldownUntil: null,
+    forcedProviderFailure: runtimeDiagnostics.degraded.injected_provider_failure,
+    startupPrewarm: {
+      enabled: false,
+      budgetMs: 0,
+      readyWithinBudget: true,
+      firstRequestWarmBenefitsObserved: false,
+      firstRequestWarmBenefitPending: false,
+      targets: [],
+      completedAt: null,
+      totalDurationMs: null,
+      targetResults: [],
+    },
+    hotDataRevision: runtimeDiagnostics.hot_paths.cache_revision,
+    listenerBound: runtimeDiagnostics.readiness.listener_bound,
+  };
+  const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+  const rows = getMarketRows(database, 'usd', { status: 'active' })
+    .map((row) => ({
+      coin: row.coin,
+      snapshot: getUsableSnapshot(getEffectiveSnapshot(row.snapshot, runtimeState), 300, snapshotAccessPolicy),
+    }))
+    .sort((left, right) => {
+      const leftNullQuality = !left.snapshot || [
+        left.snapshot.price,
+        left.snapshot.marketCap,
+        left.snapshot.totalVolume,
+      ].every((value) => !isFinitePositive(value));
+      const rightNullQuality = !right.snapshot || [
+        right.snapshot.price,
+        right.snapshot.marketCap,
+        right.snapshot.totalVolume,
+      ].every((value) => !isFinitePositive(value));
+
+      if (leftNullQuality !== rightNullQuality) {
+        return leftNullQuality ? 1 : -1;
+      }
+
+      const leftRank = left.snapshot?.marketCapRank ?? left.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = right.snapshot?.marketCapRank ?? right.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+
+      return left.coin.id.localeCompare(right.coin.id);
+    })
+    .slice(0, MARKET_TOP_N_DENOMINATOR);
+
+  const priceCompleteCount = rows.filter((row) => isFinitePositive(row.snapshot?.price)).length;
+  const marketCapCompleteCount = rows.filter((row) => isFinitePositive(row.snapshot?.marketCap)).length;
+  const volumeCompleteCount = rows.filter((row) => isFiniteNonNegative(row.snapshot?.totalVolume)).length;
+  const nullQualityRows = rows.filter((row) => !row.snapshot || [
+    row.snapshot.price,
+    row.snapshot.marketCap,
+    row.snapshot.totalVolume,
+  ].every((value) => !isFinitePositive(value)));
+  const measuredDenominator = Math.min(MARKET_TOP_N_DENOMINATOR, rows.length);
+  const priceCompletenessRatio = measuredDenominator === 0 ? 0 : priceCompleteCount / measuredDenominator;
+  const marketCapCompletenessRatio = measuredDenominator === 0 ? 0 : marketCapCompleteCount / measuredDenominator;
+  const volumeCompletenessRatio = measuredDenominator === 0 ? 0 : volumeCompleteCount / measuredDenominator;
+  const exceptions = [
+    ...(marketCapCompletenessRatio < 0.8
+      ? [{
+          field: 'market_cap',
+          reason_code: 'source_unavailable',
+          message: 'Live exchange ticker sources do not provide market-cap directly and no usable carried-forward market-cap evidence exists for enough top-N rows.',
+        }]
+      : []),
+    ...(priceCompletenessRatio < 0.9
+      ? [{
+          field: 'current_price',
+          reason_code: 'missing_required_field',
+          message: 'Top-N price completeness is below the market quality target.',
+        }]
+      : []),
+    ...(volumeCompletenessRatio < 0.8
+      ? [{
+          field: 'total_volume',
+          reason_code: 'missing_required_field',
+          message: 'Top-N volume completeness is below the market quality target.',
+        }]
+      : []),
+  ];
+
+  return {
+    assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022'],
+    request_path: requestPath,
+    top_n: {
+      configured_denominator: MARKET_TOP_N_DENOMINATOR,
+      measured_denominator: measuredDenominator,
+      returned_rows: rows.length,
+      price_complete_count: priceCompleteCount,
+      market_cap_complete_count: marketCapCompleteCount,
+      volume_complete_count: volumeCompleteCount,
+      price_completeness_ratio: priceCompletenessRatio,
+      market_cap_completeness_ratio: marketCapCompletenessRatio,
+      volume_completeness_ratio: volumeCompletenessRatio,
+      null_quality_row_count: nullQualityRows.length,
+      null_quality_first_page_ids: nullQualityRows.map((row) => row.coin.id),
+    },
+    exceptions,
+    note: 'Top-N completeness uses the stable configured denominator and records request paths for replay.',
+  };
+}
+
 export function buildDataQualityDiagnostics(
   coverageMatrix: CoverageMatrix,
   runtimeDiagnostics: RuntimeDiagnostics,
   now = new Date(),
+  database?: AppDatabase,
 ) {
   const coverageByFamily = new Map(coverageMatrix.entries.map((entry) => [entry.family, entry]));
   const runtimeReasonCodes = providerReasonCodes(runtimeDiagnostics);
+  const marketQualityEvidence = buildMarketQualityEvidence(database, runtimeDiagnostics);
 
   const families = FAMILY_CONFIGS.map((config) => {
     const coverageEntry = coverageByFamily.get(config.coverageFamily ?? config.family)
@@ -408,6 +564,14 @@ export function buildDataQualityDiagnostics(
         coverage_route_count: coverageEntry?.representative_routes.length ?? 0,
         provider_count: coverageEntry?.providers.length ?? 0,
         evidence_test_count: coverageEntry?.evidence.tests.length ?? config.contractEvidence.length,
+        ...(config.family === 'coins'
+          ? {
+              market_top_n_configured_denominator: marketQualityEvidence.top_n.configured_denominator,
+              market_top_n_measured_denominator: marketQualityEvidence.top_n.measured_denominator,
+              market_top_n_returned_rows: marketQualityEvidence.top_n.returned_rows,
+              market_top_n_null_quality_rows: marketQualityEvidence.top_n.null_quality_row_count,
+            }
+          : {}),
       },
       timestamps: {
         generated_at: now.toISOString(),
@@ -419,6 +583,23 @@ export function buildDataQualityDiagnostics(
         contract_tests: config.contractEvidence,
         coverage_tests: coverageEntry?.evidence.tests ?? [],
         coverage_notes: coverageEntry?.evidence.notes ?? 'No coverage-matrix entry was available for this family.',
+        ...(config.family === 'coins'
+          ? {
+              market_quality: marketQualityEvidence,
+              replayable_evidence: {
+                base_url_env: 'BASE_URL',
+                generated_at: now.toISOString(),
+                request_paths: [
+                  marketQualityEvidence.request_path,
+                  '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&include_last_updated_at=true',
+                  '/coins/bitcoin',
+                  '/coins/bitcoin/market_chart?vs_currency=usd&days=7',
+                  '/coins/bitcoin/ohlc?vs_currency=usd&days=7',
+                ],
+                diagnostics_paths: ['/diagnostics/data_quality', '/diagnostics/runtime', '/diagnostics/coverage_matrix'],
+              },
+            }
+          : {}),
         runtime_degradation: runtimeAffected
           ? {
               active: true,

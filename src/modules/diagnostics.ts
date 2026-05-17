@@ -294,7 +294,7 @@ export function registerDiagnosticsRoutes(
     );
 
     return sendCacheableJson(request, reply, {
-      data: buildDataQualityDiagnostics(buildCoverageMatrix(database, now), runtimeDiagnostics, now),
+      data: buildDataQualityDiagnostics(buildCoverageMatrix(database, now), runtimeDiagnostics, now, database),
     }, dynamicDiagnosticsCachePolicy);
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "opengecko",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "private": true,
   "packageManager": "bun@1.3.9",
   "description": "CoinGecko-compatible open-source API",
@@ -21,6 +21,7 @@
     "test:endpoint:search": "bash scripts/modules/search/search.sh",
     "test:endpoint:simple": "bash scripts/modules/simple/simple.sh",
     "test:endpoint:treasury": "bash scripts/modules/treasury/treasury.sh",
+    "test:data-quality": "bash scripts/data-quality-gate.sh",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "charts:backfill": "tsx src/jobs/backfill-ohlcv.ts",

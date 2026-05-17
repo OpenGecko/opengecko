@@ -140,6 +140,134 @@ describe('coins markets parity', () => {
     });
   });
 
+  it('does not rank fresh null-quality market placeholders above priced market rows', async () => {
+    await app.ready();
+    app.marketDataRuntimeState.initialSyncCompleted = true;
+    app.marketDataRuntimeState.allowStaleLiveService = true;
+    app.marketDataRuntimeState.validationOverride = {
+      mode: 'stale_allowed',
+      reason: 'market quality all-null placeholder regression',
+      snapshotTimestampOverride: null,
+      snapshotSourceCountOverride: null,
+    };
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    const freshTimestamp = new Date();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 0,
+        marketCap: null,
+        totalVolume: null,
+        marketCapRank: 1,
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 2_000,
+        marketCap: 240_000_000_000,
+        totalVolume: 10_000_000_000,
+        marketCapRank: 2,
+        sourceProvidersJson: JSON.stringify(['coinbase']),
+        sourceCount: 1,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&page=1&per_page=5&sparkline=false',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body[0]).toMatchObject({
+      id: 'ethereum',
+      current_price: 2_000,
+      market_cap: 240_000_000_000,
+      total_volume: 10_000_000_000,
+    });
+    expect(body[0].id).not.toBe('bitcoin');
+    const bitcoinIndex = body.findIndex((row: { id: string }) => row.id === 'bitcoin');
+    const ethereumIndex = body.findIndex((row: { id: string }) => row.id === 'ethereum');
+    expect(bitcoinIndex === -1 || bitcoinIndex > ethereumIndex).toBe(true);
+  });
+
+  it('publishes stable top-N market quality denominators and replayable evidence in diagnostics', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const coinsFamily = (response.json().data.families as Array<{
+      family: string;
+      counts: Record<string, number>;
+      evidence: {
+        market_quality?: {
+          assertions: string[];
+          request_path: string;
+          top_n: {
+            configured_denominator: number;
+            measured_denominator: number;
+            returned_rows: number;
+            price_complete_count: number;
+            market_cap_complete_count: number;
+            volume_complete_count: number;
+            null_quality_row_count: number;
+            null_quality_first_page_ids: string[];
+          };
+        };
+        replayable_evidence?: {
+          base_url_env: string;
+          request_paths: string[];
+          diagnostics_paths: string[];
+          generated_at: string;
+        };
+      };
+    }>).find((family) => family.family === 'coins');
+
+    expect(coinsFamily).toBeDefined();
+    expect(coinsFamily?.counts.market_top_n_configured_denominator).toBe(100);
+    expect(coinsFamily?.evidence.market_quality).toMatchObject({
+      assertions: expect.arrayContaining([
+        'VAL-MARKET-007',
+        'VAL-MARKET-008',
+        'VAL-MARKET-009',
+        'VAL-MARKET-021',
+        'VAL-MARKET-022',
+      ]),
+      request_path: '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1',
+      top_n: {
+        configured_denominator: 100,
+        measured_denominator: expect.any(Number),
+        returned_rows: expect.any(Number),
+        price_complete_count: expect.any(Number),
+        market_cap_complete_count: expect.any(Number),
+        volume_complete_count: expect.any(Number),
+        null_quality_row_count: expect.any(Number),
+        null_quality_first_page_ids: expect.any(Array),
+      },
+    });
+    expect(coinsFamily?.evidence.replayable_evidence).toMatchObject({
+      base_url_env: 'BASE_URL',
+      request_paths: expect.arrayContaining([
+        '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1',
+      ]),
+      diagnostics_paths: expect.arrayContaining(['/diagnostics/data_quality', '/diagnostics/runtime']),
+      generated_at: expect.any(String),
+    });
+  });
+
 
   it('null-shapes bootstrap-only market completeness fields for seeded bootstrap rows', async () => {
     const validationApp = buildApp({
