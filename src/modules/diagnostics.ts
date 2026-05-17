@@ -18,6 +18,7 @@ import { buildDerivativesProviderDiagnostics } from '../services/derivatives-ven
 import { buildCoinHistoryProviderDiagnostics } from '../services/coin-history-diagnostics';
 import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import { buildCoverageMatrix } from '../services/coverage-matrix';
+import { isLiveSourceKind, isSeededExchangeTimestamp } from '../services/diagnostics-policy';
 import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
 import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
 import { buildMarketChartProviderDiagnostics } from '../services/market-chart-diagnostics';
@@ -46,8 +47,6 @@ import {
   SIMPLE_PRICE_ROUTE_CACHE_POLICY,
 } from './route-cache-policies';
 
-const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
-
 function toLatestIso(left: string | null, right: Date | null | undefined) {
   if (!right || Number.isNaN(right.getTime())) {
     return left;
@@ -67,7 +66,7 @@ function recordCapabilityEvidence(
   providerId: string | null | undefined,
   contributedAt: Date | null | undefined,
 ) {
-  if (!providerId || contributedAt?.getTime() === SEEDED_EXCHANGE_TIMESTAMP_MS) {
+  if (!providerId || isSeededExchangeTimestamp(contributedAt)) {
     return;
   }
 
@@ -86,7 +85,7 @@ function buildRuntimeCapabilityEvidence(database: AppDatabase): ProviderCapabili
   }
 
   for (const row of database.db.select().from(exchanges).all()) {
-    if (row.updatedAt.getTime() === SEEDED_EXCHANGE_TIMESTAMP_MS) {
+    if (isSeededExchangeTimestamp(row.updatedAt)) {
       continue;
     }
 
@@ -98,7 +97,7 @@ function buildRuntimeCapabilityEvidence(database: AppDatabase): ProviderCapabili
   }
 
   for (const row of database.db.select().from(marketChartSourcePoints).all()) {
-    if (row.sourceKind !== 'live') {
+    if (!isLiveSourceKind(row.sourceKind)) {
       continue;
     }
 

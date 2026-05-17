@@ -3,6 +3,7 @@ import { getMarketRuntimePhase, type MarketDataRuntimeState, type MarketRuntimeP
 import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
 import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
+import { classifyRuntimeMarketSnapshotSourceClass, type RuntimeMarketSnapshotSourceClass } from './diagnostics-policy';
 import { summarizeProviderBreakerState, type ProviderFailureKind } from './provider-breaker';
 
 export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
@@ -78,7 +79,7 @@ export type RuntimeDiagnostics = {
   hot_paths: {
     shared_market_snapshot: {
       available: boolean;
-      source_class: 'fresh_live' | 'stale_live' | 'seeded_bootstrap' | 'degraded_seeded_bootstrap' | 'unavailable';
+      source_class: RuntimeMarketSnapshotSourceClass;
       last_successful_live_refresh_at: string | null;
       freshness: {
         threshold_seconds: number;
@@ -351,39 +352,17 @@ export function buildRuntimeDiagnostics(
     && validationOverride.mode !== 'zero_live_completed_boot'
     && (effectiveStaleLiveFallbackActive || effectiveSeededBootstrapFallbackActive)
   );
-  const sourceClass = effectiveLatestUsdSnapshot
-    ? (() => {
-      if (validationOverride.mode === 'degraded_seeded_bootstrap') {
-        return 'degraded_seeded_bootstrap' as const;
-      }
-
-      if (validationOverride.mode === 'seeded_bootstrap') {
-        return 'seeded_bootstrap' as const;
-      }
-
-      if (validationOverride.mode === 'zero_live_completed_boot') {
-        return 'unavailable' as const;
-      }
-
-      if (validationOverride.mode === 'stale_allowed' && latestSnapshotOwnership === 'live' && latestSnapshotFreshness?.isStale) {
-        return 'stale_live' as const;
-      }
-
-      if (latestSnapshotOwnership === 'seeded') {
-        if (effectiveSeededBootstrapFallbackActive) {
-          return 'degraded_seeded_bootstrap' as const;
-        }
-
-        return 'seeded_bootstrap' as const;
-      }
-
-      if ((validationOverrideForcesDegradedState || listenerBoundSeededBootstrap) && storedSnapshotOwnership === 'live') {
-        return 'stale_live' as const;
-      }
-
-      return storedLatestSnapshotFreshness?.isStale ? 'stale_live' as const : 'fresh_live' as const;
-    })()
-    : 'unavailable' as const;
+  const sourceClass = classifyRuntimeMarketSnapshotSourceClass({
+    hasEffectiveSnapshot: effectiveLatestUsdSnapshot !== null,
+    validationOverrideMode: validationOverride.mode,
+    latestSnapshotOwnership,
+    storedSnapshotOwnership,
+    latestSnapshotIsStale: latestSnapshotFreshness?.isStale ?? null,
+    storedSnapshotIsStale: storedLatestSnapshotFreshness?.isStale ?? null,
+    effectiveSeededBootstrapFallbackActive,
+    validationOverrideForcesDegradedState,
+    listenerBoundSeededBootstrap,
+  });
 
   const hotPathSnapshot = effectiveLatestUsdSnapshot
     ? (() => {

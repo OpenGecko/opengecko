@@ -19,12 +19,18 @@ import {
   treasuryHoldings,
   treasurySourceDocuments,
 } from '../db/schema';
+import {
+  ageSeconds,
+  classifyCoverageFreshness,
+  hasSourceBackedProviders,
+  isCanonicalValidationSnapshotProvider,
+  isLiveSourceKind,
+  isReplaySourceKind,
+} from './diagnostics-policy';
 import { getEndpointFreshnessBudget } from './freshness-budgets';
 import { loadDefaultCoverageTargets } from './coverage-targets';
 
 export type DataOwnershipClass = 'live' | 'hybrid' | 'seeded' | 'synthetic' | 'fixture' | 'unavailable';
-
-export type CoverageFreshnessState = 'fresh' | 'degraded' | 'stale' | 'unbudgeted' | 'unknown';
 
 type CoverageMatrixEntryConfig = {
   family: string;
@@ -47,24 +53,6 @@ function latestDate<T>(rows: T[], selector: (row: T) => Date | null | undefined)
   }, null);
 }
 
-function hasSourceBackedMarketSnapshot(row: { sourceCount: number; sourceProvidersJson: string }) {
-  if (row.sourceCount <= 0) {
-    return false;
-  }
-
-  try {
-    const providers = JSON.parse(row.sourceProvidersJson) as unknown;
-
-    return Array.isArray(providers) && providers.some((provider) => (
-      typeof provider === 'string'
-      && provider.trim().length > 0
-      && provider !== 'canonical-validation-snapshot'
-    ));
-  } catch {
-    return false;
-  }
-}
-
 type HistoricalChartSourceCoverage = {
   ownershipClass: Extract<DataOwnershipClass, 'live' | 'hybrid' | 'seeded'>;
   latestSourceFetchedAt: Date | null;
@@ -76,38 +64,6 @@ type HistoricalChartSourceCoverage = {
 
 const HISTORICAL_CHART_LIVE_MIN_TARGET_COVERAGE_RATIO = 0.25;
 const HISTORICAL_CHART_LIVE_MIN_POINTS_PER_TARGET = 30;
-
-function ageSeconds(now: Date, timestamp: Date | null) {
-  if (!timestamp) {
-    return null;
-  }
-
-  return Math.max(Math.floor((now.getTime() - timestamp.getTime()) / 1_000), 0);
-}
-
-function classifyFreshness(
-  currentAgeSeconds: number | null,
-  targetFreshnessSeconds: number | null,
-  degradedAfterSeconds: number | null,
-): CoverageFreshnessState {
-  if (targetFreshnessSeconds === null || degradedAfterSeconds === null) {
-    return 'unbudgeted';
-  }
-
-  if (currentAgeSeconds === null) {
-    return 'unknown';
-  }
-
-  if (currentAgeSeconds <= targetFreshnessSeconds) {
-    return 'fresh';
-  }
-
-  if (currentAgeSeconds <= degradedAfterSeconds) {
-    return 'degraded';
-  }
-
-  return 'stale';
-}
 
 function classifyHistoricalChartSourceCoverage(database: AppDatabase): HistoricalChartSourceCoverage {
   const enabledTargets = loadDefaultCoverageTargets().filter(
@@ -122,7 +78,7 @@ function classifyHistoricalChartSourceCoverage(database: AppDatabase): Historica
   let latestLiveSourceFetchedAt: Date | null = null;
 
   for (const row of rows) {
-    if (row.sourceProvider === 'seed' || row.sourceProvider === 'canonical-validation-snapshot') {
+    if (row.sourceProvider === 'seed' || isCanonicalValidationSnapshotProvider(row.sourceProvider)) {
       continue;
     }
 
@@ -133,9 +89,9 @@ function classifyHistoricalChartSourceCoverage(database: AppDatabase): Historica
 
     targetRows.set(key, [...(targetRows.get(key) ?? []), row]);
 
-    if (row.sourceKind === 'live') {
+    if (isLiveSourceKind(row.sourceKind)) {
       latestLiveSourceFetchedAt = latestDate([{ timestamp: latestLiveSourceFetchedAt }, { timestamp: row.sourceFetchedAt }], (item) => item.timestamp);
-    } else if (row.sourceKind === 'replay') {
+    } else if (isReplaySourceKind(row.sourceKind)) {
       latestReplaySourceFetchedAt = latestDate([{ timestamp: latestReplaySourceFetchedAt }, { timestamp: row.sourceFetchedAt }], (item) => item.timestamp);
     }
   }
@@ -146,8 +102,8 @@ function classifyHistoricalChartSourceCoverage(database: AppDatabase): Historica
 
   for (const key of Array.from(enabledTargetKeys)) {
     const rowsForTarget = targetRows.get(key) ?? [];
-    const liveRowsForTarget = rowsForTarget.filter((row) => row.sourceKind === 'live');
-    const replayRowsForTarget = rowsForTarget.filter((row) => row.sourceKind === 'replay');
+    const liveRowsForTarget = rowsForTarget.filter((row) => isLiveSourceKind(row.sourceKind));
+    const replayRowsForTarget = rowsForTarget.filter((row) => isReplaySourceKind(row.sourceKind));
     if (liveRowsForTarget.length > 0) {
       liveTargetKeyCount += 1;
       minPointsPerEnabledTarget = Math.min(minPointsPerEnabledTarget, liveRowsForTarget.length);
@@ -190,7 +146,7 @@ function buildEntry(config: CoverageMatrixEntryConfig, now: Date) {
       target_freshness_seconds: targetFreshnessSeconds,
       degraded_after_seconds: degradedAfterSeconds,
       current_age_seconds: currentAgeSeconds,
-      state: classifyFreshness(currentAgeSeconds, targetFreshnessSeconds, degradedAfterSeconds),
+      state: classifyCoverageFreshness({ currentAgeSeconds, targetFreshnessSeconds, degradedAfterSeconds }),
     },
     evidence: {
       tests: [...config.evidence],
@@ -202,7 +158,9 @@ function buildEntry(config: CoverageMatrixEntryConfig, now: Date) {
 export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
   const observedAt = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   const marketSnapshotRows = database.db.select().from(marketSnapshots).all();
-  const sourceBackedMarketSnapshotRows = marketSnapshotRows.filter(hasSourceBackedMarketSnapshot);
+  const sourceBackedMarketSnapshotRows = marketSnapshotRows.filter((row) => (
+    hasSourceBackedProviders(row.sourceCount, row.sourceProvidersJson)
+  ));
   const enabledDefaultCoverageTargets = loadDefaultCoverageTargets().filter((target) => target.enabled);
   const enabledHistoricalCoverageTargets = enabledDefaultCoverageTargets.filter(
     (target) => target.family === 'market_charts' || target.family === 'ohlcv',
@@ -231,8 +189,8 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     (row) => row.timestamp,
   );
   const exchangeVolumeSourceRows = database.db.select().from(exchangeVolumeSourcePoints).all();
-  const liveExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'live');
-  const replayExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => row.sourceKind === 'replay');
+  const liveExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => isLiveSourceKind(row.sourceKind));
+  const replayExchangeVolumeSourceRows = exchangeVolumeSourceRows.filter((row) => isReplaySourceKind(row.sourceKind));
   const latestExchangeVolumeLiveSourceAt = latestDate(
     liveExchangeVolumeSourceRows,
     (row) => row.sourceFetchedAt,
@@ -275,8 +233,8 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     (row) => row.sourceFetchedAt,
   );
   const onchainTradeRows = database.db.select().from(onchainPoolTrades).all();
-  const liveOnchainTradeRows = onchainTradeRows.filter((row) => row.sourceKind === 'live');
-  const replayOnchainTradeRows = onchainTradeRows.filter((row) => row.sourceKind === 'replay');
+  const liveOnchainTradeRows = onchainTradeRows.filter((row) => isLiveSourceKind(row.sourceKind));
+  const replayOnchainTradeRows = onchainTradeRows.filter((row) => isReplaySourceKind(row.sourceKind));
   const latestOnchainTradeAt = latestDate(
     liveOnchainTradeRows,
     (row) => row.sourceFetchedAt,
@@ -286,8 +244,8 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     (row) => row.sourceFetchedAt,
   );
   const derivativeRows = database.db.select().from(derivativeTickers).all();
-  const liveDerivativeRows = derivativeRows.filter((row) => row.sourceKind === 'live');
-  const replayDerivativeRows = derivativeRows.filter((row) => row.sourceKind === 'replay');
+  const liveDerivativeRows = derivativeRows.filter((row) => isLiveSourceKind(row.sourceKind));
+  const replayDerivativeRows = derivativeRows.filter((row) => isReplaySourceKind(row.sourceKind));
   const latestDerivativeAt = latestDate(
     liveDerivativeRows,
     (row) => row.sourceFetchedAt ?? row.lastTradedAt,

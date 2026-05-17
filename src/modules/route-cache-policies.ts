@@ -1,4 +1,5 @@
 import { getEndpointFreshnessBudget } from '../services/freshness-budgets';
+import { getRouteHttpCacheSeconds } from '../services/diagnostics-policy';
 import { COINS_MARKETS_CACHE_TTL_MS } from './coins/market-data';
 
 export type RouteHttpCachePolicy = {
@@ -24,10 +25,10 @@ function buildRouteCachePolicyMetadata(options: {
 }) {
   const ttlSeconds = secondsFromMs(options.ttlMs);
   const freshnessBudget = getEndpointFreshnessBudget(options.freshnessBudgetId);
-  const httpCacheSeconds = Math.min(
+  const httpCacheSeconds = getRouteHttpCacheSeconds({
     ttlSeconds,
-    freshnessBudget?.target_freshness_seconds ?? ttlSeconds,
-  );
+    targetFreshnessSeconds: freshnessBudget?.target_freshness_seconds,
+  });
 
   return {
     ttlMs: options.ttlMs,

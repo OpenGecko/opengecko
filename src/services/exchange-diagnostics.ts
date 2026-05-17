@@ -1,8 +1,12 @@
 import type { AppDatabase } from '../db/client';
 import { coinTickers, exchangeVolumeSourcePoints, exchanges } from '../db/schema';
+import {
+  classifyExchangeEvidence,
+  isLiveSourceKind,
+  isReplaySourceKind,
+  isSeededExchangeTimestamp,
+} from './diagnostics-policy';
 import type { MarketDataRuntimeState } from './market-runtime-state';
-
-const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
 
 function latestIso(timestamps: Array<Date | null>) {
   const latest = timestamps.reduce<Date | null>((current, timestamp) => (
@@ -10,35 +14,6 @@ function latestIso(timestamps: Array<Date | null>) {
   ), null);
 
   return latest?.toISOString() ?? null;
-}
-
-function classifyExchangeEvidence(input: {
-  liveTickerRowCount: number;
-  seededTickerRowCount: number;
-  liveVolumeRowCount: number;
-  replayVolumeRowCount: number;
-}) {
-  if (input.liveTickerRowCount > 0 && input.liveVolumeRowCount > 0) {
-    return 'live_ticker_and_volume';
-  }
-
-  if (input.liveTickerRowCount > 0) {
-    return 'live_ticker';
-  }
-
-  if (input.liveVolumeRowCount > 0) {
-    return 'live_volume';
-  }
-
-  if (input.replayVolumeRowCount > 0) {
-    return 'replay_only';
-  }
-
-  if (input.seededTickerRowCount > 0) {
-    return 'seeded_ticker_only';
-  }
-
-  return 'seeded_registry_only';
 }
 
 export function buildExchangeDiagnostics(database: AppDatabase, runtimeState: MarketDataRuntimeState) {
@@ -56,11 +31,11 @@ export function buildExchangeDiagnostics(database: AppDatabase, runtimeState: Ma
     last_ticker_refresh_at: exchangeTickerIngestion.last_refresh_at,
     exchanges: exchangeRows.map((exchange) => {
       const exchangeTickers = tickerRows.filter((row) => row.exchangeId === exchange.id);
-      const liveTickerRows = exchangeTickers.filter((row) => row.lastFetchAt instanceof Date && row.lastFetchAt.getTime() !== SEEDED_EXCHANGE_TIMESTAMP_MS);
-      const seededTickerRows = exchangeTickers.filter((row) => row.lastFetchAt instanceof Date && row.lastFetchAt.getTime() === SEEDED_EXCHANGE_TIMESTAMP_MS);
+      const liveTickerRows = exchangeTickers.filter((row) => row.lastFetchAt instanceof Date && !isSeededExchangeTimestamp(row.lastFetchAt));
+      const seededTickerRows = exchangeTickers.filter((row) => isSeededExchangeTimestamp(row.lastFetchAt));
       const exchangeVolumes = volumeRows.filter((row) => row.exchangeId === exchange.id);
-      const liveVolumeRows = exchangeVolumes.filter((row) => row.sourceKind === 'live');
-      const replayVolumeRows = exchangeVolumes.filter((row) => row.sourceKind === 'replay');
+      const liveVolumeRows = exchangeVolumes.filter((row) => isLiveSourceKind(row.sourceKind));
+      const replayVolumeRows = exchangeVolumes.filter((row) => isReplaySourceKind(row.sourceKind));
       const ingestion = ingestionResults[exchange.id] ?? null;
 
       return {
