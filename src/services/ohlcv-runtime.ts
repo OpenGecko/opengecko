@@ -6,6 +6,16 @@ import { loadDefaultCoverageTargets } from './coverage-targets';
 import { refreshOhlcvPriorityTiers } from './ohlcv-priority';
 import { buildOhlcvSyncTargets } from './ohlcv-targets';
 import {
+  deriveOhlcvLatestSyncedAt,
+  deriveOhlcvOldestSyncedAt,
+  getOhlcvTargetHistoricalGapMs,
+  getOhlcvTargetRemainingDepthDays,
+  isOhlcvRecentCoverageCurrentEnough,
+  isOhlcvTargetLeaseEligible,
+  OHLCV_DAY_MS,
+  shouldDeepenOhlcvHistory,
+} from './ohlcv-scheduling-policy';
+import {
   HISTORICAL_DEEPEN_CHUNK_DAYS,
   HISTORICAL_DEEPEN_OVERLAP_DAYS,
   deepenHistoricalOhlcvWindow,
@@ -168,7 +178,7 @@ export type OhlcvSyncSummary = {
   };
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = OHLCV_DAY_MS;
 const MOST_BEHIND_SAMPLE_LIMIT = 5;
 const BLOCKED_TARGET_SAMPLE_LIMIT = 5;
 const LAST_ERROR_MAX_LENGTH = 180;
@@ -176,14 +186,6 @@ const RETRY_STARVATION_DUE_AGE_SECONDS = 120;
 const DEPTH_COMPLETE_REMAINING_DAYS = 0;
 const DEPTH_CATCHING_UP_MIN_REMAINING_DAYS = 1;
 const DEPTH_BLOCKED_STATUSES = ['failed'] as const;
-
-function isRecentCoverageCurrentEnough(latestSyncedAt: Date | null, now: Date) {
-  if (!latestSyncedAt) {
-    return false;
-  }
-
-  return latestSyncedAt.getTime() >= now.getTime() - DAY_MS;
-}
 
 function emptyHistoryTierSummary() {
   return {
@@ -369,7 +371,7 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
 
     if (row.priorityTier === 'top100') {
       top100Total += 1;
-      if (isRecentCoverageCurrentEnough(row.latestSyncedAt, now)) {
+      if (isOhlcvRecentCoverageCurrentEnough(row.latestSyncedAt, now)) {
         top100Ready += 1;
       }
     }
@@ -386,8 +388,8 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
     oldestRecentSyncMs = Math.max(oldestRecentSyncMs, recentLagMs === Number.MAX_SAFE_INTEGER ? 0 : recentLagMs);
 
     const desiredOldestMs = now.getTime() - row.targetHistoryDays * DAY_MS;
-    const historicalGapMs = row.oldestSyncedAt ? Math.max(row.oldestSyncedAt.getTime() - desiredOldestMs, 0) : row.targetHistoryDays * DAY_MS;
-    const targetRemainingDepthDays = Math.ceil(historicalGapMs / DAY_MS);
+    const targetRemainingDepthDays = getOhlcvTargetRemainingDepthDays(row, now);
+    const historicalGapMs = getOhlcvTargetHistoricalGapMs(row, now);
     const targetEstimatedRemainingChunks = targetRemainingDepthDays === 0
       ? 0
       : Math.ceil(targetRemainingDepthDays / HISTORICAL_DEEPEN_CHUNK_DAYS);
@@ -412,7 +414,7 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
       queueTier.running += 1;
     }
     const isRetryBackoff = row.status === 'failed' && row.nextRetryAt && row.nextRetryAt.getTime() > now.getTime();
-    const isLeaseEligible = (row.status === 'idle' || row.status === 'failed') && !isRetryBackoff;
+    const isLeaseEligible = isOhlcvTargetLeaseEligible(row, now);
     if (isLeaseEligible) {
       queuePrioritySummary.totals.eligible_for_lease += 1;
       queueTier.eligible_for_lease += 1;
@@ -507,7 +509,7 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
       retryScheduled += 1;
     }
 
-    if (historicalGapMs > 0 || !isRecentCoverageCurrentEnough(row.latestSyncedAt, now)) {
+    if (historicalGapMs > 0 || !isOhlcvRecentCoverageCurrentEnough(row.latestSyncedAt, now)) {
       behind += 1;
     } else {
       healthy += 1;
@@ -645,23 +647,18 @@ export function createOhlcvRuntime(
         }
 
         try {
-          const recentCoverageWasCurrent = isRecentCoverageCurrentEnough(leased.latestSyncedAt, now);
           const recentCandles = await (overrides.syncRecentOhlcvWindow ?? syncRecentOhlcvWindow)(database, leased, now);
-          const nextLatestSyncedAt = recentCandles.at(-1)
-            ? new Date(recentCandles.at(-1)!.timestamp)
-            : leased.latestSyncedAt;
+          const nextLatestSyncedAt = deriveOhlcvLatestSyncedAt(leased, recentCandles);
 
           let nextOldestSyncedAt = leased.oldestSyncedAt;
 
-          if (recentCoverageWasCurrent && isRecentCoverageCurrentEnough(nextLatestSyncedAt, now)) {
+          if (shouldDeepenOhlcvHistory(leased, nextLatestSyncedAt, now)) {
             const historicalCandles = await (overrides.deepenHistoricalOhlcvWindow ?? deepenHistoricalOhlcvWindow)(database, {
               ...leased,
               latestSyncedAt: nextLatestSyncedAt,
             }, now);
 
-            if (historicalCandles[0]) {
-              nextOldestSyncedAt = new Date(historicalCandles[0].timestamp);
-            }
+            nextOldestSyncedAt = deriveOhlcvOldestSyncedAt(leased, historicalCandles);
           }
 
           (overrides.markOhlcvTargetSuccess ?? markOhlcvTargetSuccess)(database, {
