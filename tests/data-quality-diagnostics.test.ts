@@ -122,10 +122,18 @@ describe('data quality diagnostics', () => {
         reason_codes: string[];
       }>;
       stable_regression_fields: string[];
+      score_scopes: string[];
     };
 
     expect(data.target_threshold).toBe(9);
     expect(data.score_scale).toMatchObject({ min: 0, max: 10 });
+    expect(data.score_scopes).toEqual(expect.arrayContaining([
+      'contract_compatibility',
+      'freshness_liveness',
+      'live_source_fidelity',
+      'fixture_fallback_transparency',
+      'overall_gate',
+    ]));
     expect(data.family_aliases.coins).toEqual(expect.arrayContaining(['coins_markets', 'coin_detail']));
     expect(data.family_aliases.assets).toEqual(expect.arrayContaining(['stable_catalog']));
     expect(data.aliases.historical_charts).toEqual(expect.arrayContaining(['historical_charts']));
@@ -143,6 +151,13 @@ describe('data quality diagnostics', () => {
       expect(family.score).toBeGreaterThanOrEqual(0);
       expect(family.score).toBeLessThanOrEqual(10);
       expect(family.target_threshold).toBe(9);
+      expect(Object.keys(family.score_scopes).sort()).toEqual([
+        'contract_compatibility',
+        'fixture_fallback_transparency',
+        'freshness_liveness',
+        'live_source_fidelity',
+        'overall',
+      ].sort());
       expect(family.dimensions.map((dimension) => dimension.id).sort()).toEqual([
         'completeness_coverage',
         'contract_compatibility',

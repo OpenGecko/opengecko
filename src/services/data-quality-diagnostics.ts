@@ -467,7 +467,7 @@ export function buildDataQualityDiagnostics(
       target: TARGET_THRESHOLD,
       rounding: 'one_decimal_no_upward_gate_rounding',
     },
-    score_scopes: ['contract_compatibility', 'live_source_fidelity', 'fixture_fallback_transparency', 'overall_gate'],
+    score_scopes: ['contract_compatibility', 'freshness_liveness', 'live_source_fidelity', 'fixture_fallback_transparency', 'overall_gate'],
     family_aliases: aliasMap,
     aliases,
     gate: {
