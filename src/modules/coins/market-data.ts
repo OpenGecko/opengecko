@@ -170,6 +170,7 @@ export function buildMarketPriceChangeFields(
 ) {
   const supportedWindows = [
     { input: '24h', field: 'price_change_percentage_24h_in_currency', days: 1 },
+    { input: '1h', field: 'price_change_percentage_1h_in_currency', days: 1 / 24 },
     { input: '7d', field: 'price_change_percentage_7d_in_currency', days: 7 },
     { input: '14d', field: 'price_change_percentage_14d_in_currency', days: 14 },
     { input: '30d', field: 'price_change_percentage_30d_in_currency', days: 30 },
@@ -235,7 +236,7 @@ export function buildMarketRow(
     || seededBootstrapSnapshot
     || validationOverrideMode === 'degraded_seeded_bootstrap';
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
-  const chartSeries = shouldUseChartDerivedSeries ? getChartSeries(database, row.coin.id, 'usd') : [];
+  const chartSeries = getChartSeries(database, row.coin.id, 'usd');
   const seriesExtremes = getSeriesExtremes(
     database,
     row.coin.id,
@@ -265,7 +266,7 @@ export function buildMarketRow(
   const useChartDerivedSeriesForChangeWindows = shouldUseChartDerivedSeries && !useCanonicalBootstrapSnapshotValues;
   const resolvedMarketCapRank = (degradedMarketSnapshot || validationStaleDisallowed || useSeededBootstrapNullShape)
     ? null
-    : snapshot?.marketCapRank ?? row.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+    : snapshot?.marketCapRank ?? row.coin.marketCapRank ?? null;
 
   return {
     id: row.coin.id,
@@ -273,7 +274,7 @@ export function buildMarketRow(
     name: displayName,
     image: coin.imageLargeUrl,
     current_price: toNumberOrNull(snapshot ? snapshot.price * rate : null, options.precision),
-    market_cap: useDegradedNullShape || canonicalValidationSnapshot ? null : toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
+    market_cap: useDegradedNullShape || (canonicalValidationSnapshot && !runtimeState.initialSyncCompleted) ? null : toNumberOrNull(snapshot?.marketCap ? snapshot.marketCap * rate : null, options.precision),
     market_cap_rank: resolvedMarketCapRank,
     fully_diluted_valuation: toNumberOrNull(snapshot?.fullyDilutedValuation ? snapshot.fullyDilutedValuation * rate : null, options.precision),
     total_volume: useDegradedNullShape ? null : toNumberOrNull(snapshot?.totalVolume ? snapshot.totalVolume * rate : null, options.precision),
@@ -306,11 +307,13 @@ export function buildMarketRow(
           : Object.fromEntries(
             options.priceChangePercentages.map((window) => {
               if (window === '24h') {
-                const value = snapshot?.priceChangePercentage24h ?? getSeriesChangePercentageForWindowDays(chartSeries, rate, 1);
+                const value = snapshot?.priceChangePercentage24h ?? null;
                 return ['price_change_percentage_24h_in_currency', toNumberOrNull(value, options.precision)];
               }
 
-              return [`price_change_percentage_${window}_in_currency`, null];
+              return Object.entries(
+                buildMarketPriceChangeFields(chartSeries, rate, [window], options.precision, snapshot),
+              )[0] ?? [`price_change_percentage_${window}_in_currency`, null];
             }),
           )
     ),
@@ -435,8 +438,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_desc':
     case 'gecko_desc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank,
-        right.snapshot?.marketCapRank,
+        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
+        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
         'asc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);
@@ -444,8 +447,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_asc':
     case 'gecko_asc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank,
-        right.snapshot?.marketCapRank,
+        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
+        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
         'desc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);

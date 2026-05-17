@@ -202,6 +202,7 @@ body='{}'
 case "$url" in
   */ping) body='{"gecko_says":"(V3) To the Moon!"}' ;;
   */simple/supported_vs_currencies) body='["usd","eur","usdt"]' ;;
+  */simple/price*ids=tether*include_market_cap*) body='{"tether":{"usd":1,"usd_market_cap":100,"usd_24h_vol":10,"usd_24h_change":0,"last_updated_at":1700000000}}' ;;
   */simple/price*include_market_cap*) body='{"bitcoin":{"usd":1,"usd_market_cap":100,"usd_24h_vol":10,"usd_24h_change":1,"last_updated_at":1700000000}}' ;;
   */simple/price*ids=bitcoin*vs_currencies=usd) body='{"bitcoin":{"usd":1}}' ;;
   */simple/price*ids=bitcoin,ethereum,tether,binancecoin,solana,ripple,usd-coin,dogecoin,cardano,tron*) body='{"bitcoin":{"usd":1},"ethereum":{"usd":2}}' ;;

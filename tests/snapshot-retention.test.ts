@@ -367,7 +367,7 @@ describe('final snapshot retention', () => {
         retentionDays: 365,
         now: new Date('2026-05-11T00:00:00.000Z'),
       })).toBe(1);
-      expect(database.db.select().from(supplyChartPoints).all()).toHaveLength(2);
+      expect(database.db.select().from(supplyChartPoints).all()).toHaveLength(3);
       expect(database.db.select().from(supplyChartPoints).where(eq(supplyChartPoints.sourceProvider, 'replay-provider')).all()).toHaveLength(1);
     } finally {
       database.client.close();

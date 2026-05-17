@@ -76,10 +76,10 @@ describe('global routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       data: {
-        active_cryptocurrencies: 8,
+        active_cryptocurrencies: 9,
         markets: expect.any(Number),
         total_market_cap: {
-          usd: 0,
+          usd: expect.any(Number),
         },
         total_volume: expect.objectContaining({
           usd: expect.any(Number),

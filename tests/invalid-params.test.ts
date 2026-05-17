@@ -162,7 +162,7 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject(errorFixtures.coinMarketsBadPerPage);
     expect(clampedResponse.statusCode).toBe(200);
-    expect(clampedResponse.json()).toHaveLength(8);
+    expect(clampedResponse.json()).toHaveLength(9);
   });
 
   it('rejects unsupported market ordering values', async () => {

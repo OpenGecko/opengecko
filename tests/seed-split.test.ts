@@ -28,7 +28,7 @@ describe('seedStaticReferenceData', () => {
 
     // Minimal coins are seeded for FK references (treasury, chartPoints)
     const coinCount = db.db.select().from(coins).all().length;
-    expect(coinCount).toBe(8);
+    expect(coinCount).toBe(9);
 
     const platformCount = db.db.select().from(assetPlatforms).all().length;
     expect(platformCount).toBe(3);
@@ -44,7 +44,7 @@ describe('seedStaticReferenceData', () => {
     expect(snapshotCount).toBe(0);
 
     const candleRows = db.db.select().from(ohlcvCandles).all();
-    expect(candleRows.length).toBe(56);
+    expect(candleRows.length).toBe(63);
     expect(candleRows.every((row) => row.interval === '1d' && row.source === 'canonical')).toBe(true);
 
     const bitcoinFirstCandle = db.db

@@ -45,7 +45,7 @@ describe('coins markets parity', () => {
     expect(body[0].total_volume).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     expect(body[0].last_updated).toSatisfy((value: string | null) => value === null || typeof value === 'string');
     expect(body[0].price_change_percentage_24h_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
-    expect(body[0].price_change_percentage_7d_in_currency).toBeNull();
+    expect(body[0].price_change_percentage_7d_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     if (body[0].current_price !== null && body[0].high_24h !== null && body[0].low_24h !== null) {
       expect(body[0].high_24h).toBeGreaterThanOrEqual(body[0].current_price);
       expect(body[0].low_24h).toBeLessThanOrEqual(body[0].current_price);
@@ -62,7 +62,7 @@ describe('coins markets parity', () => {
     expect(body[1].total_volume).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     expect(body[1].last_updated).toSatisfy((value: string | null) => value === null || typeof value === 'string');
     expect(body[1].price_change_percentage_24h_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
-    expect(body[1].price_change_percentage_7d_in_currency).toBeNull();
+    expect(body[1].price_change_percentage_7d_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
 
     expect(body[2]).toMatchObject({
       id: 'solana',
@@ -75,7 +75,7 @@ describe('coins markets parity', () => {
     expect(body[2].total_volume).toSatisfy((value: number | null) => value === null || typeof value === 'number');
     expect(body[2].last_updated).toSatisfy((value: string | null) => value === null || typeof value === 'string');
     expect(body[2].price_change_percentage_24h_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
-    expect(body[2].price_change_percentage_7d_in_currency).toBeNull();
+    expect(body[2].price_change_percentage_7d_in_currency).toSatisfy((value: number | null) => value === null || typeof value === 'number');
   });
 
   it('canonicalizes persisted uppercase symbol names before serializing coins markets rows', { timeout: 30000 }, async () => {
@@ -639,21 +639,21 @@ describe('coins markets parity', () => {
       expect(body[0]).toMatchObject({
         id: 'bitcoin',
         current_price: expect.any(Number),
-        market_cap: null,
+        market_cap: expect.any(Number),
         total_volume: expect.any(Number),
         last_updated: expect.any(String),
       });
       expect(body[1]).toMatchObject({
         id: 'ethereum',
         current_price: expect.any(Number),
-        market_cap: null,
+        market_cap: expect.any(Number),
         total_volume: expect.any(Number),
         last_updated: expect.any(String),
       });
       expect(body[2]).toMatchObject({
         id: 'solana',
         current_price: expect.any(Number),
-        market_cap: null,
+        market_cap: expect.any(Number),
         total_volume: expect.any(Number),
         last_updated: expect.any(String),
       });
@@ -677,7 +677,7 @@ describe('coins markets parity', () => {
           price: expect.any(Array),
         },
         price_change_percentage_24h_in_currency: expect.any(Number),
-        price_change_percentage_7d_in_currency: null,
+        price_change_percentage_7d_in_currency: expect.any(Number),
       }),
       expect.objectContaining({
         id: 'bitcoin',
@@ -685,11 +685,15 @@ describe('coins markets parity', () => {
           price: expect.any(Array),
         },
         price_change_percentage_24h_in_currency: expect.any(Number),
-        price_change_percentage_7d_in_currency: null,
+        price_change_percentage_7d_in_currency: expect.any(Number),
       }),
     ]);
 
     expect(response.json()).toHaveLength(2);
+    expect(response.json().every((row: { sparkline_in_7d: { price: number[] } }) =>
+      row.sparkline_in_7d.price.length > 0
+      && row.sparkline_in_7d.price.every((value) => Number.isFinite(value)),
+    )).toBe(true);
     expect(response.json().map((row: { id: string }) => row.id)).toEqual(['solana', 'bitcoin']);
     expect(response.json()[0].current_price).toBeTypeOf('number');
   });

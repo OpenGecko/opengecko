@@ -143,7 +143,7 @@ describe('OpenGecko app scaffold', () => {
         expect.objectContaining({
           id: 'bitcoin',
           current_price: expect.any(Number),
-          market_cap: null,
+          market_cap: expect.any(Number),
           total_volume: expect.any(Number),
           last_updated: expect.any(String),
         }),
@@ -1736,12 +1736,12 @@ describe('OpenGecko app scaffold', () => {
     expect(tokenListResponse.json()).toMatchObject({
       name: 'OpenGecko Ethereum Token List',
       keywords: ['opengecko', 'ethereum'],
-      tokens: [
+      tokens: expect.arrayContaining([
         expect.objectContaining({
           address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
           extensions: { geckoId: 'usd-coin' },
         }),
-      ],
+      ]),
     });
   });
 
@@ -4576,14 +4576,14 @@ describe('OpenGecko app scaffold', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       name: 'OpenGecko Ethereum Token List',
-      tokens: [
+      tokens: expect.arrayContaining([
         expect.objectContaining({
           address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
           name: 'USDC',
           symbol: 'USDC',
           extensions: { geckoId: 'usd-coin' },
         }),
-      ],
+      ]),
     });
   });
 
@@ -4615,7 +4615,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toHaveLength(8);
+    expect(response.json()).toHaveLength(9);
     expect(response.json()).toEqual(expect.arrayContaining([
       {
         id: 'bitcoin',
@@ -4643,6 +4643,14 @@ describe('OpenGecko app scaffold', () => {
         platforms: {},
         symbol: 'link',
       },
+      {
+        id: 'tether',
+        name: 'Tether',
+        platforms: {
+          ethereum: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+        },
+        symbol: 'usdt',
+      },
     ]));
   });
 
@@ -4653,7 +4661,7 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toHaveLength(8);
+    expect(response.json()).toHaveLength(9);
     response.json().forEach((row: Record<string, unknown>) => {
       expect(Object.keys(row).sort()).toEqual(['id', 'name', 'symbol']);
     });
@@ -6220,7 +6228,7 @@ describe('OpenGecko app scaffold', () => {
           expect.objectContaining({
             id: 'bitcoin',
             current_price: expect.any(Number),
-            market_cap: null,
+            market_cap: expect.any(Number),
             total_volume: expect.any(Number),
             last_updated: expect.any(String),
           }),
@@ -7137,7 +7145,7 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(3);
-    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(3);
+    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(6);
   });
 
   it('returns dual top movers payloads with stable polarity and explicit arrays', async () => {
@@ -7242,7 +7250,7 @@ describe('OpenGecko app scaffold', () => {
     const body = response.json();
     expect(body).toHaveProperty('coins');
     expect(Array.isArray(body.coins)).toBe(true);
-    expect(body.coins.length).toBe(8);
+    expect(body.coins.length).toBe(9);
     expect(body.coins[0]).toEqual(expect.objectContaining({
       id: expect.any(String),
       symbol: expect.any(String),

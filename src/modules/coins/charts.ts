@@ -61,6 +61,37 @@ function normalizeChartRows<T extends ChartPayloadRow>(rows: T[]): T[] {
     }));
 }
 
+function getCurrentMarketRatios(database: AppDatabase, coinId: string) {
+  const snapshot = getMarketRows(database, 'usd', { ids: [coinId], status: 'all' })[0]?.snapshot;
+
+  if (!snapshot || !isValidPrice(snapshot.price)) {
+    return {
+      marketCapToPrice: null,
+      totalVolumeToPrice: null,
+    };
+  }
+
+  return {
+    marketCapToPrice: isFiniteNumber(snapshot.marketCap) && snapshot.marketCap >= 0
+      ? snapshot.marketCap / snapshot.price
+      : null,
+    totalVolumeToPrice: isFiniteNumber(snapshot.totalVolume) && snapshot.totalVolume >= 0
+      ? snapshot.totalVolume / snapshot.price
+      : null,
+  };
+}
+
+function deriveSparseChartFieldsFromCurrentMarket<T extends ChartPayloadRow>(
+  rows: T[],
+  ratios: { marketCapToPrice: number | null; totalVolumeToPrice: number | null },
+) {
+  return rows.map((row) => ({
+    ...row,
+    marketCap: row.marketCap ?? (ratios.marketCapToPrice === null ? null : row.price * ratios.marketCapToPrice),
+    totalVolume: row.totalVolume ?? (ratios.totalVolumeToPrice === null ? null : row.price * ratios.totalVolumeToPrice),
+  }));
+}
+
 function hasValidOhlcInvariants(row: OhlcPayloadRow) {
   if (![row.open, row.high, row.low, row.close].every(isValidPrice)) {
     return false;
@@ -355,6 +386,7 @@ export function getCanonicalOhlcRowsForRange(database: AppDatabase, coinId: stri
 
 export function buildChartPayload(
   database: AppDatabase,
+  coinId: string,
   rows: Array<{ timestamp: Date; price: number; marketCap: number | null; totalVolume: number | null }>,
   vsCurrency: string,
   marketFreshnessThresholdSeconds: number,
@@ -362,7 +394,10 @@ export function buildChartPayload(
   precision: number | 'full',
 ) {
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
-  const normalizedRows = normalizeChartRows(rows);
+  const normalizedRows = normalizeChartRows(deriveSparseChartFieldsFromCurrentMarket(
+    rows,
+    getCurrentMarketRatios(database, coinId),
+  ));
 
   return {
     prices: normalizedRows.map((row) => [row.timestamp.getTime(), toNumberOrNull(row.price * rate, precision)]),

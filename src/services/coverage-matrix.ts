@@ -240,7 +240,7 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     (row) => row.sourceFetchedAt,
   );
   const latestSupplyChartAt = latestDate(
-    database.db.select().from(supplyChartPoints).all(),
+    database.db.select().from(supplyChartPoints).all().filter((row) => row.sourceProvider !== 'canonical-validation-snapshot'),
     (row) => row.sourceFetchedAt,
   );
   const derivativeRows = database.db.select().from(derivativeTickers).all();

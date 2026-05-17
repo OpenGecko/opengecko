@@ -181,14 +181,16 @@ describe('chart route invariants', () => {
           [1774051200 * 1_000, 92_000],
         ],
         market_caps: [
-          [1773878400 * 1_000, null],
+          [1773878400 * 1_000, expect.any(Number)],
           [1774051200 * 1_000, 100],
         ],
         total_volumes: [
-          [1773878400 * 1_000, null],
+          [1773878400 * 1_000, expect.any(Number)],
           [1774051200 * 1_000, 100],
         ],
       });
+      expect(chartResponse.json().market_caps[0][1]).toBeGreaterThan(0);
+      expect(chartResponse.json().total_volumes[0][1]).toBeGreaterThan(0);
       expect(ohlcResponse.statusCode).toBe(200);
       expect(ohlcResponse.json()).toEqual([
         [1773878400 * 1_000, 90_000, 92_000, 89_000, 91_000],

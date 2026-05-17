@@ -594,7 +594,7 @@ export function registerCoinRoutes(
     return sendCacheableJson(
       request,
       reply,
-      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      buildChartPayload(database, params.id, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
       HISTORICAL_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -634,7 +634,7 @@ export function registerCoinRoutes(
     return sendCacheableJson(
       request,
       reply,
-      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      buildChartPayload(database, params.id, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
       HISTORICAL_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -874,7 +874,7 @@ export function registerCoinRoutes(
     return sendCacheableJson(
       request,
       reply,
-      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      buildChartPayload(database, coin.id, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
       HISTORICAL_CHART_HTTP_CACHE_POLICY,
     );
   });
@@ -894,7 +894,7 @@ export function registerCoinRoutes(
     return sendCacheableJson(
       request,
       reply,
-      buildChartPayload(database, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
+      buildChartPayload(database, coin.id, rows, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState), parsePrecision(query.precision)),
       HISTORICAL_CHART_HTTP_CACHE_POLICY,
     );
   });

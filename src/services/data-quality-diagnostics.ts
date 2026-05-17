@@ -399,7 +399,7 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
 
   if (!database) {
     return {
-      assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022'],
+      assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022', 'VAL-MARKET-023', 'VAL-MARKET-024'],
       request_path: requestPath,
       top_n: {
         configured_denominator: MARKET_TOP_N_DENOMINATOR,
@@ -540,7 +540,7 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
   ];
 
   return {
-    assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022'],
+    assertions: ['VAL-MARKET-007', 'VAL-MARKET-008', 'VAL-MARKET-009', 'VAL-MARKET-021', 'VAL-MARKET-022', 'VAL-MARKET-023', 'VAL-MARKET-024'],
     request_path: requestPath,
     top_n: {
       configured_denominator: MARKET_TOP_N_DENOMINATOR,

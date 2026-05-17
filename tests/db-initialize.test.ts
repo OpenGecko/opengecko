@@ -16,7 +16,7 @@ describe('db initialization seams', () => {
 
     try {
       initializeDatabase(database);
-      expect(database.db.select().from(coins).all().length).toBe(8);
+      expect(database.db.select().from(coins).all().length).toBe(9);
       expect(database.db.select().from(assetPlatforms).all().length).toBe(3);
     } finally {
       database.client.close();
@@ -55,7 +55,7 @@ describe('db initialization seams', () => {
       seedStaticReferenceData(database);
       seedStaticReferenceData(database);
 
-      expect(database.db.select().from(coins).all().length).toBe(8);
+      expect(database.db.select().from(coins).all().length).toBe(9);
       expect(database.db.select().from(assetPlatforms).all().length).toBe(3);
     } finally {
       database.client.close();

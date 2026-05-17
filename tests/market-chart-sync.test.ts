@@ -472,14 +472,15 @@ describe('market chart sync', () => {
           [1774137600 * 1_000, 88200.75],
         ],
         market_caps: [
-          [1774051200 * 1_000, null],
-          [1774137600 * 1_000, null],
+          [1774051200 * 1_000, expect.any(Number)],
+          [1774137600 * 1_000, expect.any(Number)],
         ],
         total_volumes: [
           [1774051200 * 1_000, 34500000000],
           [1774137600 * 1_000, 35200000000],
         ],
       });
+      expect(chartResponse.json().market_caps.every(([, value]: [number, number]) => value > 0)).toBe(true);
       expect(ohlcResponse.statusCode).toBe(200);
       expect(ohlcResponse.json()).toEqual([
         [1774051200 * 1_000, 86000, 87500, 85800, 87000.5],
@@ -571,11 +572,15 @@ describe('market chart sync', () => {
         });
 
         expect(chartResponse.statusCode).toBe(200);
+        const expectedMarketCap = pointNumber(firstPoint.market_cap);
         expect(chartResponse.json()).toEqual({
           prices: [[timestampSeconds * 1_000, pointNumber(firstPoint.price)]],
-          market_caps: [[timestampSeconds * 1_000, pointNumber(firstPoint.market_cap)]],
+          market_caps: [[timestampSeconds * 1_000, expectedMarketCap ?? expect.any(Number)]],
           total_volumes: [[timestampSeconds * 1_000, pointNumber(firstPoint.total_volume)]],
         });
+        if (expectedMarketCap === null) {
+          expect(chartResponse.json().market_caps[0][1]).toBeGreaterThan(0);
+        }
         expect(ohlcResponse.statusCode).toBe(200);
         expect(ohlcResponse.json()).toEqual([
           [
