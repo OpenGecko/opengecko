@@ -3,13 +3,13 @@ import type { AppDatabase } from '../db/client';
 import { coinTickers, exchanges } from '../db/schema';
 import type { Logger } from 'pino';
 import { createLogger } from '../lib/logger';
-import { mapWithConcurrency } from '../lib/async';
 import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
 import { runMarketRefreshOnce, STARTUP_TICKER_FETCH_BUDGET_MS } from './market-refresh';
 import { clearProviderFailureCooldown, recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
 import { createProviderBreakerState, recordProviderFailure, recordProviderSuccess } from './provider-breaker';
+import { runBudgetedProviderFanout } from './provider-readiness-coordinator';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
   return result.snapshotsCreated > 0 && result.tickersWritten > 0;
@@ -205,86 +205,18 @@ async function fetchExchangeMarketResults(
   concurrency: number,
   startupExchangeMetadataBudgetMs?: number,
 ) {
-  if (!startupExchangeMetadataBudgetMs || startupExchangeMetadataBudgetMs <= 0) {
-    return await mapWithConcurrency(
-      exchangeIds,
-      concurrency,
-      async (exchangeId) => Promise.allSettled([fetchExchangeMarkets(exchangeId)]).then(([result]) => result),
-    );
-  }
-
-  const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
-  const results = new Array<PromiseSettledResult<Awaited<ReturnType<typeof fetchExchangeMarkets>>> | undefined>(exchangeIds.length);
-  let nextIndex = 0;
-  let activeWorkers = 0;
-  let settledWorkers = 0;
-  let resolved = false;
-  let budgetTimer: ReturnType<typeof setTimeout> | null = null;
-
   const buildBudgetError = (exchangeId: string) => {
     const error = new Error(`${exchangeId} startup exchange metadata budget exceeded after ${startupExchangeMetadataBudgetMs}ms`);
     error.name = 'ExchangeMetadataStartupBudgetExceededError';
     return error;
   };
 
-  return await new Promise<PromiseSettledResult<Awaited<ReturnType<typeof fetchExchangeMarkets>>>[]>((resolve) => {
-    const resolveOnce = () => {
-      if (resolved) {
-        return;
-      }
-
-      resolved = true;
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
-      resolve(Array.from({ length: exchangeIds.length }, (_, index) => results[index] ?? {
-        status: 'rejected',
-        reason: buildBudgetError(exchangeIds[index]),
-      }));
-    };
-
-    const startNext = () => {
-      if (resolved) {
-        return;
-      }
-
-      while (activeWorkers < Math.min(normalizedConcurrency, exchangeIds.length) && nextIndex < exchangeIds.length) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        activeWorkers += 1;
-        const exchangeId = exchangeIds[currentIndex];
-
-        Promise.allSettled([fetchExchangeMarkets(exchangeId)])
-          .then(([settled]) => {
-            if (!resolved) {
-              results[currentIndex] = settled;
-            }
-          })
-          .catch((reason) => {
-            if (!resolved) {
-              results[currentIndex] = {
-                status: 'rejected',
-                reason: reason instanceof Error ? reason : new Error(String(reason)),
-              };
-            }
-          })
-          .finally(() => {
-            activeWorkers -= 1;
-            settledWorkers += 1;
-
-            if (settledWorkers === exchangeIds.length) {
-              resolveOnce();
-              return;
-            }
-
-            startNext();
-          });
-      }
-    };
-
-    budgetTimer = setTimeout(resolveOnce, startupExchangeMetadataBudgetMs);
-    startNext();
+  return await runBudgetedProviderFanout({
+    items: exchangeIds,
+    concurrency,
+    budgetMs: startupExchangeMetadataBudgetMs,
+    run: fetchExchangeMarkets,
+    buildBudgetError,
   });
 }
 

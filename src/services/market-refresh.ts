@@ -8,7 +8,6 @@ import { coins } from '../db/schema';
 import type { Logger } from 'pino';
 import { fetchExchangeTickers, isValidExchangeId, type ExchangeId, type ExchangeTickerSnapshot } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
-import { mapWithConcurrency } from '../lib/async';
 import { recordQuoteSnapshot, toMinuteBucket, toDailyBucket, upsertCanonicalCandle, enforceQuoteSnapshotRetention } from './candle-store';
 import { getCurrencyApiSnapshot } from './currency-rates';
 import {
@@ -26,6 +25,7 @@ import {
   recordProviderFailure,
   recordProviderSuccess,
 } from './provider-breaker';
+import { runBudgetedProviderFanout } from './provider-readiness-coordinator';
 
 const PROVIDER_FAILURE_COOLDOWN_MS = 60_000;
 const EXCHANGE_TICKER_FETCH_TIMEOUT_MS = 60_000;
@@ -168,35 +168,7 @@ async function fetchExchangeTickerResults(
     return [];
   }
 
-  const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
-  const results = new Array<PromiseSettledResult<ExchangeTickerSnapshot[]> | undefined>(exchangeIds.length);
   const budgetMs = progress?.startupTickerFetchBudgetMs;
-
-  if (!budgetMs || budgetMs <= 0) {
-    return await mapWithConcurrency(exchangeIds, normalizedConcurrency, async (exchangeId) => {
-      const exchangeFetchStart = Date.now();
-      progress?.onExchangeFetchStart?.(exchangeId);
-      const result = await Promise.allSettled([
-        withExchangeFetchTimeout(exchangeId, fetchExchangeTickers(exchangeId, requestedSymbols)),
-      ]).then(([settled]) => settled);
-      const durationMs = Date.now() - exchangeFetchStart;
-
-      if (result.status === 'fulfilled') {
-        progress?.onExchangeFetchComplete?.(exchangeId, durationMs);
-      } else {
-        const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        progress?.onExchangeFetchFailed?.(exchangeId, message, durationMs);
-      }
-
-      return result;
-    });
-  }
-
-  let nextIndex = 0;
-  let activeWorkers = 0;
-  let settledWorkers = 0;
-  let resolved = false;
-  let budgetTimer: ReturnType<typeof setTimeout> | null = null;
 
   const buildBudgetError = (exchangeId: string) => {
     const error = new Error(`${exchangeId} startup ticker fetch budget exceeded after ${budgetMs}ms`);
@@ -204,94 +176,22 @@ async function fetchExchangeTickerResults(
     return error;
   };
 
-  return await new Promise<PromiseSettledResult<ExchangeTickerSnapshot[]>[]>((resolve) => {
-    const resolveOnce = () => {
-      if (resolved) {
-        return;
-      }
-
-      resolved = true;
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
-      resolve(Array.from({ length: exchangeIds.length }, (_, index) => results[index] ?? {
-        status: 'rejected',
-        reason: buildBudgetError(exchangeIds[index]),
-      }));
-    };
-
-    const startNext = () => {
-      if (resolved) {
-        return;
-      }
-
-      while (activeWorkers < Math.min(normalizedConcurrency, exchangeIds.length) && nextIndex < exchangeIds.length) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        activeWorkers += 1;
-        const exchangeId = exchangeIds[currentIndex];
-        const exchangeFetchStart = Date.now();
-        progress?.onExchangeFetchStart?.(exchangeId);
-
-        Promise.allSettled([
-          withExchangeFetchTimeout(exchangeId, fetchExchangeTickers(exchangeId, requestedSymbols)),
-        ])
-          .then(([settled]) => {
-            if (resolved) {
-              return;
-            }
-
-            const durationMs = Date.now() - exchangeFetchStart;
-            results[currentIndex] = settled;
-
-            if (settled.status === 'fulfilled') {
-              progress?.onExchangeFetchComplete?.(exchangeId, durationMs);
-            } else {
-              const message = settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-              progress?.onExchangeFetchFailed?.(exchangeId, message, durationMs);
-            }
-          })
-          .catch((reason) => {
-            if (resolved) {
-              return;
-            }
-
-            const durationMs = Date.now() - exchangeFetchStart;
-            const error = reason instanceof Error ? reason : new Error(String(reason));
-            results[currentIndex] = { status: 'rejected', reason: error };
-            progress?.onExchangeFetchFailed?.(exchangeId, error.message, durationMs);
-          })
-          .finally(() => {
-            activeWorkers -= 1;
-            settledWorkers += 1;
-
-            if (settledWorkers === exchangeIds.length) {
-              resolveOnce();
-              return;
-            }
-
-            startNext();
-          });
-      }
-    };
-
-    budgetTimer = setTimeout(() => {
-      for (let index = 0; index < exchangeIds.length; index++) {
-        if (results[index]) {
-          continue;
-        }
-
-        const exchangeId = exchangeIds[index];
-        const error = buildBudgetError(exchangeId);
-        results[index] = { status: 'rejected', reason: error };
-        progress?.onExchangeFetchFailed?.(exchangeId, error.message, budgetMs);
-      }
-
-      resolveOnce();
-    }, budgetMs);
-
-    startNext();
+  return await runBudgetedProviderFanout({
+    items: exchangeIds,
+    concurrency,
+    budgetMs,
+    run: (exchangeId) => withExchangeFetchTimeout(exchangeId, fetchExchangeTickers(exchangeId, requestedSymbols)),
+    buildBudgetError,
+    reportBudgetFailure: true,
+    onStart: (exchangeId) => {
+      progress?.onExchangeFetchStart?.(exchangeId);
+    },
+    onComplete: (exchangeId, _index, durationMs) => {
+      progress?.onExchangeFetchComplete?.(exchangeId, durationMs);
+    },
+    onFailure: (exchangeId, _index, error, durationMs) => {
+      progress?.onExchangeFetchFailed?.(exchangeId, error.message, durationMs);
+    },
   });
 }
 

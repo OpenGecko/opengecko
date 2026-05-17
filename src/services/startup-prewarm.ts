@@ -4,6 +4,7 @@ import { warmSimplePriceCache } from '../modules/simple';
 
 import type { MetricsRegistry } from './metrics';
 import type { MarketDataRuntimeState } from './market-runtime-state';
+import { isReadinessBudgetTimeout, raceWithReadinessBudget } from './provider-readiness-coordinator';
 
 export type StartupPrewarmTarget = {
   id: string;
@@ -78,23 +79,6 @@ export function matchStartupPrewarmTarget(targetUrl: string, requestUrl: string)
   });
 }
 
-async function raceWithBudget<T>(promise: Promise<T>, remainingBudgetMs: number) {
-  if (remainingBudgetMs <= 0) {
-    return { status: 'timeout' as const };
-  }
-
-  return await Promise.race([
-    promise,
-    new Promise<{ status: 'timeout' }>((resolve) => {
-      setTimeout(() => resolve({ status: 'timeout' }), remainingBudgetMs);
-    }),
-  ]);
-}
-
-function isBudgetTimeoutResult<T>(result: T | { status: 'timeout' }): result is { status: 'timeout' } {
-  return typeof result === 'object' && result !== null && 'status' in result && result.status === 'timeout';
-}
-
 function isSuccessfulPrewarmResponse(response: LightMyRequestResponse) {
   return response.statusCode >= 200 && response.statusCode < 300;
 }
@@ -148,9 +132,9 @@ async function runDirectSimplePricePrewarmWithinBudget(
     );
     return warmed;
   });
-  const result = await raceWithBudget(warmPromise, remainingBudgetMs);
+  const result = await raceWithReadinessBudget(warmPromise, remainingBudgetMs);
 
-  if (isBudgetTimeoutResult(result)) {
+  if (isReadinessBudgetTimeout(result)) {
     return result;
   }
 
@@ -175,12 +159,12 @@ async function runPrewarmInjectWithinBudget(
     url: endpoint,
   });
 
-  const result = await raceWithBudget<LightMyRequestResponse>(
+  const result = await raceWithReadinessBudget<LightMyRequestResponse>(
     injectPromise,
     remainingBudgetMs,
   );
 
-  if (isBudgetTimeoutResult(result)) {
+  if (isReadinessBudgetTimeout(result)) {
     return result;
   }
 
