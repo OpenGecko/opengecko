@@ -60,43 +60,33 @@ const GLOBAL_HTTP_CACHE_POLICY = {
 };
 
 function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
-  const canonicalRows = getCanonicalCandles(database, 'bitcoin', 'usd', '1d')
-    .map((anchorRow) => {
-      const timestampMs = anchorRow.timestamp.getTime();
-      const rowsAtTimestamp = database.db
-        .select()
-        .from(chartPoints)
-        .orderBy(asc(chartPoints.timestamp))
-        .all()
-        .filter((row) => row.timestamp.getTime() === timestampMs);
+  const allChartRows = database.db
+    .select()
+    .from(chartPoints)
+    .orderBy(asc(chartPoints.timestamp))
+    .all();
+  const canonicalCandles = getCanonicalCandles(database, 'bitcoin', 'usd', '1d');
+  const chartRowsByTimestamp = new Map<number, typeof allChartRows>();
+  const bitcoinRows = allChartRows.filter((row) => row.coinId === 'bitcoin');
 
-      const fallbackMarketCap = database.db
-        .select()
-        .from(chartPoints)
-        .orderBy(asc(chartPoints.timestamp))
-        .all()
-        .filter((row) => row.coinId === 'bitcoin' && row.timestamp.getTime() === timestampMs)
-        .at(0)?.marketCap ?? null;
+  for (const row of allChartRows) {
+    const timestampMs = row.timestamp.getTime();
+    chartRowsByTimestamp.set(timestampMs, [...(chartRowsByTimestamp.get(timestampMs) ?? []), row]);
+  }
+
+  const canonicalRows = canonicalCandles
+    .map((anchorRow, matchingIndex) => {
+      const timestampMs = anchorRow.timestamp.getTime();
+      const rowsAtTimestamp = chartRowsByTimestamp.get(timestampMs) ?? [];
+
+      const fallbackMarketCap = rowsAtTimestamp
+        .find((row) => row.coinId === 'bitcoin')?.marketCap ?? null;
 
       if (rowsAtTimestamp.length > 0) {
         return rowsAtTimestamp;
       }
 
-      const canonicalSeriesRows = database.db
-        .select()
-        .from(chartPoints)
-        .orderBy(asc(chartPoints.timestamp))
-        .all()
-        .filter((row) => row.coinId === 'bitcoin');
-
-      const matchingIndex = getCanonicalCandles(database, 'bitcoin', 'usd', '1d')
-        .findIndex((row) => row.timestamp.getTime() === timestampMs);
-
-      if (matchingIndex === -1) {
-        return [];
-      }
-
-      return canonicalSeriesRows
+      return bitcoinRows
         .map((row) => ({
           ...row,
           timestamp: anchorRow.timestamp,
@@ -111,12 +101,7 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
 
   if (canonicalRows.length > 0) {
     const canonicalTimestamps = new Set(canonicalRows.map((row) => row.timestamp.getTime()));
-    const nonCanonicalRows = database.db
-      .select()
-      .from(chartPoints)
-      .orderBy(asc(chartPoints.timestamp))
-      .all()
-      .filter((row) => !canonicalTimestamps.has(row.timestamp.getTime()));
+    const nonCanonicalRows = allChartRows.filter((row) => !canonicalTimestamps.has(row.timestamp.getTime()));
     const aggregateRows = [...canonicalRows, ...nonCanonicalRows].sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 
     if (days === 'max') {
@@ -137,14 +122,8 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
     return aggregateRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
   }
 
-  const allRows = database.db
-    .select()
-    .from(chartPoints)
-    .orderBy(asc(chartPoints.timestamp))
-    .all();
-
   if (days === 'max') {
-    return allRows;
+    return allChartRows;
   }
 
   const parsedDays = Number(days);
@@ -155,7 +134,7 @@ function getGlobalMarketCapChartRows(database: AppDatabase, days: string) {
 
   const cutoffMs = Date.now() - parsedDays * 24 * 60 * 60 * 1000;
 
-  return allRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
+  return allChartRows.filter((row) => row.timestamp.getTime() >= cutoffMs);
 }
 
 function buildGlobalChartMeta(rows: Array<{ timestamp: Date; marketCap: number }>) {

@@ -213,6 +213,168 @@ describe('data quality diagnostics', () => {
     }
   });
 
+  it('exposes exchange, global, and derivatives quality evidence for EXGLOBAL assertions', async () => {
+    await getApp().ready();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const families = response.json().data.families as Array<{
+      family: string;
+      counts: Record<string, number>;
+      evidence: {
+        exchange_quality?: {
+          assertions: string[];
+          major_targets: Array<{
+            target_id: string;
+            aliases: string[];
+            matched_exchange_id: string | null;
+            status: string;
+            ticker_numeric_quality: {
+              total_rows: number;
+              valid_numeric_rows: number;
+              invalid_or_missing_rows: number;
+              latest_ticker_at: string | null;
+            };
+            volume_chart_evidence: {
+              source_backed_point_count: number;
+              latest_source_fetched_at: string | null;
+            };
+            degradation_reason: string | null;
+          }>;
+          ticker_numeric_quality: {
+            total_rows: number;
+            valid_last_count: number;
+            valid_converted_volume_count: number;
+            parseable_timestamp_count: number;
+            invalid_row_count: number;
+          };
+          volume_chart_evidence: {
+            source_backed_exchange_count: number;
+            live_point_count: number;
+            replay_point_count: number;
+            dimension_status: string;
+            reason_codes: string[];
+          };
+        };
+        global_quality?: {
+          assertions: string[];
+          source_rows: {
+            usable_market_row_count: number;
+            market_cap_row_count: number;
+            volume_row_count: number;
+            latest_market_row_at: string | null;
+          };
+          recomputation: {
+            tolerance_ratio: number;
+            total_market_cap_usd: number;
+            recomputed_total_market_cap_usd: number;
+            market_cap_delta_ratio: number;
+            total_volume_usd: number;
+            recomputed_total_volume_usd: number;
+            volume_delta_ratio: number;
+            within_tolerance: boolean;
+          };
+          reason_codes: string[];
+        };
+        derivatives_quality?: {
+          assertions: string[];
+          score_separation: {
+            contract_compatibility_state: string;
+            live_fidelity_state: string;
+            fixture_transparency_state: string;
+          };
+          ticker_counts: {
+            total: number;
+            source_backed: number;
+            fixture: number;
+            live: number;
+            replay: number;
+            valid_contract_rows: number;
+          };
+          diagnostics_agreement: {
+            public_meta_source_backed_tickers: number;
+            diagnostics_source_backed_tickers: number;
+            public_meta_fallback_tickers: number;
+            diagnostics_fixture_tickers: number;
+            agrees: boolean;
+          };
+          reason_codes: string[];
+        };
+      };
+    }>;
+
+    const exchanges = families.find((family) => family.family === 'exchanges');
+    const global = families.find((family) => family.family === 'global');
+    const derivatives = families.find((family) => family.family === 'derivatives');
+
+    expect(exchanges?.evidence.exchange_quality).toBeDefined();
+    expect(exchanges?.evidence.exchange_quality?.assertions).toEqual(expect.arrayContaining([
+      'VAL-EXGLOBAL-026',
+      'VAL-EXGLOBAL-027',
+      'VAL-EXGLOBAL-028',
+    ]));
+    expect(exchanges?.evidence.exchange_quality?.major_targets.map((target) => target.target_id)).toEqual([
+      'binance',
+      'coinbase',
+      'kraken',
+      'okx',
+      'bybit',
+    ]);
+    expect(exchanges?.evidence.exchange_quality?.major_targets.find((target) => target.target_id === 'binance')).toMatchObject({
+      matched_exchange_id: 'binance',
+      status: expect.stringMatching(/live_ticker_backed|fixture_or_seeded_tickers|catalog_only/),
+      ticker_numeric_quality: expect.objectContaining({
+        total_rows: expect.any(Number),
+        valid_numeric_rows: expect.any(Number),
+      }),
+      volume_chart_evidence: expect.objectContaining({
+        source_backed_point_count: expect.any(Number),
+      }),
+    });
+    expect(exchanges?.evidence.exchange_quality?.major_targets.find((target) => target.target_id === 'coinbase')?.matched_exchange_id).toBe('gdax');
+    expect(exchanges?.evidence.exchange_quality?.major_targets.find((target) => target.target_id === 'okx')?.matched_exchange_id).toBe('okex');
+    expect(exchanges?.counts.major_exchange_target_count).toBe(5);
+
+    expect(global?.evidence.global_quality).toBeDefined();
+    expect(global?.evidence.global_quality?.assertions).toEqual(expect.arrayContaining([
+      'VAL-EXGLOBAL-019',
+      'VAL-EXGLOBAL-029',
+    ]));
+    expect(global?.evidence.global_quality?.source_rows.usable_market_row_count).toBeGreaterThan(0);
+    expect(global?.evidence.global_quality?.source_rows.market_cap_row_count).toBeGreaterThanOrEqual(0);
+    expect(global?.evidence.global_quality?.recomputation).toMatchObject({
+      market_cap_delta_ratio: 0,
+      volume_delta_ratio: 0,
+    });
+    if ((global?.evidence.global_quality?.source_rows.market_cap_row_count ?? 0) > 0) {
+      expect(global?.evidence.global_quality?.recomputation.within_tolerance).toBe(true);
+      expect(global?.evidence.global_quality?.reason_codes).toEqual([]);
+    } else {
+      expect(global?.evidence.global_quality?.recomputation.within_tolerance).toBe(false);
+      expect(global?.evidence.global_quality?.reason_codes).toContain('sparse_market_rows_or_aggregate_mismatch');
+    }
+    expect(global?.counts.global_usable_market_row_count).toBe(global?.evidence.global_quality?.source_rows.usable_market_row_count);
+
+    expect(derivatives?.evidence.derivatives_quality).toBeDefined();
+    expect(derivatives?.evidence.derivatives_quality?.assertions).toContain('VAL-EXGLOBAL-030');
+    expect(derivatives?.evidence.derivatives_quality?.score_separation).toEqual(expect.objectContaining({
+      contract_compatibility_state: 'passing',
+      live_fidelity_state: 'fixture_only',
+      fixture_transparency_state: 'explicit_fixture_rows',
+    }));
+    expect(derivatives?.evidence.derivatives_quality?.ticker_counts.fixture).toBeGreaterThan(0);
+    expect(derivatives?.evidence.derivatives_quality?.diagnostics_agreement).toMatchObject({
+      agrees: true,
+      public_meta_source_backed_tickers: 0,
+      diagnostics_source_backed_tickers: 0,
+    });
+    expect(derivatives?.evidence.derivatives_quality?.reason_codes).toContain('derivatives_live_fidelity_below_contract_score');
+  });
+
   it('propagates controlled runtime degradation into affected quality scores', async () => {
     await getApp().ready();
 

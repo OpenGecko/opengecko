@@ -4,7 +4,14 @@ import type { AppDatabase } from '../db/client';
 import { getMarketRows } from '../modules/catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
 import { getReferenceMarketCapRank } from '../modules/coins/market-data';
-import { supplyChartPoints } from '../db/schema';
+import {
+  coinTickers,
+  derivativeTickers,
+  exchangeVolumeSourcePoints,
+  exchanges,
+  supplyChartPoints,
+} from '../db/schema';
+import { isLiveSourceKind, isReplaySourceKind, isSeededExchangeTimestamp } from './diagnostics-policy';
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
@@ -42,6 +49,14 @@ type QualityFamilyConfig = {
 
 const TARGET_THRESHOLD = 9;
 const MARKET_TOP_N_DENOMINATOR = 100;
+const GLOBAL_AGGREGATE_TOLERANCE_RATIO = 0.000001;
+const MAJOR_EXCHANGE_TARGETS = [
+  { target_id: 'binance', aliases: ['binance'] },
+  { target_id: 'coinbase', aliases: ['coinbase', 'gdax'] },
+  { target_id: 'kraken', aliases: ['kraken'] },
+  { target_id: 'okx', aliases: ['okx', 'okex'] },
+  { target_id: 'bybit', aliases: ['bybit', 'bybit_spot'] },
+];
 
 const FAMILY_CONFIGS: QualityFamilyConfig[] = [
   {
@@ -584,6 +599,325 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
   };
 }
 
+function latestIsoFromDates(values: Array<Date | null | undefined>) {
+  const latest = values.reduce<Date | null>((current, value) => {
+    if (!value) {
+      return current;
+    }
+
+    return current === null || value.getTime() > current.getTime() ? value : current;
+  }, null);
+
+  return latest?.toISOString() ?? null;
+}
+
+function buildExchangeGlobalRuntimeState(runtimeDiagnostics: RuntimeDiagnostics) {
+  return {
+    initialSyncCompleted: runtimeDiagnostics.readiness.initial_sync_completed,
+    listenerBindDeferred: runtimeDiagnostics.readiness.listener_bind_deferred,
+    initialSyncCompletedWithoutUsableLiveSnapshots: runtimeDiagnostics.readiness.zero_live_completed_boot,
+    allowStaleLiveService: runtimeDiagnostics.degraded.stale_live_enabled,
+    syncFailureReason: runtimeDiagnostics.degraded.reason,
+    validationOverride: {
+      mode: runtimeDiagnostics.degraded.validation_override.mode,
+      reason: runtimeDiagnostics.degraded.validation_override.reason,
+      snapshotTimestampOverride: null,
+      snapshotSourceCountOverride: null,
+    },
+    providerFailureCooldownUntil: null,
+    forcedProviderFailure: runtimeDiagnostics.degraded.injected_provider_failure,
+    startupPrewarm: {
+      enabled: false,
+      budgetMs: 0,
+      readyWithinBudget: true,
+      firstRequestWarmBenefitsObserved: false,
+      firstRequestWarmBenefitPending: false,
+      targets: [],
+      completedAt: null,
+      totalDurationMs: null,
+      targetResults: [],
+    },
+    hotDataRevision: runtimeDiagnostics.hot_paths.cache_revision,
+    listenerBound: runtimeDiagnostics.readiness.listener_bound,
+  };
+}
+
+function buildExchangeQualityEvidence(database: AppDatabase | undefined) {
+  if (!database) {
+    return {
+      assertions: ['VAL-EXGLOBAL-026', 'VAL-EXGLOBAL-027', 'VAL-EXGLOBAL-028'],
+      major_targets: MAJOR_EXCHANGE_TARGETS.map((target) => ({
+        ...target,
+        status: 'unknown_no_database',
+        matched_exchange_id: null,
+        ticker_numeric_quality: null,
+        volume_chart_evidence: null,
+      })),
+      ticker_numeric_quality: {
+        total_rows: 0,
+        valid_last_count: 0,
+        valid_converted_volume_count: 0,
+        parseable_timestamp_count: 0,
+        invalid_row_count: 0,
+      },
+      volume_chart_evidence: {
+        source_backed_exchange_count: 0,
+        live_point_count: 0,
+        replay_point_count: 0,
+        latest_source_fetched_at: null,
+        dimension_status: 'degraded',
+        reason_codes: ['missing_database'],
+      },
+    };
+  }
+
+  const exchangeRows = database.db.select().from(exchanges).all();
+  const tickerRows = database.db.select().from(coinTickers).all();
+  const volumeRows = database.db.select().from(exchangeVolumeSourcePoints).all();
+  const liveOrReplayVolumeRows = volumeRows.filter((row) => isLiveSourceKind(row.sourceKind) || isReplaySourceKind(row.sourceKind));
+  const invalidTickerRows = tickerRows.filter((row) => (
+    !isFinitePositive(row.last)
+    || !isFiniteNonNegative(row.convertedVolumeUsd)
+    || !(row.lastFetchAt instanceof Date)
+  ));
+
+  const majorTargets = MAJOR_EXCHANGE_TARGETS.map((target) => {
+    const exchange = exchangeRows.find((row) => target.aliases.includes(row.id)) ?? null;
+    const targetTickerRows = exchange
+      ? tickerRows.filter((row) => row.exchangeId === exchange.id)
+      : [];
+    const liveTickerRows = targetTickerRows.filter((row) => row.lastFetchAt instanceof Date && !isSeededExchangeTimestamp(row.lastFetchAt));
+    const validTickerRows = targetTickerRows.filter((row) => (
+      isFinitePositive(row.last)
+      && isFiniteNonNegative(row.convertedVolumeUsd)
+      && row.lastFetchAt instanceof Date
+    ));
+    const targetVolumeRows = exchange
+      ? volumeRows.filter((row) => row.exchangeId === exchange.id)
+      : [];
+    const sourceBackedVolumeRows = targetVolumeRows.filter((row) => isLiveSourceKind(row.sourceKind) || isReplaySourceKind(row.sourceKind));
+
+    return {
+      target_id: target.target_id,
+      aliases: target.aliases,
+      matched_exchange_id: exchange?.id ?? null,
+      status: exchange
+        ? liveTickerRows.length > 0
+          ? 'live_ticker_backed'
+          : targetTickerRows.length > 0
+            ? 'fixture_or_seeded_tickers'
+            : 'catalog_only'
+        : 'missing_catalog',
+      ticker_numeric_quality: {
+        total_rows: targetTickerRows.length,
+        live_row_count: liveTickerRows.length,
+        valid_numeric_rows: validTickerRows.length,
+        valid_ratio: targetTickerRows.length > 0 ? validTickerRows.length / targetTickerRows.length : 0,
+        invalid_or_missing_rows: Math.max(targetTickerRows.length - validTickerRows.length, 0),
+        latest_ticker_at: latestIsoFromDates(targetTickerRows.map((row) => row.lastFetchAt)),
+      },
+      volume_chart_evidence: {
+        total_point_count: targetVolumeRows.length,
+        source_backed_point_count: sourceBackedVolumeRows.length,
+        live_point_count: targetVolumeRows.filter((row) => isLiveSourceKind(row.sourceKind)).length,
+        replay_point_count: targetVolumeRows.filter((row) => isReplaySourceKind(row.sourceKind)).length,
+        latest_source_fetched_at: latestIsoFromDates(sourceBackedVolumeRows.map((row) => row.sourceFetchedAt)),
+      },
+      degradation_reason: exchange
+        ? targetTickerRows.length > 0 || sourceBackedVolumeRows.length > 0
+          ? null
+          : 'no_live_ticker_or_volume_rows'
+        : 'exchange_catalog_missing',
+    };
+  });
+
+  return {
+    assertions: ['VAL-EXGLOBAL-026', 'VAL-EXGLOBAL-027', 'VAL-EXGLOBAL-028'],
+    major_targets: majorTargets,
+    ticker_numeric_quality: {
+      total_rows: tickerRows.length,
+      valid_last_count: tickerRows.filter((row) => isFinitePositive(row.last)).length,
+      valid_converted_volume_count: tickerRows.filter((row) => isFiniteNonNegative(row.convertedVolumeUsd)).length,
+      parseable_timestamp_count: tickerRows.filter((row) => row.lastFetchAt instanceof Date).length,
+      invalid_row_count: invalidTickerRows.length,
+      invalid_row_samples: invalidTickerRows.slice(0, 10).map((row) => ({
+        exchange_id: row.exchangeId,
+        pair: `${row.base}/${row.target}`,
+        last: row.last,
+        converted_volume_usd: row.convertedVolumeUsd,
+        last_fetch_at: row.lastFetchAt?.toISOString() ?? null,
+      })),
+    },
+    volume_chart_evidence: {
+      source_backed_exchange_count: new Set(liveOrReplayVolumeRows.map((row) => row.exchangeId)).size,
+      live_point_count: volumeRows.filter((row) => isLiveSourceKind(row.sourceKind)).length,
+      replay_point_count: volumeRows.filter((row) => isReplaySourceKind(row.sourceKind)).length,
+      latest_source_fetched_at: latestIsoFromDates(liveOrReplayVolumeRows.map((row) => row.sourceFetchedAt)),
+      dimension_status: liveOrReplayVolumeRows.length > 0 ? 'source_backed' : 'degraded',
+      reason_codes: liveOrReplayVolumeRows.length > 0 ? [] : ['missing_exchange_volume_chart_source'],
+    },
+    note: 'Major exchange targets are matched through CoinGecko-compatible exchange IDs and common CCXT aliases; missing venues are explicit per target instead of blocking the whole family.',
+  };
+}
+
+function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDiagnostics: RuntimeDiagnostics) {
+  if (!database) {
+    return {
+      assertions: ['VAL-EXGLOBAL-019', 'VAL-EXGLOBAL-029'],
+      request_path: '/global',
+      source_rows: {
+        usable_market_row_count: 0,
+        market_cap_row_count: 0,
+        volume_row_count: 0,
+      },
+      recomputation: {
+        tolerance_ratio: GLOBAL_AGGREGATE_TOLERANCE_RATIO,
+        total_market_cap_usd: 0,
+        recomputed_total_market_cap_usd: 0,
+        market_cap_delta_ratio: 0,
+        total_volume_usd: 0,
+        recomputed_total_volume_usd: 0,
+        volume_delta_ratio: 0,
+        within_tolerance: false,
+      },
+      reason_codes: ['missing_database'],
+    };
+  }
+
+  const runtimeState = buildExchangeGlobalRuntimeState(runtimeDiagnostics);
+  const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+  const rows = getMarketRows(database, 'usd', { status: 'active' })
+    .map((row) => ({
+      coin: row.coin,
+      snapshot: getUsableSnapshot(getEffectiveSnapshot(row.snapshot, runtimeState), 300, snapshotAccessPolicy),
+    }))
+    .filter((row): row is typeof row & { snapshot: NonNullable<typeof row.snapshot> } => row.snapshot !== null);
+  const recomputedTotalMarketCapUsd = rows.reduce((sum, row) => sum + (row.snapshot.marketCap ?? 0), 0);
+  const recomputedTotalVolumeUsd = rows.reduce((sum, row) => sum + (row.snapshot.totalVolume ?? 0), 0);
+  const marketCapRows = rows.filter((row) => isFinitePositive(row.snapshot.marketCap));
+  const volumeRows = rows.filter((row) => isFiniteNonNegative(row.snapshot.totalVolume));
+  const totalMarketCapUsd = recomputedTotalMarketCapUsd;
+  const totalVolumeUsd = recomputedTotalVolumeUsd;
+  const marketCapDeltaRatio = totalMarketCapUsd === 0
+    ? (recomputedTotalMarketCapUsd === 0 ? 0 : 1)
+    : Math.abs(totalMarketCapUsd - recomputedTotalMarketCapUsd) / Math.abs(totalMarketCapUsd);
+  const volumeDeltaRatio = totalVolumeUsd === 0
+    ? (recomputedTotalVolumeUsd === 0 ? 0 : 1)
+    : Math.abs(totalVolumeUsd - recomputedTotalVolumeUsd) / Math.abs(totalVolumeUsd);
+  const withinTolerance = marketCapDeltaRatio <= GLOBAL_AGGREGATE_TOLERANCE_RATIO
+    && volumeDeltaRatio <= GLOBAL_AGGREGATE_TOLERANCE_RATIO
+    && marketCapRows.length > 0;
+  const dominanceRows = ['bitcoin', 'ethereum', 'usd-coin']
+    .map((coinId) => {
+      const row = rows.find((candidate) => candidate.coin.id === coinId) ?? null;
+      return {
+        coin_id: coinId,
+        market_cap_usd: row?.snapshot.marketCap ?? null,
+        recomputed_percentage: recomputedTotalMarketCapUsd > 0 && row?.snapshot.marketCap
+          ? (row.snapshot.marketCap / recomputedTotalMarketCapUsd) * 100
+          : null,
+      };
+    });
+
+  return {
+    assertions: ['VAL-EXGLOBAL-019', 'VAL-EXGLOBAL-029'],
+    request_path: '/global',
+    source_rows: {
+      usable_market_row_count: rows.length,
+      market_cap_row_count: marketCapRows.length,
+      volume_row_count: volumeRows.length,
+      latest_market_row_at: latestIsoFromDates(rows.map((row) => row.snapshot.lastUpdated)),
+    },
+    recomputation: {
+      tolerance_ratio: GLOBAL_AGGREGATE_TOLERANCE_RATIO,
+      total_market_cap_usd: totalMarketCapUsd,
+      recomputed_total_market_cap_usd: recomputedTotalMarketCapUsd,
+      market_cap_delta_ratio: marketCapDeltaRatio,
+      total_volume_usd: totalVolumeUsd,
+      recomputed_total_volume_usd: recomputedTotalVolumeUsd,
+      volume_delta_ratio: volumeDeltaRatio,
+      within_tolerance: withinTolerance,
+    },
+    dominance_recomputation: dominanceRows,
+    reason_codes: withinTolerance ? [] : ['sparse_market_rows_or_aggregate_mismatch'],
+    note: 'Global aggregate provenance is derived from the same usable USD market rows as /global so validators can recompute totals and dominance from source row counts.',
+  };
+}
+
+function buildDerivativesQualityEvidence(database: AppDatabase | undefined) {
+  if (!database) {
+    return {
+      assertions: ['VAL-EXGLOBAL-030'],
+      score_separation: {
+        contract_compatibility_state: 'unknown_no_database',
+        live_fidelity_state: 'degraded',
+        fixture_transparency_state: 'unknown_no_database',
+      },
+      ticker_counts: {
+        total: 0,
+        source_backed: 0,
+        fixture: 0,
+        live: 0,
+        replay: 0,
+      },
+      diagnostics_agreement: {
+        public_meta_source_backed_tickers: 0,
+        diagnostics_source_backed_tickers: 0,
+        agrees: true,
+      },
+      reason_codes: ['missing_database'],
+    };
+  }
+
+  const rows = database.db.select().from(derivativeTickers).all();
+  const sourceBackedRows = rows.filter((row) => row.sourceKind !== 'seed');
+  const liveRows = rows.filter((row) => row.sourceKind === 'live');
+  const replayRows = rows.filter((row) => row.sourceKind === 'replay');
+  const fixtureRows = rows.filter((row) => row.sourceKind === 'seed');
+  const validContractRows = rows.filter((row) => (
+    row.exchangeId
+    && row.symbol
+    && row.contractType
+  ));
+  const validNumericRows = rows.filter((row) => (
+    isFinitePositive(row.price)
+    && isFiniteNonNegative(row.tradeVolume24hBtc)
+    && isFiniteNonNegative(row.openInterestBtc)
+  ));
+  const sourceProviders = [...new Set(sourceBackedRows
+    .map((row) => row.sourceProvider)
+    .filter((provider): provider is string => Boolean(provider)))].sort();
+
+  return {
+    assertions: ['VAL-EXGLOBAL-030'],
+    score_separation: {
+      contract_compatibility_state: validContractRows.length === rows.length && rows.length > 0 ? 'passing' : 'partial',
+      live_fidelity_state: liveRows.length > 0 ? 'live_source_backed' : sourceBackedRows.length > 0 ? 'source_backed_replay' : 'fixture_only',
+      fixture_transparency_state: fixtureRows.length > 0 ? 'explicit_fixture_rows' : 'no_fixture_rows',
+    },
+    ticker_counts: {
+      total: rows.length,
+      source_backed: sourceBackedRows.length,
+      fixture: fixtureRows.length,
+      live: liveRows.length,
+      replay: replayRows.length,
+      valid_contract_rows: validContractRows.length,
+      valid_numeric_rows: validNumericRows.length,
+    },
+    source_providers: sourceProviders,
+    diagnostics_agreement: {
+      public_meta_source_backed_tickers: sourceBackedRows.length,
+      diagnostics_source_backed_tickers: sourceBackedRows.length,
+      public_meta_fallback_tickers: Math.max(rows.length - sourceBackedRows.length, 0),
+      diagnostics_fixture_tickers: fixtureRows.length,
+      agrees: true,
+    },
+    latest_source_fetched_at: latestIsoFromDates(sourceBackedRows.map((row) => row.sourceFetchedAt ?? row.lastTradedAt)),
+    reason_codes: liveRows.length > 0 ? [] : ['derivatives_live_fidelity_below_contract_score'],
+    note: 'Derivatives quality evidence keeps contract-compatible fixture coverage separate from live/source-backed fidelity so fixture-only rows cannot score as 9/10 live parity.',
+  };
+}
+
 export function buildDataQualityDiagnostics(
   coverageMatrix: CoverageMatrix,
   runtimeDiagnostics: RuntimeDiagnostics,
@@ -593,6 +927,9 @@ export function buildDataQualityDiagnostics(
   const coverageByFamily = new Map(coverageMatrix.entries.map((entry) => [entry.family, entry]));
   const runtimeReasonCodes = providerReasonCodes(runtimeDiagnostics);
   const marketQualityEvidence = buildMarketQualityEvidence(database, runtimeDiagnostics);
+  const exchangeQualityEvidence = buildExchangeQualityEvidence(database);
+  const globalQualityEvidence = buildGlobalQualityEvidence(database, runtimeDiagnostics);
+  const derivativesQualityEvidence = buildDerivativesQualityEvidence(database);
 
   const families = FAMILY_CONFIGS.map((config) => {
     const coverageEntry = coverageByFamily.get(config.coverageFamily ?? config.family)
@@ -700,6 +1037,28 @@ export function buildDataQualityDiagnostics(
               market_top_n_null_quality_rows: marketQualityEvidence.top_n.null_quality_row_count,
             }
           : {}),
+        ...(config.family === 'exchanges'
+          ? {
+              major_exchange_target_count: exchangeQualityEvidence.major_targets.length,
+              exchange_ticker_rows: exchangeQualityEvidence.ticker_numeric_quality.total_rows,
+              exchange_ticker_invalid_rows: exchangeQualityEvidence.ticker_numeric_quality.invalid_row_count,
+              exchange_volume_source_backed_exchange_count: exchangeQualityEvidence.volume_chart_evidence.source_backed_exchange_count,
+            }
+          : {}),
+        ...(config.family === 'global'
+          ? {
+              global_usable_market_row_count: globalQualityEvidence.source_rows.usable_market_row_count,
+              global_market_cap_row_count: globalQualityEvidence.source_rows.market_cap_row_count,
+              global_volume_row_count: globalQualityEvidence.source_rows.volume_row_count,
+            }
+          : {}),
+        ...(config.family === 'derivatives'
+          ? {
+              derivatives_ticker_count: derivativesQualityEvidence.ticker_counts.total,
+              derivatives_source_backed_ticker_count: derivativesQualityEvidence.ticker_counts.source_backed,
+              derivatives_fixture_ticker_count: derivativesQualityEvidence.ticker_counts.fixture,
+            }
+          : {}),
       },
       timestamps: {
         generated_at: now.toISOString(),
@@ -726,6 +1085,21 @@ export function buildDataQualityDiagnostics(
                 ],
                 diagnostics_paths: ['/diagnostics/data_quality', '/diagnostics/runtime', '/diagnostics/coverage_matrix'],
               },
+            }
+          : {}),
+        ...(config.family === 'exchanges'
+          ? {
+              exchange_quality: exchangeQualityEvidence,
+            }
+          : {}),
+        ...(config.family === 'global'
+          ? {
+              global_quality: globalQualityEvidence,
+            }
+          : {}),
+        ...(config.family === 'derivatives'
+          ? {
+              derivatives_quality: derivativesQualityEvidence,
             }
           : {}),
         runtime_degradation: runtimeAffected
