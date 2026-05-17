@@ -252,6 +252,34 @@ describe('onchain pool discovery', () => {
         scope: expect.stringContaining('out-of-scope'),
       });
     }
+
+    expect(holdersResponse.json().meta).toMatchObject({
+      source_mode: 'fixture',
+      fixture_version: 'opengecko-onchain-fixture-v1',
+      reason_codes: expect.arrayContaining(['fixture_fallback', 'paid_indexer_style_analytics_unavailable']),
+      unavailable_reason: 'no_public_complete_holder_indexer_configured',
+      no_silent_zero_fill: expect.objectContaining({
+        zero_fill_is_marked: true,
+      }),
+      field_provenance: {
+        analytics_fields: expect.objectContaining({
+          source_mode: 'fixture',
+          no_silent_zero_fill: true,
+        }),
+      },
+    });
+    expect(tradersResponse.json().meta).toMatchObject({
+      source_mode: 'fixture',
+      fixture_version: 'opengecko-onchain-fixture-v1',
+      reason_codes: expect.arrayContaining(['fixture_fallback', 'paid_indexer_style_analytics_unavailable']),
+      unavailable_reason: 'no_public_complete_trader_indexer_configured',
+    });
+    expect(holdersChartResponse.json().meta).toMatchObject({
+      source_mode: 'fixture',
+      fixture_version: 'opengecko-onchain-fixture-v1',
+      reason_codes: expect.arrayContaining(['fixture_fallback', 'paid_indexer_style_analytics_unavailable']),
+      unavailable_reason: 'no_public_complete_holder_count_indexer_configured',
+    });
   });
 
   it('exposes aggregate onchain diagnostics alias for specialized analytics and trades surfaces', async () => {
@@ -272,10 +300,20 @@ describe('onchain pool discovery', () => {
   });
 
   it('includes field-level provenance metadata on representative onchain numeric surfaces', async () => {
-    const response = await getApp().inject({
-      method: 'GET',
-      url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
-    });
+    const [response, poolOhlcvResponse, tokenOhlcvResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/onchain/networks/eth/tokens/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/ohlcv/hour?include_inactive_source=true',
+      }),
+    ]);
 
     expect(response.statusCode).toBe(200);
     expect(response.json().meta.field_provenance).toMatchObject({
@@ -291,6 +329,48 @@ describe('onchain pool discovery', () => {
       trades_ohlcv_analytics: expect.objectContaining({
         unavailable_behavior: 'fixture_or_out_of_scope_marked_in_meta',
       }),
+    });
+
+    expect(poolOhlcvResponse.statusCode).toBe(200);
+    expect(poolOhlcvResponse.json()).toMatchObject({
+      data: {
+        attributes: {
+          source: 'fixture',
+          source_mode: 'fixture',
+        },
+      },
+      meta: {
+        source_mode: 'fixture',
+        fixture_version: 'opengecko-onchain-fixture-v1',
+        reason_codes: expect.arrayContaining(['synthetic_fixture_fallback', 'paid_indexer_style_ohlcv_unavailable']),
+        unavailable_reason: 'no_public_complete_pool_ohlcv_indexer_configured',
+        field_provenance: {
+          ohlcv_list: expect.objectContaining({
+            source_mode: 'fixture',
+            no_silent_zero_fill: true,
+          }),
+        },
+      },
+    });
+    expect(tokenOhlcvResponse.statusCode).toBe(200);
+    expect(tokenOhlcvResponse.json()).toMatchObject({
+      data: {
+        attributes: {
+          source_mode: 'fixture',
+          source_pools: expect.arrayContaining(['0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640']),
+        },
+      },
+      meta: {
+        source_mode: 'fixture',
+        source_pools_provenance: expect.arrayContaining([
+          expect.objectContaining({
+            pool_address: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640',
+            source_mode: 'fixture',
+            fixture_version: 'opengecko-onchain-fixture-v1',
+            fallback_reason: 'synthetic_pool_ohlcv_fallback',
+          }),
+        ]),
+      },
     });
   });
 

@@ -27,6 +27,14 @@ export type OnchainPoolOhlcvIngestionOptions = {
   sourceFetchedAt?: Date | null;
 };
 
+export type OnchainPoolOhlcvSourceMetadata = {
+  source: 'replay' | 'live';
+  sourceProviders: string[];
+  latestSourceFetchedAt: Date | null;
+  pointCount: number;
+  nullVolumeCount: number;
+};
+
 function parseFiniteNumber(value: number | string | null | undefined, field: string, required = true) {
   if (value === null || value === undefined || value === '') {
     if (required) {
@@ -144,7 +152,7 @@ export function readOnchainPoolOhlcvSeries(
   aggregate: number,
   currency: 'usd' | 'token' = 'usd',
   tokenSelection: string | null = null,
-): { series: OnchainOhlcvSeriesPoint[]; source: 'replay' | 'live' } | null {
+): { series: OnchainOhlcvSeriesPoint[]; source: 'replay' | 'live'; metadata: OnchainPoolOhlcvSourceMetadata } | null {
   const rows = database.db
     .select()
     .from(onchainPoolOhlcv)
@@ -169,6 +177,16 @@ export function readOnchainPoolOhlcvSeries(
 
   return {
     source: rows.some((row) => row.sourceKind === 'live') ? 'live' : 'replay',
+    metadata: {
+      source: rows.some((row) => row.sourceKind === 'live') ? 'live' : 'replay',
+      sourceProviders: [...new Set(rows.map((row) => row.sourceProvider).filter((provider): provider is string => Boolean(provider)))].sort(),
+      latestSourceFetchedAt: rows.reduce<Date | null>((latest, row) =>
+        row.sourceFetchedAt && (latest === null || row.sourceFetchedAt.getTime() > latest.getTime())
+          ? row.sourceFetchedAt
+          : latest, null),
+      pointCount: rows.length,
+      nullVolumeCount: rows.filter((row) => row.volumeUsd === null).length,
+    },
     series: rows.map((row) => ({
       timestamp: row.timestamp,
       open: Number((row.open * multiplier).toFixed(6)),

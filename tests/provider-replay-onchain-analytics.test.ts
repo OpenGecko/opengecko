@@ -127,6 +127,22 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
+          source_mode: 'replay',
+          source_identifiers: ['etherscan-token-analytics-replay'],
+          latest_source_fetched_at: '2026-05-05T00:03:00.000Z',
+          fixture_version: null,
+          reason_codes: expect.arrayContaining(['replay_source', 'paid_indexer_style_analytics_not_live_complete']),
+          degraded_reason: 'paid_indexer_style_holder_analytics_not_live_complete',
+          field_provenance: {
+            analytics_fields: expect.objectContaining({
+              source_mode: 'replay',
+              no_silent_zero_fill: true,
+              fields: expect.arrayContaining(['balance', 'share_of_supply', 'pnl_usd']),
+            }),
+          },
+          no_silent_zero_fill: expect.objectContaining({
+            numeric_fields: expect.arrayContaining(['balance', 'share_of_supply', 'pnl_usd']),
+          }),
           degraded: true,
           out_of_scope: true,
           scope: expect.stringContaining('out-of-scope'),
@@ -154,6 +170,19 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
+          source_mode: 'replay',
+          source_identifiers: ['etherscan-token-analytics-replay'],
+          latest_source_fetched_at: '2026-05-05T00:03:00.000Z',
+          fixture_version: null,
+          reason_codes: expect.arrayContaining(['replay_source', 'paid_indexer_style_analytics_not_live_complete']),
+          degraded_reason: 'paid_indexer_style_trader_analytics_not_live_complete',
+          field_provenance: {
+            analytics_fields: expect.objectContaining({
+              source_mode: 'replay',
+              no_silent_zero_fill: true,
+              fields: expect.arrayContaining(['volume_usd', 'buy_volume_usd', 'sell_volume_usd']),
+            }),
+          },
           degraded: true,
           out_of_scope: true,
           scope: expect.stringContaining('out-of-scope'),
@@ -170,6 +199,19 @@ describe('onchain analytics provider replay fixtures', () => {
         meta: {
           fixture: true,
           source: 'replay',
+          source_mode: 'replay',
+          source_identifiers: ['etherscan-token-analytics-replay'],
+          latest_source_fetched_at: '2026-05-05T00:03:00.000Z',
+          fixture_version: null,
+          reason_codes: expect.arrayContaining(['replay_source', 'paid_indexer_style_analytics_not_live_complete']),
+          degraded_reason: 'paid_indexer_style_holders_chart_not_live_complete',
+          field_provenance: {
+            analytics_fields: expect.objectContaining({
+              source_mode: 'replay',
+              no_silent_zero_fill: true,
+              fields: ['holder_count'],
+            }),
+          },
           degraded: true,
           out_of_scope: true,
           scope: expect.stringContaining('out-of-scope'),

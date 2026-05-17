@@ -10,10 +10,13 @@ import { fetchDefillamaTokens } from '../providers/defillama';
 import { resolveAddressLabel } from '../providers/sqd';
 import {
   readOnchainHoldersChart,
+  readOnchainHoldersChartSourceMetadata,
   readOnchainHoldersChartSourceKind,
   readOnchainTokenHolders,
+  readOnchainTokenHolderSourceMetadata,
   readOnchainTokenHolderSourceKind,
   readOnchainTokenTraders,
+  readOnchainTokenTraderSourceMetadata,
   readOnchainTokenTraderSourceKind,
 } from '../services/onchain-analytics-ingestion';
 import { readOnchainPoolOhlcvSeries } from '../services/onchain-ohlcv-ingestion';
@@ -135,38 +138,103 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
   const latestPoolUpdatedAt = (rows: Array<{ updatedAt: Date }>) =>
     rows.reduce<Date | null>((latest, row) =>
       latest === null || row.updatedAt.getTime() > latest.getTime() ? row.updatedAt : latest, null);
-  const buildOnchainFieldProvenance = (source: 'live' | 'seeded' | 'fixture' | 'replay') => ({
+  type OnchainResponseSource = 'live' | 'seeded' | 'fixture' | 'replay';
+  const ONCHAIN_FIXTURE_VERSION = 'opengecko-onchain-fixture-v1';
+  const buildOnchainFieldProvenance = (source: OnchainResponseSource) => ({
     reserve_usd: {
       source,
+      source_mode: source,
       provider: source === 'live' ? 'DeFiLlama' : 'seed onchain catalog',
       unavailable_behavior: 'null_when_unavailable',
+      no_silent_zero_fill: true,
     },
     volume_usd: {
       source,
+      source_mode: source,
       provider: source === 'live' ? 'DeFiLlama/SQD' : 'seed onchain catalog or replay fixture',
       unavailable_behavior: 'null_when_unavailable_no_silent_zero_fill',
+      no_silent_zero_fill: true,
     },
     price_usd: {
       source,
+      source_mode: source,
       provider: source === 'live' ? 'DeFiLlama/simple-token-price' : 'seed onchain catalog',
       unavailable_behavior: 'null_when_unavailable',
+      no_silent_zero_fill: true,
     },
     trades_ohlcv_analytics: {
       source,
+      source_mode: source,
       provider: source === 'live' ? 'SQD/DeFiLlama' : 'replay or fixture fallback',
       unavailable_behavior: 'fixture_or_out_of_scope_marked_in_meta',
+      no_silent_zero_fill: true,
     },
   });
   const buildOnchainSourceMeta = (options: {
-    source: 'live' | 'seeded' | 'fixture' | 'replay';
+    source: OnchainResponseSource;
     updatedAt?: Date | null;
+    latestSourceFetchedAt?: Date | null;
+    sourceIdentifiers?: string[];
+    fixtureVersion?: string | null;
+    reasonCodes?: string[];
+    degradedReason?: string | null;
+    fallbackReason?: string | null;
+    unavailableReason?: string | null;
+    fieldProvenance?: Record<string, unknown>;
     extra?: Record<string, unknown>;
   }) => ({
     fixture: options.source === 'seeded' || options.source === 'fixture',
     source: options.source,
+    source_mode: options.source,
+    source_identifiers: options.sourceIdentifiers ?? [
+      options.source === 'live'
+        ? 'defillama/sqd'
+        : options.source === 'replay'
+          ? 'opengecko.provider_replay'
+          : 'opengecko.seed',
+    ],
     updated_at: options.updatedAt?.toISOString() ?? null,
-    field_provenance: buildOnchainFieldProvenance(options.source),
+    source_fetched_at: options.latestSourceFetchedAt?.toISOString() ?? null,
+    latest_source_fetched_at: options.latestSourceFetchedAt?.toISOString() ?? null,
+    fixture_version: options.source === 'fixture' || options.source === 'seeded'
+      ? options.fixtureVersion ?? ONCHAIN_FIXTURE_VERSION
+      : options.fixtureVersion ?? null,
+    reason_codes: options.reasonCodes ?? (options.source === 'live' ? [] : [`${options.source}_source`]),
+    degraded_reason: options.degradedReason ?? (options.source === 'live' ? null : `${options.source}_source_not_live_complete`),
+    fallback_reason: options.fallbackReason ?? (options.source === 'fixture' || options.source === 'seeded' ? `${options.source}_fallback` : null),
+    unavailable_reason: options.unavailableReason ?? null,
+    no_silent_zero_fill: {
+      numeric_fields: ['reserve_usd', 'volume_usd', 'price_usd'],
+      policy: 'null_or_marked_fallback_when_unavailable',
+      zero_fill_is_marked: true,
+    },
+    field_provenance: options.fieldProvenance ?? buildOnchainFieldProvenance(options.source),
     ...options.extra,
+  });
+  const buildOnchainOhlcvFieldProvenance = (
+    source: OnchainResponseSource,
+    options: { nullVolumeCount?: number; includeEmptyIntervals?: boolean } = {},
+  ) => ({
+    ohlcv_list: {
+      source,
+      source_mode: source,
+      provider: source === 'live' ? 'SQD-derived trades' : source === 'replay' ? 'provider replay OHLCV rows' : 'OpenGecko synthetic fixture',
+      fields: ['timestamp', 'open', 'high', 'low', 'close', 'volume_usd'],
+      no_silent_zero_fill: true,
+      null_volume_count: options.nullVolumeCount ?? 0,
+      empty_interval_zero_fill_marked: options.includeEmptyIntervals === true,
+      unavailable_behavior: 'fixture_or_degraded_reason_codes_in_meta',
+    },
+  });
+  const buildOnchainAnalyticsFieldProvenance = (source: OnchainResponseSource, fields: string[]) => ({
+    analytics_fields: {
+      source,
+      source_mode: source,
+      provider: source === 'live' ? 'configured onchain analytics provider' : source === 'replay' ? 'provider replay analytics rows' : 'OpenGecko analytics fixture',
+      fields,
+      no_silent_zero_fill: true,
+      unavailable_behavior: 'empty_or_fixture_rows_marked_with_reason_codes',
+    },
   });
   const latestTradeUpdatedAt = (trades: Array<{ id: string; sourceFetchedAt?: Date | null }>) =>
     trades.reduce<Date | null>((latest, trade) =>
@@ -1026,6 +1094,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const sourceHolders = readOnchainTokenHolders(database, params.network, tokenAddress);
     const holdersSource = readOnchainTokenHolderSourceKind(database, params.network, tokenAddress) ?? 'fixture';
+    const holdersSourceMetadata = readOnchainTokenHolderSourceMetadata(database, params.network, tokenAddress);
     const holdersRows = (sourceHolders.length > 0 ? sourceHolders : buildTopHolderFixtures(params.network, tokenAddress))
       .sort((left, right) => right.balance - left.balance || right.shareOfSupply - left.shareOfSupply || left.address.localeCompare(right.address))
       .slice(0, holders);
@@ -1046,6 +1115,33 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           ? 'out-of-scope analytics fixture for USDC only'
           : 'out-of-scope source-attributed token analytics, not live-complete',
         source: holdersSource,
+        source_mode: holdersSource,
+        source_identifiers: holdersSourceMetadata?.sourceProviders.length
+          ? holdersSourceMetadata.sourceProviders
+          : ['opengecko.seed.onchain_holder_fixture'],
+        source_fetched_at: holdersSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        latest_source_fetched_at: holdersSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        fixture_version: holdersSource === 'fixture' ? ONCHAIN_FIXTURE_VERSION : null,
+        reason_codes: holdersSource === 'live'
+          ? ['paid_indexer_style_analytics_not_live_complete']
+          : holdersSource === 'replay'
+            ? ['replay_source', 'paid_indexer_style_analytics_not_live_complete']
+            : ['fixture_fallback', 'paid_indexer_style_analytics_unavailable'],
+        degraded_reason: 'paid_indexer_style_holder_analytics_not_live_complete',
+        fallback_reason: holdersSource === 'fixture' ? 'fixture_fallback' : null,
+        unavailable_reason: holdersSource === 'fixture' ? 'no_public_complete_holder_indexer_configured' : null,
+        no_silent_zero_fill: {
+          numeric_fields: ['balance', 'share_of_supply', 'pnl_usd', 'avg_buy_price_usd', 'realized_pnl_usd'],
+          policy: 'optional analytics values are source-attributed or fixture-marked; unavailable live values are not reported as live zeros',
+          zero_fill_is_marked: true,
+        },
+        field_provenance: buildOnchainAnalyticsFieldProvenance(holdersSource, [
+          'balance',
+          'share_of_supply',
+          'pnl_usd',
+          'avg_buy_price_usd',
+          'realized_pnl_usd',
+        ]),
         note: holdersSource === 'live'
           ? 'Holder data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : holdersSource === 'replay'
@@ -1072,6 +1168,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const sourceTraders = readOnchainTokenTraders(database, params.network, tokenAddress);
     const tradersSource = readOnchainTokenTraderSourceKind(database, params.network, tokenAddress) ?? 'fixture';
+    const tradersSourceMetadata = readOnchainTokenTraderSourceMetadata(database, params.network, tokenAddress);
     const tradersRows = (sourceTraders.length > 0 ? sourceTraders : buildTopTraderFixtures(params.network, tokenAddress))
       .sort((left, right) => {
         const primary = sort === 'realized_pnl_usd_desc'
@@ -1106,6 +1203,33 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           ? 'out-of-scope analytics fixture for USDC only'
           : 'out-of-scope source-attributed token analytics, not live-complete',
         source: tradersSource,
+        source_mode: tradersSource,
+        source_identifiers: tradersSourceMetadata?.sourceProviders.length
+          ? tradersSourceMetadata.sourceProviders
+          : ['opengecko.seed.onchain_trader_fixture'],
+        source_fetched_at: tradersSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        latest_source_fetched_at: tradersSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        fixture_version: tradersSource === 'fixture' ? ONCHAIN_FIXTURE_VERSION : null,
+        reason_codes: tradersSource === 'live'
+          ? ['paid_indexer_style_analytics_not_live_complete']
+          : tradersSource === 'replay'
+            ? ['replay_source', 'paid_indexer_style_analytics_not_live_complete']
+            : ['fixture_fallback', 'paid_indexer_style_analytics_unavailable'],
+        degraded_reason: 'paid_indexer_style_trader_analytics_not_live_complete',
+        fallback_reason: tradersSource === 'fixture' ? 'fixture_fallback' : null,
+        unavailable_reason: tradersSource === 'fixture' ? 'no_public_complete_trader_indexer_configured' : null,
+        no_silent_zero_fill: {
+          numeric_fields: ['volume_usd', 'buy_volume_usd', 'sell_volume_usd', 'realized_pnl_usd', 'trade_count'],
+          policy: 'optional analytics values are source-attributed or fixture-marked; unavailable live values are not reported as live zeros',
+          zero_fill_is_marked: true,
+        },
+        field_provenance: buildOnchainAnalyticsFieldProvenance(tradersSource, [
+          'volume_usd',
+          'buy_volume_usd',
+          'sell_volume_usd',
+          'realized_pnl_usd',
+          'trade_count',
+        ]),
         note: tradersSource === 'live'
           ? 'Trader data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : tradersSource === 'replay'
@@ -1130,6 +1254,7 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
 
     const sourceSeries = readOnchainHoldersChart(database, params.network, tokenAddress);
     const chartSource = readOnchainHoldersChartSourceKind(database, params.network, tokenAddress) ?? 'fixture';
+    const chartSourceMetadata = readOnchainHoldersChartSourceMetadata(database, params.network, tokenAddress);
     const fullSeries = (sourceSeries.length > 0 ? sourceSeries : buildHoldersChartFixtures(params.network, tokenAddress))
       .sort((left, right) => left.timestamp - right.timestamp);
     const data = days <= 7 ? fullSeries.slice(-2) : fullSeries;
@@ -1147,6 +1272,27 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           ? 'out-of-scope analytics fixture for USDC only'
           : 'out-of-scope source-attributed token analytics, not live-complete',
         source: chartSource,
+        source_mode: chartSource,
+        source_identifiers: chartSourceMetadata?.sourceProviders.length
+          ? chartSourceMetadata.sourceProviders
+          : ['opengecko.seed.onchain_holders_chart_fixture'],
+        source_fetched_at: chartSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        latest_source_fetched_at: chartSourceMetadata?.latestSourceFetchedAt?.toISOString() ?? null,
+        fixture_version: chartSource === 'fixture' ? ONCHAIN_FIXTURE_VERSION : null,
+        reason_codes: chartSource === 'live'
+          ? ['paid_indexer_style_analytics_not_live_complete']
+          : chartSource === 'replay'
+            ? ['replay_source', 'paid_indexer_style_analytics_not_live_complete']
+            : ['fixture_fallback', 'paid_indexer_style_analytics_unavailable'],
+        degraded_reason: 'paid_indexer_style_holders_chart_not_live_complete',
+        fallback_reason: chartSource === 'fixture' ? 'fixture_fallback' : null,
+        unavailable_reason: chartSource === 'fixture' ? 'no_public_complete_holder_count_indexer_configured' : null,
+        no_silent_zero_fill: {
+          numeric_fields: ['holder_count'],
+          policy: 'holder counts are source-attributed or fixture-marked; unavailable live values are not reported as live zeros',
+          zero_fill_is_marked: true,
+        },
+        field_provenance: buildOnchainAnalyticsFieldProvenance(chartSource, ['holder_count']),
         note: chartSource === 'live'
           ? 'Holders chart data is source-attributed live provider data for a narrow analytics slice; the surface remains out-of-scope for live-complete coverage'
           : chartSource === 'replay'
@@ -1350,9 +1496,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       }
     }
 
+    const liveFetchedAt = new Date();
     let liveTrades = null;
     try {
-      liveTrades = await fetchLivePoolTrades(pool);
+      liveTrades = (await fetchLivePoolTrades(pool))?.map((trade) => ({
+        ...trade,
+        sourceFetchedAt: liveFetchedAt,
+      })) ?? null;
       request.log.info({
         network: params.network,
         pool_address: normalizedAddress,
@@ -1411,6 +1561,13 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       response_point_count: baseSeries.length,
       response_source: responseSource,
     }, 'sending onchain pool ohlcv response');
+    const finalizedOhlcvList = finalizeOnchainOhlcvSeries(baseSeries, {
+      aggregate,
+      limit,
+      beforeTimestamp,
+      includeEmptyIntervals,
+      timeframe,
+    });
 
     return sendCacheableJson(request, reply, {
       data: {
@@ -1423,16 +1580,52 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           aggregate,
           currency,
           token: tokenSelection,
-          ohlcv_list: finalizeOnchainOhlcvSeries(baseSeries, {
-            aggregate,
-            limit,
-            beforeTimestamp,
-            includeEmptyIntervals,
-            timeframe,
-          }),
+          ohlcv_list: finalizedOhlcvList,
           source: responseSource,
+          source_mode: responseSource,
         },
       },
+      meta: buildOnchainSourceMeta({
+        source: responseSource,
+        updatedAt: pool.updatedAt,
+        latestSourceFetchedAt: responseSource === 'live'
+          ? liveFetchedAt
+          : sourceSeries?.metadata.latestSourceFetchedAt ?? null,
+        sourceIdentifiers: responseSource === 'live'
+          ? ['sqd.pool_trades']
+          : sourceSeries?.metadata.sourceProviders.length
+            ? sourceSeries.metadata.sourceProviders
+            : ['opengecko.seed.onchain_ohlcv_fixture'],
+        fixtureVersion: responseSource === 'fixture' ? ONCHAIN_FIXTURE_VERSION : null,
+        reasonCodes: responseSource === 'live'
+          ? []
+          : responseSource === 'replay'
+            ? ['replay_source', 'paid_indexer_style_ohlcv_not_live_complete']
+            : ['synthetic_fixture_fallback', 'paid_indexer_style_ohlcv_unavailable'],
+        degradedReason: responseSource === 'live' ? null : 'paid_indexer_style_pool_ohlcv_not_live_complete',
+        fallbackReason: responseSource === 'fixture' ? 'synthetic_pool_ohlcv_fallback' : null,
+        unavailableReason: responseSource === 'fixture' ? 'no_public_complete_pool_ohlcv_indexer_configured' : null,
+        fieldProvenance: buildOnchainOhlcvFieldProvenance(responseSource, {
+          nullVolumeCount: sourceSeries?.metadata.nullVolumeCount ?? 0,
+          includeEmptyIntervals,
+        }),
+        extra: {
+          network: params.network,
+          pool_address: normalizedAddress,
+          timeframe,
+          aggregate,
+          response_point_count: finalizedOhlcvList.length,
+          source_point_count: baseSeries.length,
+          no_silent_zero_fill: {
+            numeric_fields: ['open', 'high', 'low', 'close', 'volume_usd'],
+            policy: 'volume zeros only appear for explicit empty intervals or marked synthetic/fixture fallback',
+            empty_interval_zero_fill_count: includeEmptyIntervals
+              ? finalizedOhlcvList.filter((point) => point.volume_usd === 0).length
+              : 0,
+            null_source_volume_count: sourceSeries?.metadata.nullVolumeCount ?? 0,
+          },
+        },
+      }),
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 
@@ -1462,6 +1655,39 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
       tokenAddress,
       includeInactiveSource,
     );
+    const sourcePoolProvenance = [...new Map(
+      aggregatedSeries
+        .flatMap((point) => point.source_pool_provenance)
+        .map((entry) => [entry.pool_address, entry]),
+    ).values()].sort((left, right) => left.pool_address.localeCompare(right.pool_address));
+    const tokenSourceMode = sourcePoolProvenance.some((entry) => entry.source_mode === 'live')
+      ? 'live'
+      : sourcePoolProvenance.some((entry) => entry.source_mode === 'replay')
+        ? 'replay'
+        : 'fixture';
+    const latestTokenSourceFetchedAt = sourcePoolProvenance.reduce<Date | null>((latest, entry) => {
+      const timestamp = entry.latest_source_fetched_at ? new Date(entry.latest_source_fetched_at) : null;
+      return timestamp && Number.isFinite(timestamp.getTime()) && (latest === null || timestamp.getTime() > latest.getTime())
+        ? timestamp
+        : latest;
+    }, null);
+    const finalizedTokenOhlcvList = finalizeOnchainOhlcvSeries(
+      aggregatedSeries.map((point) => ({
+        timestamp: point.timestamp,
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        close: point.close,
+        volumeUsd: point.volume_usd,
+      })),
+      {
+        aggregate,
+        limit,
+        beforeTimestamp,
+        includeEmptyIntervals,
+        timeframe,
+      },
+    );
 
     return sendCacheableJson(request, reply, {
       data: {
@@ -1473,26 +1699,46 @@ export function registerOnchainRoutes(app: FastifyInstance, database: AppDatabas
           timeframe,
           aggregate,
           include_inactive_source: includeInactiveSource,
-          ohlcv_list: finalizeOnchainOhlcvSeries(
-            aggregatedSeries.map((point) => ({
-              timestamp: point.timestamp,
-              open: point.open,
-              high: point.high,
-              low: point.low,
-              close: point.close,
-              volumeUsd: point.volume_usd,
-            })),
-            {
-              aggregate,
-              limit,
-              beforeTimestamp,
-              includeEmptyIntervals,
-              timeframe,
-            },
-          ),
+          ohlcv_list: finalizedTokenOhlcvList,
           source_pools: [...new Set(aggregatedSeries.flatMap((point) => point.source_pools))].sort(),
+          source: tokenSourceMode,
+          source_mode: tokenSourceMode,
         },
       },
+      meta: buildOnchainSourceMeta({
+        source: tokenSourceMode,
+        updatedAt: latestPoolUpdatedAt(tokenPools),
+        latestSourceFetchedAt: latestTokenSourceFetchedAt,
+        sourceIdentifiers: [...new Set(sourcePoolProvenance.flatMap((entry) => entry.source_identifiers))].sort(),
+        fixtureVersion: tokenSourceMode === 'fixture' ? ONCHAIN_FIXTURE_VERSION : null,
+        reasonCodes: tokenSourceMode === 'live'
+          ? []
+          : tokenSourceMode === 'replay'
+            ? ['replay_source', 'paid_indexer_style_token_ohlcv_not_live_complete']
+            : ['synthetic_fixture_fallback', 'paid_indexer_style_token_ohlcv_unavailable'],
+        degradedReason: tokenSourceMode === 'live' ? null : 'paid_indexer_style_token_ohlcv_not_live_complete',
+        fallbackReason: tokenSourceMode === 'fixture' ? 'synthetic_pool_ohlcv_fallback' : null,
+        unavailableReason: sourcePoolProvenance.length === 0 ? 'no_source_pools_available' : null,
+        fieldProvenance: buildOnchainOhlcvFieldProvenance(tokenSourceMode, {
+          nullVolumeCount: sourcePoolProvenance.reduce((sum, entry) => sum + entry.null_volume_count, 0),
+          includeEmptyIntervals,
+        }),
+        extra: {
+          network: params.network,
+          token_address: tokenAddress,
+          timeframe,
+          aggregate,
+          source_pools_provenance: sourcePoolProvenance,
+          response_point_count: finalizedTokenOhlcvList.length,
+          no_silent_zero_fill: {
+            numeric_fields: ['open', 'high', 'low', 'close', 'volume_usd'],
+            policy: 'volume zeros only appear for explicit empty intervals or marked synthetic/fixture fallback',
+            empty_interval_zero_fill_count: includeEmptyIntervals
+              ? finalizedTokenOhlcvList.filter((point) => point.volume_usd === 0).length
+              : 0,
+          },
+        },
+      }),
     }, ONCHAIN_LIVE_HTTP_CACHE_POLICY);
   });
 }

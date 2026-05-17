@@ -43,6 +43,13 @@ export type RawOnchainAnalyticsReplay = {
 
 export type OnchainAnalyticsSourceKind = 'replay' | 'live';
 
+export type OnchainAnalyticsSourceMetadata = {
+  source: OnchainAnalyticsSourceKind;
+  sourceProviders: string[];
+  latestSourceFetchedAt: Date | null;
+  rowCount: number;
+};
+
 export type IngestOnchainAnalyticsOptions = {
   sourceKind?: OnchainAnalyticsSourceKind;
   sourceProvider?: string | null;
@@ -231,6 +238,25 @@ function resolveSourceKind(rows: Array<{ sourceKind: OnchainAnalyticsSourceKind 
   return null;
 }
 
+function resolveSourceMetadata(
+  rows: Array<{ sourceKind: OnchainAnalyticsSourceKind; sourceProvider: string | null; sourceFetchedAt: Date | null }>,
+): OnchainAnalyticsSourceMetadata | null {
+  const source = resolveSourceKind(rows);
+  if (!source) {
+    return null;
+  }
+
+  return {
+    source,
+    sourceProviders: [...new Set(rows.map((row) => row.sourceProvider).filter((provider): provider is string => Boolean(provider)))].sort(),
+    latestSourceFetchedAt: rows.reduce<Date | null>((latest, row) =>
+      row.sourceFetchedAt && (latest === null || row.sourceFetchedAt.getTime() > latest.getTime())
+        ? row.sourceFetchedAt
+        : latest, null),
+    rowCount: rows.length,
+  };
+}
+
 export function readOnchainTokenHolders(
   database: AppDatabase,
   networkId: string,
@@ -260,6 +286,21 @@ export function readOnchainTokenHolderSourceKind(
   tokenAddress: string,
 ): OnchainAnalyticsSourceKind | null {
   return resolveSourceKind(database.db
+    .select()
+    .from(onchainTokenHolders)
+    .where(and(
+      eq(onchainTokenHolders.networkId, networkId),
+      eq(onchainTokenHolders.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
+}
+
+export function readOnchainTokenHolderSourceMetadata(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceMetadata | null {
+  return resolveSourceMetadata(database.db
     .select()
     .from(onchainTokenHolders)
     .where(and(
@@ -308,6 +349,21 @@ export function readOnchainTokenTraderSourceKind(
     .all());
 }
 
+export function readOnchainTokenTraderSourceMetadata(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceMetadata | null {
+  return resolveSourceMetadata(database.db
+    .select()
+    .from(onchainTokenTraders)
+    .where(and(
+      eq(onchainTokenTraders.networkId, networkId),
+      eq(onchainTokenTraders.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
+}
+
 export function readOnchainHoldersChart(
   database: AppDatabase,
   networkId: string,
@@ -333,6 +389,21 @@ export function readOnchainHoldersChartSourceKind(
   tokenAddress: string,
 ): OnchainAnalyticsSourceKind | null {
   return resolveSourceKind(database.db
+    .select()
+    .from(onchainTokenHolderCounts)
+    .where(and(
+      eq(onchainTokenHolderCounts.networkId, networkId),
+      eq(onchainTokenHolderCounts.tokenAddress, normalizeAddress(tokenAddress)),
+    ))
+    .all());
+}
+
+export function readOnchainHoldersChartSourceMetadata(
+  database: AppDatabase,
+  networkId: string,
+  tokenAddress: string,
+): OnchainAnalyticsSourceMetadata | null {
+  return resolveSourceMetadata(database.db
     .select()
     .from(onchainTokenHolderCounts)
     .where(and(

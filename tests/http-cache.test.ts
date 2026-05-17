@@ -602,8 +602,28 @@ describe('HTTP cache semantics', () => {
             },
             "meta": {
               "data_source": "<provider-dependent>",
+              "degraded_reason": null,
+              "fallback_reason": null,
               "fixture": "<provider-dependent>",
+              "fixture_version": null,
+              "latest_source_fetched_at": null,
+              "no_silent_zero_fill": {
+                "numeric_fields": [
+                  "reserve_usd",
+                  "volume_usd",
+                  "price_usd",
+                ],
+                "policy": "null_or_marked_fallback_when_unavailable",
+                "zero_fill_is_marked": true,
+              },
+              "reason_codes": [],
               "source": "<provider-dependent>",
+              "source_fetched_at": null,
+              "source_identifiers": [
+                "defillama/sqd",
+              ],
+              "source_mode": "live",
+              "unavailable_reason": null,
               "updated_at": "2026-03-20T00:00:00.000Z",
             },
           },

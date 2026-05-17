@@ -289,7 +289,28 @@ describe('provider replay fixtures', () => {
                 volume_usd: 2800000,
               },
             ],
+            source_mode: 'replay',
           },
+        },
+        meta: {
+          source: 'replay',
+          source_mode: 'replay',
+          source_identifiers: ['defillama.pool_ohlcv'],
+          source_fetched_at: '2026-05-05T00:02:00.000Z',
+          latest_source_fetched_at: '2026-05-05T00:02:00.000Z',
+          fixture_version: null,
+          reason_codes: expect.arrayContaining(['replay_source', 'paid_indexer_style_ohlcv_not_live_complete']),
+          degraded_reason: 'paid_indexer_style_pool_ohlcv_not_live_complete',
+          field_provenance: {
+            ohlcv_list: expect.objectContaining({
+              source_mode: 'replay',
+              no_silent_zero_fill: true,
+              fields: expect.arrayContaining(['open', 'high', 'low', 'close', 'volume_usd']),
+            }),
+          },
+          no_silent_zero_fill: expect.objectContaining({
+            numeric_fields: expect.arrayContaining(['open', 'high', 'low', 'close', 'volume_usd']),
+          }),
         },
       });
 
@@ -302,6 +323,36 @@ describe('provider replay fixtures', () => {
       }));
       expect(replayTimestampPoint.volume_usd).toBeGreaterThan(2450000.55);
       expect(tokenOhlcvResponse.json().data.attributes.source_pools).toContain(fixture.pool_address);
+      expect(tokenOhlcvResponse.json()).toMatchObject({
+        data: {
+          attributes: {
+            source: 'replay',
+            source_mode: 'replay',
+          },
+        },
+        meta: {
+          source: 'replay',
+          source_mode: 'replay',
+          source_identifiers: expect.arrayContaining(['defillama.pool_ohlcv']),
+          latest_source_fetched_at: '2026-05-05T00:02:00.000Z',
+          reason_codes: expect.arrayContaining(['replay_source', 'paid_indexer_style_token_ohlcv_not_live_complete']),
+          source_pools_provenance: expect.arrayContaining([
+            expect.objectContaining({
+              pool_address: fixture.pool_address,
+              source_mode: 'replay',
+              source_identifiers: expect.arrayContaining(['defillama.pool_ohlcv']),
+              latest_source_fetched_at: '2026-05-05T00:02:00.000Z',
+              fixture_version: null,
+            }),
+          ]),
+          field_provenance: {
+            ohlcv_list: expect.objectContaining({
+              source_mode: 'replay',
+              no_silent_zero_fill: true,
+            }),
+          },
+        },
+      });
 
       expect(coverageMatrixResponse.statusCode).toBe(200);
       expect(coverageMatrixResponse.json().data.entries).toEqual(expect.arrayContaining([

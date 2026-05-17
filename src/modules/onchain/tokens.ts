@@ -241,6 +241,18 @@ export async function aggregatePoolSeriesForToken(
     volumeUsd: number;
     reserveWeight: number;
     sources: string[];
+    sourcePoolProvenance: Array<{
+      pool_address: string;
+      source_mode: 'live' | 'replay' | 'fixture';
+      source_identifiers: string[];
+      latest_source_fetched_at: string | null;
+      fixture_version: string | null;
+      point_count: number;
+      degraded_reason: string | null;
+      fallback_reason: string | null;
+      unavailable_reason: string | null;
+      null_volume_count: number;
+    }>;
   }>();
 
   const shouldAttemptLiveTrades = process.env.VITEST === 'true';
@@ -256,6 +268,27 @@ export async function aggregatePoolSeriesForToken(
       : sourceSeries?.series
         ? sourceSeries.series
       : buildSyntheticPoolOhlcvSeries(pool, timeframe, aggregate);
+    const sourcePoolProvenance = {
+      pool_address: pool.address,
+      source_mode: liveTrades && liveTrades.length > 0 ? 'live' as const : sourceSeries?.source ?? 'fixture' as const,
+      source_identifiers: liveTrades && liveTrades.length > 0
+        ? ['sqd.pool_trades']
+        : sourceSeries?.metadata.sourceProviders.length
+          ? sourceSeries.metadata.sourceProviders
+          : ['opengecko.seed.onchain_ohlcv_fixture'],
+      latest_source_fetched_at: liveTrades && liveTrades.length > 0
+        ? liveTrades.reduce<Date | null>((latest, trade) =>
+            trade.sourceFetchedAt && (latest === null || trade.sourceFetchedAt.getTime() > latest.getTime())
+              ? trade.sourceFetchedAt
+              : latest, null)?.toISOString() ?? null
+        : sourceSeries?.metadata.latestSourceFetchedAt?.toISOString() ?? null,
+      fixture_version: liveTrades && liveTrades.length > 0 || sourceSeries ? null : 'opengecko-onchain-fixture-v1',
+      point_count: baseSeries.length,
+      degraded_reason: liveTrades && liveTrades.length > 0 ? null : 'paid_indexer_style_token_ohlcv_not_live_complete',
+      fallback_reason: sourceSeries ? null : liveTrades && liveTrades.length > 0 ? null : 'synthetic_pool_ohlcv_fallback',
+      unavailable_reason: null,
+      null_volume_count: sourceSeries?.metadata.nullVolumeCount ?? 0,
+    };
     const tokenMultiplier = normalizeAddress(pool.baseTokenAddress) === normalizedToken ? 1 : pool.priceUsd ?? 1;
     const poolIsInactive = pool.volume24hUsd === null || pool.volume24hUsd <= 30_000_000;
 
@@ -281,6 +314,7 @@ export async function aggregatePoolSeriesForToken(
           volumeUsd: point.volumeUsd,
           reserveWeight: weight,
           sources: [pool.address],
+          sourcePoolProvenance: [sourcePoolProvenance],
         });
         continue;
       }
@@ -292,6 +326,7 @@ export async function aggregatePoolSeriesForToken(
       current.volumeUsd += point.volumeUsd;
       current.reserveWeight += weight;
       current.sources.push(pool.address);
+      current.sourcePoolProvenance.push(sourcePoolProvenance);
     }
   }
 
@@ -305,6 +340,8 @@ export async function aggregatePoolSeriesForToken(
       close: Number((point.closeWeighted / point.reserveWeight).toFixed(6)),
       volume_usd: Number(point.volumeUsd.toFixed(2)),
       source_pools: point.sources.sort(),
+      source_pool_provenance: point.sourcePoolProvenance
+        .sort((left, right) => left.pool_address.localeCompare(right.pool_address)),
     }));
 }
 
