@@ -441,6 +441,9 @@ echo
 echo -e "${BOLD}🧪 Diagnostics${NC}"
 check "GET /diagnostics/chain_coverage" "/diagnostics/chain_coverage"
 check "GET /diagnostics/ohlcv_sync" "/diagnostics/ohlcv_sync"
+check "GET /diagnostics/data_quality" "/diagnostics/data_quality"
+check_json "diagnostics/data_quality exposes 0-10 finite scores" "/diagnostics/data_quality" '[.data.families[] | (.score | type == "number" and . >= 0 and . <= 10)] | all(.)' "true"
+check_json "diagnostics/data_quality gate enumerates below-threshold families" "/diagnostics/data_quality" '(.data.gate.threshold == 9) and (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[] | .family] | sort))' "true"
 
 # ─────────────────────────────────────────────────
 echo

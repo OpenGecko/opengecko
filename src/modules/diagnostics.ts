@@ -18,6 +18,7 @@ import { buildDerivativesProviderDiagnostics } from '../services/derivatives-ven
 import { buildCoinHistoryProviderDiagnostics } from '../services/coin-history-diagnostics';
 import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import { buildCoverageMatrix } from '../services/coverage-matrix';
+import { buildDataQualityDiagnostics } from '../services/data-quality-diagnostics';
 import { isLiveSourceKind, isSeededExchangeTimestamp } from '../services/diagnostics-policy';
 import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
 import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
@@ -271,6 +272,29 @@ export function registerDiagnosticsRoutes(
   app.get('/diagnostics/coverage', async (request, reply) => {
     return sendCacheableJson(request, reply, {
       data: buildCoverageMatrix(database),
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.get('/diagnostics/data_quality', async (request, reply) => {
+    const latestUsdSnapshot = database.db
+      .select()
+      .from(marketSnapshots)
+      .where(eq(marketSnapshots.vsCurrency, 'usd'))
+      .orderBy(marketSnapshots.lastUpdated)
+      .all()
+      .at(-1) ?? null;
+    const capabilityEvidence = buildRuntimeCapabilityEvidence(database);
+    const now = new Date();
+    const runtimeDiagnostics = buildRuntimeDiagnostics(
+      app.marketDataRuntimeState,
+      latestUsdSnapshot,
+      marketFreshnessThresholdSeconds,
+      now.getTime(),
+      capabilityEvidence,
+    );
+
+    return sendCacheableJson(request, reply, {
+      data: buildDataQualityDiagnostics(buildCoverageMatrix(database, now), runtimeDiagnostics, now),
     }, dynamicDiagnosticsCachePolicy);
   });
 
