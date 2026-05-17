@@ -243,4 +243,62 @@ describe('data quality diagnostics', () => {
     expect(simple?.reason_codes).toEqual(expect.arrayContaining(['runtime_degraded', 'stale_source']));
     expect(simple?.score_scopes.live_source_fidelity).toBeLessThanOrEqual(beforeSimple?.score_scopes.live_source_fidelity ?? 10);
   });
+
+  it('propagates injected provider failures into live-backed data quality scores', async () => {
+    await getApp().ready();
+
+    const enableFailureResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_failure',
+      payload: {
+        active: true,
+        reason: 'validator forced outage',
+      },
+    });
+    expect(enableFailureResponse.statusCode).toBe(200);
+
+    const runtimeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+    expect(runtimeResponse.statusCode).toBe(200);
+    expect(runtimeResponse.json().data.degraded.injected_provider_failure).toEqual({
+      active: true,
+      reason: 'validator forced outage',
+    });
+
+    const qualityResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(qualityResponse.statusCode).toBe(200);
+    const affectedFamilies = (qualityResponse.json().data.families as Array<{
+      family: string;
+      source: { state: string; ownership_class: string };
+      score_scopes: { live_source_fidelity: number; freshness_liveness: number };
+      dimensions: Array<{ id: string; score: number; reason_codes: string[] }>;
+      evidence: { runtime_degradation: { active: boolean; reason_codes: string[]; reason: string | null } };
+      reason_codes: string[];
+    }>).filter((family) => ['simple', 'coins', 'global'].includes(family.family));
+
+    expect(affectedFamilies.length).toBeGreaterThan(0);
+    for (const family of affectedFamilies) {
+      expect(family.evidence.runtime_degradation).toMatchObject({
+        active: true,
+        reason_codes: expect.arrayContaining(['provider_error']),
+        reason: 'validator forced outage',
+      });
+      expect(family.reason_codes).toEqual(expect.arrayContaining(['provider_error']));
+      expect(family.score_scopes.live_source_fidelity).toBeLessThanOrEqual(6);
+      expect(family.score_scopes.freshness_liveness).toBeLessThanOrEqual(6);
+      expect(family.dimensions.find((dimension) => dimension.id === 'freshness_liveness')).toMatchObject({
+        score: expect.any(Number),
+        reason_codes: expect.arrayContaining(['provider_error']),
+      });
+      if (family.source.ownership_class === 'live') {
+        expect(family.source.state).toBe('degraded');
+      }
+    }
+  });
 });

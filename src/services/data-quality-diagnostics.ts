@@ -243,7 +243,22 @@ function buildDimension(
   };
 }
 
+const INJECTED_PROVIDER_FAILURE_RUNTIME_FAMILY_IDS = new Set([
+  'simple',
+  'coins_markets',
+  'coin_detail',
+  'exchanges',
+  'historical_charts',
+]);
+
 function runtimeAffectsFamily(runtimeDiagnostics: RuntimeDiagnostics, runtimeFamilyIds: string[]) {
+  if (
+    runtimeDiagnostics.degraded.injected_provider_failure.active
+    && runtimeFamilyIds.some((runtimeFamilyId) => INJECTED_PROVIDER_FAILURE_RUNTIME_FAMILY_IDS.has(runtimeFamilyId))
+  ) {
+    return true;
+  }
+
   if (runtimeDiagnostics.degraded.active) {
     return true;
   }
@@ -371,6 +386,7 @@ export function buildDataQualityDiagnostics(
       status: statusForScore(score, config.required),
       score_scopes: {
         contract_compatibility: dimensions.find((dimension) => dimension.id === 'contract_compatibility')?.score ?? 0,
+        freshness_liveness: dimensions.find((dimension) => dimension.id === 'freshness_liveness')?.score ?? 0,
         live_source_fidelity: dimensions.find((dimension) => dimension.id === 'live_source_fidelity')?.score ?? 0,
         fixture_fallback_transparency: dimensions.find((dimension) => dimension.id === 'fixture_fallback_transparency')?.score ?? 0,
         overall: score,
@@ -407,7 +423,9 @@ export function buildDataQualityDiagnostics(
           ? {
               active: true,
               reason_codes: runtimeReasonCodes,
-              reason: runtimeDiagnostics.degraded.reason ?? runtimeDiagnostics.degraded.injected_provider_failure.reason,
+              reason: runtimeDiagnostics.degraded.injected_provider_failure.active
+                ? runtimeDiagnostics.degraded.injected_provider_failure.reason
+                : runtimeDiagnostics.degraded.reason,
             }
           : {
               active: false,
