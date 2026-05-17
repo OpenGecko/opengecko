@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger';
 import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
 import { syncCoinCatalogFromExchanges } from './coin-catalog-sync';
 import { syncChainCatalogFromExchanges } from './chain-catalog-sync';
+import { SEEDED_EXCHANGE_TIMESTAMP_MS } from './diagnostics-policy';
 import { runMarketRefreshOnce, STARTUP_TICKER_FETCH_BUDGET_MS } from './market-refresh';
 import { clearProviderFailureCooldown, recordInitialSyncSnapshotAvailability, type MarketDataRuntimeState } from './market-runtime-state';
 import { createProviderBreakerState, recordProviderFailure, recordProviderSuccess } from './provider-breaker';
@@ -17,7 +18,6 @@ function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
 
 const STARTUP_EXCHANGE_METADATA_BUDGET_MS = 3_000;
 const PRIORITIZED_STARTUP_TICKER_RESCUE_EXCHANGES = ['binance', 'coinbase', 'okx', 'kraken'] as const;
-const SEEDED_EXCHANGE_TIMESTAMP_MS = Date.parse('2026-03-20T00:00:00.000Z');
 
 const EXCHANGE_METADATA_OVERRIDES: Record<string, Partial<typeof exchanges.$inferInsert>> = {
   binance: {

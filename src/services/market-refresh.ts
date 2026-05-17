@@ -647,17 +647,12 @@ function upsertPendingCoinTickers(
   database: AppDatabase,
   pendingCoinTickers: PendingCoinTicker[],
   conversionContext: ConversionContext,
-  acceptedSamples?: Set<MarketQuoteSample>,
 ) {
   const knownExchangeIds = new Set(
     database.db.select().from(exchanges).all().map((row) => row.id),
   );
 
   for (const pendingTicker of pendingCoinTickers) {
-    if (acceptedSamples && !acceptedSamples.has(pendingTicker.marketSample)) {
-      continue;
-    }
-
     if (!knownExchangeIds.has(pendingTicker.exchangeId)) {
       continue;
     }
