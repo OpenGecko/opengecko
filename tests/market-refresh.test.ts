@@ -365,6 +365,23 @@ describe('market refresh service', () => {
         sourceFetchedAt: liveFetchedAt,
       },
     ]).run();
+    database.db
+      .update(marketSnapshots)
+      .set({
+        price: 80_000,
+        marketCap: 1_440_000_000_000,
+        totalVolume: 50_000_000_000,
+        fullyDilutedValuation: 1_680_000_000_000,
+        circulatingSupply: 18_000_000,
+        totalSupply: 20_000_000,
+        maxSupply: 21_000_000,
+        sourceProvidersJson: JSON.stringify([]),
+        sourceCount: 0,
+        updatedAt: new Date('2026-03-18T00:00:00.000Z'),
+        lastUpdated: new Date('2026-03-18T00:00:00.000Z'),
+      })
+      .where(and(eq(marketSnapshots.coinId, 'bitcoin'), eq(marketSnapshots.vsCurrency, 'usd')))
+      .run();
     database.db.insert(coinHistorySnapshots).values({
       coinId: 'ethereum',
       vsCurrency: 'usd',

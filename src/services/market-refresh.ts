@@ -659,11 +659,11 @@ function isPositiveFiniteNumber(value: number | null | undefined): value is numb
 }
 
 function selectSupplyEvidenceValue(currentValue: number | null | undefined, evidenceValue: number | undefined) {
-  if (isPositiveFiniteNumber(currentValue)) {
-    return currentValue;
+  if (isPositiveFiniteNumber(evidenceValue)) {
+    return evidenceValue;
   }
 
-  return evidenceValue ?? null;
+  return isPositiveFiniteNumber(currentValue) ? currentValue : null;
 }
 
 function selectEvidenceValue(currentValue: number | null | undefined, evidenceValue: number | null | undefined) {

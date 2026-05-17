@@ -3,6 +3,7 @@ import type { RuntimeDiagnostics } from './runtime-diagnostics';
 import type { AppDatabase } from '../db/client';
 import { getMarketRows } from '../modules/catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
+import { supplyChartPoints } from '../db/schema';
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
@@ -306,12 +307,91 @@ function providerReasonCodes(runtimeDiagnostics: RuntimeDiagnostics) {
   return [...codes].sort();
 }
 
-function isFinitePositive(value: number | null | undefined) {
+function isFinitePositive(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
-function isFiniteNonNegative(value: number | null | undefined) {
+function isFiniteNonNegative(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+type SourceBackedSupplyEvidence = {
+  circulatingSupply?: number;
+  totalSupply?: number;
+};
+
+function compareSupplyEvidenceRows(
+  candidate: typeof supplyChartPoints.$inferSelect,
+  existing: typeof supplyChartPoints.$inferSelect,
+) {
+  const candidateSourceRank = candidate.sourceKind === 'live' ? 1 : 0;
+  const existingSourceRank = existing.sourceKind === 'live' ? 1 : 0;
+
+  if (candidateSourceRank !== existingSourceRank) {
+    return candidateSourceRank - existingSourceRank;
+  }
+
+  const candidateTimestamp = candidate.timestamp.getTime();
+  const existingTimestamp = existing.timestamp.getTime();
+
+  if (candidateTimestamp !== existingTimestamp) {
+    return candidateTimestamp - existingTimestamp;
+  }
+
+  return (candidate.sourceFetchedAt?.getTime() ?? 0) - (existing.sourceFetchedAt?.getTime() ?? 0);
+}
+
+function readLatestSourceBackedSupplyEvidenceByCoin(database: AppDatabase) {
+  const rows = database.db.select().from(supplyChartPoints).all();
+  const evidenceRowsByKey = new Map<string, typeof rows[number]>();
+
+  for (const row of rows) {
+    if (!isFinitePositive(row.value)) {
+      continue;
+    }
+
+    const key = `${row.coinId}:${row.supplyType}`;
+    const existing = evidenceRowsByKey.get(key);
+    if (!existing || compareSupplyEvidenceRows(row, existing) > 0) {
+      evidenceRowsByKey.set(key, row);
+    }
+  }
+
+  const evidenceByCoin = new Map<string, SourceBackedSupplyEvidence>();
+  for (const row of evidenceRowsByKey.values()) {
+    const evidence = evidenceByCoin.get(row.coinId) ?? {};
+
+    if (row.supplyType === 'circulating') {
+      evidence.circulatingSupply = row.value;
+    } else {
+      evidence.totalSupply = row.value;
+    }
+
+    evidenceByCoin.set(row.coinId, evidence);
+  }
+
+  return evidenceByCoin;
+}
+
+function matchesSourceBackedMarketCapDerivation(
+  snapshot: { price: number | null; marketCap: number | null } | null | undefined,
+  supplyEvidence: SourceBackedSupplyEvidence | undefined,
+) {
+  const circulatingSupply = supplyEvidence?.circulatingSupply;
+
+  if (
+    !snapshot
+    || !isFinitePositive(snapshot.price)
+    || !isFinitePositive(snapshot.marketCap)
+    || !isFinitePositive(circulatingSupply)
+  ) {
+    return false;
+  }
+
+  const expectedMarketCap = snapshot.price * circulatingSupply;
+  const tolerance = Math.max(1, Math.abs(expectedMarketCap) * 1e-9);
+
+  return Math.abs(snapshot.marketCap - expectedMarketCap) <= tolerance;
 }
 
 function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDiagnostics: RuntimeDiagnostics) {
@@ -340,6 +420,9 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
         missing_market_cap_ids: [],
       },
       note: 'Market quality evidence was requested without database access.',
+      field_provenance: {
+        source_backed_market_cap_derivation_ids: [],
+      },
     };
   }
 
@@ -372,6 +455,7 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
     listenerBound: runtimeDiagnostics.readiness.listener_bound,
   };
   const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+  const sourceBackedSupplyEvidenceByCoin = readLatestSourceBackedSupplyEvidenceByCoin(database);
   const rows = getMarketRows(database, 'usd', { status: 'active' })
     .map((row) => ({
       coin: row.coin,
@@ -410,9 +494,10 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
   const circulatingSupplyEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.circulatingSupply)).length;
   const totalSupplyEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.totalSupply)).length;
   const persistedMarketCapEvidenceCount = rows.filter((row) => isFinitePositive(row.snapshot?.marketCap)).length;
-  const sourceBackedMarketCapDerivationCount = rows.filter((row) =>
-    isFinitePositive(row.snapshot?.marketCap) && isFinitePositive(row.snapshot?.circulatingSupply),
-  ).length;
+  const sourceBackedMarketCapDerivationRows = rows.filter((row) =>
+    matchesSourceBackedMarketCapDerivation(row.snapshot, sourceBackedSupplyEvidenceByCoin.get(row.coin.id)),
+  );
+  const sourceBackedMarketCapDerivationCount = sourceBackedMarketCapDerivationRows.length;
   const missingMarketCapIds = rows
     .filter((row) => !isFinitePositive(row.snapshot?.marketCap))
     .map((row) => row.coin.id);
@@ -472,6 +557,9 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
       missing_market_cap_ids: missingMarketCapIds.slice(0, 25),
     },
     exceptions,
+    field_provenance: {
+      source_backed_market_cap_derivation_ids: sourceBackedMarketCapDerivationRows.map((row) => row.coin.id).slice(0, 25),
+    },
     note: 'Top-N completeness uses the stable configured denominator and records request paths for replay.',
   };
 }

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { marketSnapshots } from '../src/db/schema';
+import { marketSnapshots, supplyChartPoints } from '../src/db/schema';
 
 describe('coins markets parity', () => {
   let app: FastifyInstance;
@@ -276,6 +276,79 @@ describe('coins markets parity', () => {
       diagnostics_paths: expect.arrayContaining(['/diagnostics/data_quality', '/diagnostics/runtime']),
       generated_at: expect.any(String),
     });
+  });
+
+  it('counts source-backed market-cap derivations only when backed by field-level supply evidence', async () => {
+    await app.ready();
+
+    const freshTimestamp = new Date();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 100,
+        marketCap: 1_800_000_000,
+        circulatingSupply: 18_000_000,
+        totalVolume: 100_000_000,
+        marketCapRank: 1,
+        sourceProvidersJson: JSON.stringify(['binance']),
+        sourceCount: 1,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'bitcoin'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 2_000,
+        marketCap: 240_000_000_000,
+        circulatingSupply: 120_000_000,
+        totalVolume: 10_000_000_000,
+        marketCapRank: 2,
+        sourceProvidersJson: JSON.stringify(['coinbase']),
+        sourceCount: 1,
+        updatedAt: freshTimestamp,
+        lastUpdated: freshTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'ethereum'))
+      .run();
+    app.db.db.insert(supplyChartPoints).values({
+      coinId: 'ethereum',
+      supplyType: 'circulating',
+      timestamp: freshTimestamp,
+      value: 120_000_000,
+      sourceKind: 'live',
+      sourceProvider: 'public-supply-provider',
+      sourceFetchedAt: freshTimestamp,
+    }).run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const coinsFamily = (response.json().data.families as Array<{
+      family: string;
+      evidence: {
+        market_quality?: {
+          top_n: {
+            persisted_market_cap_evidence_count: number;
+            source_backed_market_cap_derivation_count: number;
+          };
+          field_provenance?: {
+            source_backed_market_cap_derivation_ids: string[];
+          };
+        };
+      };
+    }>).find((family) => family.family === 'coins');
+
+    expect(coinsFamily?.evidence.market_quality?.field_provenance?.source_backed_market_cap_derivation_ids).toContain('ethereum');
+    expect(coinsFamily?.evidence.market_quality?.field_provenance?.source_backed_market_cap_derivation_ids).not.toContain('bitcoin');
+    expect(coinsFamily?.evidence.market_quality?.top_n.source_backed_market_cap_derivation_count).toBeLessThan(
+      coinsFamily?.evidence.market_quality?.top_n.persisted_market_cap_evidence_count ?? 0,
+    );
   });
 
 
