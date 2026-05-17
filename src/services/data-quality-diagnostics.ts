@@ -3,6 +3,7 @@ import type { RuntimeDiagnostics } from './runtime-diagnostics';
 import type { AppDatabase } from '../db/client';
 import { getMarketRows } from '../modules/catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
+import { getReferenceMarketCapRank } from '../modules/coins/market-data';
 import { supplyChartPoints } from '../db/schema';
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
@@ -477,8 +478,8 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
         return leftNullQuality ? 1 : -1;
       }
 
-      const leftRank = left.snapshot?.marketCapRank ?? left.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = right.snapshot?.marketCapRank ?? right.coin.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+      const leftRank = getReferenceMarketCapRank(left) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = getReferenceMarketCapRank(right) ?? Number.MAX_SAFE_INTEGER;
 
       if (leftRank !== rightRank) {
         return leftRank - rightRank;
@@ -501,6 +502,9 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
   const missingMarketCapIds = rows
     .filter((row) => !isFinitePositive(row.snapshot?.marketCap))
     .map((row) => row.coin.id);
+  const canonicalMissingMarketCapIds = missingMarketCapIds.filter((id) =>
+    ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'usd-coin'].includes(id),
+  );
   const nullQualityRows = rows.filter((row) => !row.snapshot || [
     row.snapshot.price,
     row.snapshot.marketCap,
@@ -521,6 +525,18 @@ function buildMarketQualityEvidence(database: AppDatabase | undefined, runtimeDi
           complete_count: marketCapCompleteCount,
           unavailable_count: MARKET_TOP_N_DENOMINATOR - marketCapCompleteCount,
           affected_ids: missingMarketCapIds.slice(0, 25),
+        }]
+      : []),
+    ...(marketCapCompletenessRatio >= 0.8 && canonicalMissingMarketCapIds.length > 0
+      ? [{
+          field: 'market_cap',
+          reason_code: 'source_unavailable',
+          message: 'Canonical major rows listed here have source-backed price/volume evidence but no direct market-cap or source-backed supply evidence; public rows preserve null market_cap instead of fabricating it.',
+          configured_denominator: MARKET_TOP_N_DENOMINATOR,
+          measured_denominator: measuredDenominator,
+          complete_count: marketCapCompleteCount,
+          unavailable_count: canonicalMissingMarketCapIds.length,
+          affected_ids: canonicalMissingMarketCapIds,
         }]
       : []),
     ...(priceCompletenessRatio < 0.9

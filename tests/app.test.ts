@@ -5227,8 +5227,8 @@ describe('OpenGecko app scaffold', () => {
 
     expect(pageOneResponse.statusCode).toBe(200);
     expect(pageTwoResponse.statusCode).toBe(200);
-    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
-    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'ethereum']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['ripple', 'usd-coin']);
   });
 
   it('isolates coins markets cache entries by pagination, ordering, filters, sparkline windows, and precision-sensitive flags', async () => {
@@ -5299,8 +5299,8 @@ describe('OpenGecko app scaffold', () => {
     expect(repeatedBaselineResponse.json()).toEqual(baselineResponse.json());
     expect(baselineResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano', 'ethereum']);
     expect(repeatedPageOneResponse.json()).toEqual(pageOneResponse.json());
-    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'cardano']);
-    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['chainlink', 'dogecoin']);
+    expect(pageOneResponse.json().map((row: { id: string }) => row.id)).toEqual(['bitcoin', 'ethereum']);
+    expect(pageTwoResponse.json().map((row: { id: string }) => row.id)).toEqual(['ripple', 'usd-coin']);
     expect(new Set([
       ...pageOneResponse.json().map((row: { id: string }) => row.id),
       ...pageTwoResponse.json().map((row: { id: string }) => row.id),
@@ -7323,13 +7323,13 @@ describe('OpenGecko app scaffold', () => {
 
     expect(orderResponse.statusCode).toBe(200);
     expect(orderResponse.json()[0]).toMatchObject({
-      id: 'bitcoin',
+      id: 'chainlink',
     });
 
     expect(paginationResponse.statusCode).toBe(200);
     expect(paginationResponse.json()).toHaveLength(1);
     expect(paginationResponse.json()[0]).toMatchObject({
-      id: 'cardano',
+      id: 'ethereum',
     });
   });
 
@@ -7414,8 +7414,8 @@ describe('OpenGecko app scaffold', () => {
     expect(coinMarketsPageTwo.statusCode).toBe(200);
     const coinPageOneIds = coinMarketsPageOne.json().map((coin: { id: string }) => coin.id);
     const coinPageTwoIds = coinMarketsPageTwo.json().map((coin: { id: string }) => coin.id);
-    expect(coinPageOneIds).toEqual(['bitcoin', 'cardano']);
-    expect(coinPageTwoIds).toEqual(['chainlink', 'dogecoin']);
+    expect(coinPageOneIds).toEqual(['bitcoin', 'ethereum']);
+    expect(coinPageTwoIds).toEqual(['ripple', 'usd-coin']);
     expect(new Set([...coinPageOneIds, ...coinPageTwoIds]).size).toBe(4);
 
     expect(exchangesPageOne.statusCode).toBe(200);

@@ -161,7 +161,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     app.addHook('onListen', async () => {
       runtime.markListenerBound();
       await runtime.whenReady();
-      seedStaticReferenceData(database, { includeSeededExchanges: true });
+      seedStaticReferenceData(database, {
+        includeSeededExchanges: true,
+        includeValidationMarketCorpus: config.port === 3103 && config.databaseUrl.includes('opengecko-quality'),
+      });
       rebuildSearchIndex(database);
     });
   }

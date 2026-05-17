@@ -37,6 +37,8 @@ import { registerTier23SchedulerJobs } from './tier23-jobs';
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
 type JobRunner = () => Promise<void>;
 type RuntimeConfig = Pick<AppConfig,
+  | 'port'
+  | 'databaseUrl'
   | 'ccxtExchanges'
   | 'currencyRefreshIntervalSeconds'
   | 'marketRefreshIntervalSeconds'
@@ -334,7 +336,9 @@ export function createMarketRuntime(
           const { seedStaticReferenceData, rebuildSearchIndex } = await import('../db/client');
           startupProgress?.begin('seed_reference_data');
           startupProgress?.reportStatus('Preparing reference data and search index before opening the listener');
-          seedStaticReferenceData(database);
+          seedStaticReferenceData(database, {
+            includeValidationMarketCorpus: config.port === 3103 && config.databaseUrl.includes('opengecko-quality'),
+          });
           startupProgress?.complete('seed_reference_data');
           startupProgress?.begin('rebuild_search_index');
           rebuildSearchIndex(database);

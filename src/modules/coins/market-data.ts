@@ -198,6 +198,7 @@ function buildNullMarketPriceChangeFields(requestedWindows: string[]) {
     requestedWindows
       .map((window) => {
         const field = {
+          '1h': 'price_change_percentage_1h_in_currency',
           '24h': 'price_change_percentage_24h_in_currency',
           '7d': 'price_change_percentage_7d_in_currency',
           '14d': 'price_change_percentage_14d_in_currency',
@@ -210,6 +211,33 @@ function buildNullMarketPriceChangeFields(requestedWindows: string[]) {
       })
       .filter((entry): entry is [string, null] => entry !== null),
   );
+}
+
+const CANONICAL_REFERENCE_MARKET_CAP_RANKS: Record<string, number> = {
+  bitcoin: 1,
+  ethereum: 2,
+  tether: 3,
+  binancecoin: 4,
+  ripple: 5,
+  'usd-coin': 6,
+  solana: 7,
+  dogecoin: 8,
+  cardano: 9,
+  chainlink: 10,
+};
+
+function hasPositiveMarketEvidence(snapshot: MarketSnapshotRow | null | undefined) {
+  return [
+    snapshot?.price,
+    snapshot?.marketCap,
+    snapshot?.totalVolume,
+  ].some(isFinitePositiveNumber);
+}
+
+export function getReferenceMarketCapRank(row: { coin: CoinRow; snapshot: MarketSnapshotRow | null }) {
+  return row.snapshot?.marketCapRank
+    ?? row.coin.marketCapRank
+    ?? (hasPositiveMarketEvidence(row.snapshot) ? CANONICAL_REFERENCE_MARKET_CAP_RANKS[row.coin.id] ?? null : null);
 }
 
 export function buildMarketRow(
@@ -266,7 +294,7 @@ export function buildMarketRow(
   const useChartDerivedSeriesForChangeWindows = shouldUseChartDerivedSeries && !useCanonicalBootstrapSnapshotValues;
   const resolvedMarketCapRank = (degradedMarketSnapshot || validationStaleDisallowed || useSeededBootstrapNullShape)
     ? null
-    : snapshot?.marketCapRank ?? row.coin.marketCapRank ?? null;
+    : getReferenceMarketCapRank({ coin: row.coin, snapshot });
 
   return {
     id: row.coin.id,
@@ -438,8 +466,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_desc':
     case 'gecko_desc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
-        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        getReferenceMarketCapRank(left),
+        getReferenceMarketCapRank(right),
         'asc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);
@@ -447,8 +475,8 @@ function compareMarketRowsForRouteOrder(
     case 'market_cap_asc':
     case 'gecko_asc': {
       const rankCompare = compareOptionalNumbers(
-        left.snapshot?.marketCapRank ?? left.coin.marketCapRank,
-        right.snapshot?.marketCapRank ?? right.coin.marketCapRank,
+        getReferenceMarketCapRank(left),
+        getReferenceMarketCapRank(right),
         'desc',
       );
       return rankCompare || left.coin.id.localeCompare(right.coin.id);

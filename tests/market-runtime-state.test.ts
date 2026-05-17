@@ -162,6 +162,26 @@ describe('market runtime state phase classifier', () => {
     });
   });
 
+  it('preserves residual stale fallback when initial sync cannot refresh live snapshots', () => {
+    const state = createState({
+      initialSyncCompletedWithoutUsableLiveSnapshots: true,
+      allowStaleLiveService: true,
+      providerFailureCooldownUntil: now + 1,
+    });
+
+    completeInitialMarketSync(state);
+
+    expect(state).toMatchObject({
+      initialSyncCompleted: true,
+      initialSyncCompletedWithoutUsableLiveSnapshots: true,
+      listenerBindDeferred: false,
+      syncFailureReason: 'initial sync completed without usable fresh live snapshots; serving residual source-backed snapshots as stale fallback',
+      allowStaleLiveService: true,
+      providerFailureCooldownUntil: null,
+      hotDataRevision: 1,
+    });
+  });
+
   it('centralizes refresh recovery and failure transitions', () => {
     const state = createState({
       initialSyncCompletedWithoutUsableLiveSnapshots: true,

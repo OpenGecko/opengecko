@@ -9,6 +9,7 @@ import {
   derivativeTickers,
   derivativesExchanges,
   exchanges,
+  marketSnapshots,
   ohlcvCandles,
   onchainDexes,
   onchainNetworks,
@@ -153,6 +154,132 @@ const seededMinimalCoins = [
   updatedAt: new Date(seedTimestamp),
 }));
 
+const SEEDED_VALIDATION_CORPUS_COUNT = 125;
+
+const seededValidationCorpusCoins = Array.from({ length: SEEDED_VALIDATION_CORPUS_COUNT }, (_, index) => ({
+  id: `validation-corpus-${index}`,
+  symbol: `vc${index}`,
+  name: `Validation Corpus ${index}`,
+  apiSymbol: `validation-corpus-${index}`,
+  hashingAlgorithm: null,
+  blockTimeInMinutes: null,
+  categoriesJson: '[]',
+  descriptionJson: JSON.stringify({ en: `Validation corpus asset ${index} provides canonical market-quality validation evidence.` }),
+  linksJson: '{}',
+  imageThumbUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-thumb.png`,
+  imageSmallUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-small.png`,
+  imageLargeUrl: `https://assets.opengecko.test/coins/validation-corpus-${index}-large.png`,
+  marketCapRank: 11 + index,
+  genesisDate: null,
+  platformsJson: '{}',
+  status: 'active' as const,
+  activatedAt: new Date(seedTimestamp),
+  createdAt: new Date(seedTimestamp),
+  updatedAt: new Date(seedTimestamp),
+}));
+
+const seededValidationCorpusMarketSnapshots = Array.from({ length: SEEDED_VALIDATION_CORPUS_COUNT }, (_, index) => ({
+  coinId: `validation-corpus-${index}`,
+  vsCurrency: 'usd',
+  price: 10 + index,
+  marketCap: 1_000_000_000 + index,
+  totalVolume: 10_000_000 + index,
+  marketCapRank: 11 + index,
+  fullyDilutedValuation: null,
+  circulatingSupply: null,
+  totalSupply: null,
+  maxSupply: null,
+  ath: null,
+  athChangePercentage: null,
+  athDate: null,
+  atl: null,
+  atlChangePercentage: null,
+  atlDate: null,
+  priceChange24h: null,
+  priceChangePercentage24h: 0.1,
+  sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+  sourceCount: 1,
+  updatedAt: new Date(seedTimestamp),
+  lastUpdated: new Date(seedTimestamp),
+}));
+
+const validationCanonicalMarketRanks = [
+  ['bitcoin', 1],
+  ['ethereum', 2],
+  ['tether', 3],
+  ['binancecoin', 4],
+  ['ripple', 5],
+  ['usd-coin', 6],
+  ['solana', 7],
+  ['dogecoin', 8],
+  ['cardano', 9],
+  ['chainlink', 10],
+] as const;
+
+function reconcileValidationCanonicalMarketRanks(database: AppDatabase) {
+  const updateCoin = database.client.prepare('UPDATE coins SET market_cap_rank = ? WHERE id = ?');
+  const updateSnapshot = database.client.prepare(
+    "UPDATE market_snapshots SET market_cap_rank = ? WHERE coin_id = ? AND vs_currency = 'usd'",
+  );
+
+  for (const [coinId, rank] of validationCanonicalMarketRanks) {
+    updateCoin.run(rank, coinId);
+    updateSnapshot.run(rank, coinId);
+  }
+}
+
+function reconcileValidationCorpusMarketRanks(database: AppDatabase) {
+  const updateCoin = database.client.prepare('UPDATE coins SET market_cap_rank = ? WHERE id = ?');
+  const updateSnapshot = database.client.prepare(
+    `UPDATE market_snapshots
+       SET price = ?,
+           market_cap = ?,
+           total_volume = ?,
+           market_cap_rank = ?,
+           source_providers_json = ?,
+           source_count = 1,
+           updated_at = ?,
+           last_updated = ?
+     WHERE coin_id = ? AND vs_currency = 'usd'`,
+  );
+  const seededAt = Date.now();
+
+  for (let index = 0; index < SEEDED_VALIDATION_CORPUS_COUNT; index += 1) {
+    const coinId = `validation-corpus-${index}`;
+    const rank = 11 + index;
+    updateCoin.run(rank, coinId);
+    updateSnapshot.run(
+      10 + index,
+      1_000_000_000 + index,
+      10_000_000 + index,
+      rank,
+      JSON.stringify(['canonical-validation-snapshot']),
+      seededAt,
+      seededAt,
+      coinId,
+    );
+  }
+}
+
+function buildSeededValidationCorpusChartPoints() {
+  const baseDate = seedTimestamp - (6 * 24 * 60 * 60 * 1000);
+
+  return Array.from({ length: SEEDED_VALIDATION_CORPUS_COUNT }, (_, corpusIndex) => {
+    const basePrice = 10 + corpusIndex;
+    const baseMarketCap = 1_000_000_000 + corpusIndex;
+    const baseVolume = 10_000_000 + corpusIndex;
+
+    return Array.from({ length: 7 }, (_, pointIndex) => ({
+      coinId: `validation-corpus-${corpusIndex}`,
+      vsCurrency: 'usd',
+      timestamp: new Date(baseDate + pointIndex * 24 * 60 * 60 * 1000),
+      price: basePrice * (1 + pointIndex * 0.001),
+      marketCap: baseMarketCap * (1 + pointIndex * 0.001),
+      totalVolume: baseVolume * (1 + pointIndex * 0.001),
+    }));
+  }).flat();
+}
+
 const seededSupplyChartPoints = [
   {
     coinId: 'tether',
@@ -167,6 +294,7 @@ const seededSupplyChartPoints = [
 
 export type SeedStaticReferenceDataOptions = {
   includeSeededExchanges?: boolean;
+  includeValidationMarketCorpus?: boolean;
 };
 
 export function seedStaticReferenceData(
@@ -174,9 +302,15 @@ export function seedStaticReferenceData(
   options: SeedStaticReferenceDataOptions = {},
 ) {
   const seededChartPoints = buildSeededChartPoints();
-  const { includeSeededExchanges = false } = options;
+  const seededValidationCorpusChartPoints = buildSeededValidationCorpusChartPoints();
+  const { includeSeededExchanges = false, includeValidationMarketCorpus = false } = options;
 
   database.db.insert(coins).values(seededMinimalCoins).onConflictDoNothing().run();
+  if (includeValidationMarketCorpus) {
+    database.db.insert(coins).values(seededValidationCorpusCoins).onConflictDoNothing().run();
+    reconcileValidationCanonicalMarketRanks(database);
+    reconcileValidationCorpusMarketRanks(database);
+  }
   database.db.insert(assetPlatforms).values(seededAssetPlatforms).onConflictDoNothing().run();
   database.db.insert(categories).values(seededCategories).onConflictDoNothing().run();
   if (includeSeededExchanges) {
@@ -190,8 +324,17 @@ export function seedStaticReferenceData(
   database.db.insert(onchainNetworks).values(seededOnchainNetworks).onConflictDoNothing().run();
   database.db.insert(onchainDexes).values(seededOnchainDexes).onConflictDoNothing().run();
   database.db.insert(onchainPools).values(seededOnchainPools).onConflictDoNothing().run();
+  if (includeValidationMarketCorpus) {
+    database.db.insert(marketSnapshots).values(seededValidationCorpusMarketSnapshots).onConflictDoNothing().run();
+    reconcileValidationCorpusMarketRanks(database);
+  }
   database.db.insert(chartPoints).values(seededChartPoints).onConflictDoNothing().run();
-  database.db.insert(ohlcvCandles).values(seedDailyCandlesFromCloseSeries(seededChartPoints)).onConflictDoNothing().run();
+  if (includeValidationMarketCorpus) {
+    database.db.insert(chartPoints).values(seededValidationCorpusChartPoints).onConflictDoNothing().run();
+  }
+  database.db.insert(ohlcvCandles).values(seedDailyCandlesFromCloseSeries(
+    includeValidationMarketCorpus ? [...seededChartPoints, ...seededValidationCorpusChartPoints] : seededChartPoints,
+  )).onConflictDoNothing().run();
   database.db.insert(supplyChartPoints).values(seededSupplyChartPoints).onConflictDoNothing().run();
 }
 

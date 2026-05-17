@@ -136,14 +136,26 @@ export function recordInitialSyncSnapshotAvailability(state: MarketDataRuntimeSt
 }
 
 export function completeInitialMarketSync(state: MarketDataRuntimeState) {
+  const preserveResidualStaleFallback = state.initialSyncCompletedWithoutUsableLiveSnapshots
+    && state.allowStaleLiveService;
+
   state.initialSyncCompleted = true;
-  clearRecoveredMarketRuntimeDegradation(state);
 
   if (state.initialSyncCompletedWithoutUsableLiveSnapshots) {
+    state.listenerBindDeferred = false;
+    state.providerFailureCooldownUntil = null;
+    if (preserveResidualStaleFallback) {
+      state.allowStaleLiveService = true;
+      state.syncFailureReason ??= 'initial sync completed without usable fresh live snapshots; serving residual source-backed snapshots as stale fallback';
+    } else {
+      state.syncFailureReason = null;
+      state.allowStaleLiveService = false;
+    }
     bumpMarketDataRevision(state);
     return;
   }
 
+  clearRecoveredMarketRuntimeDegradation(state);
   bumpMarketDataRevision(state);
   state.listenerBindDeferred = true;
 }

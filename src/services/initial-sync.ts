@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
-import { coinTickers, exchanges } from '../db/schema';
+import { coinTickers, exchanges, marketSnapshots } from '../db/schema';
 import type { Logger } from 'pino';
 import { createLogger } from '../lib/logger';
 import { fetchExchangeMarkets, isValidExchangeId, type ExchangeId } from '../providers/ccxt';
@@ -13,7 +13,7 @@ import { createProviderBreakerState, recordProviderFailure, recordProviderSucces
 import { runBudgetedProviderFanout } from './provider-readiness-coordinator';
 
 function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
-  return result.snapshotsCreated > 0 && result.tickersWritten > 0;
+  return result.snapshotsCreated > 0;
 }
 
 const STARTUP_EXCHANGE_METADATA_BUDGET_MS = 3_000;
@@ -107,6 +107,39 @@ function hasLiveTickerRows(database: AppDatabase) {
   } catch {
     return false;
   }
+}
+
+function countFreshLiveMarketSnapshots(database: AppDatabase, startedAtMs: number) {
+  const query = database.db
+    .select()
+    .from(marketSnapshots) as { all?: () => Array<{ sourceCount: number; updatedAt: Date | null }> };
+
+  if (typeof query.all !== 'function') {
+    return 1;
+  }
+
+  return query.all()
+    .filter((snapshot) =>
+      snapshot.sourceCount > 0
+      && snapshot.updatedAt instanceof Date
+      && snapshot.updatedAt.getTime() >= startedAtMs,
+    ).length;
+}
+
+function countFreshLiveTickerRows(database: AppDatabase, startedAtMs: number) {
+  const query = database.db
+    .select()
+    .from(coinTickers) as { all?: () => Array<{ lastFetchAt: Date | null }> };
+
+  if (typeof query.all !== 'function') {
+    return 1;
+  }
+
+  return query.all()
+    .filter((ticker) =>
+      ticker.lastFetchAt instanceof Date
+      && ticker.lastFetchAt.getTime() >= startedAtMs,
+    ).length;
 }
 
 function selectStartupTickerRescueExchange(exchangeIds: ExchangeId[]) {
@@ -356,9 +389,11 @@ export async function runInitialMarketSync(
     }
   }
 
-  // Step 4: Count live snapshots
-  const { marketSnapshots } = await import('../db/schema');
-  const snapshotCount = database.db.select().from(marketSnapshots).all().length;
+  // Step 4: Count only rows refreshed during this initial sync. Residual
+  // persisted snapshots are valid stale fallback evidence, but they must not
+  // be misclassified as fresh live bootstrap output.
+  const snapshotCount = countFreshLiveMarketSnapshots(database, startTime);
+  const tickerCount = countFreshLiveTickerRows(database, startTime);
 
   progress?.onStepChange?.('start_ohlcv_worker');
   const ohlcvCandlesWritten = 0;
@@ -379,7 +414,7 @@ export async function runInitialMarketSync(
     coinsDiscovered,
     chainsDiscovered,
     snapshotsCreated: snapshotCount,
-    tickersWritten: snapshotCount,
+    tickersWritten: tickerCount,
     exchangesSynced: activeExchangeIds.length,
     ohlcvCandlesWritten,
   };

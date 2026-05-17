@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { marketSnapshots, supplyChartPoints } from '../src/db/schema';
+import { coins, marketSnapshots, supplyChartPoints } from '../src/db/schema';
 
 describe('coins markets parity', () => {
   let app: FastifyInstance;
@@ -199,6 +199,89 @@ describe('coins markets parity', () => {
     const bitcoinIndex = body.findIndex((row: { id: string }) => row.id === 'bitcoin');
     const ethereumIndex = body.findIndex((row: { id: string }) => row.id === 'ethereum');
     expect(bitcoinIndex === -1 || bitcoinIndex > ethereumIndex).toBe(true);
+  });
+
+  it('keeps source-evidenced canonical majors on the first market-cap page while serving residual stale fallback', async () => {
+    await app.ready();
+    app.marketDataRuntimeState.initialSyncCompleted = true;
+    app.marketDataRuntimeState.allowStaleLiveService = true;
+    app.marketDataRuntimeState.syncFailureReason = 'startup providers timed out; residual snapshots retained';
+    app.marketDataRuntimeState.hotDataRevision += 1;
+
+    const staleTimestamp = new Date('2026-03-19T00:00:00.000Z');
+    app.db.db
+      .update(coins)
+      .set({ marketCapRank: null })
+      .where(eq(coins.id, 'tether'))
+      .run();
+    app.db.db
+      .update(coins)
+      .set({ marketCapRank: null })
+      .where(eq(coins.id, 'binancecoin'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 1,
+        marketCap: 110_000_000_000,
+        totalVolume: 25_000_000_000,
+        marketCapRank: null,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: staleTimestamp,
+        lastUpdated: staleTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'tether'))
+      .run();
+    app.db.db
+      .update(marketSnapshots)
+      .set({
+        price: 612,
+        marketCap: null,
+        totalVolume: 1_500_000_000,
+        marketCapRank: null,
+        sourceProvidersJson: JSON.stringify(['canonical-validation-snapshot']),
+        sourceCount: 1,
+        updatedAt: staleTimestamp,
+        lastUpdated: staleTimestamp,
+      })
+      .where(eq(marketSnapshots.coinId, 'binancecoin'))
+      .run();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&order=market_cap_desc&page=1&per_page=25&sparkline=true&price_change_percentage=1h,24h,7d',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    const ids = body.map((row: { id: string }) => row.id);
+
+    expect(ids).toEqual(expect.arrayContaining(['bitcoin', 'ethereum', 'tether', 'binancecoin', 'usd-coin']));
+    expect(ids.indexOf('bitcoin')).toBeLessThan(ids.indexOf('ethereum'));
+    expect(ids.indexOf('ethereum')).toBeLessThan(ids.indexOf('tether'));
+    expect(ids.indexOf('tether')).toBeLessThan(ids.indexOf('usd-coin'));
+
+    const tether = body.find((row: { id: string }) => row.id === 'tether');
+    const binancecoin = body.find((row: { id: string }) => row.id === 'binancecoin');
+
+    expect(tether).toMatchObject({
+      market_cap_rank: 3,
+      market_cap: 110_000_000_000,
+      total_volume: 25_000_000_000,
+      price_change_percentage_1h_in_currency: expect.any(Number),
+      price_change_percentage_24h_in_currency: 0,
+      price_change_percentage_7d_in_currency: expect.any(Number),
+    });
+    expect(tether.sparkline_in_7d.price.length).toBeGreaterThan(1);
+    expect(binancecoin).toMatchObject({
+      market_cap_rank: 4,
+      current_price: 612,
+      market_cap: null,
+      total_volume: 1_500_000_000,
+      price_change_percentage_1h_in_currency: null,
+    });
+    expect(binancecoin.sparkline_in_7d.price).toEqual([]);
   });
 
   it('publishes stable top-N market quality denominators and replayable evidence in diagnostics', async () => {
