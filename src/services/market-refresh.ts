@@ -13,10 +13,13 @@ import { getCurrencyApiSnapshot } from './currency-rates';
 import {
   buildLiveSnapshotValue,
   buildMarketQuoteAccumulator,
-  filterMarketQuoteSamplesForConsensus,
-  normalizeMarketTimestamp,
   type MarketQuoteSample,
 } from './market-snapshots';
+import {
+  buildAcceptedIngestionPlan,
+  normalizeMarketTickerCandidate,
+  type NormalizedMarketTickerCandidate,
+} from './market-ingestion-acceptance-plan';
 import { clearProviderFailureCooldown, recordProviderFailureCooldown, type MarketDataRuntimeState } from './market-runtime-state';
 import type { MetricsRegistry } from './metrics';
 import {
@@ -91,7 +94,6 @@ type RefreshTickerProcessingState = {
   marketSamples: Map<string, { coinId: string; vsCurrency: string; samples: MarketQuoteSample[] }>;
   pendingQuoteSnapshots: PendingQuoteSnapshot[];
   pendingCoinTickers: PendingCoinTicker[];
-  exchangeQuoteVolumes: Map<string, number>;
 };
 
 type ExchangeTickerRefreshDiagnostic = NonNullable<MarketDataRuntimeState['exchangeTickerIngestion']>['exchange_results'][string];
@@ -274,36 +276,6 @@ function buildBidAskSpreadPercentage(bid: number | null, ask: number | null) {
   return new BigNumber(ask).minus(bid).dividedBy(ask).multipliedBy(100).toNumber();
 }
 
-function hasValidBidAskPair(bid: number | null, ask: number | null) {
-  const hasBid = bid !== null;
-  const hasAsk = ask !== null;
-
-  if (!hasBid && !hasAsk) {
-    return true;
-  }
-
-  if ((hasBid && (!Number.isFinite(bid) || bid < 0)) || (hasAsk && (!Number.isFinite(ask) || ask <= 0))) {
-    return false;
-  }
-
-  if (hasBid && hasAsk && bid > ask) {
-    return false;
-  }
-
-  return true;
-}
-
-function tickerSymbolMatchesAssets(ticker: ExchangeTickerSnapshot) {
-  const [symbolBase, symbolQuote, ...extraParts] = ticker.symbol.split('/');
-
-  if (!symbolBase || !symbolQuote || extraParts.length > 0) {
-    return false;
-  }
-
-  return symbolBase.trim().toUpperCase() === ticker.base.trim().toUpperCase()
-    && symbolQuote.trim().toUpperCase() === ticker.quote.trim().toUpperCase();
-}
-
 function buildTradeUrl(exchangeId: ExchangeId, base: string, target: string) {
   return `https://www.${exchangeId}.com/trade/${base}-${target}`;
 }
@@ -395,19 +367,7 @@ function createRefreshTickerProcessingState(): RefreshTickerProcessingState {
     marketSamples: new Map(),
     pendingQuoteSnapshots: [],
     pendingCoinTickers: [],
-    exchangeQuoteVolumes: new Map(),
   };
-}
-
-function recordExchangeQuoteVolume(exchangeQuoteVolumes: Map<string, number>, exchangeId: string, quoteVolume: number | null) {
-  if (quoteVolume === null) {
-    return;
-  }
-
-  exchangeQuoteVolumes.set(
-    exchangeId,
-    new BigNumber(exchangeQuoteVolumes.get(exchangeId) ?? 0).plus(quoteVolume).toNumber(),
-  );
 }
 
 function createExchangeTickerRefreshDiagnostic(): ExchangeTickerRefreshDiagnostic {
@@ -433,74 +393,12 @@ function incrementTickerRejection(
   diagnostic.rejection_reasons[reason] = (diagnostic.rejection_reasons[reason] ?? 0) + 1;
 }
 
-function toFiniteNullableNonNegative(value: number | null) {
-  if (value === null) {
-    return null;
-  }
-
-  return Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function toFiniteNullablePercentage(value: number | null) {
-  if (value === null) {
-    return null;
-  }
-
-  return Number.isFinite(value) ? value : null;
-}
-
-function hasTruthyQualityFlag(ticker: ExchangeTickerSnapshot, flagNames: string[]) {
-  const tickerRecord = ticker as unknown as Record<string, unknown>;
-  const rawRecord = ticker.raw && typeof ticker.raw === 'object'
-    ? ticker.raw as unknown as Record<string, unknown>
-    : {};
-
-  return flagNames.some((flagName) =>
-    tickerRecord[flagName] === true
-    || rawRecord[flagName] === true
-    || rawRecord[flagName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)] === true,
-  );
-}
-
-function normalizeTickerForMarketSnapshot(ticker: ExchangeTickerSnapshot, nowMs = Date.now()) {
-  const timestamp = normalizeMarketTimestamp(ticker.timestamp, nowMs);
-
-  if (
-    timestamp === null
-    || typeof ticker.symbol !== 'string'
-    || ticker.symbol.trim().length === 0
-    || typeof ticker.base !== 'string'
-    || ticker.base.trim().length === 0
-    || typeof ticker.quote !== 'string'
-    || ticker.quote.trim().length === 0
-    || !tickerSymbolMatchesAssets(ticker)
-    || ticker.last === null
-    || !Number.isFinite(ticker.last)
-    || ticker.last <= 0
-    || !hasValidBidAskPair(ticker.bid, ticker.ask)
-    || hasTruthyQualityFlag(ticker, ['isAnomaly', 'isStale'])
-  ) {
-    return null;
-  }
-
-  const baseVolume = toFiniteNullableNonNegative(ticker.baseVolume);
-  const quoteVolume = toFiniteNullableNonNegative(ticker.quoteVolume);
-  const percentage = toFiniteNullablePercentage(ticker.percentage);
-
-  return {
-    timestamp,
-    baseVolume,
-    quoteVolume,
-    percentage,
-  };
-}
-
 function recordAccumulatorSample(
   marketSamples: RefreshTickerProcessingState['marketSamples'],
   marketTarget: SymbolIndexEntry,
   exchangeId: ExchangeId,
   ticker: ExchangeTickerSnapshot,
-  normalizedTicker: NonNullable<ReturnType<typeof normalizeTickerForMarketSnapshot>>,
+  normalizedTicker: Extract<NormalizedMarketTickerCandidate, { accepted: true }>,
 ) {
   const marketSampleKey = `${marketTarget.coinId}:${marketTarget.vsCurrency}`;
   const entry = marketSamples.get(marketSampleKey) ?? {
@@ -529,7 +427,7 @@ function recordMatchedTicker(
   exchangeId: ExchangeId,
   marketTarget: SymbolIndexEntry,
   ticker: ExchangeTickerSnapshot,
-  normalizedTicker: NonNullable<ReturnType<typeof normalizeTickerForMarketSnapshot>>,
+  normalizedTicker: Extract<NormalizedMarketTickerCandidate, { accepted: true }>,
 ) {
   const normalizedExchangeId = resolveCanonicalExchangeId(exchangeId, knownExchangeIds);
   const fetchedAt = new Date(normalizedTicker.timestamp);
@@ -644,28 +542,11 @@ function buildConversionContext(database: AppDatabase, usdPriceByCoinId: Map<str
   };
 }
 
-function getConsensusAcceptedSamples(marketSamples: RefreshTickerProcessingState['marketSamples']) {
-  const acceptedSamples = new Set<MarketQuoteSample>();
-
-  for (const entry of marketSamples.values()) {
-    for (const sample of filterMarketQuoteSamplesForConsensus(entry.samples)) {
-      acceptedSamples.add(sample);
-    }
-  }
-
-  return acceptedSamples;
-}
-
 function persistAcceptedQuoteSnapshots(
   database: AppDatabase,
   pendingQuoteSnapshots: PendingQuoteSnapshot[],
-  acceptedSamples: Set<MarketQuoteSample>,
 ) {
   for (const pendingSnapshot of pendingQuoteSnapshots) {
-    if (!acceptedSamples.has(pendingSnapshot.marketSample)) {
-      continue;
-    }
-
     recordQuoteSnapshot(database, {
       coinId: pendingSnapshot.coinId,
       vsCurrency: pendingSnapshot.vsCurrency,
@@ -677,20 +558,6 @@ function persistAcceptedQuoteSnapshots(
       priceChangePercentage24h: pendingSnapshot.priceChangePercentage24h,
       sourcePayloadJson: pendingSnapshot.sourcePayloadJson,
     });
-  }
-}
-
-function recordAcceptedExchangeQuoteVolumes(
-  exchangeQuoteVolumes: Map<string, number>,
-  pendingCoinTickers: PendingCoinTicker[],
-  acceptedSamples: Set<MarketQuoteSample>,
-) {
-  for (const pendingTicker of pendingCoinTickers) {
-    if (!acceptedSamples.has(pendingTicker.marketSample)) {
-      continue;
-    }
-
-    recordExchangeQuoteVolume(exchangeQuoteVolumes, pendingTicker.exchangeId, pendingTicker.quoteVolume);
   }
 }
 
@@ -974,15 +841,15 @@ export async function runMarketRefreshOnce(
     for (const ticker of tickers) {
       const request = tickerDiscoveryRequests.get(ticker.symbol);
       const marketTarget = request?.marketTarget;
-      const normalizedTicker = normalizeTickerForMarketSnapshot(ticker);
+      const normalizedTicker = normalizeMarketTickerCandidate(ticker);
 
       if (!marketTarget) {
         incrementTickerRejection(tickerDiagnostic, 'unsupported_or_unmapped_symbol');
         continue;
       }
 
-      if (normalizedTicker === null) {
-        incrementTickerRejection(tickerDiagnostic, 'malformed_ticker_candidate');
+      if (!normalizedTicker.accepted) {
+        incrementTickerRejection(tickerDiagnostic, normalizedTicker.reason);
         continue;
       }
 
@@ -1059,17 +926,16 @@ export async function runMarketRefreshOnce(
   );
 
   const now = new Date();
-  const consensusAcceptedSamples = getConsensusAcceptedSamples(processingState.marketSamples);
-  recordAcceptedExchangeQuoteVolumes(
-    processingState.exchangeQuoteVolumes,
-    processingState.pendingCoinTickers,
-    consensusAcceptedSamples,
-  );
-  persistAcceptedQuoteSnapshots(database, processingState.pendingQuoteSnapshots, consensusAcceptedSamples);
-  updateExchangeVolumes(database, processingState.exchangeQuoteVolumes, now);
+  const acceptedIngestionPlan = buildAcceptedIngestionPlan({
+    marketSamples: processingState.marketSamples,
+    pendingQuoteSnapshots: processingState.pendingQuoteSnapshots,
+    pendingCoinTickers: processingState.pendingCoinTickers,
+  });
+  persistAcceptedQuoteSnapshots(database, acceptedIngestionPlan.acceptedQuoteSnapshots);
+  updateExchangeVolumes(database, acceptedIngestionPlan.exchangeQuoteVolumes, now);
   const writeSnapshotsPhase = createLongPhaseReporter(progress);
-  writeSnapshotsPhase.start(`Still working: writing ${processingState.marketSamples.size.toLocaleString()} market snapshots`);
-  const usdPriceByCoinId = writeMarketSnapshots(database, processingState.marketSamples, now);
+  writeSnapshotsPhase.start(`Still working: writing ${acceptedIngestionPlan.acceptedMarketSamples.size.toLocaleString()} market snapshots`);
+  const usdPriceByCoinId = writeMarketSnapshots(database, acceptedIngestionPlan.acceptedMarketSamples, now);
   const conversionContext = buildConversionContext(database, usdPriceByCoinId);
   const knownExchangeIdsForDiagnostics = new Set(
     database.db.select().from(exchanges).all().map((row) => row.id),
@@ -1085,7 +951,7 @@ export async function runMarketRefreshOnce(
       continue;
     }
 
-    if (!consensusAcceptedSamples.has(pendingTicker.marketSample)) {
+    if (!acceptedIngestionPlan.acceptedSamples.has(pendingTicker.marketSample)) {
       incrementTickerRejection(diagnostic, 'consensus_rejected');
       continue;
     }
@@ -1093,7 +959,7 @@ export async function runMarketRefreshOnce(
     diagnostic.accepted_ticker_rows += 1;
   }
   writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
-  upsertPendingCoinTickers(database, processingState.pendingCoinTickers, conversionContext, consensusAcceptedSamples);
+  upsertPendingCoinTickers(database, acceptedIngestionPlan.acceptedCoinTickers, conversionContext);
   writeSnapshotsPhase.stop();
   enforceQuoteSnapshotRetention(database);
   if (runtimeState) {
