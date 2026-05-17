@@ -4,6 +4,7 @@ import type { AppDatabase } from '../db/client';
 import { exchanges, type ExchangeRow } from '../db/schema';
 import { HttpError } from '../http/errors';
 import { parseJsonArray } from '../lib/shared';
+import { SEEDED_EXCHANGE_TIMESTAMP_MS } from '../services/diagnostics-policy';
 
 const EXCHANGE_ID_ALIASES: Record<string, string> = {
   bybit: 'bybit_spot',
@@ -44,7 +45,7 @@ export function buildExchangeSummary(row: ExchangeRow) {
     trade_volume_24h_btc: row.tradeVolume24hBtc,
     trade_volume_24h_btc_normalized: row.tradeVolume24hBtcNormalized,
     updated_at: row.updatedAt.toISOString(),
-    source: row.updatedAt.getTime() > Date.parse('2026-03-20T00:00:00.000Z') ? 'live' : 'fixture',
+    source: row.updatedAt.getTime() > SEEDED_EXCHANGE_TIMESTAMP_MS ? 'live' : 'fixture',
   };
 }
 
@@ -76,7 +77,7 @@ export function buildExchangeDetail(row: ExchangeRow) {
     trade_volume_24h_btc_normalized: row.tradeVolume24hBtcNormalized,
     status_updates: [],
     updated_at: row.updatedAt.toISOString(),
-    source: row.updatedAt.getTime() > Date.parse('2026-03-20T00:00:00.000Z') ? 'live' : 'fixture',
+    source: row.updatedAt.getTime() > SEEDED_EXCHANGE_TIMESTAMP_MS ? 'live' : 'fixture',
   };
 }
 
