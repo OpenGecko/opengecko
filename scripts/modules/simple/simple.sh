@@ -18,9 +18,15 @@ market_data_ready() {
   printf '%s' "$body" | jq -e '(.bitcoin.usd | type) == "number"' >/dev/null 2>&1
 }
 
-price_basket_ready() {
+top10_price_basket_ready() {
   local body
   body=$(curl -sS --max-time 10 "${BASE_URL}/simple/price?ids=${TOP10_ASSETS}&vs_currencies=usd" 2>/dev/null) || body="{}"
+  printf '%s' "$body" | jq -e '(keys | length == 10) and ([to_entries[].value.usd | type] | all(. == "number"))' >/dev/null 2>&1
+}
+
+price_basket_ready() {
+  local body
+  body=$(curl -sS --max-time 10 "${BASE_URL}/simple/price?ids=${TOP50_ASSETS}&vs_currencies=usd" 2>/dev/null) || body="{}"
   printf '%s' "$body" | jq -e 'keys | length > 0' >/dev/null 2>&1
 }
 
@@ -51,15 +57,15 @@ check_json "supported_vs_currencies contains usdt" "/simple/supported_vs_currenc
 
 module_section "Breadth"
 check_status "GET /simple/price supports top-10 asset basket" "/simple/price?ids=${TOP10_ASSETS}&vs_currencies=${QUOTE_CURRENCIES}"
-if price_basket_ready; then
+if top10_price_basket_ready; then
   check_json_expr "top-10 price basket returns 10 asset objects" "/simple/price?ids=${TOP10_ASSETS}&vs_currencies=usd" 'keys | length == 10' "10 asset ids are present in the response"
   check_json_expr "top-10 price basket returns numeric usd prices" "/simple/price?ids=${TOP10_ASSETS}&vs_currencies=usd" '([to_entries[].value.usd | type] | all(. == "number"))' "every top-10 asset has a numeric usd price"
   check_json_expr "stable assets return both usd and eur quotes" "/simple/price?ids=${STABLE_ASSETS}&vs_currencies=${QUOTE_CURRENCIES}" '([to_entries[].value | has("usd") and has("eur")] | all(.))' "stable assets include usd and eur quote fields"
   show_price_snapshot
 else
-  skip_check "top-10 price basket returns 10 asset objects" "market snapshots are not ready yet"
-  skip_check "top-10 price basket returns numeric usd prices" "market snapshots are not ready yet"
-  skip_check "stable assets return both usd and eur quotes" "market snapshots are not ready yet"
+  skip_check "top-10 price basket returns 10 asset objects" "top-10 live breadth precondition is not met yet"
+  skip_check "top-10 price basket returns numeric usd prices" "top-10 live breadth precondition is not met yet"
+  skip_check "stable assets return both usd and eur quotes" "top-10 live breadth precondition is not met yet"
 fi
 
 module_section "Top-50 Coverage"

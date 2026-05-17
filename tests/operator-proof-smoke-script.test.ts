@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -131,5 +132,113 @@ describe('operator proof smoke script contract', () => {
     );
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  });
+
+  it('records occupied reserved ports as preflight failures without cleaning unknown listeners', () => {
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        [
+          'set -euo pipefail',
+          'PROOF_ROOT="$(mktemp -d /tmp/opengecko-proof-helper-test.XXXXXX)"',
+          'COMMANDS_FILE="${PROOF_ROOT}/commands.jsonl"',
+          'PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"',
+          'SERVER_PID=""',
+          'CURRENT_PORT=""',
+          'FAILURES=0',
+          'RESERVED_PORTS=(3100 3101 3102)',
+          `source "${HELPERS_PATH}"`,
+          'lsof() {',
+          '  case "$*" in',
+          '    *:3101*) printf "4242\\n"; return 0 ;;',
+          '    *) return 1 ;;',
+          '  esac',
+          '}',
+          'set +e',
+          'check_reserved_ports_clear "preflight"',
+          'status="$?"',
+          'set -e',
+          'test "$status" -eq 98',
+          'jq -e \'select(.phase == "preflight" and .port == 3100 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "preflight" and .port == 3101 and .status == "occupied" and .detail == "pids=4242; refusing to touch unknown process" and .exit_code == 98)\' "$PORT_CHECKS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "preflight" and .port == 3102 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "reserved-port-preflight" and .command == "check reserved ports 3100 3101 3102 are clear" and .exit_code == 98)\' "$COMMANDS_FILE" >/dev/null',
+        ].join('\n'),
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      },
+    );
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  });
+
+  it('treats partial live simple top-10 breadth as a smoke precondition skip', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-simple-smoke-'));
+    const fakeCurlPath = join(tempDir, 'curl');
+
+    writeFileSync(
+      fakeCurlPath,
+      `#!/usr/bin/env bash
+set -euo pipefail
+out=""
+write_out=""
+url=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -w) write_out="$2"; shift 2 ;;
+    --max-time|-H|-d|-X) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+
+body='{}'
+case "$url" in
+  */ping) body='{"gecko_says":"(V3) To the Moon!"}' ;;
+  */simple/supported_vs_currencies) body='["usd","eur","usdt"]' ;;
+  */simple/price*include_market_cap*) body='{"bitcoin":{"usd":1,"usd_market_cap":100,"usd_24h_vol":10,"usd_24h_change":1,"last_updated_at":1700000000}}' ;;
+  */simple/price*ids=bitcoin*vs_currencies=usd) body='{"bitcoin":{"usd":1}}' ;;
+  */simple/price*ids=bitcoin,ethereum,tether,binancecoin,solana,ripple,usd-coin,dogecoin,cardano,tron*) body='{"bitcoin":{"usd":1},"ethereum":{"usd":2}}' ;;
+  */simple/price*ids=bitcoin,ethereum,tether,binancecoin,solana,ripple,usd-coin,dogecoin,cardano,tron,avalanche-2*) body='{"bitcoin":{"usd":1},"ethereum":{"usd":2}}' ;;
+  */simple/token_price/ethereum*) body='{}' ;;
+  */exchange_rates) body='{"rates":{"usd":{"value":100000}}}' ;;
+esac
+
+if [[ -n "$out" ]]; then
+  printf '%s' "$body" > "$out"
+else
+  printf '%s' "$body"
+fi
+
+if [[ -n "$write_out" ]]; then
+  printf '200|0.001|application/json'
+fi
+`,
+    );
+    chmodSync(fakeCurlPath, 0o755);
+
+    try {
+      const result = spawnSync('bash', ['scripts/modules/simple/simple.sh'], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${tempDir}:${process.env.PATH ?? ''}`,
+          BASE_URL: 'http://127.0.0.1:3100',
+        },
+      });
+
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toContain('SKIP');
+      expect(result.stdout).toContain('top-10 live breadth precondition is not met yet');
+      expect(result.stdout).toContain('top-50 price basket returns at least one matched asset object');
+      expect(result.stdout).not.toContain('FAIL top-10 price basket returns 10 asset objects');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
