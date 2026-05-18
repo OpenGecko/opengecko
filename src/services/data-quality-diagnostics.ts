@@ -1,6 +1,7 @@
 import type { buildCoverageMatrix } from './coverage-matrix';
 import type { RuntimeDiagnostics } from './runtime-diagnostics';
 import type { AppDatabase } from '../db/client';
+import type { buildGlobalPublicRouteData } from '../modules/global';
 import { getMarketRows } from '../modules/catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
 import { getReferenceMarketCapRank } from '../modules/coins/market-data';
@@ -27,6 +28,7 @@ import { isLiveSourceKind, isReplaySourceKind, isSeededExchangeTimestamp } from 
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
+type GlobalPublicRouteData = ReturnType<typeof buildGlobalPublicRouteData>;
 
 type QualityStatus = 'pass' | 'degraded' | 'fail' | 'out_of_scope';
 type SourceState = 'live' | 'hybrid' | 'seeded' | 'fixture' | 'synthetic' | 'fallback' | 'degraded' | 'unavailable' | 'out_of_scope';
@@ -792,7 +794,11 @@ function buildExchangeQualityEvidence(database: AppDatabase | undefined) {
   };
 }
 
-function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDiagnostics: RuntimeDiagnostics) {
+function buildGlobalQualityEvidence(
+  database: AppDatabase | undefined,
+  runtimeDiagnostics: RuntimeDiagnostics,
+  publicGlobalRouteData?: GlobalPublicRouteData,
+) {
   if (!database) {
     return {
       assertions: ['VAL-EXGLOBAL-019', 'VAL-EXGLOBAL-029'],
@@ -841,8 +847,8 @@ function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDi
   const recomputedTotalVolumeUsd = rows.reduce((sum, row) => sum + (row.snapshot.totalVolume ?? 0), 0);
   const marketCapRows = rows.filter((row) => isFinitePositive(row.snapshot.marketCap));
   const volumeRows = rows.filter((row) => isFiniteNonNegative(row.snapshot.totalVolume));
-  const totalMarketCapUsd = recomputedTotalMarketCapUsd;
-  const totalVolumeUsd = recomputedTotalVolumeUsd;
+  const totalMarketCapUsd = publicGlobalRouteData?.total_market_cap.usd ?? recomputedTotalMarketCapUsd;
+  const totalVolumeUsd = publicGlobalRouteData?.total_volume.usd ?? recomputedTotalVolumeUsd;
   const marketCapDeltaRatio = totalMarketCapUsd === 0
     ? (recomputedTotalMarketCapUsd === 0 ? 0 : 1)
     : Math.abs(totalMarketCapUsd - recomputedTotalMarketCapUsd) / Math.abs(totalMarketCapUsd);
@@ -863,16 +869,20 @@ function buildGlobalQualityEvidence(database: AppDatabase | undefined, runtimeDi
           : null,
       };
     });
-  const publicRouteDominance = Object.fromEntries(
-    [
-      ['btc', 'bitcoin'],
-      ['eth', 'ethereum'],
-      ['usdc', 'usd-coin'],
-    ].map(([symbol, coinId]) => {
-      const row = rows.find((candidate) => candidate.coin.id === coinId) ?? null;
-      return [symbol, safePercentage(row?.snapshot.marketCap ?? 0, totalMarketCapUsd)];
-    }),
-  );
+  const publicRouteDominance = {
+    btc: publicGlobalRouteData?.market_cap_percentage.btc ?? safePercentage(
+      rows.find((candidate) => candidate.coin.id === 'bitcoin')?.snapshot.marketCap ?? 0,
+      totalMarketCapUsd,
+    ),
+    eth: publicGlobalRouteData?.market_cap_percentage.eth ?? safePercentage(
+      rows.find((candidate) => candidate.coin.id === 'ethereum')?.snapshot.marketCap ?? 0,
+      totalMarketCapUsd,
+    ),
+    usdc: publicGlobalRouteData?.market_cap_percentage.usdc ?? safePercentage(
+      rows.find((candidate) => candidate.coin.id === 'usd-coin')?.snapshot.marketCap ?? 0,
+      totalMarketCapUsd,
+    ),
+  };
   const publicRouteValues = {
     route: '/global',
     total_market_cap_usd: totalMarketCapUsd,
@@ -1239,12 +1249,13 @@ export function buildDataQualityDiagnostics(
   runtimeDiagnostics: RuntimeDiagnostics,
   now = new Date(),
   database?: AppDatabase,
+  publicGlobalRouteData?: GlobalPublicRouteData,
 ) {
   const coverageByFamily = new Map(coverageMatrix.entries.map((entry) => [entry.family, entry]));
   const runtimeReasonCodes = providerReasonCodes(runtimeDiagnostics);
   const marketQualityEvidence = buildMarketQualityEvidence(database, runtimeDiagnostics);
   const exchangeQualityEvidence = buildExchangeQualityEvidence(database);
-  const globalQualityEvidence = buildGlobalQualityEvidence(database, runtimeDiagnostics);
+  const globalQualityEvidence = buildGlobalQualityEvidence(database, runtimeDiagnostics, publicGlobalRouteData);
   const derivativesQualityEvidence = buildDerivativesQualityEvidence(database);
   const catalogHybridQualityEvidence = buildCatalogHybridQualityEvidence(database);
 

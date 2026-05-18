@@ -69,7 +69,15 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
           reason_codes,
           failing_dimensions: ([.dimensions[]? | select(.status != "pass") | .id])
         }
-    ]
+    ],
+    global_public_route_comparison: (
+      [.data.families[]? | select(.family == "global") | .evidence.global_quality // {}][0]
+      | {
+          public_route_values: (.public_route_values // null),
+          recomputation: (.recomputation // null),
+          comparison: (.public_route_comparison // null)
+        }
+    )
   }' "$TMP_FILE" > "$parsed_metrics_path"
 
   {
@@ -129,6 +137,25 @@ echo "  threshold: ${threshold}"
 echo "  below_target_count: ${below_count}"
 echo "  reason_codes: ${gate_reasons:-none}"
 echo
+
+if jq -e '[.data.families[]? | select(.family == "global") | .evidence.global_quality.public_route_comparison?] | length > 0' "$TMP_FILE" >/dev/null; then
+  echo "Global public route comparison"
+  jq -r '
+    [.data.families[]? | select(.family == "global") | .evidence.global_quality][0] as $global
+    | [
+        "  public_total_market_cap_usd: \($global.public_route_values.total_market_cap_usd)",
+        "  recomputed_total_market_cap_usd: \($global.recomputation.recomputed_total_market_cap_usd)",
+        "  market_cap_delta_ratio: \($global.public_route_comparison.market_cap_delta_ratio)",
+        "  public_total_volume_usd: \($global.public_route_values.total_volume_usd)",
+        "  recomputed_total_volume_usd: \($global.recomputation.recomputed_total_volume_usd)",
+        "  volume_delta_ratio: \($global.public_route_comparison.volume_delta_ratio)",
+        "  tolerance_ratio: \($global.recomputation.tolerance_ratio)",
+        "  within_tolerance: \($global.public_route_comparison.within_tolerance)"
+      ]
+      | .[]
+  ' "$TMP_FILE"
+  echo
+fi
 
 if [[ "$below_count" -gt 0 ]]; then
   echo "Below-threshold families"

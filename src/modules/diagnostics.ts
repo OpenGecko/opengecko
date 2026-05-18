@@ -19,6 +19,7 @@ import { buildCoinHistoryProviderDiagnostics } from '../services/coin-history-di
 import type { ChartResponseSourceDiagnostics } from '../services/chart-response-source-diagnostics';
 import { buildCoverageMatrix } from '../services/coverage-matrix';
 import { buildDataQualityDiagnostics } from '../services/data-quality-diagnostics';
+import { buildGlobalPublicRouteData } from './global';
 import { isLiveSourceKind, isSeededExchangeTimestamp } from '../services/diagnostics-policy';
 import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
 import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
@@ -293,8 +294,20 @@ export function registerDiagnosticsRoutes(
       capabilityEvidence,
     );
 
+    const publicGlobalRouteData = buildGlobalPublicRouteData(
+      database,
+      app.marketDataRuntimeState,
+      marketFreshnessThresholdSeconds,
+    );
+
     return sendCacheableJson(request, reply, {
-      data: buildDataQualityDiagnostics(buildCoverageMatrix(database, now), runtimeDiagnostics, now, database),
+      data: buildDataQualityDiagnostics(
+        buildCoverageMatrix(database, now),
+        runtimeDiagnostics,
+        now,
+        database,
+        publicGlobalRouteData,
+      ),
     }, dynamicDiagnosticsCachePolicy);
   });
 

@@ -75,6 +75,60 @@ describe('focused data quality gate script', () => {
     expect(result.stdout).toContain('Evidence artifacts:');
   });
 
+  it('prints public global route comparison evidence when diagnostics expose it', () => {
+    const result = runGateWithFixture(JSON.stringify({
+      data: {
+        gate: {
+          status: 'pass',
+          threshold: 9,
+          below_target_count: 0,
+          below_target_families: [],
+          reason_codes: [],
+        },
+        families: [
+          {
+            family: 'global',
+            score: 9.5,
+            target_threshold: 9,
+            status: 'pass',
+            source: { state: 'live', fallback: false, latest_source_at: null, provider_ids: [] },
+            counts: {},
+            dimensions: [],
+            evidence: {
+              global_quality: {
+                public_route_values: {
+                  route: '/global',
+                  total_market_cap_usd: 100,
+                  total_volume_usd: 10,
+                  market_cap_percentage: { btc: 50 },
+                },
+                recomputation: {
+                  tolerance_ratio: 0.000001,
+                  recomputed_total_market_cap_usd: 100,
+                  recomputed_total_volume_usd: 10,
+                },
+                public_route_comparison: {
+                  compared_route: '/global',
+                  market_cap_delta_ratio: 0,
+                  volume_delta_ratio: 0,
+                  dominance_delta_ratios: { btc: 0 },
+                  within_tolerance: true,
+                },
+              },
+            },
+          },
+        ],
+      },
+    }));
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain('Global public route comparison');
+    expect(result.stdout).toContain('public_total_market_cap_usd: 100');
+    expect(result.stdout).toContain('recomputed_total_market_cap_usd: 100');
+    expect(result.stdout).toContain('tolerance_ratio: 0.000001');
+    expect(result.stdout).toContain('within_tolerance: true');
+  });
+
   it('exits non-zero and prints below-threshold dimensions, evidence, and reason codes when the gate fails', () => {
     const result = runGateWithFixture(JSON.stringify({
       data: {

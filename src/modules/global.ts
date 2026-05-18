@@ -37,6 +37,78 @@ function computeMarketCapChangePercentage24hUsd(
   return currentMarketCapUsd.minus(previousMarketCapUsd).dividedBy(previousMarketCapUsd).multipliedBy(100).toNumber();
 }
 
+export function buildGlobalPublicRouteData(
+  database: AppDatabase,
+  runtimeState: MarketDataRuntimeState,
+  marketFreshnessThresholdSeconds: number,
+) {
+  const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
+  const marketRows = getMarketRows(database, 'usd', { status: 'active' })
+    .map((row) => ({
+      coin: row.coin,
+      snapshot: getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy),
+    }))
+    .filter((row): row is typeof row & { snapshot: NonNullable<typeof row.snapshot> } => row.snapshot !== null);
+  const activeCoinCount = getMarketRows(database, 'usd', { status: 'active' }).length;
+  const exchangeCount = database.db.select().from(exchanges).all().length;
+  const totalMarketCapUsd = marketRows.reduce((sum, row) => sum.plus(row.snapshot?.marketCap ?? 0), new BigNumber(0)).toNumber();
+  const totalVolumeUsd = marketRows.reduce((sum, row) => sum.plus(row.snapshot?.totalVolume ?? 0), new BigNumber(0)).toNumber();
+  const totalMarketCap = Object.fromEntries(
+    SUPPORTED_VS_CURRENCIES.map((currency) => [currency, totalMarketCapUsd * getConversionRate(database, currency, marketFreshnessThresholdSeconds, snapshotAccessPolicy)]),
+  );
+  const totalVolume = Object.fromEntries(
+    SUPPORTED_VS_CURRENCIES.map((currency) => [currency, totalVolumeUsd * getConversionRate(database, currency, marketFreshnessThresholdSeconds, snapshotAccessPolicy)]),
+  );
+  const btcMarketCap = marketRows.find((row) => row.coin.id === 'bitcoin')?.snapshot?.marketCap ?? 0;
+  const ethMarketCap = marketRows.find((row) => row.coin.id === 'ethereum')?.snapshot?.marketCap ?? 0;
+  const usdcMarketCap = marketRows.find((row) => row.coin.id === 'usd-coin')?.snapshot?.marketCap ?? 0;
+  const preferredDominanceCoinIds = ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple', 'usd-coin', 'solana'];
+  const marketCapPercentage = Object.fromEntries(
+    marketRows
+      .filter((row) => preferredDominanceCoinIds.includes(row.coin.id))
+      .sort((left, right) => {
+        const leftIndex = preferredDominanceCoinIds.indexOf(left.coin.id);
+        const rightIndex = preferredDominanceCoinIds.indexOf(right.coin.id);
+        return leftIndex - rightIndex;
+      })
+      .map((row) => [row.coin.symbol.toLowerCase(), safePercentage(row.snapshot.marketCap ?? 0, totalMarketCapUsd)]),
+  );
+  const volumeChangePercentage24hUsd = totalVolumeUsd === 0
+    ? new BigNumber(0)
+    : marketRows.reduce((sum, row) => {
+      const volume = row.snapshot.totalVolume;
+      const changePercentage = row.snapshot.priceChangePercentage24h;
+
+      if (volume === null || changePercentage === null || changePercentage <= -100) {
+        return sum;
+      }
+
+      return sum.plus(new BigNumber(volume).dividedBy(new BigNumber(1).plus(new BigNumber(changePercentage).dividedBy(100))));
+    }, new BigNumber(0));
+  const updatedAt = marketRows.reduce((maxTimestamp, row) => Math.max(maxTimestamp, row.snapshot.lastUpdated.getTime()), 0);
+
+  return {
+    active_cryptocurrencies: activeCoinCount,
+    upcoming_icos: 0,
+    ongoing_icos: 0,
+    ended_icos: 0,
+    markets: exchangeCount,
+    total_market_cap: totalMarketCap,
+    total_volume: totalVolume,
+    market_cap_percentage: {
+      btc: safePercentage(btcMarketCap, totalMarketCapUsd),
+      eth: safePercentage(ethMarketCap, totalMarketCapUsd),
+      usdc: safePercentage(usdcMarketCap, totalMarketCapUsd),
+      ...marketCapPercentage,
+    },
+    market_cap_change_percentage_24h_usd: computeMarketCapChangePercentage24hUsd(marketRows),
+    volume_change_percentage_24h_usd: volumeChangePercentage24hUsd.isZero()
+      ? 0
+      : new BigNumber(totalVolumeUsd).minus(volumeChangePercentage24hUsd).dividedBy(volumeChangePercentage24hUsd).multipliedBy(100).toNumber(),
+    updated_at: Math.floor(updatedAt / 1000),
+  };
+}
+
 function compareNullableNumbersDescending(left: number | null | undefined, right: number | null | undefined) {
   return (right ?? -Infinity) - (left ?? -Infinity);
 }
@@ -306,72 +378,8 @@ export function registerGlobalRoutes(
   });
 
   app.get('/global', async (request, reply) => {
-    const snapshotAccessPolicy = getSnapshotAccessPolicy(runtimeState);
-    const marketRows = getMarketRows(database, 'usd', { status: 'active' })
-      .map((row) => ({
-        coin: row.coin,
-        snapshot: getUsableSnapshot(row.snapshot, marketFreshnessThresholdSeconds, snapshotAccessPolicy),
-      }))
-      .filter((row): row is typeof row & { snapshot: NonNullable<typeof row.snapshot> } => row.snapshot !== null);
-    const activeCoinCount = getMarketRows(database, 'usd', { status: 'active' }).length;
-    const exchangeCount = database.db.select().from(exchanges).all().length;
-    const totalMarketCapUsd = marketRows.reduce((sum, row) => sum.plus(row.snapshot?.marketCap ?? 0), new BigNumber(0)).toNumber();
-    const totalVolumeUsd = marketRows.reduce((sum, row) => sum.plus(row.snapshot?.totalVolume ?? 0), new BigNumber(0)).toNumber();
-    const totalMarketCap = Object.fromEntries(
-      SUPPORTED_VS_CURRENCIES.map((currency) => [currency, totalMarketCapUsd * getConversionRate(database, currency, marketFreshnessThresholdSeconds, snapshotAccessPolicy)]),
-    );
-    const totalVolume = Object.fromEntries(
-      SUPPORTED_VS_CURRENCIES.map((currency) => [currency, totalVolumeUsd * getConversionRate(database, currency, marketFreshnessThresholdSeconds, snapshotAccessPolicy)]),
-    );
-    const btcMarketCap = marketRows.find((row) => row.coin.id === 'bitcoin')?.snapshot?.marketCap ?? 0;
-    const ethMarketCap = marketRows.find((row) => row.coin.id === 'ethereum')?.snapshot?.marketCap ?? 0;
-    const usdcMarketCap = marketRows.find((row) => row.coin.id === 'usd-coin')?.snapshot?.marketCap ?? 0;
-    const preferredDominanceCoinIds = ['bitcoin', 'ethereum', 'tether', 'binancecoin', 'ripple', 'usd-coin', 'solana'];
-    const marketCapPercentage = Object.fromEntries(
-      marketRows
-        .filter((row) => preferredDominanceCoinIds.includes(row.coin.id))
-        .sort((left, right) => {
-          const leftIndex = preferredDominanceCoinIds.indexOf(left.coin.id);
-          const rightIndex = preferredDominanceCoinIds.indexOf(right.coin.id);
-          return leftIndex - rightIndex;
-        })
-        .map((row) => [row.coin.symbol.toLowerCase(), safePercentage(row.snapshot.marketCap ?? 0, totalMarketCapUsd)]),
-    );
-    const volumeChangePercentage24hUsd = totalVolumeUsd === 0
-      ? new BigNumber(0)
-      : marketRows.reduce((sum, row) => {
-        const volume = row.snapshot.totalVolume;
-        const changePercentage = row.snapshot.priceChangePercentage24h;
-
-        if (volume === null || changePercentage === null || changePercentage <= -100) {
-          return sum;
-        }
-
-        return sum.plus(new BigNumber(volume).dividedBy(new BigNumber(1).plus(new BigNumber(changePercentage).dividedBy(100))));
-      }, new BigNumber(0));
-    const updatedAt = marketRows.reduce((maxTimestamp, row) => Math.max(maxTimestamp, row.snapshot.lastUpdated.getTime()), 0);
-
     return sendCacheableJson(request, reply, {
-      data: {
-        active_cryptocurrencies: activeCoinCount,
-        upcoming_icos: 0,
-        ongoing_icos: 0,
-        ended_icos: 0,
-        markets: exchangeCount,
-        total_market_cap: totalMarketCap,
-        total_volume: totalVolume,
-        market_cap_percentage: {
-          btc: safePercentage(btcMarketCap, totalMarketCapUsd),
-          eth: safePercentage(ethMarketCap, totalMarketCapUsd),
-          usdc: safePercentage(usdcMarketCap, totalMarketCapUsd),
-          ...marketCapPercentage,
-        },
-        market_cap_change_percentage_24h_usd: computeMarketCapChangePercentage24hUsd(marketRows),
-        volume_change_percentage_24h_usd: volumeChangePercentage24hUsd.isZero()
-          ? 0
-          : new BigNumber(totalVolumeUsd).minus(volumeChangePercentage24hUsd).dividedBy(volumeChangePercentage24hUsd).multipliedBy(100).toNumber(),
-        updated_at: Math.floor(updatedAt / 1000),
-      },
+      data: buildGlobalPublicRouteData(database, runtimeState, marketFreshnessThresholdSeconds),
     }, GLOBAL_HTTP_CACHE_POLICY);
   });
 }

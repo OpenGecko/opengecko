@@ -10,6 +10,9 @@ import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
 import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates';
+import { buildCoverageMatrix } from '../src/services/coverage-matrix';
+import { buildDataQualityDiagnostics } from '../src/services/data-quality-diagnostics';
+import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
 
 function resetCcxtProviderMocks() {
   const mockedFetchExchangeMarkets = ccxtProvider.fetchExchangeMarkets as ReturnType<typeof vi.fn>;
@@ -437,6 +440,74 @@ describe('data quality diagnostics', () => {
       volume_delta_ratio: 0,
       within_tolerance: true,
     });
+  });
+
+  it('fails global public-route comparison when /global values diverge from recomputed diagnostics totals', async () => {
+    await getApp().ready();
+
+    const globalResponse = await getApp().inject({
+      method: 'GET',
+      url: '/global',
+    });
+
+    expect(globalResponse.statusCode).toBe(200);
+    const publicGlobal = globalResponse.json().data as {
+      active_cryptocurrencies: number;
+      upcoming_icos: number;
+      ongoing_icos: number;
+      ended_icos: number;
+      markets: number;
+      total_market_cap: Record<string, number>;
+      total_volume: Record<string, number>;
+      market_cap_percentage: Record<string, number>;
+      market_cap_change_percentage_24h_usd: number;
+      volume_change_percentage_24h_usd: number;
+      updated_at: number;
+    };
+    const driftedPublicGlobal = {
+      ...publicGlobal,
+      total_market_cap: {
+        ...publicGlobal.total_market_cap,
+        usd: publicGlobal.total_market_cap.usd > 0 ? publicGlobal.total_market_cap.usd * 1.5 : 100,
+      },
+      total_volume: {
+        ...publicGlobal.total_volume,
+        usd: publicGlobal.total_volume.usd > 0 ? publicGlobal.total_volume.usd * 0.5 : 100,
+      },
+      market_cap_percentage: {
+        ...publicGlobal.market_cap_percentage,
+        btc: (publicGlobal.market_cap_percentage.btc ?? 0) + 10,
+        eth: publicGlobal.market_cap_percentage.eth ?? 0,
+        usdc: publicGlobal.market_cap_percentage.usdc ?? 0,
+      },
+    };
+    const runtimeDiagnostics = buildRuntimeDiagnostics(
+      getApp().marketDataRuntimeState,
+      null,
+      getApp().marketFreshnessThresholdSeconds,
+    );
+    const diagnostics = buildDataQualityDiagnostics(
+      buildCoverageMatrix(getApp().db),
+      runtimeDiagnostics,
+      new Date(),
+      getApp().db,
+      driftedPublicGlobal,
+    );
+    const globalFamily = diagnostics.families.find((family) => family.family === 'global');
+
+    expect(globalFamily?.evidence.global_quality?.public_route_values).toMatchObject({
+      total_market_cap_usd: driftedPublicGlobal.total_market_cap.usd,
+      total_volume_usd: driftedPublicGlobal.total_volume.usd,
+    });
+    expect(globalFamily?.evidence.global_quality?.public_route_comparison).toMatchObject({
+      compared_route: '/global',
+      within_tolerance: false,
+    });
+    expect(globalFamily?.evidence.global_quality?.public_route_comparison.market_cap_delta_ratio).toBeGreaterThan(0);
+    expect(globalFamily?.evidence.global_quality?.public_route_comparison.volume_delta_ratio).toBeGreaterThan(0);
+    const dominanceDeltaRatios = globalFamily?.evidence.global_quality?.public_route_comparison.dominance_delta_ratios as Record<string, number> | undefined;
+    expect(dominanceDeltaRatios?.btc).toBeGreaterThan(0);
+    expect(globalFamily?.evidence.global_quality?.reason_codes).toContain('sparse_market_rows_or_aggregate_mismatch');
   });
 
   it('exposes catalog hybrid quality evidence for search, assets, treasury, onchain, and supply assertions', async () => {
