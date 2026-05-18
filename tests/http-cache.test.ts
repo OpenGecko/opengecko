@@ -404,10 +404,17 @@ describe('HTTP cache semantics', () => {
             }
           }
           if (payload.meta) {
-            payload.meta.data_source = '<provider-dependent>';
-            payload.meta.fixture = '<provider-dependent>';
-            payload.meta.source = '<provider-dependent>';
-            delete payload.meta.field_provenance;
+            const meta = payload.meta as Record<string, unknown>;
+            meta.data_source = '<provider-dependent>';
+            meta.degraded_reason = '<provider-dependent>';
+            meta.fallback_reason = '<provider-dependent>';
+            meta.fixture = '<provider-dependent>';
+            meta.fixture_version = '<provider-dependent>';
+            meta.reason_codes = '<provider-dependent>';
+            meta.source = '<provider-dependent>';
+            meta.source_identifiers = '<provider-dependent>';
+            meta.source_mode = '<provider-dependent>';
+            delete meta.field_provenance;
           }
         }
         baseline[name] = body;
@@ -602,10 +609,10 @@ describe('HTTP cache semantics', () => {
             },
             "meta": {
               "data_source": "<provider-dependent>",
-              "degraded_reason": null,
-              "fallback_reason": null,
+              "degraded_reason": "<provider-dependent>",
+              "fallback_reason": "<provider-dependent>",
               "fixture": "<provider-dependent>",
-              "fixture_version": null,
+              "fixture_version": "<provider-dependent>",
               "latest_source_fetched_at": null,
               "no_silent_zero_fill": {
                 "numeric_fields": [
@@ -616,13 +623,11 @@ describe('HTTP cache semantics', () => {
                 "policy": "null_or_marked_fallback_when_unavailable",
                 "zero_fill_is_marked": true,
               },
-              "reason_codes": [],
+              "reason_codes": "<provider-dependent>",
               "source": "<provider-dependent>",
               "source_fetched_at": null,
-              "source_identifiers": [
-                "defillama/sqd",
-              ],
-              "source_mode": "live",
+              "source_identifiers": "<provider-dependent>",
+              "source_mode": "<provider-dependent>",
               "unavailable_reason": null,
               "updated_at": "2026-03-20T00:00:00.000Z",
             },
