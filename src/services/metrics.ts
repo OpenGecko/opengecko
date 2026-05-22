@@ -22,6 +22,16 @@ type GaugeSample = {
   value: number;
 };
 
+export type ProviderStabilityOutcome =
+  | 'successful'
+  | 'timed_out'
+  | 'canceled'
+  | 'failed'
+  | 'breaker_open'
+  | 'blocked_unavailable'
+  | 'skipped'
+  | 'recovered';
+
 function normalizeLabels(labels: Record<string, string>) {
   return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
 }
@@ -61,6 +71,8 @@ export type MetricsRegistry = {
   recordProviderBlockedByBreaker: (provider: string) => void;
   recordProviderPartialFailure: (provider: string) => void;
   recordProviderRecovery: (provider: string) => void;
+  recordProviderAttemptStart: (provider: string, family: string) => void;
+  recordProviderAttemptEnd: (provider: string, family: string, outcome: ProviderStabilityOutcome, durationMs: number) => void;
   initializeProviderHealthCounters: (provider: string) => void;
   recordStartupPrewarmTarget: (target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) => void;
   recordStartupPrewarmFirstRequest: (target: string, cacheSurface: string, cacheHit: boolean, durationMs: number) => void;
@@ -71,6 +83,7 @@ export function createMetricsRegistry(): MetricsRegistry {
   const counters = new Map<CounterKey, CounterSample>();
   const histograms = new Map<CounterKey, HistogramSample>();
   const gauges = new Map<CounterKey, GaugeSample>();
+  const providerInFlight = new Map<string, number>();
 
   function incrementCounter(name: string, labels: Record<string, string> = {}, value = 1) {
     const key = buildKey(name, labels);
@@ -184,11 +197,43 @@ export function createMetricsRegistry(): MetricsRegistry {
     incrementCounter('provider_recovery_total', { provider });
   }
 
+  function providerInFlightKey(provider: string, family: string) {
+    return buildKey('opengecko_provider_in_flight', { provider, family });
+  }
+
+  function recordProviderAttemptStart(provider: string, family: string) {
+    const labels = { provider, family };
+    const key = providerInFlightKey(provider, family);
+    const nextValue = (providerInFlight.get(key) ?? 0) + 1;
+    providerInFlight.set(key, nextValue);
+    setGauge('opengecko_provider_in_flight', labels, nextValue);
+  }
+
+  function recordProviderAttemptEnd(provider: string, family: string, outcome: ProviderStabilityOutcome, durationMs: number) {
+    const labels = { provider, family };
+    const key = providerInFlightKey(provider, family);
+    const nextValue = Math.max(0, (providerInFlight.get(key) ?? 0) - 1);
+    providerInFlight.set(key, nextValue);
+    setGauge('opengecko_provider_in_flight', labels, nextValue);
+    incrementCounter('opengecko_provider_attempts_total', {
+      ...labels,
+      outcome,
+    });
+    observeHistogram('opengecko_provider_attempt_duration_ms', {
+      ...labels,
+      outcome,
+    }, Math.max(0, durationMs));
+  }
+
   function initializeProviderHealthCounters(provider: string) {
     incrementCounter('provider_forced_failure_total', { provider }, 0);
     incrementCounter('provider_blocked_by_breaker_total', { provider }, 0);
     incrementCounter('provider_partial_failure_total', { provider }, 0);
     incrementCounter('provider_recovery_total', { provider }, 0);
+    setGauge('opengecko_provider_in_flight', { provider, family: 'ticker' }, 0);
+    for (const outcome of ['successful', 'timed_out', 'canceled', 'failed', 'breaker_open', 'blocked_unavailable', 'skipped', 'recovered'] as const) {
+      incrementCounter('opengecko_provider_attempts_total', { provider, family: 'ticker', outcome }, 0);
+    }
   }
 
   function recordStartupPrewarmTarget(target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) {
@@ -253,6 +298,8 @@ export function createMetricsRegistry(): MetricsRegistry {
     recordProviderBlockedByBreaker,
     recordProviderPartialFailure,
     recordProviderRecovery,
+    recordProviderAttemptStart,
+    recordProviderAttemptEnd,
     initializeProviderHealthCounters,
     recordStartupPrewarmTarget,
     recordStartupPrewarmFirstRequest,

@@ -20,10 +20,19 @@ import {
   normalizeMarketTickerCandidate,
   type NormalizedMarketTickerCandidate,
 } from './market-ingestion-acceptance-plan';
-import { clearProviderFailureCooldown, recordProviderFailureCooldown, type MarketDataRuntimeState } from './market-runtime-state';
-import type { MetricsRegistry } from './metrics';
+import {
+  clearProviderFailureCooldown,
+  finishProviderAttempt,
+  getProviderFaultControl,
+  recordProviderFailureCooldown,
+  startProviderAttempt,
+  type MarketDataRuntimeState,
+  type ProviderAttemptOutcome,
+} from './market-runtime-state';
+import type { MetricsRegistry, ProviderStabilityOutcome } from './metrics';
 import {
   canAttemptProvider,
+  classifyProviderFailure,
   createProviderBreakerState,
   recordProviderFailure,
   recordProviderSuccess,
@@ -108,7 +117,7 @@ type MarketRefreshProgressHandlers = {
   onLongPhaseStatus?: (message: string) => void;
   onExchangeFetchStart?: (exchangeId: string) => void;
   onExchangeFetchComplete?: (exchangeId: string, durationMs: number) => void;
-  onExchangeFetchFailed?: (exchangeId: string, message: string, durationMs: number) => void;
+  onExchangeFetchFailed?: (exchangeId: string, message: string, durationMs: number, outcome?: ProviderAttemptOutcome) => void;
   onWaitingExchangeStatus?: (exchangeIds: string[]) => void;
   startupTickerFetchBudgetMs?: number;
   suppressSummaryLogs?: boolean;
@@ -145,14 +154,65 @@ function createLongPhaseReporter(progress?: MarketRefreshProgressHandlers) {
   };
 }
 
-export async function withExchangeFetchTimeout<T>(exchangeId: string, operation: Promise<T>, timeoutMs = EXCHANGE_TICKER_FETCH_TIMEOUT_MS) {
+function toProviderAttemptOutcome(error: Error): ProviderAttemptOutcome {
+  if (error.name === 'AbortError' || /abort|cancel/i.test(error.message)) {
+    return 'canceled';
+  }
+
+  if (/timeout|timed out|budget exceeded/i.test(error.message) || /Timeout|BudgetExceeded/.test(error.name)) {
+    return 'timed_out';
+  }
+
+  const classified = classifyProviderFailure(error);
+  if (classified.kind === 'regional_block' || classified.kind === 'unavailable_market') {
+    return 'blocked_unavailable';
+  }
+
+  return 'failed';
+}
+
+function toMetricProviderOutcome(outcome: ProviderAttemptOutcome): ProviderStabilityOutcome {
+  return outcome;
+}
+
+function buildAbortError(exchangeId: string) {
+  const error = new Error(`${exchangeId} ticker fetch canceled`);
+  error.name = 'AbortError';
+  return error;
+}
+
+export async function withExchangeFetchTimeout<T>(
+  exchangeId: string,
+  operation: Promise<T> | ((signal: AbortSignal) => Promise<T> | T),
+  timeoutMs = EXCHANGE_TICKER_FETCH_TIMEOUT_MS,
+  signal?: AbortSignal,
+) {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const operationPromise = Promise.resolve(
+    typeof operation === 'function' ? operation(controller.signal) : operation,
+  );
+  const abortPromise = new Promise<T>((_, reject) => {
+    if (signal?.aborted) {
+      controller.abort();
+      reject(buildAbortError(exchangeId));
+      return;
+    }
+
+    signal?.addEventListener('abort', () => {
+      abort();
+      reject(buildAbortError(exchangeId));
+    }, { once: true });
+  });
 
   try {
     return await Promise.race([
-      operation,
+      operationPromise,
+      abortPromise,
       new Promise<T>((_, reject) => {
         timeoutHandle = setTimeout(() => {
+          abort();
           const error = new Error(`${exchangeId} ticker fetch timed out after ${timeoutMs}ms`);
           error.name = 'ExchangeTickerTimeoutError';
           reject(error);
@@ -171,6 +231,8 @@ async function fetchExchangeTickerResults(
   requestedSymbols: string[],
   concurrency: number,
   progress?: MarketRefreshProgressHandlers,
+  runtimeState?: MarketDataRuntimeState,
+  metrics?: Pick<MetricsRegistry, 'recordProviderAttemptStart' | 'recordProviderAttemptEnd'>,
 ): Promise<PromiseSettledResult<ExchangeTickerSnapshot[]>[]> {
   if (exchangeIds.length === 0) {
     return [];
@@ -188,17 +250,54 @@ async function fetchExchangeTickerResults(
     items: exchangeIds,
     concurrency,
     budgetMs,
-    run: (exchangeId) => withExchangeFetchTimeout(exchangeId, fetchExchangeTickers(exchangeId, requestedSymbols)),
+    run: async (exchangeId, _index, signal) => {
+      const faultControl = getProviderFaultControl(runtimeState, exchangeId, 'ticker');
+      if (faultControl?.mode === 'failure') {
+        throw new Error(faultControl.reason ?? 'validator controlled provider failure');
+      }
+      if (faultControl?.mode === 'blocked_unavailable') {
+        throw new Error(faultControl.reason ?? '403 Forbidden validator controlled provider unavailable');
+      }
+      if (faultControl?.mode === 'canceled') {
+        throw buildAbortError(exchangeId);
+      }
+      if (faultControl?.mode === 'timeout') {
+        const error = new Error(faultControl.reason ?? `${exchangeId} ticker fetch timed out by validator fault control`);
+        error.name = 'ExchangeTickerTimeoutError';
+        throw error;
+      }
+
+      return await withExchangeFetchTimeout(
+        exchangeId,
+        fetchExchangeTickers(exchangeId, requestedSymbols),
+        EXCHANGE_TICKER_FETCH_TIMEOUT_MS,
+        signal,
+      );
+    },
     buildBudgetError,
     reportBudgetFailure: true,
     onStart: (exchangeId) => {
+      if (runtimeState) {
+        startProviderAttempt(runtimeState, exchangeId, 'ticker');
+      }
+      metrics?.recordProviderAttemptStart(exchangeId, 'ticker');
       progress?.onExchangeFetchStart?.(exchangeId);
     },
     onComplete: (exchangeId, _index, durationMs) => {
+      if (runtimeState) {
+        finishProviderAttempt(runtimeState, exchangeId, 'ticker', 'successful', null);
+      }
+      metrics?.recordProviderAttemptEnd(exchangeId, 'ticker', 'successful', durationMs);
       progress?.onExchangeFetchComplete?.(exchangeId, durationMs);
     },
     onFailure: (exchangeId, _index, error, durationMs) => {
-      progress?.onExchangeFetchFailed?.(exchangeId, error.message, durationMs);
+      const outcome = toProviderAttemptOutcome(error);
+      const classified = classifyProviderFailure(error);
+      if (runtimeState) {
+        finishProviderAttempt(runtimeState, exchangeId, 'ticker', outcome, classified.reason);
+      }
+      metrics?.recordProviderAttemptEnd(exchangeId, 'ticker', toMetricProviderOutcome(outcome), durationMs);
+      progress?.onExchangeFetchFailed?.(exchangeId, error.message, durationMs, outcome);
     },
   });
 }
@@ -821,7 +920,7 @@ export async function runMarketRefreshOnce(
   config: Pick<AppConfig, 'ccxtExchanges' | 'providerFanoutConcurrency'>,
   logger?: Logger,
   runtimeState?: MarketDataRuntimeState,
-  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh' | 'recordProviderForcedFailure' | 'recordProviderBlockedByBreaker' | 'recordProviderPartialFailure' | 'recordProviderRecovery'>,
+  metrics?: Pick<MetricsRegistry, 'recordProviderRefresh' | 'recordProviderForcedFailure' | 'recordProviderBlockedByBreaker' | 'recordProviderPartialFailure' | 'recordProviderRecovery' | 'recordProviderAttemptStart' | 'recordProviderAttemptEnd'>,
   progress?: MarketRefreshProgressHandlers,
 ) {
   const refreshLogger = logger?.child({ operation: 'market_refresh' });
@@ -861,6 +960,10 @@ export async function runMarketRefreshOnce(
   for (const exchangeId of exchangeIds) {
     if (!attemptedExchangeIds.includes(exchangeId)) {
       metrics?.recordProviderBlockedByBreaker(exchangeId);
+      metrics?.recordProviderAttemptEnd?.(exchangeId, 'ticker', 'breaker_open', 0);
+      if (runtimeState) {
+        finishProviderAttempt(runtimeState, exchangeId, 'ticker', 'breaker_open', 'provider breaker open');
+      }
     }
   }
 
@@ -940,6 +1043,8 @@ export async function runMarketRefreshOnce(
           },
         }
       : undefined,
+    runtimeState,
+    metrics,
   );
   stopWaitingStatus();
   fetchTickersPhase.stop();
@@ -962,8 +1067,9 @@ export async function runMarketRefreshOnce(
       const errorInfo = result.reason instanceof Error
         ? { message: result.reason.message, name: result.reason.name }
         : { message: String(result.reason) };
+      const classifiedFailure = classifyProviderFailure(result.reason);
       if (tickerDiagnostic) {
-        tickerDiagnostic.failed_reason = errorInfo.message;
+        tickerDiagnostic.failed_reason = classifiedFailure.reason;
       }
       if (providerBreakers) {
         recordProviderFailure(providerBreakers, exchangeId, Date.now(), errorInfo.message);

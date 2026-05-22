@@ -10,7 +10,7 @@ export type BudgetedProviderFanoutOptions<TItem, TResult> = BudgetedProviderFano
   items: readonly TItem[];
   concurrency: number;
   budgetMs?: number;
-  run: (item: TItem, index: number) => Promise<TResult> | TResult;
+  run: (item: TItem, index: number, signal: AbortSignal) => Promise<TResult> | TResult;
   buildBudgetError: (item: TItem, index: number, budgetMs: number) => Error;
   reportBudgetFailure?: boolean;
 };
@@ -31,7 +31,14 @@ function settleMissingBudgetResults<TItem, TResult>(
   options: Pick<BudgetedProviderFanoutOptions<TItem, TResult>, 'items' | 'buildBudgetError' | 'onFailure' | 'reportBudgetFailure'>,
   results: Array<PromiseSettledResult<TResult> | undefined>,
   budgetMs: number,
+  startedAtByIndex: Map<number, number>,
+  abortControllerByIndex: Map<number, AbortController>,
+  reportedFailureByIndex: Set<number>,
 ) {
+  for (const controller of abortControllerByIndex.values()) {
+    controller.abort();
+  }
+
   for (let index = 0; index < options.items.length; index++) {
     if (results[index]) {
       continue;
@@ -41,8 +48,10 @@ function settleMissingBudgetResults<TItem, TResult>(
     const error = options.buildBudgetError(item, index, budgetMs);
     results[index] = { status: 'rejected', reason: error };
 
-    if (options.reportBudgetFailure) {
-      options.onFailure?.(item, index, error, budgetMs);
+    if (options.reportBudgetFailure && !reportedFailureByIndex.has(index)) {
+      reportedFailureByIndex.add(index);
+      const durationMs = Math.max(0, Date.now() - (startedAtByIndex.get(index) ?? Date.now()));
+      options.onFailure?.(item, index, error, durationMs || budgetMs);
     }
   }
 }
@@ -62,6 +71,9 @@ export async function runBudgetedProviderFanout<TItem, TResult>(
   let settledWorkers = 0;
   let resolved = false;
   let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+  const startedAtByIndex = new Map<number, number>();
+  const abortControllerByIndex = new Map<number, AbortController>();
+  const reportedFailureByIndex = new Set<number>();
 
   return await new Promise<PromiseSettledResult<TResult>[]>((resolve) => {
     const resolveOnce = () => {
@@ -75,7 +87,14 @@ export async function runBudgetedProviderFanout<TItem, TResult>(
         budgetTimer = null;
       }
       if (budgetMs && budgetMs > 0) {
-        settleMissingBudgetResults(options, results, budgetMs);
+        settleMissingBudgetResults(
+          options,
+          results,
+          budgetMs,
+          startedAtByIndex,
+          abortControllerByIndex,
+          reportedFailureByIndex,
+        );
       }
       resolve(Array.from({ length: options.items.length }, (_, index) => results[index] ?? {
         status: 'rejected',
@@ -94,10 +113,13 @@ export async function runBudgetedProviderFanout<TItem, TResult>(
         activeWorkers += 1;
         const item = options.items[currentIndex];
         const startedAt = Date.now();
+        const abortController = new AbortController();
+        startedAtByIndex.set(currentIndex, startedAt);
+        abortControllerByIndex.set(currentIndex, abortController);
         options.onStart?.(item, currentIndex);
 
         Promise.resolve()
-          .then(() => options.run(item, currentIndex))
+          .then(() => options.run(item, currentIndex, abortController.signal))
           .then((value) => {
             if (resolved) {
               return;
@@ -115,9 +137,11 @@ export async function runBudgetedProviderFanout<TItem, TResult>(
             const durationMs = Date.now() - startedAt;
             const error = toReadinessError(reason);
             results[currentIndex] = { status: 'rejected', reason: error };
+            reportedFailureByIndex.add(currentIndex);
             options.onFailure?.(item, currentIndex, error, durationMs);
           })
           .finally(() => {
+            abortControllerByIndex.delete(currentIndex);
             activeWorkers -= 1;
             settledWorkers += 1;
 

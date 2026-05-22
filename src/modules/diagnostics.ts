@@ -43,7 +43,12 @@ import {
 import { buildSupplyChartProviderDiagnostics } from '../services/supply-chart-diagnostics';
 import {
   recordForcedProviderFailure,
+  getProviderAttemptDiagnosticsState,
+  resetProviderFaultControls,
   recordValidationRuntimeOverride,
+  setProviderFaultControl,
+  type ProviderAttemptFamily,
+  type ProviderFaultControlMode,
 } from '../services/market-runtime-state';
 import {
   COINS_MARKETS_ROUTE_CACHE_POLICY,
@@ -495,6 +500,72 @@ export function registerDiagnosticsRoutes(
       data: {
         active,
         reason,
+      },
+    };
+  });
+
+  app.post('/diagnostics/runtime/provider_fault_control', async (request, reply) => {
+    const boundAddress = app.server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress !== null
+      ? (boundAddress as AddressInfo).port
+      : null;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
+    if (!validationModeEnabled) {
+      reply.code(404);
+      return {
+        error: 'not_found',
+        message: 'Route not found',
+      };
+    }
+
+    const body = (request.body ?? {}) as {
+      provider?: string;
+      family?: ProviderAttemptFamily;
+      mode?: ProviderFaultControlMode;
+      reason?: string | null;
+      reset?: boolean;
+    };
+
+    if (body.reset === true) {
+      resetProviderFaultControls(app.marketDataRuntimeState);
+      return {
+        data: {
+          fault_controls: [],
+        },
+      };
+    }
+
+    const provider = typeof body.provider === 'string' && body.provider.trim().length > 0
+      ? normalizeProviderCapabilityId(body.provider.trim())
+      : null;
+    const family = body.family ?? 'ticker';
+    const mode = body.mode ?? 'off';
+    const allowedFamilies: ProviderAttemptFamily[] = ['market', 'exchange', 'ticker', 'chart', 'onchain'];
+    const allowedModes: ProviderFaultControlMode[] = ['timeout', 'failure', 'canceled', 'blocked_unavailable', 'off'];
+
+    if (provider === null || !allowedFamilies.includes(family) || !allowedModes.includes(mode)) {
+      reply.code(400);
+      return {
+        error: 'bad_request',
+        message: 'provider, family, and mode are required provider fault control fields',
+        allowed: {
+          family: allowedFamilies,
+          mode: allowedModes,
+        },
+      };
+    }
+
+    setProviderFaultControl(app.marketDataRuntimeState, {
+      provider,
+      family,
+      mode,
+      reason: sanitizeNullableDiagnosticText(body.reason ?? null),
+    });
+
+    return {
+      data: {
+        fault_controls: Object.values(getProviderAttemptDiagnosticsState(app.marketDataRuntimeState).faultControls),
       },
     };
   });

@@ -1,4 +1,51 @@
 import { createProviderBreakerState, summarizeProviderBreakerState, type ProviderBreakerState } from './provider-breaker';
+import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
+
+export type ProviderAttemptOutcome =
+  | 'successful'
+  | 'timed_out'
+  | 'canceled'
+  | 'failed'
+  | 'breaker_open'
+  | 'blocked_unavailable'
+  | 'skipped'
+  | 'recovered';
+
+export type ProviderAttemptFamily = 'market' | 'exchange' | 'ticker' | 'chart' | 'onchain';
+
+export type ProviderFaultControlMode = 'timeout' | 'failure' | 'canceled' | 'blocked_unavailable' | 'off';
+
+export type ProviderAttemptRecord = {
+  provider: string;
+  family: ProviderAttemptFamily;
+  outcome: ProviderAttemptOutcome;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  reason: string | null;
+};
+
+export type ProviderInFlightAttempt = {
+  provider: string;
+  family: ProviderAttemptFamily;
+  started_at: string;
+};
+
+export type ProviderFaultControl = {
+  provider: string;
+  family: ProviderAttemptFamily;
+  mode: ProviderFaultControlMode;
+  reason: string | null;
+};
+
+export type ProviderAttemptDiagnosticsState = {
+  inFlight: Record<string, ProviderInFlightAttempt>;
+  recentOutcomes: ProviderAttemptRecord[];
+  outcomeCounts: Record<string, number>;
+  faultControls: Record<string, ProviderFaultControl>;
+};
+
+const PROVIDER_ATTEMPT_RECENT_LIMIT = 50;
 
 export type MarketDataRuntimeState = {
   initialSyncCompleted: boolean;
@@ -20,6 +67,7 @@ export type MarketDataRuntimeState = {
     active: boolean;
     reason: string | null;
   };
+  providerAttempts?: ProviderAttemptDiagnosticsState;
   exchangeTickerIngestion?: {
     last_refresh_at: string | null;
     exchange_results: Record<string, {
@@ -59,6 +107,99 @@ export type MarketDataRuntimeState = {
     }>;
   };
 };
+
+function providerAttemptKey(provider: string, family: ProviderAttemptFamily) {
+  return `${family}:${provider}`;
+}
+
+export function getProviderAttemptDiagnosticsState(state: MarketDataRuntimeState): ProviderAttemptDiagnosticsState {
+  state.providerAttempts ??= {
+    inFlight: {},
+    recentOutcomes: [],
+    outcomeCounts: {},
+    faultControls: {},
+  };
+
+  return state.providerAttempts;
+}
+
+function sanitizeProviderAttemptReason(reason: string | null | undefined) {
+  return sanitizeNullableDiagnosticText(reason ?? null);
+}
+
+export function startProviderAttempt(
+  state: MarketDataRuntimeState,
+  provider: string,
+  family: ProviderAttemptFamily,
+  startedAt = Date.now(),
+) {
+  getProviderAttemptDiagnosticsState(state).inFlight[providerAttemptKey(provider, family)] = {
+    provider,
+    family,
+    started_at: new Date(startedAt).toISOString(),
+  };
+}
+
+export function finishProviderAttempt(
+  state: MarketDataRuntimeState,
+  provider: string,
+  family: ProviderAttemptFamily,
+  outcome: ProviderAttemptOutcome,
+  reason: string | null | undefined = null,
+  finishedAt = Date.now(),
+) {
+  const key = providerAttemptKey(provider, family);
+  const providerAttempts = getProviderAttemptDiagnosticsState(state);
+  const inFlight = providerAttempts.inFlight[key] ?? null;
+  delete providerAttempts.inFlight[key];
+
+  const startedAt = inFlight?.started_at ?? new Date(finishedAt).toISOString();
+  const durationMs = Math.max(0, finishedAt - Date.parse(startedAt));
+  const countKey = `${family}:${provider}:${outcome}`;
+  providerAttempts.outcomeCounts[countKey] = (providerAttempts.outcomeCounts[countKey] ?? 0) + 1;
+  providerAttempts.recentOutcomes.unshift({
+    provider,
+    family,
+    outcome,
+    started_at: startedAt,
+    finished_at: new Date(finishedAt).toISOString(),
+    duration_ms: durationMs,
+    reason: sanitizeProviderAttemptReason(reason),
+  });
+  providerAttempts.recentOutcomes = providerAttempts.recentOutcomes.slice(0, PROVIDER_ATTEMPT_RECENT_LIMIT);
+}
+
+export function setProviderFaultControl(
+  state: MarketDataRuntimeState,
+  control: ProviderFaultControl,
+) {
+  const key = providerAttemptKey(control.provider, control.family);
+  const providerAttempts = getProviderAttemptDiagnosticsState(state);
+
+  if (control.mode === 'off') {
+    delete providerAttempts.faultControls[key];
+    return;
+  }
+
+  providerAttempts.faultControls[key] = {
+    provider: control.provider,
+    family: control.family,
+    mode: control.mode,
+    reason: sanitizeProviderAttemptReason(control.reason),
+  };
+}
+
+export function resetProviderFaultControls(state: MarketDataRuntimeState) {
+  getProviderAttemptDiagnosticsState(state).faultControls = {};
+}
+
+export function getProviderFaultControl(
+  state: MarketDataRuntimeState | undefined,
+  provider: string,
+  family: ProviderAttemptFamily,
+) {
+  return state?.providerAttempts?.faultControls[providerAttemptKey(provider, family)] ?? null;
+}
 
 export type MarketRuntimePhase =
   | 'cold_boot'
@@ -287,6 +428,12 @@ export function createMarketDataRuntimeState(providerIds: string[] = []): Market
     forcedProviderFailure: {
       active: false,
       reason: null,
+    },
+    providerAttempts: {
+      inFlight: {},
+      recentOutcomes: [],
+      outcomeCounts: {},
+      faultControls: {},
     },
     exchangeTickerIngestion: {
       last_refresh_at: null,

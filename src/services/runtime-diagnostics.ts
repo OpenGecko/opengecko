@@ -1,5 +1,5 @@
 import type { MarketSnapshotRow } from '../db/schema';
-import { getMarketRuntimePhase, type MarketDataRuntimeState, type MarketRuntimePhase } from './market-runtime-state';
+import { getMarketRuntimePhase, getProviderAttemptDiagnosticsState, type MarketDataRuntimeState, type MarketRuntimePhase } from './market-runtime-state';
 import { getSnapshotOwnership } from './market-snapshots';
 import { getEffectiveSnapshot, getSnapshotFreshness, normalizeRuntimeSnapshotTimestamp } from '../modules/market-freshness';
 import { sanitizeNullableDiagnosticText } from './diagnostic-sanitizer';
@@ -76,6 +76,35 @@ export type RuntimeDiagnostics = {
     };
   };
   providers?: ProviderRuntimeDiagnostics[];
+  provider_attempts?: {
+    in_flight_count: number;
+    in_flight: Array<{
+      provider: string;
+      family: string;
+      started_at: string;
+    }>;
+    recent_outcomes: Array<{
+      provider: string;
+      family: string;
+      outcome: string;
+      started_at: string;
+      finished_at: string;
+      duration_ms: number;
+      reason: string | null;
+    }>;
+    outcome_counts: Array<{
+      provider: string;
+      family: string;
+      outcome: string;
+      count: number;
+    }>;
+    fault_controls: Array<{
+      provider: string;
+      family: string;
+      mode: string;
+      reason: string | null;
+    }>;
+  };
   hot_paths: {
     shared_market_snapshot: {
       available: boolean;
@@ -320,6 +349,36 @@ export function buildRuntimeDiagnostics(
       ? Math.max(0, new Date(provider.next_retry_at).getTime() - now)
       : 0,
   }));
+  const providerAttemptDiagnostics = getProviderAttemptDiagnosticsState(runtimeState);
+  const inFlightAttempts = Object.values(providerAttemptDiagnostics.inFlight)
+    .sort((left, right) => left.provider.localeCompare(right.provider) || left.family.localeCompare(right.family));
+  const outcomeCounts = Object.entries(providerAttemptDiagnostics.outcomeCounts)
+    .map(([key, count]) => {
+      const [family, provider, outcome] = key.split(':');
+      return {
+        provider: provider ?? 'unknown',
+        family: family ?? 'unknown',
+        outcome: outcome ?? 'unknown',
+        count,
+      };
+    })
+    .sort((left, right) => (
+      left.provider.localeCompare(right.provider)
+      || left.family.localeCompare(right.family)
+      || left.outcome.localeCompare(right.outcome)
+    ));
+  const faultControls = Object.values(providerAttemptDiagnostics.faultControls)
+    .sort((left, right) => left.provider.localeCompare(right.provider) || left.family.localeCompare(right.family))
+    .map((control) => ({
+      provider: control.provider,
+      family: control.family,
+      mode: control.mode,
+      reason: sanitizeNullableDiagnosticText(control.reason),
+    }));
+  const hasProviderAttemptDiagnostics = inFlightAttempts.length > 0
+    || providerAttemptDiagnostics.recentOutcomes.length > 0
+    || outcomeCounts.length > 0
+    || faultControls.length > 0;
   const injectedProviderFailure = runtimeState.forcedProviderFailure ?? {
     active: false,
     reason: null,
@@ -430,6 +489,13 @@ export function buildRuntimeDiagnostics(
       },
     },
     ...(providerDiagnostics.length > 0 ? { providers: providerDiagnostics } : {}),
+    ...(hasProviderAttemptDiagnostics ? { provider_attempts: {
+      in_flight_count: inFlightAttempts.length,
+      in_flight: inFlightAttempts,
+      recent_outcomes: providerAttemptDiagnostics.recentOutcomes,
+      outcome_counts: outcomeCounts,
+      fault_controls: faultControls,
+    } } : {}),
     hot_paths: {
       shared_market_snapshot: hotPathSnapshot,
       cache_revision: runtimeState.hotDataRevision,

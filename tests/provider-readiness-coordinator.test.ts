@@ -121,6 +121,45 @@ describe('provider readiness coordinator', () => {
     ]);
   });
 
+  it('aborts active provider work when the fanout budget expires and reports settled failures once', async () => {
+    vi.useFakeTimers();
+    const abortedProviders: string[] = [];
+    const failures: string[] = [];
+
+    const runPromise = runBudgetedProviderFanout({
+      items: ['kraken', 'coinbase'],
+      concurrency: 1,
+      budgetMs: 25,
+      reportBudgetFailure: true,
+      buildBudgetError: (provider, _index, budgetMs) => {
+        const error = new Error(`${provider} budget exceeded after ${budgetMs}ms`);
+        error.name = 'ProviderFanoutBudgetExceeded';
+        return error;
+      },
+      onFailure: (provider, _index, error) => {
+        failures.push(`${provider}:${error.name}`);
+      },
+      run: async (provider, _index, signal) => {
+        signal.addEventListener('abort', () => {
+          abortedProviders.push(provider);
+        }, { once: true });
+        await new Promise(() => undefined);
+        return `${provider}:late`;
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+    const results = await runPromise;
+    vi.useRealTimers();
+
+    expect(abortedProviders).toEqual(['kraken']);
+    expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+    expect(failures).toEqual([
+      'kraken:ProviderFanoutBudgetExceeded',
+      'coinbase:ProviderFanoutBudgetExceeded',
+    ]);
+  });
+
   it('shares budget racing for startup prewarm without converting late success into failure', async () => {
     await expect(raceWithReadinessBudget(Promise.resolve('ready'), 5)).resolves.toBe('ready');
 

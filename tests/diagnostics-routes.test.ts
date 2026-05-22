@@ -3258,4 +3258,64 @@ describe('diagnostics routes', () => {
       },
     ]);
   });
+
+  it('allows validation-control provider fault controls to trigger and reset deterministic scenarios', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        disableRemoteCurrencyRefresh: true,
+        logLevel: 'silent',
+        ccxtExchanges: ['binance'],
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const triggerResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        provider: 'ccxt.binance',
+        family: 'ticker',
+        mode: 'timeout',
+        reason: 'validator timeout api_key=super-secret',
+      },
+    });
+
+    expect(triggerResponse.statusCode).toBe(200);
+    expect(triggerResponse.json().data.fault_controls).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        mode: 'timeout',
+        reason: expect.not.stringContaining('super-secret'),
+      }),
+    ]);
+
+    const diagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    expect(diagnosticsResponse.json().data.provider_attempts.fault_controls).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        mode: 'timeout',
+      }),
+    ]);
+
+    const resetResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        reset: true,
+      },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(resetResponse.json().data.fault_controls).toEqual([]);
+  });
 });

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildRuntimeDiagnostics } from '../src/services/runtime-diagnostics';
-import type { MarketDataRuntimeState } from '../src/services/market-runtime-state';
+import {
+  finishProviderAttempt,
+  setProviderFaultControl,
+  startProviderAttempt,
+  type MarketDataRuntimeState,
+} from '../src/services/market-runtime-state';
 import { createProviderBreakerState, recordProviderFailure, recordProviderSuccess } from '../src/services/provider-breaker';
 
 const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
@@ -35,6 +40,12 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
     forcedProviderFailure: {
       active: false,
       reason: null,
+    },
+    providerAttempts: {
+      inFlight: {},
+      recentOutcomes: [],
+      outcomeCounts: {},
+      faultControls: {},
     },
     startupPrewarm: {
       enabled: false,
@@ -1151,6 +1162,68 @@ describe('runtime diagnostics', () => {
         mode: 'off',
         reason: null,
       },
+    });
+  });
+
+  it('reports stable provider attempt outcomes, settled in-flight counts, and sanitized fault controls', () => {
+    const state = createState({
+      initialSyncCompleted: true,
+      listenerBound: true,
+    });
+    const startedAt = Date.parse('2026-03-26T00:00:00.000Z');
+    startProviderAttempt(state, 'coinbase', 'ticker', startedAt);
+    finishProviderAttempt(
+      state,
+      'coinbase',
+      'ticker',
+      'timed_out',
+      'GET https://example.invalid?api_key=super-secret timed out',
+      startedAt + 25,
+    );
+    setProviderFaultControl(state, {
+      provider: 'kraken',
+      family: 'ticker',
+      mode: 'timeout',
+      reason: 'validator controlled timeout with api_key=secret-token',
+    });
+
+    const diagnostics = buildRuntimeDiagnostics(
+      state,
+      null,
+      300,
+      startedAt + 30,
+    );
+
+    expect(diagnostics.provider_attempts).toEqual({
+      in_flight_count: 0,
+      in_flight: [],
+      recent_outcomes: [
+        {
+          provider: 'coinbase',
+          family: 'ticker',
+          outcome: 'timed_out',
+          started_at: '2026-03-26T00:00:00.000Z',
+          finished_at: '2026-03-26T00:00:00.025Z',
+          duration_ms: 25,
+          reason: expect.not.stringContaining('super-secret'),
+        },
+      ],
+      outcome_counts: [
+        {
+          provider: 'coinbase',
+          family: 'ticker',
+          outcome: 'timed_out',
+          count: 1,
+        },
+      ],
+      fault_controls: [
+        {
+          provider: 'kraken',
+          family: 'ticker',
+          mode: 'timeout',
+          reason: expect.not.stringContaining('secret-token'),
+        },
+      ],
     });
   });
 

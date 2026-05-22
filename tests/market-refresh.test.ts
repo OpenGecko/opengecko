@@ -1014,6 +1014,48 @@ describe('market refresh service', () => {
     expect(mockedFetchExchangeMarkets).not.toHaveBeenCalled();
   });
 
+  it('records timed-out provider fanout attempts and returns in-flight gauges to baseline after budget expiry', async () => {
+    const runtimeState = createMarketDataRuntimeState();
+    const metrics = createMetricsRegistry();
+    mockedFetchExchangeMarkets.mockResolvedValue([]);
+    mockedFetchExchangeTickers.mockImplementation(async () => new Promise(() => undefined));
+
+    await expect(runMarketRefreshOnce(database, {
+      ccxtExchanges: ['binance', 'coinbase'],
+      providerFanoutConcurrency: 1,
+    }, undefined, runtimeState, metrics, {
+      startupTickerFetchBudgetMs: 5,
+    })).rejects.toThrow('provider failure cooldown active after exchange refresh failure');
+
+    expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(1);
+    expect(Object.values(runtimeState.providerAttempts?.inFlight ?? {})).toEqual([]);
+    expect((runtimeState.providerAttempts?.recentOutcomes ?? []).map((outcome) => ({
+      provider: outcome.provider,
+      family: outcome.family,
+      outcome: outcome.outcome,
+      reason: outcome.reason,
+    }))).toEqual([
+      {
+        provider: 'coinbase',
+        family: 'ticker',
+        outcome: 'timed_out',
+        reason: 'provider request timed out',
+      },
+      {
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'timed_out',
+        reason: 'provider request timed out',
+      },
+    ]);
+
+    const metricsText = metrics.renderPrometheus();
+    expect(metricsText).toContain('opengecko_provider_in_flight{family="ticker",provider="binance"} 0');
+    expect(metricsText).toContain('opengecko_provider_in_flight{family="ticker",provider="coinbase"} 0');
+    expect(metricsText).toContain('opengecko_provider_attempts_total{family="ticker",outcome="timed_out",provider="binance"} 1');
+    expect(metricsText).toContain('opengecko_provider_attempts_total{family="ticker",outcome="timed_out",provider="coinbase"} 1');
+  });
+
   it('records provider refresh outcomes across forced failure, cooldown skip, partial failure, and recovery without changing refresh side effects', async () => {
     const runtimeState = createMarketDataRuntimeState();
     const metricsApp = buildApp({

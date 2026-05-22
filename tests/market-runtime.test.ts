@@ -60,6 +60,12 @@ function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDat
       active: false,
       reason: null,
     },
+    providerAttempts: {
+      inFlight: {},
+      recentOutcomes: [],
+      outcomeCounts: {},
+      faultControls: {},
+    },
     startupPrewarm: {
       enabled: false,
       budgetMs: 0,
