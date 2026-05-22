@@ -44,6 +44,65 @@ exit 22
   }
 }
 
+function passingFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      gate: {
+        status: 'pass',
+        threshold: 9,
+        below_target_count: 0,
+        below_target_families: [],
+        reason_codes: [],
+      },
+      families: [
+        {
+          family: 'simple',
+          runtime_family_ids: ['simple'],
+          aliases: ['simple_price'],
+          required: true,
+          score: 9.5,
+          target_threshold: 9,
+          status: 'pass',
+          score_scopes: {
+            contract_compatibility: 9.5,
+            freshness_liveness: 9.5,
+            live_source_fidelity: 9.5,
+            fixture_fallback_transparency: 9.5,
+            overall: 9.5,
+          },
+          dimensions: [
+            {
+              id: 'contract_compatibility',
+              score: 9.5,
+              status: 'pass',
+              reason_codes: [],
+              message: 'Contract score is backed by route tests.',
+            },
+          ],
+          source: {
+            state: 'live',
+            ownership_class: 'live',
+            fallback: false,
+            fallback_status: 'none',
+            latest_source_at: '2026-05-17T00:00:00.000Z',
+            freshness_state: 'fresh',
+            provider_ids: ['coinbase'],
+          },
+          counts: { representative_route_count: 1 },
+          timestamps: { generated_at: '2026-05-17T00:00:00.000Z' },
+          evidence: {
+            representative_routes: ['/simple/price'],
+            contract_tests: ['tests/simple-price-parity.test.ts'],
+          },
+          reason_codes: [],
+          failing_dimensions: [],
+          ...overrides,
+        },
+      ],
+    },
+  });
+}
+
 describe('focused data quality gate script', () => {
   it('is shell-parseable', () => {
     const syntaxCheck = spawnSync('bash', ['-n', SCRIPT_PATH], {
@@ -62,18 +121,7 @@ describe('focused data quality gate script', () => {
   });
 
   it('exits zero when the diagnostics gate passes', () => {
-    const result = runGateWithFixture(JSON.stringify({
-      data: {
-        gate: {
-          status: 'pass',
-          threshold: 9,
-          below_target_count: 0,
-          below_target_families: [],
-          reason_codes: [],
-        },
-        families: [],
-      },
-    }));
+    const result = runGateWithFixture(passingFixture());
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain('OpenGecko Focused Data Quality Gate');
@@ -95,12 +143,30 @@ describe('focused data quality gate script', () => {
         families: [
           {
             family: 'global',
+            runtime_family_ids: ['global'],
+            aliases: ['global_aggregates'],
+            required: true,
             score: 9.5,
             target_threshold: 9,
             status: 'pass',
-            source: { state: 'live', fallback: false, latest_source_at: null, provider_ids: [] },
+            score_scopes: {
+              contract_compatibility: 9.5,
+              freshness_liveness: 9.5,
+              live_source_fidelity: 9.5,
+              fixture_fallback_transparency: 9.5,
+              overall: 9.5,
+            },
+            source: { state: 'live', ownership_class: 'live', fallback: false, freshness_state: 'fresh', latest_source_at: null, provider_ids: [] },
             counts: {},
-            dimensions: [],
+            dimensions: [
+              {
+                id: 'contract_compatibility',
+                score: 9.5,
+                status: 'pass',
+                reason_codes: [],
+                message: 'Contract score is backed by route tests.',
+              },
+            ],
             evidence: {
               global_quality: {
                 public_route_values: {
@@ -123,6 +189,8 @@ describe('focused data quality gate script', () => {
                 },
               },
             },
+            reason_codes: [],
+            failing_dimensions: [],
           },
         ],
       },
@@ -156,13 +224,26 @@ describe('focused data quality gate script', () => {
         families: [
           {
             family: 'coins',
+            runtime_family_ids: ['coins_markets'],
+            aliases: ['coins_markets'],
+            required: true,
             score: 6,
             target_threshold: 9,
             status: 'degraded',
+            score_scopes: {
+              contract_compatibility: 9.5,
+              freshness_liveness: 6,
+              live_source_fidelity: 6,
+              fixture_fallback_transparency: 9.5,
+              overall: 6,
+            },
             source: {
               state: 'degraded',
-              fallback: false,
+              ownership_class: 'live',
+              fallback: true,
+              fallback_status: 'degraded',
               latest_source_at: '2026-05-17T00:00:00.000Z',
+              freshness_state: 'degraded',
               provider_ids: ['binance'],
             },
             counts: {
@@ -215,6 +296,125 @@ describe('focused data quality gate script', () => {
     expect(result.stdout).toContain('market_quality');
   });
 
+  it('rejects malformed passing diagnostics with no family entries', () => {
+    const result = runGateWithFixture(JSON.stringify({
+      data: {
+        gate: {
+          status: 'pass',
+          threshold: 9,
+          below_target_count: 0,
+          below_target_families: [],
+          reason_codes: [],
+        },
+        families: [],
+      },
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('schema/classification validation failed');
+    expect(result.stderr).toContain('families_empty');
+  });
+
+  it('rejects unknown classifications and reason codes before passing the gate', () => {
+    const result = runGateWithFixture(passingFixture({
+      source: {
+        state: 'magic',
+        ownership_class: 'fixture',
+        fallback: true,
+        latest_source_at: null,
+        freshness_state: 'fresh',
+        provider_ids: [],
+      },
+      reason_codes: ['unregistered_reason_code'],
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('family_source_state_unknown:simple:magic');
+    expect(result.stderr).toContain('unknown_family_reason_code:simple:unregistered_reason_code');
+  });
+
+  it('rejects fixture, replay, or seeded data overclaimed as live source fidelity', () => {
+    const result = runGateWithFixture(passingFixture({
+      source: {
+        state: 'fixture',
+        ownership_class: 'fixture',
+        fallback: true,
+        latest_source_at: null,
+        freshness_state: 'fresh',
+        provider_ids: ['fixture'],
+      },
+      score_scopes: {
+        contract_compatibility: 9.5,
+        freshness_liveness: 9.5,
+        live_source_fidelity: 9.5,
+        fixture_fallback_transparency: 9.5,
+        overall: 9.5,
+      },
+      reason_codes: ['fixture_only'],
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('non_live_source_claims_live_fidelity:simple:fixture');
+  });
+
+  it('rejects live classifications carrying blocked-provider or stale evidence', () => {
+    const result = runGateWithFixture(passingFixture({
+      source: {
+        state: 'live',
+        ownership_class: 'live',
+        fallback: false,
+        latest_source_at: '2026-05-17T00:00:00.000Z',
+        freshness_state: 'fresh',
+        provider_ids: ['bybit'],
+      },
+      reason_codes: ['provider_blocked'],
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('live_source_has_non_live_reason:simple');
+  });
+
+  it('rejects stale required families that are not listed below target', () => {
+    const result = runGateWithFixture(passingFixture({
+      source: {
+        state: 'live',
+        ownership_class: 'live',
+        fallback: false,
+        latest_source_at: '2026-05-17T00:00:00.000Z',
+        freshness_state: 'stale',
+        provider_ids: ['coinbase'],
+      },
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('stale_required_family_not_below_target:simple');
+  });
+
+  it('rejects mismatched below-threshold gate summaries', () => {
+    const result = runGateWithFixture(JSON.stringify({
+      data: {
+        gate: {
+          status: 'fail',
+          threshold: 9,
+          below_target_count: 0,
+          below_target_families: [],
+          reason_codes: ['required_family_below_threshold'],
+        },
+        families: [
+          JSON.parse(passingFixture()).data.families[0],
+        ].map((family) => ({
+          ...family,
+          score: 8,
+          status: 'degraded',
+          reason_codes: ['partial_coverage'],
+        })),
+      },
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('below_target_family_mismatch');
+  });
+
   it('writes a stable validation evidence manifest schema when an evidence directory is configured', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-data-quality-gate-evidence-'));
     const fakeCurlPath = join(tempDir, 'curl');
@@ -244,18 +444,7 @@ exit 22
           PATH: `${tempDir}:${process.env.PATH ?? ''}`,
           BASE_URL: 'http://127.0.0.1:3103',
           OPENGECKO_QUALITY_EVIDENCE_DIR: evidenceDir,
-          DATA_QUALITY_FIXTURE: JSON.stringify({
-            data: {
-              gate: {
-                status: 'pass',
-                threshold: 9,
-                below_target_count: 0,
-                below_target_families: [],
-                reason_codes: [],
-              },
-              families: [],
-            },
-          }),
+          DATA_QUALITY_FIXTURE: passingFixture(),
         },
       });
 
@@ -297,6 +486,10 @@ exit 22
         assertion_result_table: manifest.assertion_result_table_path,
         mismatch_report: manifest.mismatch_report_path,
       }));
+      const assertionTable = readFileSync(manifest.assertion_result_table_path, 'utf8');
+      expect(assertionTable).toContain('VAL-DQ-001\tpass');
+      expect(assertionTable).toContain('VAL-DQ-004\tpass');
+      expect(assertionTable).toContain('VAL-DQ-010\tpass');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -690,12 +690,31 @@ describe('diagnostics routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       data: {
+        schema_version: 1,
         generated_at: expect.any(String),
+        classification_contract: {
+          contract_support_statuses: ['supported'],
+          data_fidelity_classifications: expect.arrayContaining(['live', 'hybrid', 'seeded', 'fixture', 'synthetic', 'unavailable']),
+          source_states: expect.arrayContaining(['live', 'seeded', 'fixture', 'replay', 'stale', 'out_of_scope']),
+          live_data_rules: expect.objectContaining({
+            contract_support_does_not_imply_live_data: true,
+            only_data_fidelity_classification_live_counts_as_live: true,
+          }),
+        },
         entries: expect.arrayContaining([
           expect.objectContaining({
             family: 'simple',
             representative_routes: ['/simple/price', '/simple/token_price/:id'],
             ownership_class: expect.stringMatching(/^(live|seeded)$/),
+            contract_support: expect.objectContaining({
+              status: 'supported',
+              supported: true,
+            }),
+            data_fidelity: expect.objectContaining({
+              classification: expect.stringMatching(/^(live|seeded)$/),
+              counts_as_live: expect.any(Boolean),
+              freshness_state: expect.any(String),
+            }),
             providers: expect.arrayContaining(['CCXT']),
             freshness: expect.objectContaining({
               target_freshness_seconds: 30,
@@ -822,6 +841,22 @@ describe('diagnostics routes', () => {
         current_age_seconds: number | null;
         state: string;
       };
+      contract_support: {
+        status: string;
+        supported: boolean;
+        representative_route_count: number;
+        representative_routes: string[];
+        evidence_tests: string[];
+      };
+      data_fidelity: {
+        classification: string;
+        source_state: string;
+        counts_as_live: boolean;
+        non_live: boolean;
+        reason_codes: string[];
+        latest_source_at: string | null;
+        freshness_state: string;
+      };
       evidence: {
         tests: string[];
         notes: string;
@@ -847,6 +882,24 @@ describe('diagnostics routes', () => {
       expect(entry.representative_routes.length).toBeGreaterThan(0);
       expect(entry.representative_routes.every((route) => route.startsWith('/'))).toBe(true);
       expect(entry.ownership_class).toMatch(/^(live|hybrid|seeded|synthetic|fixture|unavailable)$/);
+      expect(entry.contract_support).toMatchObject({
+        status: 'supported',
+        supported: true,
+        representative_route_count: entry.representative_routes.length,
+        representative_routes: entry.representative_routes,
+        evidence_tests: entry.evidence.tests,
+      });
+      expect(entry.data_fidelity.classification).toBe(entry.ownership_class);
+      expect(entry.data_fidelity.source_state).toBe(entry.ownership_class);
+      expect(entry.data_fidelity.counts_as_live).toBe(entry.ownership_class === 'live');
+      expect(entry.data_fidelity.non_live).toBe(entry.ownership_class !== 'live');
+      expect(entry.data_fidelity.freshness_state).toBe(entry.freshness.state);
+      expect(entry.data_fidelity.latest_source_at).toBe(entry.last_successful_refresh_at);
+      if (entry.ownership_class === 'live') {
+        expect(entry.data_fidelity.reason_codes).toEqual([]);
+      } else {
+        expect(entry.data_fidelity.reason_codes.length).toBeGreaterThan(0);
+      }
       expect(entry.providers.length).toBeGreaterThan(0);
       expect(entry.providers.every((provider) => provider.trim().length > 0)).toBe(true);
       expect(entry).toHaveProperty('last_successful_refresh_at');

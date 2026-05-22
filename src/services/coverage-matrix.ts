@@ -27,10 +27,16 @@ import {
   isLiveSourceKind,
   isReplaySourceKind,
 } from './diagnostics-policy';
+import {
+  COVERAGE_FRESHNESS_STATE_VALUES,
+  COVERAGE_OWNERSHIP_CLASS_VALUES,
+  DATA_SOURCE_STATE_VALUES,
+  NON_LIVE_DATA_SOURCE_STATES,
+} from './data-quality-contract';
 import { getEndpointFreshnessBudget } from './freshness-budgets';
 import { loadDefaultCoverageTargets } from './coverage-targets';
 
-export type DataOwnershipClass = 'live' | 'hybrid' | 'seeded' | 'synthetic' | 'fixture' | 'unavailable';
+export type DataOwnershipClass = typeof COVERAGE_OWNERSHIP_CLASS_VALUES[number];
 
 type CoverageMatrixEntryConfig = {
   family: string;
@@ -135,18 +141,43 @@ function buildEntry(config: CoverageMatrixEntryConfig, now: Date) {
   const currentAgeSeconds = ageSeconds(now, config.lastSuccessfulRefreshAt);
   const targetFreshnessSeconds = budget?.target_freshness_seconds ?? null;
   const degradedAfterSeconds = budget?.degraded_after_seconds ?? null;
+  const freshnessState = classifyCoverageFreshness({ currentAgeSeconds, targetFreshnessSeconds, degradedAfterSeconds });
+  const reasonCodes = config.ownershipClass === 'live'
+    ? []
+    : [config.ownershipClass === 'unavailable' ? 'source_unavailable' : `${config.ownershipClass}_only`];
 
   return {
     family: config.family,
     representative_routes: [...config.representativeRoutes],
     ownership_class: config.ownershipClass,
+    contract_support: {
+      status: 'supported',
+      supported: true,
+      representative_route_count: config.representativeRoutes.length,
+      representative_routes: [...config.representativeRoutes],
+      evidence_tests: [...config.evidence],
+    },
+    data_fidelity: {
+      classification: config.ownershipClass,
+      source_state: config.ownershipClass,
+      counts_as_live: config.ownershipClass === 'live',
+      non_live: config.ownershipClass !== 'live',
+      reason_codes: reasonCodes,
+      latest_source_at: config.lastSuccessfulRefreshAt?.toISOString() ?? null,
+      freshness_state: freshnessState,
+      freshness_budget: {
+        target_freshness_seconds: targetFreshnessSeconds,
+        degraded_after_seconds: degradedAfterSeconds,
+        current_age_seconds: currentAgeSeconds,
+      },
+    },
     providers: [...config.providers],
     last_successful_refresh_at: config.lastSuccessfulRefreshAt?.toISOString() ?? null,
     freshness: {
       target_freshness_seconds: targetFreshnessSeconds,
       degraded_after_seconds: degradedAfterSeconds,
       current_age_seconds: currentAgeSeconds,
-      state: classifyCoverageFreshness({ currentAgeSeconds, targetFreshnessSeconds, degradedAfterSeconds }),
+      state: freshnessState,
     },
     evidence: {
       tests: [...config.evidence],
@@ -396,7 +427,20 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
   ];
 
   return {
+    schema_version: 1,
     generated_at: observedAt.toISOString(),
+    classification_contract: {
+      contract_support_statuses: ['supported'],
+      data_fidelity_classifications: [...COVERAGE_OWNERSHIP_CLASS_VALUES],
+      source_states: [...DATA_SOURCE_STATE_VALUES],
+      non_live_source_states: [...NON_LIVE_DATA_SOURCE_STATES],
+      freshness_states: [...COVERAGE_FRESHNESS_STATE_VALUES],
+      live_data_rules: {
+        contract_support_does_not_imply_live_data: true,
+        only_data_fidelity_classification_live_counts_as_live: true,
+        seeded_fixture_replay_synthetic_fallback_degraded_stale_unavailable_out_of_scope_are_non_live: true,
+      },
+    },
     entries,
   };
 }

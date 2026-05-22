@@ -39,6 +39,120 @@ if ! jq -e '.data.gate.status and .data.families' "$TMP_FILE" >/dev/null; then
   exit 2
 fi
 
+schema_errors="$(
+  jq -r '
+    def allowed_gate_statuses: ["pass", "fail"];
+    def allowed_family_statuses: ["pass", "degraded", "fail", "out_of_scope"];
+    def allowed_source_states: ["live", "hybrid", "seeded", "fixture", "replay", "synthetic", "fallback", "degraded", "stale", "unavailable", "out_of_scope"];
+    def allowed_non_live_states: ["hybrid", "seeded", "fixture", "replay", "synthetic", "fallback", "degraded", "stale", "unavailable", "out_of_scope"];
+    def allowed_ownership_classes: ["live", "hybrid", "seeded", "synthetic", "fixture", "unavailable"];
+    def allowed_freshness_states: ["fresh", "degraded", "stale", "unbudgeted", "unknown"];
+    def allowed_dimension_ids: ["contract_compatibility", "freshness_liveness", "completeness_coverage", "live_source_fidelity", "fixture_fallback_transparency", "metadata_truthfulness"];
+    def allowed_reason_codes: [
+      "below_target_threshold",
+      "blocked_provider_counted_as_live",
+      "degraded_only",
+      "derivatives_live_fidelity_below_contract_score",
+      "fallback_only",
+      "fixture_only",
+      "fixture_source",
+      "hybrid_only",
+      "missing_contract_evidence",
+      "missing_coverage_entry",
+      "missing_database",
+      "missing_exchange_volume_chart_source",
+      "missing_freshness_budget",
+      "out_of_scope_only",
+      "partial_coverage",
+      "provider_blocked",
+      "provider_degraded",
+      "provider_error",
+      "regional_block",
+      "replay_only",
+      "required_family_below_threshold",
+      "runtime_degraded",
+      "seeded_only",
+      "seeded_source",
+      "source_unavailable",
+      "sparse_market_rows_or_aggregate_mismatch",
+      "stale_only",
+      "stale_source",
+      "synthetic_only",
+      "synthetic_source",
+      "unavailable_only",
+      "unbudgeted_source",
+      "unknown_freshness"
+    ];
+    def finite_0_to_10: type == "number" and . >= 0 and . <= 10;
+    def non_live_reason:
+      . as $code
+      | (
+        ["hybrid_only", "seeded_only", "fixture_only", "replay_only", "synthetic_only", "fallback_only", "degraded_only", "stale_only", "unavailable_only", "out_of_scope_only", "fixture_source", "seeded_source", "synthetic_source", "source_unavailable", "stale_source", "runtime_degraded", "provider_error", "provider_degraded", "provider_blocked", "regional_block", "blocked_provider_counted_as_live"]
+        | index($code)
+      ) != null;
+
+    . as $root
+    | [
+        if ($root.data | type) != "object" then "missing_data_object" else empty end,
+        if ($root.data.gate | type) != "object" then "missing_gate_object" else empty end,
+        if ($root.data.families | type) != "array" then "families_not_array" else empty end,
+        if (($root.data.families // []) | length) == 0 then "families_empty" else empty end,
+        if ($root.data.gate.status | type) != "string" or ((allowed_gate_statuses | index($root.data.gate.status)) == null) then "gate_status_unknown:\($root.data.gate.status // "null")" else empty end,
+        if (($root.data.gate.threshold | finite_0_to_10) | not) then "gate_threshold_not_finite_0_to_10" else empty end,
+        if (($root.data.gate.below_target_families // []) | type) != "array" then "below_target_families_not_array" else empty end,
+        if (($root.data.gate.below_target_count // (($root.data.gate.below_target_families // []) | length)) != (($root.data.gate.below_target_families // []) | length)) then "below_target_count_mismatch" else empty end,
+        (
+          (($root.data.gate.reason_codes // []) | if type == "array" then . else ["__not_array__"] end) as $codes
+          | if ($codes | any(. == "__not_array__")) then "gate_reason_codes_not_array" else empty end,
+          ($codes[]? as $code | select((allowed_reason_codes | index($code)) == null) | "unknown_gate_reason_code:\($code)")
+        ),
+        (
+          ([$root.data.families[]? | select((.required // false) == true and ((.score // -1) < (.target_threshold // $root.data.gate.threshold))) | .family] | sort) as $actual
+          | ([$root.data.gate.below_target_families[]? | .family] | sort) as $reported
+          | if $actual != $reported then "below_target_family_mismatch:actual=\($actual|join(",")):reported=\($reported|join(","))" else empty end
+        ),
+        (
+          $root.data.families[]? as $family
+          | ($family.family // "<missing>") as $family_id
+          | [
+              if ($family.family | type) != "string" or ($family.family | length) == 0 then "family_missing_id" else empty end,
+              if ($family.required | type) != "boolean" then "family_required_not_boolean:\($family_id)" else empty end,
+              if (($family.score | finite_0_to_10) | not) then "family_score_not_finite_0_to_10:\($family_id)" else empty end,
+              if (($family.target_threshold | finite_0_to_10) | not) then "family_target_threshold_not_finite_0_to_10:\($family_id)" else empty end,
+              if ($family.status | type) != "string" or ((allowed_family_statuses | index($family.status)) == null) then "family_status_unknown:\($family_id):\($family.status // "null")" else empty end,
+              if (($family.reason_codes // []) | type) != "array" then "family_reason_codes_not_array:\($family_id)" else empty end,
+              (($family.reason_codes // [])[]? as $code | select((allowed_reason_codes | index($code)) == null) | "unknown_family_reason_code:\($family_id):\($code)"),
+              if ($family.source | type) != "object" then "family_source_missing:\($family_id)" else empty end,
+              if ($family.source.state | type) != "string" or ((allowed_source_states | index($family.source.state)) == null) then "family_source_state_unknown:\($family_id):\($family.source.state // "null")" else empty end,
+              if (($family.source.ownership_class != null) and ((allowed_ownership_classes | index($family.source.ownership_class)) == null)) then "family_ownership_class_unknown:\($family_id):\($family.source.ownership_class)" else empty end,
+              if (($family.source.freshness_state != null) and ((allowed_freshness_states | index($family.source.freshness_state)) == null)) then "family_freshness_state_unknown:\($family_id):\($family.source.freshness_state)" else empty end,
+              if ((($family.dimensions // []) | type) != "array") then "family_dimensions_not_array:\($family_id)" else empty end,
+              (($family.dimensions // [])[]? as $dimension
+                | if ($dimension.id | type) != "string" or ((allowed_dimension_ids | index($dimension.id)) == null) then "family_dimension_id_unknown:\($family_id):\($dimension.id // "null")" else empty end,
+                  if (($dimension.score | finite_0_to_10) | not) then "family_dimension_score_not_finite_0_to_10:\($family_id):\($dimension.id // "null")" else empty end,
+                  if ($dimension.status | type) != "string" or ((allowed_family_statuses | index($dimension.status)) == null) then "family_dimension_status_unknown:\($family_id):\($dimension.id // "null"):\($dimension.status // "null")" else empty end,
+                  if (($dimension.reason_codes // []) | type) != "array" then "family_dimension_reason_codes_not_array:\($family_id):\($dimension.id // "null")" else empty end,
+                  (($dimension.reason_codes // [])[]? as $code | select((allowed_reason_codes | index($code)) == null) | "unknown_dimension_reason_code:\($family_id):\($dimension.id // "null"):\($code)")
+              ),
+              if $family.source.state == "live" and (($family.source.ownership_class // "live") != "live") then "live_source_ownership_mismatch:\($family_id):\($family.source.ownership_class)" else empty end,
+              if $family.source.state == "live" and ($family.source.fallback // false) != false then "live_source_marked_fallback:\($family_id)" else empty end,
+              if $family.source.state == "live" and ((($family.reason_codes // []) | any(non_live_reason)) or (($family.dimensions // []) | any((.reason_codes // []) | any(non_live_reason)))) then "live_source_has_non_live_reason:\($family_id)" else empty end,
+              if ((allowed_non_live_states | index($family.source.state)) != null) and ((($family.score_scopes.live_source_fidelity // -1) >= ($family.target_threshold // $root.data.gate.threshold))) then "non_live_source_claims_live_fidelity:\($family_id):\($family.source.state)" else empty end,
+              if (((["seeded", "fixture", "replay", "synthetic", "fallback", "unavailable", "out_of_scope"] | index($family.source.state)) != null) and (($family.source.fallback // false) != true)) then "non_live_source_not_marked_fallback:\($family_id):\($family.source.state)" else empty end,
+              if (($family.source.state == "live") and (($family.required // false) == true) and ($family.source.freshness_state == "stale") and (($family.score // 0) >= ($family.target_threshold // $root.data.gate.threshold))) then "stale_required_family_not_below_target:\($family_id)" else empty end
+            ][]
+        )
+      ][]
+  ' "$TMP_FILE" || true
+)"
+
+if [[ -n "$schema_errors" ]]; then
+  echo "FAIL diagnostics/data_quality schema/classification validation failed" >&2
+  echo "$schema_errors" >&2
+  jq '.data // .' "$TMP_FILE" >&2 || cat "$TMP_FILE" >&2
+  exit 2
+fi
+
 status="$(jq -r '.data.gate.status' "$TMP_FILE")"
 threshold="$(jq -r '.data.gate.threshold' "$TMP_FILE")"
 below_count="$(jq -r '.data.gate.below_target_count // (.data.gate.below_target_families // [] | length)' "$TMP_FILE")"
@@ -83,9 +197,11 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
   {
     printf 'assertion_id\tstatus\tevidence\n'
     jq -r '
-      "VAL-CROSS-001\t" + (if (.data.families | length) > 0 then "pass" else "fail" end) + "\tdata_quality families=" + ((.data.families | length) | tostring),
-      "VAL-CROSS-005\t" + (if (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[]? | .family] | sort)) then "pass" else "fail" end) + "\tcoverage/data-quality below-threshold family list is enumerated",
-      "VAL-CROSS-007\tpass\tmanifest includes base_url, run_timestamp, request_url, status, content_type, raw_response_path, parsed_metrics_path, diagnostics_snapshot_path, assertion_result_table_path, and mismatch_report_path"
+      "VAL-DQ-001\t" + (if (.data.families | length) > 0 and (.data.gate.status | type == "string") then "pass" else "fail" end) + "\tdata_quality gate schema exposes status and family entries",
+      "VAL-DQ-003\t" + (if (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[]? | .family] | sort)) then "pass" else "fail" end) + "\trequired below-threshold families are enumerated",
+      "VAL-DQ-004\t" + (if ([.data.families[] | .source.state] | all(. as $state | ["live","hybrid","seeded","fixture","replay","synthetic","fallback","degraded","stale","unavailable","out_of_scope"] | index($state) != null)) then "pass" else "fail" end) + "\tall family source states use the allowed classification set",
+      "VAL-DQ-007\t" + (if ([.data.families[] | select(.source.state != "live") | .score_scopes.live_source_fidelity < .target_threshold] | all) then "pass" else "fail" end) + "\tnon-live states are not counted as live source fidelity",
+      "VAL-DQ-010\tpass\tmanifest includes negative-scenario-capable schema, classification, stale, and overclaim validation"
     ' "$TMP_FILE"
   } > "$assertion_result_table_path"
 

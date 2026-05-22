@@ -2,6 +2,18 @@ import type { buildCoverageMatrix } from './coverage-matrix';
 import type { RuntimeDiagnostics } from './runtime-diagnostics';
 import type { AppDatabase } from '../db/client';
 import type { buildGlobalPublicRouteData } from '../modules/global';
+import {
+  COVERAGE_FRESHNESS_STATE_VALUES,
+  COVERAGE_OWNERSHIP_CLASS_VALUES,
+  DATA_SOURCE_STATE_VALUES,
+  NON_LIVE_DATA_SOURCE_STATES,
+  QUALITY_DIMENSION_ID_VALUES,
+  QUALITY_REASON_CODE_VALUES,
+  QUALITY_STATUS_VALUES,
+  type QualityDimensionId,
+  type QualityStatus,
+  type SourceState,
+} from './data-quality-contract';
 import { getMarketRows } from '../modules/catalog';
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from '../modules/market-freshness';
 import { getReferenceMarketCapRank } from '../modules/coins/market-data';
@@ -29,16 +41,6 @@ import { isLiveSourceKind, isReplaySourceKind, isSeededExchangeTimestamp } from 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
 type GlobalPublicRouteData = ReturnType<typeof buildGlobalPublicRouteData>;
-
-type QualityStatus = 'pass' | 'degraded' | 'fail' | 'out_of_scope';
-type SourceState = 'live' | 'hybrid' | 'seeded' | 'fixture' | 'synthetic' | 'fallback' | 'degraded' | 'unavailable' | 'out_of_scope';
-type QualityDimensionId =
-  | 'contract_compatibility'
-  | 'freshness_liveness'
-  | 'completeness_coverage'
-  | 'live_source_fidelity'
-  | 'fixture_fallback_transparency'
-  | 'metadata_truthfulness';
 
 type QualityDimension = {
   id: QualityDimensionId;
@@ -220,6 +222,8 @@ function sourceScore(sourceState: SourceState) {
       return 7;
     case 'seeded':
       return 5.5;
+    case 'replay':
+      return 5;
     case 'fixture':
       return 4;
     case 'synthetic':
@@ -227,6 +231,8 @@ function sourceScore(sourceState: SourceState) {
     case 'fallback':
       return 5;
     case 'degraded':
+      return 5;
+    case 'stale':
       return 5;
     case 'out_of_scope':
       return 0;
@@ -1558,6 +1564,21 @@ export function buildDataQualityDiagnostics(
       rounding: 'one_decimal_no_upward_gate_rounding',
     },
     score_scopes: ['contract_compatibility', 'freshness_liveness', 'live_source_fidelity', 'fixture_fallback_transparency', 'overall_gate'],
+    classification_contract: {
+      quality_statuses: [...QUALITY_STATUS_VALUES],
+      dimension_ids: [...QUALITY_DIMENSION_ID_VALUES],
+      source_states: [...DATA_SOURCE_STATE_VALUES],
+      non_live_source_states: [...NON_LIVE_DATA_SOURCE_STATES],
+      coverage_ownership_classes: [...COVERAGE_OWNERSHIP_CLASS_VALUES],
+      coverage_freshness_states: [...COVERAGE_FRESHNESS_STATE_VALUES],
+      reason_codes: [...QUALITY_REASON_CODE_VALUES],
+      live_data_rules: {
+        counts_as_live_state: 'live',
+        required_source_ownership_class: 'live',
+        non_live_states_do_not_count_as_live: true,
+        fixture_seeded_replay_synthetic_fallback_stale_degraded_unavailable_out_of_scope_are_non_live: true,
+      },
+    },
     family_aliases: aliasMap,
     aliases,
     gate: {
@@ -1573,6 +1594,7 @@ export function buildDataQualityDiagnostics(
       'generated_at',
       'schema_version',
       'target_threshold',
+      'classification_contract',
       'gate.status',
       'gate.below_target_families',
       'families[].family',

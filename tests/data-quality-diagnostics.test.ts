@@ -118,7 +118,7 @@ describe('data quality diagnostics', () => {
         status: string;
         score_scopes: Record<string, number>;
         dimensions: Array<{ id: string; score: number; reason_codes: string[] }>;
-        source: { state: string; fallback: boolean; latest_source_at: string | null; provider_ids: string[] };
+        source: { state: string; ownership_class: string; fallback: boolean; latest_source_at: string | null; freshness_state: string; provider_ids: string[] };
         counts: Record<string, number>;
         timestamps: Record<string, string | null>;
         evidence: { representative_routes: string[]; contract_tests: string[]; runtime_degradation: { active: boolean } };
@@ -126,6 +126,20 @@ describe('data quality diagnostics', () => {
       }>;
       stable_regression_fields: string[];
       score_scopes: string[];
+      classification_contract: {
+        quality_statuses: string[];
+        dimension_ids: string[];
+        source_states: string[];
+        non_live_source_states: string[];
+        coverage_ownership_classes: string[];
+        coverage_freshness_states: string[];
+        reason_codes: string[];
+        live_data_rules: {
+          counts_as_live_state: string;
+          required_source_ownership_class: string;
+          non_live_states_do_not_count_as_live: boolean;
+        };
+      };
     };
 
     expect(data.target_threshold).toBe(9);
@@ -141,10 +155,40 @@ describe('data quality diagnostics', () => {
     expect(data.family_aliases.assets).toEqual(expect.arrayContaining(['stable_catalog']));
     expect(data.aliases.historical_charts).toEqual(expect.arrayContaining(['historical_charts']));
     expect(data.stable_regression_fields).toEqual(expect.arrayContaining([
+      'classification_contract',
       'families[].score',
       'families[].source',
       'families[].reason_codes',
     ]));
+    expect(data.classification_contract.source_states).toEqual([
+      'live',
+      'hybrid',
+      'seeded',
+      'fixture',
+      'replay',
+      'synthetic',
+      'fallback',
+      'degraded',
+      'stale',
+      'unavailable',
+      'out_of_scope',
+    ]);
+    expect(data.classification_contract.non_live_source_states).toEqual(expect.arrayContaining([
+      'seeded',
+      'fixture',
+      'replay',
+      'synthetic',
+      'fallback',
+      'degraded',
+      'stale',
+      'unavailable',
+      'out_of_scope',
+    ]));
+    expect(data.classification_contract.live_data_rules).toMatchObject({
+      counts_as_live_state: 'live',
+      required_source_ownership_class: 'live',
+      non_live_states_do_not_count_as_live: true,
+    });
 
     const requiredFamilies = ['simple', 'coins', 'exchanges', 'global', 'search', 'assets', 'treasury', 'onchain', 'derivatives', 'supply', 'historical'];
     expect(data.families.map((family) => family.family).sort()).toEqual(requiredFamilies.sort());
@@ -178,6 +222,19 @@ describe('data quality diagnostics', () => {
       expect(family.evidence.contract_tests.length).toBeGreaterThan(0);
       expect(family.counts.representative_route_count).toBeGreaterThan(0);
       expect(family.timestamps.generated_at).toEqual(expect.any(String));
+      expect(data.classification_contract.quality_statuses).toContain(family.status);
+      expect(data.classification_contract.source_states).toContain(family.source.state);
+      expect(data.classification_contract.coverage_ownership_classes).toContain(family.source.ownership_class);
+      expect(data.classification_contract.coverage_freshness_states).toContain(family.source.freshness_state);
+      for (const reasonCode of family.reason_codes) {
+        expect(data.classification_contract.reason_codes).toContain(reasonCode);
+      }
+      for (const dimension of family.dimensions) {
+        expect(data.classification_contract.dimension_ids).toContain(dimension.id);
+        for (const reasonCode of dimension.reason_codes) {
+          expect(data.classification_contract.reason_codes).toContain(reasonCode);
+        }
+      }
     }
 
     const belowTarget = data.families.filter((family) => family.score < data.target_threshold);
@@ -213,6 +270,56 @@ describe('data quality diagnostics', () => {
       expect(family.score_scopes.live_source_fidelity).toBeLessThan(9);
       expect(family.score_scopes.fixture_fallback_transparency).toBeGreaterThanOrEqual(9);
       expect(family.reason_codes.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('maps coverage-matrix contract support and data-fidelity classifications into data-quality source state', async () => {
+    await getApp().ready();
+
+    const [qualityResponse, coverageResponse] = await Promise.all([
+      getApp().inject({
+        method: 'GET',
+        url: '/diagnostics/data_quality',
+      }),
+      getApp().inject({
+        method: 'GET',
+        url: '/diagnostics/coverage_matrix',
+      }),
+    ]);
+
+    expect(qualityResponse.statusCode).toBe(200);
+    expect(coverageResponse.statusCode).toBe(200);
+
+    const coverageByFamily = new Map((coverageResponse.json().data.entries as Array<{
+      family: string;
+      ownership_class: string;
+      contract_support: { supported: boolean };
+      data_fidelity: { classification: string; counts_as_live: boolean; non_live: boolean };
+    }>).map((entry) => [entry.family, entry]));
+    const qualityFamilies = qualityResponse.json().data.families as Array<{
+      family: string;
+      source: {
+        state: string;
+        ownership_class: string;
+        evidence_family: string | null;
+        fallback: boolean;
+      };
+      score_scopes: { live_source_fidelity: number };
+      target_threshold: number;
+    }>;
+
+    for (const family of qualityFamilies) {
+      const coverage = coverageByFamily.get(family.source.evidence_family ?? '');
+      expect(coverage, `missing coverage entry for ${family.family}`).toBeDefined();
+      expect(coverage?.contract_support.supported).toBe(true);
+      expect(coverage?.data_fidelity.classification).toBe(family.source.ownership_class);
+      expect(coverage?.data_fidelity.counts_as_live).toBe(family.source.state === 'live');
+      expect(coverage?.data_fidelity.non_live).toBe(family.source.state !== 'live');
+
+      if (family.source.state !== 'live') {
+        expect(family.source.fallback).toBe(true);
+        expect(family.score_scopes.live_source_fidelity).toBeLessThan(family.target_threshold);
+      }
     }
   });
 
