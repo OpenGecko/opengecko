@@ -73,7 +73,7 @@ export type MetricsRegistry = {
   recordProviderRecovery: (provider: string) => void;
   recordProviderAttemptStart: (provider: string, family: string) => void;
   recordProviderAttemptEnd: (provider: string, family: string, outcome: ProviderStabilityOutcome, durationMs: number) => void;
-  initializeProviderHealthCounters: (provider: string) => void;
+  initializeProviderHealthCounters: (provider: string, families?: string[]) => void;
   recordStartupPrewarmTarget: (target: string, outcome: 'completed' | 'timeout' | 'failed', durationMs: number) => void;
   recordStartupPrewarmFirstRequest: (target: string, cacheSurface: string, cacheHit: boolean, durationMs: number) => void;
   renderPrometheus: () => string;
@@ -225,14 +225,16 @@ export function createMetricsRegistry(): MetricsRegistry {
     }, Math.max(0, durationMs));
   }
 
-  function initializeProviderHealthCounters(provider: string) {
+  function initializeProviderHealthCounters(provider: string, families: string[] = ['ticker']) {
     incrementCounter('provider_forced_failure_total', { provider }, 0);
     incrementCounter('provider_blocked_by_breaker_total', { provider }, 0);
     incrementCounter('provider_partial_failure_total', { provider }, 0);
     incrementCounter('provider_recovery_total', { provider }, 0);
-    setGauge('opengecko_provider_in_flight', { provider, family: 'ticker' }, 0);
-    for (const outcome of ['successful', 'timed_out', 'canceled', 'failed', 'breaker_open', 'blocked_unavailable', 'skipped', 'recovered'] as const) {
-      incrementCounter('opengecko_provider_attempts_total', { provider, family: 'ticker', outcome }, 0);
+    for (const family of families) {
+      setGauge('opengecko_provider_in_flight', { provider, family }, 0);
+      for (const outcome of ['successful', 'timed_out', 'canceled', 'failed', 'breaker_open', 'blocked_unavailable', 'skipped', 'recovered'] as const) {
+        incrementCounter('opengecko_provider_attempts_total', { provider, family, outcome }, 0);
+      }
     }
   }
 

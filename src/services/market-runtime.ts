@@ -107,6 +107,7 @@ export function createMarketRuntimeDiagnosticsScheduler(
   logger: RuntimeLogger,
   metrics: MetricsRegistry,
   database: AppDatabase | null = null,
+  state?: MarketDataRuntimeState,
 ) {
   const scheduler = createUnifiedScheduler({
     logger,
@@ -147,7 +148,7 @@ export function createMarketRuntimeDiagnosticsScheduler(
       run: async () => undefined,
     });
   }
-  registerTier1SchedulerJobs(scheduler, database, config);
+  registerTier1SchedulerJobs(scheduler, database, config, state, metrics);
   registerTier23SchedulerJobs(scheduler, database, config);
 
   return scheduler;
@@ -275,7 +276,7 @@ export function createMarketRuntime(
       app.simplePriceCache?.deleteExpired();
     },
   });
-  registerTier1SchedulerJobs(scheduler, database, config);
+  registerTier1SchedulerJobs(scheduler, database, config, state, metrics);
   registerTier23SchedulerJobs(scheduler, database, config);
 
   return {

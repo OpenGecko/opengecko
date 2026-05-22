@@ -262,6 +262,153 @@ describe('Tier 1 onchain background sweepers', () => {
     }
   });
 
+  it('opens, skips, and recovers the DeFiLlama provider breaker without corrupting public onchain response shapes', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-tier1-defillama-breaker-'));
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+      let fetchCalls = 0;
+
+      await expect(runDefillamaPoolSweep(app.db, {
+        now: new Date('2026-05-05T00:06:00.000Z'),
+        targets: [{ id: 'usd-coin' }],
+        runtimeState: app.marketDataRuntimeState,
+        metrics: app.metrics,
+        fetchPoolData: async () => {
+          fetchCalls += 1;
+          throw new Error('403 Forbidden: block access from your country');
+        },
+      })).rejects.toThrow('provider regionally blocked');
+      expect(fetchCalls).toBe(1);
+
+      const blocked = await runDefillamaPoolSweep(app.db, {
+        now: new Date('2026-05-05T00:06:30.000Z'),
+        targets: [{ id: 'usd-coin' }],
+        runtimeState: app.marketDataRuntimeState,
+        metrics: app.metrics,
+        fetchPoolData: async () => {
+          fetchCalls += 1;
+          return { protocols: [], pools: [] };
+        },
+      });
+
+      expect(blocked).toMatchObject({
+        targetsProcessed: 0,
+        rowsWritten: 0,
+        partialFailures: [{ target: 'defillama', reason: 'provider breaker open' }],
+      });
+      expect(fetchCalls).toBe(1);
+
+      const runtimeDuringFailure = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+      expect(runtimeDuringFailure.statusCode).toBe(200);
+      expect(runtimeDuringFailure.json().data.providers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'defillama',
+          state: 'open',
+          failure_kind: 'regional_block',
+          last_failure_reason: 'provider regionally blocked',
+          capabilities: expect.arrayContaining([
+            expect.objectContaining({
+              surface: 'onchain',
+              state: 'degraded',
+              endpoint_families: expect.arrayContaining(['/onchain/networks', '/simple/token_price/{id}']),
+            }),
+          ]),
+        }),
+      ]));
+
+      const dataQualityDuringFailure = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/data_quality',
+      });
+      const onchainQuality = dataQualityDuringFailure.json().data.families.find((family: { family: string }) => family.family === 'onchain');
+      expect(onchainQuality.evidence.runtime_degradation).toMatchObject({
+        active: true,
+        reason_codes: expect.arrayContaining(['provider_blocked', 'regional_block']),
+      });
+
+      const publicShape = await app.inject({
+        method: 'GET',
+        url: '/onchain/networks',
+      });
+      expect(publicShape.statusCode).toBe(200);
+      expect(publicShape.json()).toMatchObject({
+        data: expect.any(Array),
+      });
+
+      const breakerEntry = app.marketDataRuntimeState.providerBreakers?.providers.defillama;
+      expect(breakerEntry).toBeDefined();
+      breakerEntry!.openedUntil = Date.parse('2026-05-05T00:06:59.000Z');
+
+      await expect(runDefillamaPoolSweep(app.db, {
+        now: new Date('2026-05-05T00:07:00.000Z'),
+        targets: [{ id: 'usd-coin' }],
+        runtimeState: app.marketDataRuntimeState,
+        metrics: app.metrics,
+        fetchPoolData: async () => ({
+          protocols: [],
+          pools: [{
+            chain: 'Ethereum',
+            project: 'uniswap-v3',
+            symbol: 'DAI-USDC',
+            pool: 'defillama-recovery-dai-usdc',
+            tvlUsd: 5_000_000,
+            volumeUsd1d: 750_000,
+            volumeUsd7d: 5_000_000,
+            underlyingTokens: [
+              '0x6b175474e89094c44da98b954eedeac495271d0f',
+              '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            ],
+          }],
+        }),
+      })).resolves.toMatchObject({
+        targetsProcessed: 1,
+        rowsWritten: 1,
+        partialFailures: [],
+      });
+
+      const runtimeAfterRecovery = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+      expect(runtimeAfterRecovery.json().data.providers).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'defillama',
+          state: 'closed',
+          failure_count: 0,
+          failure_kind: null,
+          last_failure_reason: null,
+          last_success_at: expect.any(String),
+        }),
+      ]));
+      expect(runtimeAfterRecovery.json().data.readiness.canonical_phase).not.toBe('provider_degraded');
+
+      const metrics = await app.inject({
+        method: 'GET',
+        url: '/metrics',
+      });
+      expect(metrics.body).toContain('provider_blocked_by_breaker_total{provider="defillama"} 1');
+      expect(metrics.body).toContain('provider_recovery_total{provider="defillama"} 1');
+      expect(metrics.body).toContain('opengecko_provider_attempts_total{family="onchain",outcome="blocked_unavailable",provider="defillama"} 1');
+      expect(metrics.body).toContain('opengecko_provider_attempts_total{family="onchain",outcome="breaker_open",provider="defillama"} 1');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('persists Subsquid trades idempotently and isolates per-pool failures', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-tier1-subsquid-sweep-'));
     const app = buildApp({

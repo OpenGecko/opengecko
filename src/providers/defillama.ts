@@ -3,6 +3,9 @@ import { createLogger, serializeErrorForLog } from '../lib/logger';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const EXPECTED_TEST_FAILURE_LOG_LEVEL = process.env.VITEST === 'true' ? 'warn' : 'error';
+const DEFAULT_DEFILLAMA_API_BASE_URL = 'https://api.llama.fi';
+const DEFAULT_DEFILLAMA_YIELDS_BASE_URL = 'https://yields.llama.fi';
+const DEFILLAMA_PRICING_HOST = 'coins.llama.fi';
 
 let cachedConfig: { defillamaBaseUrl: string; defillamaYieldsBaseUrl: string } | null = null;
 const logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info' });
@@ -94,14 +97,38 @@ function resolveBaseUrl(baseUrl?: string) {
   return (baseUrl ?? getConfig().defillamaBaseUrl).replace(/\/+$/, '');
 }
 
+function isDefillamaPricingBaseUrl(baseUrl: string) {
+  try {
+    return new URL(baseUrl).host === DEFILLAMA_PRICING_HOST;
+  } catch {
+    return false;
+  }
+}
+
+function resolveApiBaseUrl(baseUrl?: string) {
+  const resolvedBaseUrl = resolveBaseUrl(baseUrl);
+  return isDefillamaPricingBaseUrl(resolvedBaseUrl)
+    ? DEFAULT_DEFILLAMA_API_BASE_URL
+    : resolvedBaseUrl;
+}
+
 function resolveYieldsBaseUrl(yieldsBaseUrl?: string, baseUrl?: string) {
   const config = getConfig();
+  const resolvedBaseUrl = resolveBaseUrl(baseUrl);
+  if (!yieldsBaseUrl && isDefillamaPricingBaseUrl(resolvedBaseUrl)) {
+    return DEFAULT_DEFILLAMA_YIELDS_BASE_URL;
+  }
+
   return (yieldsBaseUrl ?? config.defillamaYieldsBaseUrl ?? baseUrl ?? config.defillamaBaseUrl).replace(/\/+$/, '');
+}
+
+function resolvePricingBaseUrl(baseUrl?: string) {
+  return resolveBaseUrl(baseUrl);
 }
 
 async function fetchJson<T>(path: string, options: DefillamaRequestOptions = {}, urlOverride?: string) {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const url = urlOverride ?? `${resolveBaseUrl(options.baseUrl)}${path}`;
+  const url = urlOverride ?? `${resolveApiBaseUrl(options.baseUrl)}${path}`;
   const controller = options.signal ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;
 
@@ -222,7 +249,11 @@ export async function fetchDefillamaTokenPrices(coins: string[], options: Defill
 
   try {
     const encodedCoins = coins.map((coin) => encodeURIComponent(coin)).join(',');
-    const response = await fetchJson<{ coins?: Record<string, DefillamaPriceEntry> }>(`/prices/current/${encodedCoins}`, options);
+    const response = await fetchJson<{ coins?: Record<string, DefillamaPriceEntry> }>(
+      `/prices/current/${encodedCoins}`,
+      options,
+      `${resolvePricingBaseUrl(options.baseUrl)}/prices/current/${encodedCoins}`,
+    );
 
     return response.coins ?? {};
   } catch (error) {

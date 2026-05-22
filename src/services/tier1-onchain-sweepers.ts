@@ -12,7 +12,22 @@ import { type SqdEthereumSwapLog, fetchEthereumPoolSwapLogs } from '../providers
 import { generateDeterministicAddress, normalizeAddress, slugifyOnchainId, toDexName } from '../modules/onchain/helpers';
 import { deriveLivePoolTrades } from '../modules/onchain/trades';
 import { ingestOnchainTradeReplay, type RawOnchainTradeReplay } from './onchain-trade-ingestion';
+import {
+  finishProviderAttempt,
+  getProviderFaultControl,
+  startProviderAttempt,
+  type MarketDataRuntimeState,
+  type ProviderAttemptOutcome,
+} from './market-runtime-state';
+import type { MetricsRegistry, ProviderStabilityOutcome } from './metrics';
 import { enforceSnapshotRetention } from './snapshot-retention';
+import {
+  canAttemptProvider,
+  classifyProviderFailure,
+  createProviderBreakerState,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from './provider-breaker';
 
 type SweepTarget = {
   id: string;
@@ -34,13 +49,24 @@ type DefillamaPoolFetcher = () => Promise<DefillamaPoolData | null>;
 type DefillamaTokenPriceFetcher = (coins: string[]) => Promise<DefillamaTokenPrices | null>;
 type SqdSwapFetcher = (poolAddress: string) => Promise<SqdEthereumSwapLog[] | null>;
 
-type DefillamaPoolSweepOptions = {
+type ProviderStabilityControls = {
+  runtimeState?: MarketDataRuntimeState;
+  metrics?: Pick<MetricsRegistry,
+    | 'recordProviderAttemptStart'
+    | 'recordProviderAttemptEnd'
+    | 'recordProviderBlockedByBreaker'
+    | 'recordProviderPartialFailure'
+    | 'recordProviderRecovery'
+  >;
+};
+
+type DefillamaPoolSweepOptions = ProviderStabilityControls & {
   targets?: SweepTarget[];
   now?: Date;
   fetchPoolData?: DefillamaPoolFetcher;
 };
 
-type DefillamaTokenSweepOptions = {
+type DefillamaTokenSweepOptions = ProviderStabilityControls & {
   targets?: SweepTarget[];
   now?: Date;
   fetchTokenPrices?: DefillamaTokenPriceFetcher;
@@ -158,9 +184,136 @@ const DEFILLAMA_DEX_OVERRIDES: Record<string, { id: string; name: string; url: s
   },
 };
 
+const DEFILLAMA_PROVIDER_ID = 'defillama';
+const DEFILLAMA_PROVIDER_FAMILY = 'onchain';
+
 function sanitizeFailureReason(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function toProviderAttemptOutcome(error: unknown): ProviderAttemptOutcome {
+  if (error instanceof Error && (error.name === 'AbortError' || /abort|cancel/i.test(error.message))) {
+    return 'canceled';
+  }
+
+  const classified = classifyProviderFailure(error);
+  if (classified.kind === 'timeout') {
+    return 'timed_out';
+  }
+  if (classified.kind === 'regional_block' || classified.kind === 'unavailable_market') {
+    return 'blocked_unavailable';
+  }
+
+  return 'failed';
+}
+
+function toMetricProviderOutcome(outcome: ProviderAttemptOutcome): ProviderStabilityOutcome {
+  return outcome;
+}
+
+function buildDefillamaFaultError(state: MarketDataRuntimeState | undefined) {
+  const faultControl = getProviderFaultControl(state, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY);
+  if (!faultControl || faultControl.mode === 'off') {
+    return null;
+  }
+
+  if (faultControl.mode === 'canceled') {
+    const error = new Error(faultControl.reason ?? 'DeFiLlama provider request canceled by validator fault control');
+    error.name = 'AbortError';
+    return error;
+  }
+  if (faultControl.mode === 'timeout') {
+    const error = new Error(faultControl.reason ?? 'DeFiLlama provider request timed out by validator fault control');
+    error.name = 'DefillamaProviderTimeoutError';
+    return error;
+  }
+  if (faultControl.mode === 'blocked_unavailable') {
+    return new Error(faultControl.reason ?? '403 Forbidden DeFiLlama provider unavailable by validator fault control');
+  }
+
+  return new Error(faultControl.reason ?? 'validator controlled DeFiLlama provider failure');
+}
+
+async function runDefillamaProviderAttempt<T>(
+  options: ProviderStabilityControls & { now: Date },
+  operation: () => Promise<T>,
+): Promise<{ status: 'success'; value: T } | { status: 'skipped'; result: SweepResult }> {
+  if (!options.runtimeState && !options.metrics) {
+    return { status: 'success', value: await operation() };
+  }
+
+  const nowMs = options.now.getTime();
+  const providerBreakers = options.runtimeState
+    ? options.runtimeState.providerBreakers ?? (options.runtimeState.providerBreakers = createProviderBreakerState([DEFILLAMA_PROVIDER_ID]))
+    : null;
+
+  if (providerBreakers && !canAttemptProvider(providerBreakers, DEFILLAMA_PROVIDER_ID, nowMs)) {
+    options.metrics?.recordProviderBlockedByBreaker(DEFILLAMA_PROVIDER_ID);
+    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'breaker_open', 0);
+    if (options.runtimeState) {
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'breaker_open', 'provider breaker open', nowMs);
+    }
+    return {
+      status: 'skipped',
+      result: {
+        targetsProcessed: 0,
+        rowsWritten: 0,
+        partialFailures: [{ target: DEFILLAMA_PROVIDER_ID, reason: 'provider breaker open' }],
+      },
+    };
+  }
+
+  const providerHadFailure = providerBreakers
+    ? (providerBreakers.providers[DEFILLAMA_PROVIDER_ID]?.failureCount ?? 0) > 0
+    : false;
+  if (options.runtimeState) {
+    startProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, nowMs);
+  }
+  options.metrics?.recordProviderAttemptStart(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY);
+  const startedAt = nowMs;
+
+  try {
+    const faultError = buildDefillamaFaultError(options.runtimeState);
+    if (faultError) {
+      throw faultError;
+    }
+
+    const value = await operation();
+    if (providerBreakers) {
+      recordProviderSuccess(providerBreakers, DEFILLAMA_PROVIDER_ID, Date.now());
+    }
+    if (providerHadFailure) {
+      options.metrics?.recordProviderRecovery(DEFILLAMA_PROVIDER_ID);
+    }
+    if (options.runtimeState) {
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', null);
+    }
+    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', Date.now() - startedAt);
+    return { status: 'success', value };
+  } catch (error) {
+    const classifiedFailure = classifyProviderFailure(error);
+    const outcome = toProviderAttemptOutcome(error);
+    if (providerBreakers) {
+      recordProviderFailure(
+        providerBreakers,
+        DEFILLAMA_PROVIDER_ID,
+        Date.now(),
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    options.metrics?.recordProviderPartialFailure(DEFILLAMA_PROVIDER_ID);
+    if (options.runtimeState) {
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, outcome, classifiedFailure.reason);
+    }
+    options.metrics?.recordProviderAttemptEnd(
+      DEFILLAMA_PROVIDER_ID,
+      DEFILLAMA_PROVIDER_FAMILY,
+      toMetricProviderOutcome(outcome),
+      Date.now() - startedAt,
+    );
+    throw new Error(classifiedFailure.reason, { cause: error });
+  }
 }
 
 function getDexConfig(projectSlug: string) {
@@ -231,11 +384,20 @@ export async function runDefillamaPoolSweep(
 ): Promise<SweepResult> {
   const now = options.now ?? new Date();
   const fetcher = options.fetchPoolData ?? fetchDefillamaPoolData;
-  const poolData = await fetcher();
-
-  if (!poolData) {
-    throw new Error('DeFiLlama pool sweep failed: provider returned no pool data');
+  const providerAttempt = await runDefillamaProviderAttempt(
+    { runtimeState: options.runtimeState, metrics: options.metrics, now },
+    async () => {
+      const poolData = await fetcher();
+      if (!poolData) {
+        throw new Error('DeFiLlama pool sweep failed: provider returned no pool data');
+      }
+      return poolData;
+    },
+  );
+  if (providerAttempt.status === 'skipped') {
+    return providerAttempt.result;
   }
+  const poolData = providerAttempt.value;
 
   const maxTargets = Math.max(1, options.targets?.length ?? 225);
   const candidates = poolData.pools
@@ -355,11 +517,20 @@ export async function runDefillamaTokenSweep(
   const fetcher = options.fetchTokenPrices ?? fetchDefillamaTokenPrices;
   const targets = readTokenSweepTargets(database, options.targets?.length ?? 225);
   const coinIds = targets.map((target) => `ethereum:${target.address}`);
-  const prices = await fetcher(coinIds);
-
-  if (!prices) {
-    throw new Error('DeFiLlama token sweep failed: provider returned no token prices');
+  const providerAttempt = await runDefillamaProviderAttempt(
+    { runtimeState: options.runtimeState, metrics: options.metrics, now },
+    async () => {
+      const prices = await fetcher(coinIds);
+      if (!prices) {
+        throw new Error('DeFiLlama token sweep failed: provider returned no token prices');
+      }
+      return prices;
+    },
+  );
+  if (providerAttempt.status === 'skipped') {
+    return providerAttempt.result;
   }
+  const prices = providerAttempt.value;
 
   const partialFailures: SweepFailure[] = [];
   let rowsWritten = 0;

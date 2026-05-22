@@ -2,6 +2,8 @@ import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
 import { createLogger } from '../lib/logger';
 import type { UnifiedScheduler } from './job-scheduler';
+import type { MarketDataRuntimeState } from './market-runtime-state';
+import type { MetricsRegistry } from './metrics';
 import {
   runCategoryAggregator,
   runCoinCatalogRescan,
@@ -59,6 +61,8 @@ export function registerTier1SchedulerJobs(
   scheduler: UnifiedScheduler,
   database: AppDatabase | null,
   config: Tier1SchedulerConfig,
+  runtimeState?: MarketDataRuntimeState,
+  metrics?: MetricsRegistry,
 ) {
   const tier1Logger = createLogger({ level: process.env.LOG_LEVEL === 'silent' ? 'silent' : 'info', pretty: false }).child({ operation: 'tier1_scheduler' });
   const targetSelectionCycleIndexesByJobName = new Map<string, number>();
@@ -82,7 +86,11 @@ export function registerTier1SchedulerJobs(
       if (!database) {
         return { targetsProcessed: 0 };
       }
-      return runDefillamaPoolSweep(database, { targets: selectRankedTargets('defillama-pool-sweep').targets });
+      return runDefillamaPoolSweep(database, {
+        targets: selectRankedTargets('defillama-pool-sweep').targets,
+        runtimeState,
+        metrics,
+      });
     },
   });
   scheduler.register({
@@ -93,7 +101,11 @@ export function registerTier1SchedulerJobs(
       if (!database) {
         return { targetsProcessed: 0 };
       }
-      return runDefillamaTokenSweep(database, { targets: selectRankedTargets('defillama-token-sweep').targets });
+      return runDefillamaTokenSweep(database, {
+        targets: selectRankedTargets('defillama-token-sweep').targets,
+        runtimeState,
+        metrics,
+      });
     },
   });
   scheduler.register({

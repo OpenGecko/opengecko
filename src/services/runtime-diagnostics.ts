@@ -7,7 +7,7 @@ import { classifyRuntimeMarketSnapshotSourceClass, type RuntimeMarketSnapshotSou
 import { summarizeProviderBreakerState, type ProviderFailureKind } from './provider-breaker';
 
 export type ProviderAlertStatus = 'healthy' | 'degraded' | 'failing';
-export type ProviderCapabilitySurface = 'market_price' | 'ticker' | 'exchange' | 'chart';
+export type ProviderCapabilitySurface = 'market_price' | 'ticker' | 'exchange' | 'chart' | 'onchain';
 export type ProviderCapabilityState = 'pending' | 'contributed' | 'degraded' | 'unavailable';
 export type ProviderCapabilityOwnership = 'configured' | 'latest_contributor';
 export type ProviderCapabilityEvidence = Partial<Record<ProviderCapabilitySurface, Record<string, string>>>;
@@ -223,7 +223,7 @@ function buildProviderCapabilities(
   const normalizedProviderId = normalizeProviderCapabilityId(provider.id);
   const contributedMarketPrice = latestContributorProviders.has(normalizedProviderId);
 
-  return [
+  const capabilities: ProviderRuntimeDiagnostics['capabilities'] = [
     {
       surface: 'market_price',
       endpoint_families: ['/simple/price', '/coins/markets'],
@@ -262,6 +262,18 @@ function buildProviderCapabilities(
       initialSyncCompleted,
     ),
   ];
+
+  if (normalizedProviderId === 'defillama') {
+    capabilities.push(buildEvidenceDrivenCapability(
+      'onchain',
+      ['/onchain/networks', '/onchain/networks/{network}/pools', '/simple/token_price/{id}'],
+      provider,
+      capabilityEvidence,
+      initialSyncCompleted,
+    ));
+  }
+
+  return capabilities;
 }
 
 export function buildRuntimeDiagnostics(

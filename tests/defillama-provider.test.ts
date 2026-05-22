@@ -135,6 +135,32 @@ describe('defillama provider', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://api.llama.fi/prices/current/ethereum%3A0xa0b8', expect.any(Object));
   });
 
+  it('uses coins.llama.fi for pricing while keeping non-pricing discovery on DeFiLlama API hosts', async () => {
+    process.env.DEFILLAMA_BASE_URL = 'https://coins.llama.fi';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        coins: {
+          'ethereum:0xa0b8': { price: 1, symbol: 'USDC', decimals: 6 },
+        },
+      }), { status: 200 }));
+
+    const { fetchDefillamaPoolData, fetchDefillamaTokenPrices } = await import('../src/providers/defillama');
+
+    await expect(fetchDefillamaPoolData({ fetchImpl: fetchMock as typeof fetch })).resolves.toEqual({
+      protocols: [],
+      pools: [],
+    });
+    await expect(fetchDefillamaTokenPrices(['ethereum:0xa0b8'], { fetchImpl: fetchMock as typeof fetch })).resolves.toEqual({
+      'ethereum:0xa0b8': { price: 1, symbol: 'USDC', decimals: 6 },
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://api.llama.fi/protocols', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://yields.llama.fi/pools', expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, 'https://coins.llama.fi/prices/current/ethereum%3A0xa0b8', expect.any(Object));
+  });
+
   it('returns an empty price map when no token identifiers are provided', async () => {
     const fetchMock = vi.fn();
 

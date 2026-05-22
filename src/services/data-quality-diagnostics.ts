@@ -344,7 +344,12 @@ function providerReasonCodes(runtimeDiagnostics: RuntimeDiagnostics) {
   }
   for (const provider of runtimeDiagnostics.providers ?? []) {
     if (provider.alert_status !== 'healthy') {
-      codes.add(provider.state === 'open' ? 'provider_error' : 'provider_degraded');
+      if (provider.failure_kind === 'regional_block') {
+        codes.add('provider_blocked');
+        codes.add('regional_block');
+      } else {
+        codes.add(provider.state === 'open' ? 'provider_error' : 'provider_degraded');
+      }
     }
   }
   return [...codes].sort();

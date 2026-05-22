@@ -80,6 +80,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   for (const provider of config.ccxtExchanges) {
     metrics.initializeProviderHealthCounters(provider);
   }
+  metrics.initializeProviderHealthCounters('defillama', ['onchain']);
   const optionalProviderJobs = createOptionalProviderJobRegistry();
   const chartResponseSources = createChartResponseSourceDiagnostics(database);
   const runtime = shouldStartBackgroundJobs
@@ -87,7 +88,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     : null;
   const scheduler = runtime?.scheduler
     ?? (options.exposeSchedulerDiagnostics
-      ? createMarketRuntimeDiagnosticsScheduler(config, app.log, metrics, database)
+      ? createMarketRuntimeDiagnosticsScheduler(config, app.log, metrics, database, marketDataRuntimeState)
       : null);
 
   migrateDatabase(database);
