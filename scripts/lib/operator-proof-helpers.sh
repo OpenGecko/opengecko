@@ -57,11 +57,11 @@ check_reserved_ports_clear() {
   done
 
   if [[ "$failed" -ne 0 ]]; then
-    record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 98
+    record_command "reserved-port-${phase}" "check reserved ports 3100 3102 3103 are clear" 98
     return 98
   fi
 
-  record_command "reserved-port-${phase}" "check reserved ports 3100 3101 3102 are clear" 0
+  record_command "reserved-port-${phase}" "check reserved ports 3100 3102 3103 are clear" 0
 }
 
 run_recorded() {
@@ -136,14 +136,20 @@ write_versions() {
     echo "  \"proof_root\": $(json_escape "$PROOF_ROOT"),"
     echo "  \"database_paths\": {"
     echo "    \"3100\": $(json_escape "$DB_PATH_3100"),"
-    echo "    \"3102\": $(json_escape "$DB_PATH_3102")"
+    echo "    \"3102\": $(json_escape "$DB_PATH_3102"),"
+    echo "    \"3103\": $(json_escape "$DB_PATH_3103")"
     echo "  },"
-    echo "  \"ports\": [3100, 3101, 3102],"
-    echo "  \"runtime_ports\": [3100, 3102],"
-    echo "  \"reserved_ports_policy\": \"preflight and post-cleanup checks require 3100-3102 to be clear; the script refuses to touch unknown listeners\","
+    echo "  \"ports\": [3100, 3102, 3103],"
+    echo "  \"runtime_ports\": [3100, 3102, 3103],"
+    echo "  \"provider_env\": {"
+    echo "    \"DEFILLAMA_BASE_URL\": $(json_escape "${DEFILLAMA_BASE_URL:-https://coins.llama.fi}"),"
+    echo "    \"CCXT_EXCHANGES\": $(json_escape "${CCXT_EXCHANGES:-coinbase,kraken,okx,kucoin,gateio,bitstamp}"),"
+    echo "    \"PROVIDER_FANOUT_CONCURRENCY\": $(json_escape "${PROVIDER_FANOUT_CONCURRENCY:-3}")"
+    echo "  },"
+    echo "  \"reserved_ports_policy\": \"preflight and post-cleanup checks require mission ports 3100, 3102, and 3103 to be clear; the script refuses to touch unknown listeners\","
     echo "  \"smoke_module_policy\": \"curated serial default: exchanges; skipped available modules are recorded with reasons\","
     echo "  \"credential_policy\": \"public providers only; no private API keys required\","
-    echo "  \"repo_data_policy\": \"uses temp SQLite paths under /tmp; repo data directory is not required\""
+    echo "  \"repo_data_policy\": \"uses explicit validation SQLite paths under /tmp plus :memory: for validation-control; repo data directory is not required\""
     echo "}"
   } > "${PROOF_ROOT}/environment.json"
 }
@@ -152,15 +158,26 @@ start_server() {
   local port="$1"
   local db_path="$2"
   local log_path="$3"
-  local command="HOST=127.0.0.1 PORT=${port} DATABASE_URL=\"${db_path}\" LOG_LEVEL=warn LOG_PRETTY=false bun run dev"
+  local defillama_base_url="${DEFILLAMA_BASE_URL:-https://coins.llama.fi}"
+  local ccxt_exchanges="${CCXT_EXCHANGES:-coinbase,kraken,okx,kucoin,gateio,bitstamp}"
+  local provider_fanout_concurrency="${PROVIDER_FANOUT_CONCURRENCY:-3}"
+  local command="HOST=127.0.0.1 PORT=${port} DATABASE_URL=\"${db_path}\" LOG_LEVEL=warn LOG_PRETTY=false DEFILLAMA_BASE_URL=\"${defillama_base_url}\" CCXT_EXCHANGES=\"${ccxt_exchanges}\" PROVIDER_FANOUT_CONCURRENCY=\"${provider_fanout_concurrency}\" bun run serve"
 
   if lsof -ti ":${port}" >/dev/null 2>&1; then
     echo "Port ${port} is already in use; refusing to touch unknown process." >&2
     exit 98
   fi
 
-  echo "Starting OpenGecko on port ${port} with temp DB ${db_path}"
-  HOST=127.0.0.1 PORT="$port" DATABASE_URL="${db_path}" LOG_LEVEL=warn LOG_PRETTY=false bun run dev >"$log_path" 2>&1 &
+  echo "Starting OpenGecko on port ${port} with validation DB ${db_path}"
+  HOST=127.0.0.1 \
+    PORT="$port" \
+    DATABASE_URL="${db_path}" \
+    LOG_LEVEL=warn \
+    LOG_PRETTY=false \
+    DEFILLAMA_BASE_URL="${defillama_base_url}" \
+    CCXT_EXCHANGES="${ccxt_exchanges}" \
+    PROVIDER_FANOUT_CONCURRENCY="${provider_fanout_concurrency}" \
+    bun run serve >"$log_path" 2>&1 &
   SERVER_PID="$!"
   CURRENT_PORT="$port"
   record_command "start-${port}" "$command" 0
@@ -516,6 +533,24 @@ run_smoke_modules_serially() {
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       '{timestamp: $timestamp, module: $module, command: $command, exit_code: $exit_code, log: $log}' >> "$SMOKE_EXECUTED_FILE"
   done
+}
+
+run_data_quality_gate_serially() {
+  local base_url="$1"
+  local command="BASE_URL=${base_url} bash scripts/data-quality-gate.sh"
+
+  echo "Running serial data-quality gate: ${base_url}"
+  set +e
+  BASE_URL="$base_url" bash scripts/data-quality-gate.sh > "${PROOF_ROOT}/data-quality-gate.log" 2>&1
+  local exit_code=$?
+  set -e
+
+  record_command "data-quality-gate" "$command" "$exit_code"
+  if [[ "$exit_code" -ne 0 ]]; then
+    mark_failure "data-quality gate failed"
+  fi
+
+  return 0
 }
 
 sample_priority_routes() {

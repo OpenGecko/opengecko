@@ -39,6 +39,10 @@ const readmeConfigEnvAllowlist = new Set([
   'SUPPLY_CHART_BASE_URL',
 ]);
 
+const intentionallyUndocumentedPackageScripts = new Set([
+  'serve',
+]);
+
 function extractEnvTsReferencedEnvVars() {
   const envConfig = readRepoFile('src/config/env.ts');
   const schemaBody = envConfig.match(/const envSchema = z\.object\(\{([\s\S]*?)\n\}\);/)?.[1];
@@ -75,7 +79,8 @@ function extractReadmeConfigDefault(envVar: string) {
 function extractPackageJsonScripts() {
   const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
 
-  return uniqueSorted(Object.keys(packageJson.scripts));
+  return uniqueSorted(Object.keys(packageJson.scripts)
+    .filter((scriptName) => !intentionallyUndocumentedPackageScripts.has(scriptName)));
 }
 
 function extractReadmeBunRunScripts() {

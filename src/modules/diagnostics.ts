@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
+import { buildSqliteDatabaseDiagnostics } from '../db/runtime';
 import {
   assetPlatforms,
   coinTickers,
@@ -410,6 +411,9 @@ export function registerDiagnosticsRoutes(
       .at(-1) ?? null;
     const capabilityEvidence = buildRuntimeCapabilityEvidence(database);
 
+    const databaseDiagnostics = buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl);
+    const missionValidationPorts = [3100, 3102, 3103];
+
     return sendCacheableJson(request, reply, {
       data: {
         ...buildRuntimeDiagnostics(
@@ -423,6 +427,25 @@ export function registerDiagnosticsRoutes(
           request_timeout_ms: transport.requestTimeoutMs,
           compression: {
             threshold_bytes: transport.responseCompressionThresholdBytes,
+          },
+        },
+        database: databaseDiagnostics,
+        validation_profile: {
+          mission_service_ports: missionValidationPorts,
+          current_port: app.appConfig.port,
+          current_port_approved: missionValidationPorts.includes(app.appConfig.port),
+          service_role: app.appConfig.port === 3100
+            ? 'api_smoke'
+            : app.appConfig.port === 3102
+              ? 'validation_control'
+              : app.appConfig.port === 3103
+                ? 'data_quality_gate'
+                : 'non_mission',
+          port_3000_required: false,
+          service_backed_validation: {
+            serial_required: true,
+            explicit_database_url: databaseDiagnostics.configured_url,
+            database_path_class: databaseDiagnostics.path_class,
           },
         },
         startup_prewarm: app.marketDataRuntimeState.startupPrewarm,

@@ -553,6 +553,133 @@ describe('diagnostics routes', () => {
     ]));
   });
 
+  it('exposes SQLite path classification and validation service profile in runtime diagnostics', async () => {
+    await getApp().close();
+    const runtimeDbPath = join(tempDir, 'opengecko-runtime.sqlite');
+    app = buildApp({
+      config: {
+        databaseUrl: runtimeDbPath,
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        port: 3100,
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const runtimeResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(runtimeResponse.statusCode).toBe(200);
+    expect(runtimeResponse.json().data.database).toMatchObject({
+      runtime: expect.stringMatching(/^(bun|node)$/),
+      driver: expect.stringMatching(/^(bun:sqlite|better-sqlite3)$/),
+      configured_url: runtimeDbPath,
+      effective_path: runtimeDbPath,
+      path_class: 'tmp_validation_file',
+      storage_mode: 'file',
+      shared_file: true,
+      journal_mode: 'wal',
+      wal_enabled: true,
+      busy_timeout_ms: expect.any(Number),
+    });
+    expect(runtimeResponse.json().data.database.busy_timeout_ms).toBeGreaterThan(0);
+    expect(runtimeResponse.json().data.validation_profile).toEqual({
+      mission_service_ports: [3100, 3102, 3103],
+      current_port: 3100,
+      current_port_approved: true,
+      service_role: 'api_smoke',
+      port_3000_required: false,
+      service_backed_validation: {
+        serial_required: true,
+        explicit_database_url: runtimeDbPath,
+        database_path_class: 'tmp_validation_file',
+      },
+    });
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const controlResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(controlResponse.statusCode).toBe(200);
+    expect(controlResponse.json().data.database).toMatchObject({
+      configured_url: ':memory:',
+      effective_path: ':memory:',
+      path_class: 'in_memory',
+      storage_mode: 'in_memory',
+      shared_file: false,
+      wal_enabled: false,
+      busy_timeout_ms: expect.any(Number),
+    });
+    expect(controlResponse.json().data.validation_profile).toMatchObject({
+      current_port: 3102,
+      current_port_approved: true,
+      service_role: 'validation_control',
+      port_3000_required: false,
+      service_backed_validation: {
+        serial_required: true,
+        explicit_database_url: ':memory:',
+        database_path_class: 'in_memory',
+      },
+    });
+
+    await getApp().close();
+    const qualityDbPath = join(tempDir, 'opengecko-quality.sqlite');
+    app = buildApp({
+      config: {
+        databaseUrl: qualityDbPath,
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        port: 3103,
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const qualityResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+
+    expect(qualityResponse.statusCode).toBe(200);
+    expect(qualityResponse.json().data.database).toMatchObject({
+      configured_url: qualityDbPath,
+      effective_path: qualityDbPath,
+      path_class: 'tmp_validation_file',
+      storage_mode: 'file',
+      shared_file: true,
+      wal_enabled: true,
+      busy_timeout_ms: expect.any(Number),
+    });
+    expect(qualityResponse.json().data.validation_profile).toEqual({
+      mission_service_ports: [3100, 3102, 3103],
+      current_port: 3103,
+      current_port_approved: true,
+      service_role: 'data_quality_gate',
+      port_3000_required: false,
+      service_backed_validation: {
+        serial_required: true,
+        explicit_database_url: qualityDbPath,
+        database_path_class: 'tmp_validation_file',
+      },
+    });
+  });
+
   it('returns endpoint-family coverage ownership matrix', async () => {
     await getApp().ready();
     const response = await getApp().inject({

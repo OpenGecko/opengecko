@@ -620,9 +620,10 @@ describe('pre-refactor characterization baseline', () => {
     const proofScript = await readFile(join(process.cwd(), 'scripts/operator-proof-smoke.sh'), 'utf8');
     const proofHelpers = await readFile(join(process.cwd(), 'scripts/lib/operator-proof-helpers.sh'), 'utf8');
     const proofContract = `${proofScript}\n${proofHelpers}`;
-    expect(proofContract).toContain('RESERVED_PORTS=(3100 3101 3102)');
+    expect(proofContract).toContain('RESERVED_PORTS=(3100 3102 3103)');
     expect(proofContract).toContain('check_reserved_ports_clear "preflight"');
     expect(proofContract).toContain('check_reserved_ports_clear "post-cleanup"');
+    expect(proofContract).toContain('run_data_quality_gate_serially "http://127.0.0.1:3103"');
     expect(proofContract).toContain('/diagnostics/runtime/degraded_state');
     expect(proofContract).toContain('/diagnostics/runtime/provider_failure');
 

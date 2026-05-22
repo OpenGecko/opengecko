@@ -35,9 +35,17 @@ describe('operator proof smoke script contract', () => {
     expect(script).toContain('source "${REPO_ROOT}/scripts/lib/operator-proof-helpers.sh"');
     expect(contract).toContain('DATABASE_URL="${DB_PATH_3100}"');
     expect(contract).toContain('DATABASE_URL="${DB_PATH_3102}"');
+    expect(contract).toContain('DATABASE_URL="${DB_PATH_3103}"');
+    expect(script).toContain('DB_PATH_3102=":memory:"');
+    expect(script).toContain('DB_PATH_3103="${PROOF_ROOT}/opengecko-quality.sqlite"');
     expect(contract).toContain('PORT=3100');
     expect(contract).toContain('PORT=3102');
-    expect(contract).toContain('RESERVED_PORTS=(3100 3101 3102)');
+    expect(contract).toContain('PORT=3103');
+    expect(contract).toContain('DEFILLAMA_BASE_URL="${defillama_base_url}"');
+    expect(contract).toContain('CCXT_EXCHANGES="${ccxt_exchanges}"');
+    expect(contract).toContain('PROVIDER_FANOUT_CONCURRENCY="${provider_fanout_concurrency}"');
+    expect(contract).toContain('RESERVED_PORTS=(3100 3102 3103)');
+    expect(contract).not.toContain('RESERVED_PORTS=(3100 3101 3102)');
     expect(contract).toContain('check_reserved_ports_clear "preflight"');
     expect(contract).toContain('check_reserved_ports_clear "post-cleanup"');
     expect(contract).toContain('git rev-parse HEAD');
@@ -66,6 +74,8 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('active":false');
     expect(contract).toContain('wait_for_port_clear 3100');
     expect(contract).toContain('wait_for_port_clear 3102');
+    expect(contract).toContain('wait_for_port_clear 3103');
+    expect(contract).toContain('run_data_quality_gate_serially "http://127.0.0.1:3103"');
   });
 
   it('gates cross-area proof on finite prioritized market, ticker, chart, and OHLC overlap', () => {
@@ -102,6 +112,7 @@ describe('operator proof smoke script contract', () => {
       'write_summary',
       'write_versions',
       'run_smoke_modules_serially',
+      'run_data_quality_gate_serially',
     ]) {
       expect(helpers).toContain(`${helperName}()`);
     }
@@ -149,11 +160,11 @@ describe('operator proof smoke script contract', () => {
           'SERVER_PID=""',
           'CURRENT_PORT=""',
           'FAILURES=0',
-          'RESERVED_PORTS=(3100 3101 3102)',
+          'RESERVED_PORTS=(3100 3102 3103)',
           `source "${HELPERS_PATH}"`,
           'lsof() {',
           '  case "$*" in',
-          '    *:3101*) printf "4242\\n"; return 0 ;;',
+          '    *:3103*) printf "4242\\n"; return 0 ;;',
           '    *) return 1 ;;',
           '  esac',
           '}',
@@ -163,9 +174,9 @@ describe('operator proof smoke script contract', () => {
           'set -e',
           'test "$status" -eq 98',
           'jq -e \'select(.phase == "preflight" and .port == 3100 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
-          'jq -e \'select(.phase == "preflight" and .port == 3101 and .status == "occupied" and .detail == "pids=4242; refusing to touch unknown process" and .exit_code == 98)\' "$PORT_CHECKS_FILE" >/dev/null',
           'jq -e \'select(.phase == "preflight" and .port == 3102 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
-          'jq -e \'select(.phase == "reserved-port-preflight" and .command == "check reserved ports 3100 3101 3102 are clear" and .exit_code == 98)\' "$COMMANDS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "preflight" and .port == 3103 and .status == "occupied" and .detail == "pids=4242; refusing to touch unknown process" and .exit_code == 98)\' "$PORT_CHECKS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "reserved-port-preflight" and .command == "check reserved ports 3100 3102 3103 are clear" and .exit_code == 98)\' "$COMMANDS_FILE" >/dev/null',
         ].join('\n'),
       ],
       {
@@ -251,6 +262,8 @@ fi
     const contract = `${endpointSmoke}\n${moduleCommon}`;
 
     expect(contract).toContain('ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"');
+    expect(endpointSmoke).toContain('BASE_URL="${BASE_URL:-http://127.0.0.1:3100}"');
+    expect(moduleCommon).toContain('BASE_URL="${BASE_URL:-http://127.0.0.1:3100}"');
     expect(contract).toContain('ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds');
     expect(contract).toContain('set ENDPOINT_CURL_MAX_TIME to tune endpoint request budget');
     expect(endpointSmoke).toContain('--max-time "$ENDPOINT_CURL_MAX_TIME" "$full_url"');

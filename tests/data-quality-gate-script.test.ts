@@ -54,6 +54,13 @@ describe('focused data quality gate script', () => {
     expect(syntaxCheck.status, syntaxCheck.stderr).toBe(0);
   });
 
+  it('defaults to the mission data-quality validation service instead of port 3000', () => {
+    const script = readFileSync(SCRIPT_PATH, 'utf8');
+
+    expect(script).toContain('BASE_URL="${BASE_URL:-http://127.0.0.1:3103}"');
+    expect(script).not.toContain('BASE_URL="${BASE_URL:-http://localhost:3000}"');
+  });
+
   it('exits zero when the diagnostics gate passes', () => {
     const result = runGateWithFixture(JSON.stringify({
       data: {

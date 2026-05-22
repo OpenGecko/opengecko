@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # OpenGecko CoinGecko-Compatible API Endpoint Tester
-# Usage: BASE_URL=http://localhost:3000 bash scripts/test-endpoints.sh
+# Usage: BASE_URL=http://127.0.0.1:3100 bash scripts/test-endpoints.sh
 
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://localhost:3000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:3100}"
 VERBOSE="${VERBOSE:-0}"
 MAX_BODY_CHARS="${MAX_BODY_CHARS:-2000}"
 ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
@@ -215,6 +215,7 @@ wait_for_market_data 30 || true
 echo
 echo -e "${BOLD}🏥 Health${NC}"
 check "GET /ping" "/ping"
+check "GET /health" "/health"
 
 # ─────────────────────────────────────────────────
 echo

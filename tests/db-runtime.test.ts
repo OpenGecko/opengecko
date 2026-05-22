@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { detectSqliteRuntime, migrateDatabase, type AppDatabase } from '../src/db/client';
-import { createDatabase } from '../src/db/runtime';
+import {
+  buildSqliteDatabaseDiagnostics,
+  classifyDatabasePath,
+  DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
+  createDatabase,
+} from '../src/db/runtime';
 import { coins, marketSnapshots } from '../src/db/schema';
 
 describe('sqlite runtime support', () => {
@@ -51,6 +56,54 @@ describe('sqlite runtime support', () => {
       expect(storedCoin?.id).toBe('bitcoin');
     } finally {
       database.client.close();
+    }
+  });
+
+  it('classifies mission validation database paths and exposes SQLite safety pragmas', () => {
+    expect(classifyDatabasePath(':memory:')).toBe('in_memory');
+    expect(classifyDatabasePath('/tmp/opengecko-runtime.sqlite')).toBe('tmp_validation_file');
+    expect(classifyDatabasePath('/tmp/opengecko-quality.sqlite')).toBe('tmp_validation_file');
+    expect(classifyDatabasePath('/tmp/non-opengecko.sqlite')).toBe('tmp_file');
+    expect(classifyDatabasePath('data/opengecko.db')).toBe('repo_data_file');
+    expect(classifyDatabasePath('/var/lib/opengecko/opengecko.db')).toBe('durable_file');
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-db-diagnostics-'));
+    const database = createDatabase(join(tempDir, 'opengecko-runtime.sqlite'));
+
+    try {
+      const diagnostics = buildSqliteDatabaseDiagnostics(database, join(tempDir, 'opengecko-runtime.sqlite'));
+
+      expect(diagnostics).toMatchObject({
+        runtime: detectSqliteRuntime(),
+        configured_url: join(tempDir, 'opengecko-runtime.sqlite'),
+        effective_path: join(tempDir, 'opengecko-runtime.sqlite'),
+        path_class: 'tmp_validation_file',
+        storage_mode: 'file',
+        shared_file: true,
+        journal_mode: 'wal',
+        wal_enabled: true,
+        busy_timeout_ms: DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
+      });
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('redacts sensitive-looking database path segments from diagnostics without changing classification', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-db-redaction-secret-'));
+    const database = createDatabase(join(tempDir, 'opengecko-runtime.sqlite'));
+
+    try {
+      const diagnostics = buildSqliteDatabaseDiagnostics(database, join(tempDir, 'opengecko-runtime.sqlite'));
+
+      expect(diagnostics.configured_url).toBe('[database path redacted]');
+      expect(diagnostics.effective_path).toBe('[database path redacted]');
+      expect(diagnostics.path_class).toBe('tmp_validation_file');
+      expect(diagnostics.storage_mode).toBe('file');
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 

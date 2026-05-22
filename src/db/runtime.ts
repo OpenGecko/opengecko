@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
 import type { Database as BetterSqlite3DatabaseClient } from 'better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -96,6 +97,28 @@ type PersistedTimestampCompatibility = {
   source: 'none' | 'legacy_seconds';
 };
 
+export const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 5_000;
+
+export type SqliteDatabasePathClass =
+  | 'in_memory'
+  | 'tmp_validation_file'
+  | 'tmp_file'
+  | 'repo_data_file'
+  | 'durable_file';
+
+export type SqliteDatabaseDiagnostics = {
+  runtime: SqliteRuntime;
+  driver: 'bun:sqlite' | 'better-sqlite3';
+  configured_url: string;
+  effective_path: string;
+  path_class: SqliteDatabasePathClass;
+  storage_mode: 'in_memory' | 'file';
+  shared_file: boolean;
+  journal_mode: string | null;
+  wal_enabled: boolean;
+  busy_timeout_ms: number | null;
+};
+
 export type AppDatabase = {
   client: SqliteClient;
   db: AppDrizzleDatabase;
@@ -146,6 +169,95 @@ function resolveDatabaseUrl(databaseUrl: string) {
   return resolve(process.cwd(), databaseUrl);
 }
 
+function isPathWithin(parentPath: string, childPath: string) {
+  const relativePath = relative(parentPath, childPath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
+}
+
+export function classifyDatabasePath(databaseUrl: string): SqliteDatabasePathClass {
+  if (databaseUrl === ':memory:') {
+    return 'in_memory';
+  }
+
+  const resolvedUrl = resolve(process.cwd(), databaseUrl);
+  const resolvedTmpDir = resolve(tmpdir());
+  const resolvedRepoDataDir = resolve(process.cwd(), 'data');
+
+  if (isPathWithin(resolvedTmpDir, resolvedUrl)) {
+    return /^opengecko-.+\.(sqlite|db)$/.test(basename(resolvedUrl))
+      ? 'tmp_validation_file'
+      : 'tmp_file';
+  }
+
+  if (isPathWithin(resolvedRepoDataDir, resolvedUrl)) {
+    return 'repo_data_file';
+  }
+
+  return 'durable_file';
+}
+
+function normalizePragmaValue(value: unknown, key: string) {
+  const row = Array.isArray(value) ? value[0] : value;
+
+  if (row === null || row === undefined) {
+    return null;
+  }
+
+  if (typeof row === 'string' || typeof row === 'number' || typeof row === 'boolean') {
+    return row;
+  }
+
+  if (typeof row === 'object') {
+    const record = row as Record<string, unknown>;
+    if (record[key] !== undefined) {
+      return record[key];
+    }
+
+    const firstValue = Object.values(record)[0];
+    return firstValue ?? null;
+  }
+
+  return null;
+}
+
+function readStringPragma(client: SqliteClient, key: string) {
+  const value = normalizePragmaValue(client.pragma(key), key);
+  return value === null ? null : String(value).toLowerCase();
+}
+
+function readNumberPragma(client: SqliteClient, key: string) {
+  const value = normalizePragmaValue(client.pragma(key), key);
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function redactSensitiveDatabasePath(value: string) {
+  return /api[_-]?key|bearer|password|secret|token/i.test(value)
+    ? '[database path redacted]'
+    : value;
+}
+
+export function buildSqliteDatabaseDiagnostics(
+  database: Pick<AppDatabase, 'client' | 'runtime' | 'url'>,
+  configuredUrl = database.url,
+): SqliteDatabaseDiagnostics {
+  const pathClass = classifyDatabasePath(database.url);
+  const journalMode = readStringPragma(database.client, 'journal_mode');
+  const busyTimeoutMs = readNumberPragma(database.client, 'busy_timeout');
+
+  return {
+    runtime: database.runtime,
+    driver: database.runtime === 'bun' ? 'bun:sqlite' : 'better-sqlite3',
+    configured_url: redactSensitiveDatabasePath(configuredUrl),
+    effective_path: redactSensitiveDatabasePath(database.url),
+    path_class: pathClass,
+    storage_mode: pathClass === 'in_memory' ? 'in_memory' : 'file',
+    shared_file: pathClass !== 'in_memory',
+    journal_mode: journalMode,
+    wal_enabled: journalMode === 'wal',
+    busy_timeout_ms: busyTimeoutMs,
+  };
+}
 
 function normalizePersistedLegacySecondTimestamps(_client: SqliteClient): PersistedTimestampCompatibility {
   return { normalizedAtOpen: false, source: 'none' };
@@ -159,6 +271,7 @@ function createNodeDatabase(resolvedUrl: string): AppDatabase {
 
   const client = new Database(resolvedUrl);
   client.pragma('journal_mode = WAL');
+  client.pragma(`busy_timeout = ${DEFAULT_SQLITE_BUSY_TIMEOUT_MS}`);
   client.pragma('foreign_keys = ON');
 
   return {
@@ -179,6 +292,7 @@ function createBunDatabase(resolvedUrl: string): AppDatabase {
   const rawClient = new Database(resolvedUrl);
   const client = new BunSqliteClient(rawClient);
   client.pragma('journal_mode = WAL');
+  client.pragma(`busy_timeout = ${DEFAULT_SQLITE_BUSY_TIMEOUT_MS}`);
   client.pragma('foreign_keys = ON');
 
   return {
