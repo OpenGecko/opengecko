@@ -53,6 +53,10 @@ export type ExchangeNetworkSnapshot = {
   chainIdentifier: number | null;
 };
 
+export type CcxtFetchOptions = {
+  signal?: AbortSignal;
+};
+
 const VALID_EXCHANGE_IDS = new Set(ccxt.exchanges);
 const exchangePool = new Map<ExchangeId, Exchange>();
 const DEFAULT_DERIVATIVE_TICKER_SYMBOL_LIMIT = 40;
@@ -137,6 +141,16 @@ function chunkSymbols(symbols: string[], size: number) {
   }
 
   return chunks;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined, exchangeId: ExchangeId) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  const error = new Error(`${exchangeId} provider request canceled`);
+  error.name = 'AbortError';
+  throw error;
 }
 
 function toTickerSnapshot(exchangeId: ExchangeId, ticker: Ticker): ExchangeTickerSnapshot {
@@ -319,19 +333,24 @@ function toOhlcvSnapshot(exchangeId: ExchangeId, symbol: string, timeframe: stri
   };
 }
 
-export async function fetchExchangeTicker(exchangeId: ExchangeId, symbol: string) {
+export async function fetchExchangeTicker(exchangeId: ExchangeId, symbol: string, options: CcxtFetchOptions = {}) {
   const exchange = getOrCreateExchange(exchangeId);
 
+  throwIfAborted(options.signal, exchangeId);
   await exchange.loadMarkets();
+  throwIfAborted(options.signal, exchangeId);
   const ticker = await exchange.fetchTicker(symbol);
+  throwIfAborted(options.signal, exchangeId);
 
   return toTickerSnapshot(exchangeId, ticker);
 }
 
-export async function fetchExchangeTickers(exchangeId: ExchangeId, symbols?: string[]) {
+export async function fetchExchangeTickers(exchangeId: ExchangeId, symbols?: string[], options: CcxtFetchOptions = {}) {
   const exchange = getOrCreateExchange(exchangeId);
 
+  throwIfAborted(options.signal, exchangeId);
   await exchange.loadMarkets();
+  throwIfAborted(options.signal, exchangeId);
   const supportedSymbols = getSupportedSymbols(exchange, symbols);
 
   if (symbols?.length && (!supportedSymbols || supportedSymbols.length === 0)) {
@@ -344,31 +363,49 @@ export async function fetchExchangeTickers(exchangeId: ExchangeId, symbols?: str
 
     try {
       if (chunkSize && targetSymbols && targetSymbols.length > chunkSize) {
-        const tickers = await Promise.all(chunkSymbols(targetSymbols, chunkSize).map((chunk) => exchange.fetchTickers(chunk)));
+        const tickers: Awaited<ReturnType<Exchange['fetchTickers']>>[] = [];
+
+        for (const chunk of chunkSymbols(targetSymbols, chunkSize)) {
+          throwIfAborted(options.signal, exchangeId);
+          tickers.push(await exchange.fetchTickers(chunk));
+          throwIfAborted(options.signal, exchangeId);
+        }
 
         return tickers.flatMap((tickerChunk) => Object.values(tickerChunk).map((ticker) => toTickerSnapshot(exchangeId, ticker)));
       }
 
+      throwIfAborted(options.signal, exchangeId);
       const tickers = await exchange.fetchTickers(supportedSymbols);
+      throwIfAborted(options.signal, exchangeId);
 
       return Object.values(tickers).map((ticker) => toTickerSnapshot(exchangeId, ticker));
     } catch (error) {
+      throwIfAborted(options.signal, exchangeId);
+
       if (!targetSymbols?.length) {
         throw error;
       }
 
-      const tickers = await Promise.all(
-        targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
-      );
+      const tickers: ExchangeTickerSnapshot[] = [];
+
+      for (const symbol of targetSymbols) {
+        throwIfAborted(options.signal, exchangeId);
+        tickers.push(toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol)));
+        throwIfAborted(options.signal, exchangeId);
+      }
 
       return tickers;
     }
   }
 
   const targetSymbols = supportedSymbols ?? symbols ?? Object.keys(exchange.markets);
-  const tickers = await Promise.all(
-    targetSymbols.map(async (symbol) => toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol))),
-  );
+  const tickers: ExchangeTickerSnapshot[] = [];
+
+  for (const symbol of targetSymbols) {
+    throwIfAborted(options.signal, exchangeId);
+    tickers.push(toTickerSnapshot(exchangeId, await exchange.fetchTicker(symbol)));
+    throwIfAborted(options.signal, exchangeId);
+  }
 
   return tickers;
 }

@@ -1017,8 +1017,19 @@ describe('market refresh service', () => {
   it('records timed-out provider fanout attempts and returns in-flight gauges to baseline after budget expiry', async () => {
     const runtimeState = createMarketDataRuntimeState();
     const metrics = createMetricsRegistry();
+    const abortedFetchSignals: string[] = [];
+    const settledFetches: string[] = [];
     mockedFetchExchangeMarkets.mockResolvedValue([]);
-    mockedFetchExchangeTickers.mockImplementation(async () => new Promise(() => undefined));
+    mockedFetchExchangeTickers.mockImplementation(async (exchangeId, _symbols, options) => new Promise((_resolve, reject) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
+      options.signal.addEventListener('abort', () => {
+        abortedFetchSignals.push(exchangeId);
+        const error = new Error(`${exchangeId} helper observed abort`);
+        error.name = 'AbortError';
+        settledFetches.push(exchangeId);
+        reject(error);
+      }, { once: true });
+    }));
 
     await expect(runMarketRefreshOnce(database, {
       ccxtExchanges: ['binance', 'coinbase'],
@@ -1028,6 +1039,9 @@ describe('market refresh service', () => {
     })).rejects.toThrow('provider failure cooldown active after exchange refresh failure');
 
     expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(abortedFetchSignals).toEqual(['binance']);
+    expect(settledFetches).toEqual(['binance']);
     expect(Object.values(runtimeState.providerAttempts?.inFlight ?? {})).toEqual([]);
     expect((runtimeState.providerAttempts?.recentOutcomes ?? []).map((outcome) => ({
       provider: outcome.provider,
@@ -1038,8 +1052,8 @@ describe('market refresh service', () => {
       {
         provider: 'coinbase',
         family: 'ticker',
-        outcome: 'timed_out',
-        reason: 'provider request timed out',
+        outcome: 'skipped',
+        reason: 'coinbase provider work skipped because fanout budget expired before it started after 5ms',
       },
       {
         provider: 'binance',
@@ -1053,7 +1067,7 @@ describe('market refresh service', () => {
     expect(metricsText).toContain('opengecko_provider_in_flight{family="ticker",provider="binance"} 0');
     expect(metricsText).toContain('opengecko_provider_in_flight{family="ticker",provider="coinbase"} 0');
     expect(metricsText).toContain('opengecko_provider_attempts_total{family="ticker",outcome="timed_out",provider="binance"} 1');
-    expect(metricsText).toContain('opengecko_provider_attempts_total{family="ticker",outcome="timed_out",provider="coinbase"} 1');
+    expect(metricsText).toContain('opengecko_provider_attempts_total{family="ticker",outcome="skipped",provider="coinbase"} 1');
   });
 
   it('records provider refresh outcomes across forced failure, cooldown skip, partial failure, and recovery without changing refresh side effects', async () => {
@@ -1672,6 +1686,26 @@ describe('market refresh service', () => {
     await expect(
       withExchangeFetchTimeout('kraken', new Promise(() => undefined), 5),
     ).rejects.toThrow('kraken ticker fetch timed out after 5ms');
+  });
+
+  it('passes timeout cancellation into exchange fetch helpers before they start downstream work', async () => {
+    const observedSignals: AbortSignal[] = [];
+
+    await expect(
+      withExchangeFetchTimeout('kraken', (signal) => {
+        observedSignals.push(signal);
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            const error = new Error('helper canceled');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      }, 5),
+    ).rejects.toThrow('helper canceled');
+
+    expect(observedSignals).toHaveLength(1);
+    expect(observedSignals[0].aborted).toBe(true);
   });
 
 

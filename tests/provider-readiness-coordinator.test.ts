@@ -111,13 +111,13 @@ describe('provider readiness coordinator', () => {
     expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected', 'rejected']);
     expect(results.map((result) => (result as PromiseRejectedResult).reason.message)).toEqual([
       'kraken startup budget exceeded after 25ms',
-      'binance startup budget exceeded after 25ms',
-      'coinbase startup budget exceeded after 25ms',
+      'binance provider work skipped because fanout budget expired before it started after 25ms',
+      'coinbase provider work skipped because fanout budget expired before it started after 25ms',
     ]);
     expect(progressFailures).toEqual([
       'kraken:25:kraken startup budget exceeded after 25ms',
-      'binance:25:binance startup budget exceeded after 25ms',
-      'coinbase:25:coinbase startup budget exceeded after 25ms',
+      'binance:0:binance provider work skipped because fanout budget expired before it started after 25ms',
+      'coinbase:0:coinbase provider work skipped because fanout budget expired before it started after 25ms',
     ]);
   });
 
@@ -156,7 +156,7 @@ describe('provider readiness coordinator', () => {
     expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
     expect(failures).toEqual([
       'kraken:ProviderFanoutBudgetExceeded',
-      'coinbase:ProviderFanoutBudgetExceeded',
+      'coinbase:ProviderFanoutBudgetSkipped',
     ]);
   });
 

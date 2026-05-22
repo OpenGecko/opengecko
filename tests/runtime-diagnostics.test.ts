@@ -21,6 +21,14 @@ const REQUIRED_PROVIDER_DIAGNOSTIC_FIELDS = [
   'alert_status',
 ] as const;
 
+const EMPTY_PROVIDER_ATTEMPTS = {
+  in_flight_count: 0,
+  in_flight: [],
+  recent_outcomes: [],
+  outcome_counts: [],
+  fault_controls: [],
+};
+
 function createState(overrides: Partial<MarketDataRuntimeState> = {}): MarketDataRuntimeState {
   const baseState: MarketDataRuntimeState = {
     initialSyncCompleted: false,
@@ -167,6 +175,7 @@ describe('runtime diagnostics', () => {
           reason: null,
         },
       },
+      provider_attempts: EMPTY_PROVIDER_ATTEMPTS,
       hot_paths: {
         cache_revision: 0,
         shared_market_snapshot: {
@@ -227,6 +236,7 @@ describe('runtime diagnostics', () => {
           reason: null,
         },
       },
+      provider_attempts: EMPTY_PROVIDER_ATTEMPTS,
       hot_paths: {
         cache_revision: 3,
         shared_market_snapshot: {
@@ -287,6 +297,7 @@ describe('runtime diagnostics', () => {
           reason: null,
         },
       },
+      provider_attempts: EMPTY_PROVIDER_ATTEMPTS,
       hot_paths: {
         cache_revision: 4,
         shared_market_snapshot: {
@@ -347,6 +358,7 @@ describe('runtime diagnostics', () => {
           reason: null,
         },
       },
+      provider_attempts: EMPTY_PROVIDER_ATTEMPTS,
       hot_paths: {
         cache_revision: 2,
         shared_market_snapshot: {
@@ -554,6 +566,7 @@ describe('runtime diagnostics', () => {
           reason: null,
         },
       },
+      provider_attempts: EMPTY_PROVIDER_ATTEMPTS,
       hot_paths: {
         cache_revision: 5,
         shared_market_snapshot: {
@@ -1224,6 +1237,25 @@ describe('runtime diagnostics', () => {
           reason: expect.not.stringContaining('secret-token'),
         },
       ],
+    });
+  });
+
+  it('exposes stable empty provider attempt diagnostics after fresh boot or reset', () => {
+    const diagnostics = buildRuntimeDiagnostics(
+      createState({
+        providerAttempts: undefined,
+      }),
+      null,
+      300,
+      Date.parse('2026-03-26T00:00:00.000Z'),
+    );
+
+    expect(diagnostics.provider_attempts).toEqual({
+      in_flight_count: 0,
+      in_flight: [],
+      recent_outcomes: [],
+      outcome_counts: [],
+      fault_controls: [],
     });
   });
 

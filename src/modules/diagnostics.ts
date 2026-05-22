@@ -541,7 +541,7 @@ export function registerDiagnosticsRoutes(
       : null;
     const family = body.family ?? 'ticker';
     const mode = body.mode ?? 'off';
-    const allowedFamilies: ProviderAttemptFamily[] = ['market', 'exchange', 'ticker', 'chart', 'onchain'];
+    const allowedFamilies: ProviderAttemptFamily[] = ['ticker', 'onchain'];
     const allowedModes: ProviderFaultControlMode[] = ['timeout', 'failure', 'canceled', 'blocked_unavailable', 'off'];
 
     if (provider === null || !allowedFamilies.includes(family) || !allowedModes.includes(mode)) {

@@ -76,7 +76,7 @@ export type RuntimeDiagnostics = {
     };
   };
   providers?: ProviderRuntimeDiagnostics[];
-  provider_attempts?: {
+  provider_attempts: {
     in_flight_count: number;
     in_flight: Array<{
       provider: string;
@@ -387,10 +387,6 @@ export function buildRuntimeDiagnostics(
       mode: control.mode,
       reason: sanitizeNullableDiagnosticText(control.reason),
     }));
-  const hasProviderAttemptDiagnostics = inFlightAttempts.length > 0
-    || providerAttemptDiagnostics.recentOutcomes.length > 0
-    || outcomeCounts.length > 0
-    || faultControls.length > 0;
   const injectedProviderFailure = runtimeState.forcedProviderFailure ?? {
     active: false,
     reason: null,
@@ -501,13 +497,13 @@ export function buildRuntimeDiagnostics(
       },
     },
     ...(providerDiagnostics.length > 0 ? { providers: providerDiagnostics } : {}),
-    ...(hasProviderAttemptDiagnostics ? { provider_attempts: {
+    provider_attempts: {
       in_flight_count: inFlightAttempts.length,
       in_flight: inFlightAttempts,
       recent_outcomes: providerAttemptDiagnostics.recentOutcomes,
       outcome_counts: outcomeCounts,
       fault_controls: faultControls,
-    } } : {}),
+    },
     hot_paths: {
       shared_market_snapshot: hotPathSnapshot,
       cache_revision: runtimeState.hotDataRevision,

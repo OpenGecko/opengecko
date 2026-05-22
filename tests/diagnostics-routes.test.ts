@@ -3295,6 +3295,44 @@ describe('diagnostics routes', () => {
       }),
     ]);
 
+    const unimplementedFamilyResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        provider: 'ccxt.binance',
+        family: 'market',
+        mode: 'timeout',
+      },
+    });
+
+    expect(unimplementedFamilyResponse.statusCode).toBe(400);
+    expect(unimplementedFamilyResponse.json().allowed.family).toEqual(['ticker', 'onchain']);
+
+    const onchainTriggerResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        provider: 'defillama',
+        family: 'onchain',
+        mode: 'failure',
+        reason: 'validator controlled onchain failure',
+      },
+    });
+
+    expect(onchainTriggerResponse.statusCode).toBe(200);
+    expect(onchainTriggerResponse.json().data.fault_controls).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        mode: 'timeout',
+      }),
+      expect.objectContaining({
+        provider: 'defillama',
+        family: 'onchain',
+        mode: 'failure',
+      }),
+    ]);
+
     const diagnosticsResponse = await getApp().inject({
       method: 'GET',
       url: '/diagnostics/runtime',
@@ -3305,6 +3343,11 @@ describe('diagnostics routes', () => {
         provider: 'binance',
         family: 'ticker',
         mode: 'timeout',
+      }),
+      expect.objectContaining({
+        provider: 'defillama',
+        family: 'onchain',
+        mode: 'failure',
       }),
     ]);
 
@@ -3317,5 +3360,18 @@ describe('diagnostics routes', () => {
     });
     expect(resetResponse.statusCode).toBe(200);
     expect(resetResponse.json().data.fault_controls).toEqual([]);
+
+    const resetDiagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+    expect(resetDiagnosticsResponse.statusCode).toBe(200);
+    expect(resetDiagnosticsResponse.json().data.provider_attempts).toEqual({
+      in_flight_count: 0,
+      in_flight: [],
+      recent_outcomes: [],
+      outcome_counts: [],
+      fault_controls: [],
+    });
   });
 });

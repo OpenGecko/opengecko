@@ -290,7 +290,11 @@ describe('initial market sync', () => {
 
     expect(result.exchangesSynced).toBe(1);
     expect(mockedFetchExchangeTickers).toHaveBeenCalledTimes(1);
-    expect(mockedFetchExchangeTickers).toHaveBeenCalledWith('binance', expect.any(Array));
+    expect(mockedFetchExchangeTickers).toHaveBeenCalledWith(
+      'binance',
+      expect.any(Array),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('bounds startup ticker waiting so slow default providers do not block prioritized market snapshots', async () => {

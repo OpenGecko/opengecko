@@ -159,6 +159,10 @@ function toProviderAttemptOutcome(error: Error): ProviderAttemptOutcome {
     return 'canceled';
   }
 
+  if (error.name === 'ProviderFanoutBudgetSkipped' || /skipped/i.test(error.message)) {
+    return 'skipped';
+  }
+
   if (/timeout|timed out|budget exceeded/i.test(error.message) || /Timeout|BudgetExceeded/.test(error.name)) {
     return 'timed_out';
   }
@@ -269,7 +273,7 @@ async function fetchExchangeTickerResults(
 
       return await withExchangeFetchTimeout(
         exchangeId,
-        fetchExchangeTickers(exchangeId, requestedSymbols),
+        (fetchSignal) => fetchExchangeTickers(exchangeId, requestedSymbols, { signal: fetchSignal }),
         EXCHANGE_TICKER_FETCH_TIMEOUT_MS,
         signal,
       );
@@ -293,8 +297,9 @@ async function fetchExchangeTickerResults(
     onFailure: (exchangeId, _index, error, durationMs) => {
       const outcome = toProviderAttemptOutcome(error);
       const classified = classifyProviderFailure(error);
+      const reason = outcome === 'skipped' ? error.message : classified.reason;
       if (runtimeState) {
-        finishProviderAttempt(runtimeState, exchangeId, 'ticker', outcome, classified.reason);
+        finishProviderAttempt(runtimeState, exchangeId, 'ticker', outcome, reason);
       }
       metrics?.recordProviderAttemptEnd(exchangeId, 'ticker', toMetricProviderOutcome(outcome), durationMs);
       progress?.onExchangeFetchFailed?.(exchangeId, error.message, durationMs, outcome);

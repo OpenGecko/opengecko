@@ -27,6 +27,12 @@ function toReadinessError(reason: unknown) {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
+function buildSkippedBudgetError<TItem>(item: TItem, budgetMs: number) {
+  const error = new Error(`${String(item)} provider work skipped because fanout budget expired before it started after ${budgetMs}ms`);
+  error.name = 'ProviderFanoutBudgetSkipped';
+  return error;
+}
+
 function settleMissingBudgetResults<TItem, TResult>(
   options: Pick<BudgetedProviderFanoutOptions<TItem, TResult>, 'items' | 'buildBudgetError' | 'onFailure' | 'reportBudgetFailure'>,
   results: Array<PromiseSettledResult<TResult> | undefined>,
@@ -45,13 +51,16 @@ function settleMissingBudgetResults<TItem, TResult>(
     }
 
     const item = options.items[index];
-    const error = options.buildBudgetError(item, index, budgetMs);
+    const wasStarted = startedAtByIndex.has(index);
+    const error = wasStarted
+      ? options.buildBudgetError(item, index, budgetMs)
+      : buildSkippedBudgetError(item, budgetMs);
     results[index] = { status: 'rejected', reason: error };
 
     if (options.reportBudgetFailure && !reportedFailureByIndex.has(index)) {
       reportedFailureByIndex.add(index);
-      const durationMs = Math.max(0, Date.now() - (startedAtByIndex.get(index) ?? Date.now()));
-      options.onFailure?.(item, index, error, durationMs || budgetMs);
+      const durationMs = wasStarted ? Math.max(0, Date.now() - (startedAtByIndex.get(index) ?? Date.now())) : 0;
+      options.onFailure?.(item, index, error, durationMs);
     }
   }
 }
