@@ -37,6 +37,7 @@ import {
   treasuryTransactions,
 } from '../db/schema';
 import { isLiveSourceKind, isReplaySourceKind, isSeededExchangeTimestamp } from './diagnostics-policy';
+import { buildFreshnessBudgetRecord } from './freshness-budgets';
 
 type CoverageMatrix = ReturnType<typeof buildCoverageMatrix>;
 type CoverageEntry = CoverageMatrix['entries'][number];
@@ -1271,6 +1272,19 @@ export function buildDataQualityDiagnostics(
     const sourceState = sourceStateForOwnership(coverageEntry?.ownership_class);
     const freshness = freshnessScore(coverageEntry, sourceState);
     const runtimeAffected = runtimeAffectsFamily(runtimeDiagnostics, config.runtimeFamilyIds);
+    const effectiveSourceState = runtimeAffected && sourceState === 'live' ? 'degraded' as SourceState : sourceState;
+    const freshnessBudget = buildFreshnessBudgetRecord(coverageEntry, config.coverageFamily ?? config.fallbackCoverageFamily ?? config.family);
+    const effectiveFreshnessBudget = effectiveSourceState === sourceState
+      ? freshnessBudget
+      : {
+          ...freshnessBudget,
+          source_state: effectiveSourceState,
+          counts_as_live_evidence: false,
+          counts_as_live_freshness_evidence: false,
+          non_live_evidence: true,
+          reason: runtimeReasonCodes[0] ?? freshnessBudget.reason,
+          reason_codes: runtimeReasonCodes.length > 0 ? runtimeReasonCodes : freshnessBudget.reason_codes,
+        };
     const liveSourceScore = runtimeAffected ? Math.min(sourceScore(sourceState), 6) : sourceScore(sourceState);
     const sourceReasonCodes = sourceState === 'live'
       ? []
@@ -1336,7 +1350,19 @@ export function buildDataQualityDiagnostics(
       'fixture_fallback_transparency',
       'metadata_truthfulness',
     ]);
+    const freshnessGateCap = sourceState === 'live'
+      ? (
+          coverageEntry?.freshness.state === 'stale'
+            ? 5
+            : coverageEntry?.freshness.state === 'degraded'
+              ? 7
+              : coverageEntry?.freshness.state === 'unknown'
+                ? 4
+                : 10
+        )
+      : 10;
     const score = roundScore(Math.min(
+      freshnessGateCap,
       ...dimensions
         .filter((dimension) => gateDimensionIds.has(dimension.id))
         .map((dimension) => dimension.score),
@@ -1363,16 +1389,18 @@ export function buildDataQualityDiagnostics(
       },
       dimensions,
       source: {
-        state: runtimeAffected && sourceState === 'live' ? 'degraded' as SourceState : sourceState,
+        state: effectiveSourceState,
         ownership_class: coverageEntry?.ownership_class ?? 'unavailable',
-        fallback: sourceState !== 'live',
-        fallback_status: sourceState === 'live' ? 'none' : sourceState,
+        fallback: effectiveSourceState !== 'live',
+        fallback_status: effectiveSourceState === 'live' ? 'none' : effectiveSourceState,
         latest_source_at: coverageEntry?.last_successful_refresh_at ?? null,
         freshness_state: coverageEntry?.freshness.state ?? 'unknown',
+        freshness_budget: effectiveFreshnessBudget,
         provider_ids: coverageEntry?.providers ?? [],
         provider_count: coverageEntry?.providers.length ?? 0,
         evidence_family: coverageEntry?.family ?? null,
       },
+      freshness_budget: effectiveFreshnessBudget,
       counts: {
         representative_route_count: config.representativeRoutes.length,
         coverage_route_count: coverageEntry?.representative_routes.length ?? 0,
@@ -1602,6 +1630,7 @@ export function buildDataQualityDiagnostics(
       'families[].status',
       'families[].score_scopes',
       'families[].source',
+      'families[].freshness_budget',
       'families[].counts',
       'families[].reason_codes',
       'families[].failing_dimensions',

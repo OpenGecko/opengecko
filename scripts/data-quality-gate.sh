@@ -126,6 +126,19 @@ schema_errors="$(
               if ($family.source.state | type) != "string" or ((allowed_source_states | index($family.source.state)) == null) then "family_source_state_unknown:\($family_id):\($family.source.state // "null")" else empty end,
               if (($family.source.ownership_class != null) and ((allowed_ownership_classes | index($family.source.ownership_class)) == null)) then "family_ownership_class_unknown:\($family_id):\($family.source.ownership_class)" else empty end,
               if (($family.source.freshness_state != null) and ((allowed_freshness_states | index($family.source.freshness_state)) == null)) then "family_freshness_state_unknown:\($family_id):\($family.source.freshness_state)" else empty end,
+              (($family.freshness_budget // $family.source.freshness_budget) as $freshness_budget
+                | if ($freshness_budget | type) != "object" then "family_freshness_budget_missing:\($family_id)" else empty end,
+                  if (($freshness_budget.current_age_seconds != null) and (($freshness_budget.current_age_seconds | type) != "number" or $freshness_budget.current_age_seconds < 0)) then "family_freshness_budget_age_invalid:\($family_id)" else empty end,
+                  if (($freshness_budget.age_seconds != null) and (($freshness_budget.age_seconds | type) != "number" or $freshness_budget.age_seconds < 0)) then "family_freshness_budget_age_invalid:\($family_id)" else empty end,
+                  if (($freshness_budget.last_success_at != null) and (($freshness_budget.last_success_at | type) != "string")) then "family_freshness_budget_last_success_invalid:\($family_id)" else empty end,
+                  if (($freshness_budget.budget | type) != "object") then "family_freshness_budget_budget_missing:\($family_id)" else empty end,
+                  if (($freshness_budget.budget.target_freshness_seconds != null) and (($freshness_budget.budget.target_freshness_seconds | type) != "number" or $freshness_budget.budget.target_freshness_seconds < 0)) then "family_freshness_budget_target_invalid:\($family_id)" else empty end,
+                  if ($freshness_budget.status | type) != "string" or ((allowed_freshness_states | index($freshness_budget.status)) == null) then "family_freshness_budget_status_unknown:\($family_id):\($freshness_budget.status // "null")" else empty end,
+                  if ($freshness_budget.reason | type) != "string" or ($freshness_budget.reason | length) == 0 then "family_freshness_budget_reason_missing:\($family_id)" else empty end,
+                  if (($freshness_budget.counts_as_live_evidence | type) != "boolean") then "family_freshness_budget_live_evidence_invalid:\($family_id)" else empty end,
+                  if (($freshness_budget.counts_as_live_freshness_evidence | type) != "boolean") then "family_freshness_budget_fresh_live_evidence_invalid:\($family_id)" else empty end,
+                  if ((allowed_non_live_states | index($family.source.state)) != null) and (($freshness_budget.counts_as_live_evidence // false) == true or ($freshness_budget.counts_as_live_freshness_evidence // false) == true) then "non_live_source_counts_as_freshness_evidence:\($family_id):\($family.source.state)" else empty end
+              ),
               if ((($family.dimensions // []) | type) != "array") then "family_dimensions_not_array:\($family_id)" else empty end,
               (($family.dimensions // [])[]? as $dimension
                 | if ($dimension.id | type) != "string" or ((allowed_dimension_ids | index($dimension.id)) == null) then "family_dimension_id_unknown:\($family_id):\($dimension.id // "null")" else empty end,
@@ -139,7 +152,7 @@ schema_errors="$(
               if $family.source.state == "live" and ((($family.reason_codes // []) | any(non_live_reason)) or (($family.dimensions // []) | any((.reason_codes // []) | any(non_live_reason)))) then "live_source_has_non_live_reason:\($family_id)" else empty end,
               if ((allowed_non_live_states | index($family.source.state)) != null) and ((($family.score_scopes.live_source_fidelity // -1) >= ($family.target_threshold // $root.data.gate.threshold))) then "non_live_source_claims_live_fidelity:\($family_id):\($family.source.state)" else empty end,
               if (((["seeded", "fixture", "replay", "synthetic", "fallback", "unavailable", "out_of_scope"] | index($family.source.state)) != null) and (($family.source.fallback // false) != true)) then "non_live_source_not_marked_fallback:\($family_id):\($family.source.state)" else empty end,
-              if (($family.source.state == "live") and (($family.required // false) == true) and ($family.source.freshness_state == "stale") and (($family.score // 0) >= ($family.target_threshold // $root.data.gate.threshold))) then "stale_required_family_not_below_target:\($family_id)" else empty end
+              if (($family.source.state == "live") and (($family.required // false) == true) and (($family.source.freshness_state == "stale") or ((($family.freshness_budget // $family.source.freshness_budget).status // "") == "stale")) and (($family.score // 0) >= ($family.target_threshold // $root.data.gate.threshold))) then "stale_required_family_not_below_target:\($family_id)" else empty end
             ][]
         )
       ][]
@@ -201,6 +214,9 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
       "VAL-DQ-003\t" + (if (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[]? | .family] | sort)) then "pass" else "fail" end) + "\trequired below-threshold families are enumerated",
       "VAL-DQ-004\t" + (if ([.data.families[] | .source.state] | all(. as $state | ["live","hybrid","seeded","fixture","replay","synthetic","fallback","degraded","stale","unavailable","out_of_scope"] | index($state) != null)) then "pass" else "fail" end) + "\tall family source states use the allowed classification set",
       "VAL-DQ-007\t" + (if ([.data.families[] | select(.source.state != "live") | .score_scopes.live_source_fidelity < .target_threshold] | all) then "pass" else "fail" end) + "\tnon-live states are not counted as live source fidelity",
+      "VAL-DQ-009\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | type == "object" and (.status | type == "string") and (.reason | type == "string") and (.budget | type == "object")] | all) then "pass" else "fail" end) + "\tdata_quality exposes enforceable per-family freshness budget status and reason fields",
+      "VAL-SCHED-001\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | has("current_age_seconds") and has("last_success_at") and has("budget") and has("status") and has("reason")] | all) then "pass" else "fail" end) + "\tfreshness budget records expose age, last-success, budget, status, and reason",
+      "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence",
       "VAL-DQ-010\tpass\tmanifest includes negative-scenario-capable schema, classification, stale, and overclaim validation"
     ' "$TMP_FILE"
   } > "$assertion_result_table_path"

@@ -529,6 +529,14 @@ describe('diagnostics routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      schema_version: 1,
+      generated_at: expect.any(String),
+      live_data_rules: {
+        only_live_source_state_counts_as_live_evidence: true,
+        non_live_states_do_not_count_as_live_freshness_evidence: true,
+      },
+    });
     expect(response.json().data.budgets).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'simple',
@@ -536,6 +544,17 @@ describe('diagnostics routes', () => {
         target_freshness_seconds: 30,
         degraded_after_seconds: 120,
         budget_basis: 'latest_market_snapshot',
+        budget_seconds: 30,
+        budget: {
+          target_freshness_seconds: 30,
+          degraded_after_seconds: 120,
+          basis: 'latest_market_snapshot',
+        },
+        status: expect.stringMatching(/^(fresh|degraded|stale|unbudgeted|unknown)$/),
+        reason: expect.any(String),
+        source_state: expect.stringMatching(/^(live|seeded)$/),
+        counts_as_live_evidence: expect.any(Boolean),
+        counts_as_live_freshness_evidence: expect.any(Boolean),
       }),
       expect.objectContaining({
         family: 'coins_markets',
@@ -549,8 +568,57 @@ describe('diagnostics routes', () => {
         target_freshness_seconds: null,
         degraded_after_seconds: null,
         budget_basis: 'route_interval',
+        budget: {
+          target_freshness_seconds: null,
+          degraded_after_seconds: null,
+          basis: 'route_interval',
+        },
+        status: expect.stringMatching(/^(fresh|degraded|stale|unbudgeted|unknown)$/),
+        reason: expect.any(String),
+      }),
+      expect.objectContaining({
+        family: 'supply_charts',
+        target_freshness_seconds: 86_400,
+        degraded_after_seconds: 604_800,
+        budget_basis: 'provider_refresh',
+      }),
+      expect.objectContaining({
+        family: 'treasury',
+        target_freshness_seconds: 86_400,
+        degraded_after_seconds: 604_800,
+        budget_basis: 'fixture_or_seeded',
       }),
     ]));
+
+    const budgets = response.json().data.budgets as Array<{
+      source_state: string;
+      current_age_seconds: number | null;
+      age_seconds: number | null;
+      last_success_at: string | null;
+      budget: Record<string, unknown>;
+      status: string;
+      reason: string;
+      counts_as_live_evidence: boolean;
+      counts_as_live_freshness_evidence: boolean;
+    }>;
+    for (const budget of budgets) {
+      expect(budget).toHaveProperty('current_age_seconds');
+      expect(budget).toHaveProperty('age_seconds');
+      expect(budget).toHaveProperty('last_success_at');
+      expect(typeof budget.reason).toBe('string');
+      expect(['fresh', 'degraded', 'stale', 'unbudgeted', 'unknown']).toContain(budget.status);
+      expect(typeof budget.budget).toBe('object');
+      if (budget.current_age_seconds !== null) {
+        expect(budget.current_age_seconds).toBeGreaterThanOrEqual(0);
+      }
+      if (budget.age_seconds !== null) {
+        expect(budget.age_seconds).toBeGreaterThanOrEqual(0);
+      }
+    }
+    for (const budget of budgets.filter((entry) => entry.source_state !== 'live')) {
+      expect(budget.counts_as_live_evidence).toBe(false);
+      expect(budget.counts_as_live_freshness_evidence).toBe(false);
+    }
   });
 
   it('exposes SQLite path classification and validation service profile in runtime diagnostics', async () => {

@@ -23,7 +23,7 @@ import { buildDataQualityDiagnostics } from '../services/data-quality-diagnostic
 import { buildGlobalPublicRouteData } from './global';
 import { isLiveSourceKind, isSeededExchangeTimestamp } from '../services/diagnostics-policy';
 import { buildExchangeVolumeProviderDiagnostics } from '../services/exchange-volume-diagnostics';
-import { getEndpointFreshnessBudgets } from '../services/freshness-budgets';
+import { buildFreshnessBudgetDiagnostics } from '../services/freshness-budgets';
 import { buildMarketChartProviderDiagnostics } from '../services/market-chart-diagnostics';
 import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
 import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
@@ -214,10 +214,8 @@ export function registerDiagnosticsRoutes(
 
   app.get('/diagnostics/freshness_budgets', async (request, reply) => {
     return sendCacheableJson(request, reply, {
-      data: {
-        budgets: getEndpointFreshnessBudgets(),
-      },
-    }, stableDiagnosticsCachePolicy);
+      data: buildFreshnessBudgetDiagnostics(buildCoverageMatrix(database)),
+    }, dynamicDiagnosticsCachePolicy);
   });
 
   app.get('/diagnostics/cache', async (request, reply) => {

@@ -755,13 +755,15 @@ describe('HTTP cache semantics', () => {
       await expectCacheableEndpoint(
         app,
         '/diagnostics/freshness_budgets',
-        'public, max-age=300, stale-while-revalidate=300',
+        'public, max-age=60, stale-while-revalidate=60',
         (body) => expect(body).toMatchObject({
           data: {
+            schema_version: 1,
             budgets: expect.arrayContaining([
               expect.objectContaining({
                 family: 'simple',
                 target_freshness_seconds: 30,
+                status: expect.any(String),
               }),
             ]),
           },

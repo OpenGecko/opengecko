@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { marketSnapshots } from '../src/db/schema';
 import * as ccxtProvider from '../src/providers/ccxt';
 import * as defillamaProvider from '../src/providers/defillama';
 import * as sqdProvider from '../src/providers/sqd';
@@ -118,7 +119,24 @@ describe('data quality diagnostics', () => {
         status: string;
         score_scopes: Record<string, number>;
         dimensions: Array<{ id: string; score: number; reason_codes: string[] }>;
-        source: { state: string; ownership_class: string; fallback: boolean; latest_source_at: string | null; freshness_state: string; provider_ids: string[] };
+        source: { state: string; ownership_class: string; fallback: boolean; latest_source_at: string | null; freshness_state: string; provider_ids: string[]; freshness_budget: {
+          current_age_seconds: number | null;
+          last_success_at: string | null;
+          budget: { target_freshness_seconds: number | null; degraded_after_seconds: number | null };
+          status: string;
+          reason: string;
+          counts_as_live_evidence: boolean;
+          counts_as_live_freshness_evidence: boolean;
+        } };
+        freshness_budget: {
+          current_age_seconds: number | null;
+          last_success_at: string | null;
+          budget: { target_freshness_seconds: number | null; degraded_after_seconds: number | null };
+          status: string;
+          reason: string;
+          counts_as_live_evidence: boolean;
+          counts_as_live_freshness_evidence: boolean;
+        };
         counts: Record<string, number>;
         timestamps: Record<string, string | null>;
         evidence: { representative_routes: string[]; contract_tests: string[]; runtime_degradation: { active: boolean } };
@@ -158,6 +176,7 @@ describe('data quality diagnostics', () => {
       'classification_contract',
       'families[].score',
       'families[].source',
+      'families[].freshness_budget',
       'families[].reason_codes',
     ]));
     expect(data.classification_contract.source_states).toEqual([
@@ -226,6 +245,20 @@ describe('data quality diagnostics', () => {
       expect(data.classification_contract.source_states).toContain(family.source.state);
       expect(data.classification_contract.coverage_ownership_classes).toContain(family.source.ownership_class);
       expect(data.classification_contract.coverage_freshness_states).toContain(family.source.freshness_state);
+      expect(family.freshness_budget).toMatchObject({
+        status: family.source.freshness_state,
+        reason: expect.any(String),
+        counts_as_live_evidence: family.source.ownership_class === 'live',
+      });
+      expect(family.freshness_budget.budget).toHaveProperty('target_freshness_seconds');
+      expect(family.freshness_budget.budget).toHaveProperty('degraded_after_seconds');
+      expect(family.source.freshness_budget).toEqual(family.freshness_budget);
+      expect(family.freshness_budget).toHaveProperty('current_age_seconds');
+      expect(family.freshness_budget).toHaveProperty('last_success_at');
+      if (family.source.state !== 'live') {
+        expect(family.freshness_budget.counts_as_live_evidence).toBe(false);
+        expect(family.freshness_budget.counts_as_live_freshness_evidence).toBe(false);
+      }
       for (const reasonCode of family.reason_codes) {
         expect(data.classification_contract.reason_codes).toContain(reasonCode);
       }
@@ -787,6 +820,52 @@ describe('data quality diagnostics', () => {
     });
     expect(simple?.reason_codes).toEqual(expect.arrayContaining(['runtime_degraded', 'stale_source']));
     expect(simple?.score_scopes.live_source_fidelity).toBeLessThanOrEqual(beforeSimple?.score_scopes.live_source_fidelity ?? 10);
+  });
+
+  it('caps live family gate scores when freshness budgets are stale', async () => {
+    await getApp().ready();
+
+    const staleTimestamp = new Date(Date.now() - 10 * 60 * 1_000);
+    getApp().db.db.update(marketSnapshots).set({
+      sourceProvidersJson: JSON.stringify(['coinbase']),
+      sourceCount: 1,
+      lastUpdated: staleTimestamp,
+      updatedAt: staleTimestamp,
+    }).run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/data_quality',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const data = response.json().data as {
+      gate: { below_target_families: Array<{ family: string; reason_codes: string[] }> };
+      families: Array<{
+        family: string;
+        source: { state: string; freshness_state: string };
+        freshness_budget: { status: string; reason: string; current_age_seconds: number | null; counts_as_live_freshness_evidence: boolean };
+        score: number;
+        target_threshold: number;
+        reason_codes: string[];
+        failing_dimensions: string[];
+      }>;
+    };
+    const simple = data.families.find((family) => family.family === 'simple');
+
+    expect(simple).toMatchObject({
+      source: { state: 'live', freshness_state: 'stale' },
+      freshness_budget: {
+        status: 'stale',
+        reason: 'freshness_stale',
+        counts_as_live_freshness_evidence: false,
+      },
+    });
+    expect(simple?.freshness_budget.current_age_seconds).toBeGreaterThan(120);
+    expect(simple?.score).toBeLessThan(simple?.target_threshold ?? 9);
+    expect(simple?.reason_codes).toEqual(expect.arrayContaining(['stale_source']));
+    expect(simple?.failing_dimensions).toEqual(expect.arrayContaining(['freshness_liveness']));
+    expect(data.gate.below_target_families.map((family) => family.family)).toContain('simple');
   });
 
   it('propagates injected provider failures into live-backed data quality scores', async () => {
