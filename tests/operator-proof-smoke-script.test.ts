@@ -85,6 +85,8 @@ describe('operator proof smoke script contract', () => {
 
     expect(contract).toContain('CROSS_OVERLAP_FILE');
     expect(contract).toContain('wait_for_cross_overlap_readiness 3100 90');
+    expect(contract).toContain('run_hot_route_consistency_check_serially "http://127.0.0.1:3100"');
+    expect(contract).toContain('BASE_URL=${base_url} bash scripts/hot-route-consistency-check.sh');
     expect(contract).toContain('has_finite_market_coin');
     expect(contract).toContain('has_finite_ticker_coin');
     expect(contract).toContain('has_recent_chart_points');
@@ -113,6 +115,7 @@ describe('operator proof smoke script contract', () => {
       'write_versions',
       'run_smoke_modules_serially',
       'run_data_quality_gate_serially',
+      'run_hot_route_consistency_check_serially',
     ]) {
       expect(helpers).toContain(`${helperName}()`);
     }

@@ -69,6 +69,7 @@ main() {
   capture_post 3100 "normal-control-provider-failure-hidden" '/diagnostics/runtime/provider_failure' '{"active":true}' 404 || true
   capture_post 3100 "normal-control-degraded-hidden" '/diagnostics/runtime/degraded_state' '{"mode":"degraded_seeded_bootstrap"}' 404 || true
   sample_priority_routes 3100 healthy
+  run_hot_route_consistency_check_serially "http://127.0.0.1:3100"
   run_smoke_modules_serially "http://127.0.0.1:3100"
   stop_server
   wait_for_port_clear 3100 || mark_failure "port 3100 not clear after healthy proof"

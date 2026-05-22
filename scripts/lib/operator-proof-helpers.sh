@@ -553,6 +553,24 @@ run_data_quality_gate_serially() {
   return 0
 }
 
+run_hot_route_consistency_check_serially() {
+  local base_url="$1"
+  local command="BASE_URL=${base_url} bash scripts/hot-route-consistency-check.sh"
+
+  echo "Running serial hot-route consistency check: ${base_url}"
+  set +e
+  BASE_URL="$base_url" bash scripts/hot-route-consistency-check.sh > "${PROOF_ROOT}/hot-route-consistency-check.log" 2>&1
+  local exit_code=$?
+  set -e
+
+  record_command "hot-route-consistency-check" "$command" "$exit_code"
+  if [[ "$exit_code" -ne 0 ]]; then
+    mark_failure "hot-route consistency check failed"
+  fi
+
+  return 0
+}
+
 sample_priority_routes() {
   local port="$1"
   local prefix="$2"
