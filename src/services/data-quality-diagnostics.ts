@@ -248,6 +248,17 @@ function freshnessScore(entry: CoverageEntry | undefined, sourceState: SourceSta
     return { score: 4, reason: 'missing_coverage_entry' };
   }
 
+  switch (entry.freshness.state) {
+    case 'degraded':
+      return { score: 7, reason: 'stale_source' };
+    case 'stale':
+      return { score: 5, reason: 'stale_source' };
+    case 'unknown':
+      return { score: 4, reason: 'unknown_freshness' };
+    default:
+      break;
+  }
+
   if (sourceState === 'fixture' || sourceState === 'seeded' || sourceState === 'synthetic') {
     return { score: 6, reason: `${sourceState}_source` };
   }
@@ -257,11 +268,6 @@ function freshnessScore(entry: CoverageEntry | undefined, sourceState: SourceSta
       return { score: 9.5, reason: 'fresh_source' };
     case 'unbudgeted':
       return { score: entry.last_successful_refresh_at ? 9 : 7, reason: entry.last_successful_refresh_at ? 'unbudgeted_source' : 'missing_freshness_budget' };
-    case 'degraded':
-      return { score: 7, reason: 'stale_source' };
-    case 'stale':
-      return { score: 5, reason: 'stale_source' };
-    case 'unknown':
     default:
       return { score: 4, reason: 'unknown_freshness' };
   }
@@ -1358,17 +1364,13 @@ export function buildDataQualityDiagnostics(
       'fixture_fallback_transparency',
       'metadata_truthfulness',
     ]);
-    const freshnessGateCap = sourceState === 'live'
-      ? (
-          coverageEntry?.freshness.state === 'stale'
-            ? 5
-            : coverageEntry?.freshness.state === 'degraded'
-              ? 7
-              : coverageEntry?.freshness.state === 'unknown'
-                ? 4
-                : 10
-        )
-      : 10;
+    const freshnessGateCap = config.required && coverageEntry?.freshness.state === 'stale'
+      ? 5
+      : config.required && coverageEntry?.freshness.state === 'degraded'
+        ? 7
+        : config.required && coverageEntry?.freshness.state === 'unknown'
+          ? 4
+          : 10;
     const score = roundScore(Math.min(
       freshnessGateCap,
       ...dimensions

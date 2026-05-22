@@ -191,7 +191,7 @@ schema_errors="$(
               if $family.source.state == "live" and ((($family.reason_codes // []) | any(non_live_reason)) or (($family.dimensions // []) | any((.reason_codes // []) | any(non_live_reason)))) then "live_source_has_non_live_reason:\($family_id)" else empty end,
               if ((allowed_non_live_states | index($family.source.state)) != null) and ((($family.score_scopes.live_source_fidelity // -1) >= ($family.target_threshold // $root.data.gate.threshold))) then "non_live_source_claims_live_fidelity:\($family_id):\($family.source.state)" else empty end,
               if (((["seeded", "fixture", "replay", "synthetic", "fallback", "unavailable", "out_of_scope"] | index($family.source.state)) != null) and (($family.source.fallback // false) != true)) then "non_live_source_not_marked_fallback:\($family_id):\($family.source.state)" else empty end,
-              if (($family.source.state == "live") and (($family.required // false) == true) and (($family.source.freshness_state == "stale") or ((($family.freshness_budget // $family.source.freshness_budget).status // "") == "stale")) and (($family.score // 0) >= ($family.target_threshold // $root.data.gate.threshold))) then "stale_required_family_not_below_target:\($family_id)" else empty end
+              if (($family.required // false) == true and (($family.source.freshness_state == "stale") or ((($family.freshness_budget // $family.source.freshness_budget).status // "") == "stale")) and (($family.score // 0) >= ($family.target_threshold // $root.data.gate.threshold))) then "stale_required_family_not_below_target:\($family_id)" else empty end
             ][]
         )
       ][]
@@ -236,6 +236,19 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
           failing_dimensions: ([.dimensions[]? | select(.status != "pass") | .id])
         }
     ],
+    stale_required_non_live_families: [
+      .data.families[]
+      | select((.required // false) == true and .source.state != "live" and (((.freshness_budget // .source.freshness_budget).status // "") == "stale"))
+      | {
+          family,
+          score,
+          target_threshold,
+          source_state: .source.state,
+          freshness_status: ((.freshness_budget // .source.freshness_budget).status),
+          below_target: (.score < (.target_threshold // 9)),
+          reason_codes
+        }
+    ],
     global_public_route_comparison: (
       [.data.families[]? | select(.family == "global") | .evidence.global_quality // {}][0]
       | {
@@ -253,7 +266,11 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
       "VAL-DQ-003\t" + (if (([.data.families[] | select(.required == true and .score < .target_threshold) | .family] | sort) == ([.data.gate.below_target_families[]? | .family] | sort)) then "pass" else "fail" end) + "\trequired below-threshold families are enumerated",
       "VAL-DQ-004\t" + (if ([.data.families[] | .source.state] | all(. as $state | ["live","hybrid","seeded","fixture","replay","synthetic","fallback","degraded","stale","unavailable","out_of_scope"] | index($state) != null)) then "pass" else "fail" end) + "\tall family source states use the allowed classification set",
       "VAL-DQ-007\t" + (if ([.data.families[] | select(.source.state != "live") | .score_scopes.live_source_fidelity < .target_threshold] | all) then "pass" else "fail" end) + "\tnon-live states are not counted as live source fidelity",
-      "VAL-DQ-009\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | type == "object" and (.status | type == "string") and (.reason | type == "string") and (.budget | type == "object")] | all) then "pass" else "fail" end) + "\tdata_quality exposes enforceable per-family freshness budget status and reason fields",
+      "VAL-DQ-009\t" + (if (
+        ([.data.families[] | (.freshness_budget // .source.freshness_budget) | type == "object" and (.status | type == "string") and (.reason | type == "string") and (.budget | type == "object")] | all)
+        and
+        ([.data.families[] | select((.required // false) == true and .source.state != "live" and (((.freshness_budget // .source.freshness_budget).status // "") == "stale")) | (.score < (.target_threshold // 9))] | all)
+      ) then "pass" else "fail" end) + "\tdata_quality freshness budgets force stale required non-live families below target when present",
       "VAL-SCHED-001\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | has("current_age_seconds") and has("last_success_at") and has("budget") and has("status") and has("reason")] | all) then "pass" else "fail" end) + "\tfreshness budget records expose age, last-success, budget, status, and reason",
       "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence"
     ' "$TMP_FILE"
@@ -263,6 +280,19 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
   jq '{
     coverage_data_quality_mismatches: [],
     below_target_families: (.data.gate.below_target_families // []),
+    stale_required_non_live_families: [
+      .data.families[]
+      | select((.required // false) == true and .source.state != "live" and (((.freshness_budget // .source.freshness_budget).status // "") == "stale"))
+      | {
+          family,
+          score,
+          target_threshold,
+          source_state: .source.state,
+          freshness_status: ((.freshness_budget // .source.freshness_budget).status),
+          below_target: (.score < (.target_threshold // 9)),
+          reason_codes
+        }
+    ],
     note: "Focused diagnostics gate artifact; endpoint/module smoke commands provide route-level mismatch details."
   }' "$TMP_FILE" > "$mismatch_report_path"
 

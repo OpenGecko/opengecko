@@ -149,15 +149,7 @@ export function getEndpointFreshnessBudget(family: string) {
   return getEndpointFreshnessBudgets().find((budget) => budget.family === family) ?? null;
 }
 
-function freshnessReasonForEntry(entry: CoverageEntry | undefined, status: FreshnessBudgetRecord['status'], countsAsLiveEvidence: boolean) {
-  if (!entry) {
-    return 'missing_coverage_entry';
-  }
-
-  if (!countsAsLiveEvidence) {
-    return entry.data_fidelity.reason_codes[0] ?? `${entry.data_fidelity.source_state}_only`;
-  }
-
+function freshnessStatusReason(status: FreshnessBudgetRecord['status']) {
   switch (status) {
     case 'fresh':
       return 'within_budget';
@@ -171,6 +163,26 @@ function freshnessReasonForEntry(entry: CoverageEntry | undefined, status: Fresh
     default:
       return 'missing_last_success';
   }
+}
+
+function freshnessReasonsForEntry(entry: CoverageEntry | undefined, status: FreshnessBudgetRecord['status'], countsAsLiveEvidence: boolean) {
+  if (!entry) {
+    return ['missing_coverage_entry'];
+  }
+
+  const statusReason = freshnessStatusReason(status);
+  if (status === 'degraded' || status === 'stale' || status === 'unknown') {
+    return [
+      statusReason,
+      ...(!countsAsLiveEvidence ? [entry.data_fidelity.reason_codes[0] ?? `${entry.data_fidelity.source_state}_only`] : []),
+    ];
+  }
+
+  if (!countsAsLiveEvidence) {
+    return [entry.data_fidelity.reason_codes[0] ?? `${entry.data_fidelity.source_state}_only`];
+  }
+
+  return [statusReason];
 }
 
 export function buildFreshnessBudgetRecord(
@@ -189,7 +201,8 @@ export function buildFreshnessBudgetRecord(
   const status = entry?.freshness.state ?? 'unknown';
   const countsAsLiveEvidence = entry?.data_fidelity.counts_as_live ?? false;
   const currentAgeSeconds = entry?.freshness.current_age_seconds ?? null;
-  const reason = freshnessReasonForEntry(entry, status, countsAsLiveEvidence);
+  const reasonCodes = freshnessReasonsForEntry(entry, status, countsAsLiveEvidence);
+  const reason = reasonCodes[0] ?? 'missing_coverage_entry';
 
   return {
     ...staticBudget,
@@ -206,7 +219,7 @@ export function buildFreshnessBudgetRecord(
     },
     status,
     reason,
-    reason_codes: [reason],
+    reason_codes: reasonCodes,
     source_state: entry?.data_fidelity.source_state ?? 'unavailable',
     ownership_class: entry?.ownership_class ?? 'unavailable',
     counts_as_live_evidence: countsAsLiveEvidence,

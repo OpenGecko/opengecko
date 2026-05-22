@@ -520,6 +520,46 @@ describe('focused data quality gate script', () => {
     expect(result.stderr).toContain('stale_required_family_not_below_target:simple');
   });
 
+  it('rejects stale required non-live families that are not listed below target', () => {
+    const staleSeededFreshnessBudget = freshnessBudgetFixture({
+      current_age_seconds: 90_000,
+      age_seconds: 90_000,
+      status: 'stale',
+      reason: 'freshness_stale',
+      reason_codes: ['freshness_stale'],
+      source_state: 'seeded',
+      ownership_class: 'seeded',
+      counts_as_live_evidence: false,
+      counts_as_live_freshness_evidence: false,
+      non_live_evidence: true,
+      provider_ids: [],
+      provider_count: 0,
+    });
+    const result = runGateWithFixture(passingFixture({
+      source: {
+        state: 'seeded',
+        ownership_class: 'seeded',
+        fallback: true,
+        latest_source_at: '2026-05-16T00:00:00.000Z',
+        freshness_state: 'stale',
+        freshness_budget: staleSeededFreshnessBudget,
+        provider_ids: [],
+      },
+      freshness_budget: staleSeededFreshnessBudget,
+      score_scopes: {
+        contract_compatibility: 9.5,
+        freshness_liveness: 9.5,
+        live_source_fidelity: 5.5,
+        fixture_fallback_transparency: 10,
+        overall: 9.5,
+      },
+      reason_codes: ['seeded_only', 'stale_source'],
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('stale_required_family_not_below_target:simple');
+  });
+
   it('rejects unsafe SQLite runtime diagnostics instead of unconditionally passing VAL-DQ-010', () => {
     const result = runGateWithFixture(passingFixture(), runtimeFixture({
       database: {
@@ -652,7 +692,12 @@ exit 22
       const assertionTable = readFileSync(manifest.assertion_result_table_path, 'utf8');
       expect(assertionTable).toContain('VAL-DQ-001\tpass');
       expect(assertionTable).toContain('VAL-DQ-004\tpass');
+      expect(assertionTable).toContain('VAL-DQ-009\tpass\tdata_quality freshness budgets force stale required non-live families below target when present');
       expect(assertionTable).toContain('VAL-DQ-010\tpass');
+      const parsedMetrics = JSON.parse(readFileSync(manifest.parsed_metrics_path, 'utf8')) as {
+        stale_required_non_live_families: unknown[];
+      };
+      expect(parsedMetrics.stale_required_non_live_families).toEqual([]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

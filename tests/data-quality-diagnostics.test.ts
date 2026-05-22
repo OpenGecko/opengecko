@@ -879,6 +879,68 @@ describe('data quality diagnostics', () => {
     expect(data.gate.below_target_families.map((family) => family.family)).toContain('simple');
   });
 
+  it('caps required non-live family gate scores when freshness budgets are stale', async () => {
+    await getApp().ready();
+
+    const now = new Date();
+    const staleAgeSeconds = 2 * 24 * 60 * 60;
+    const staleTimestamp = new Date(now.getTime() - staleAgeSeconds * 1_000).toISOString();
+    const coverageMatrix = buildCoverageMatrix(getApp().db, now);
+    const staleCoverageMatrix = {
+      ...coverageMatrix,
+      entries: coverageMatrix.entries.map((entry) => entry.family === 'stable_catalog'
+        ? {
+            ...entry,
+            last_successful_refresh_at: staleTimestamp,
+            data_fidelity: {
+              ...entry.data_fidelity,
+              freshness_state: 'stale' as const,
+              freshness_budget: {
+                ...entry.data_fidelity.freshness_budget,
+                current_age_seconds: staleAgeSeconds,
+              },
+            },
+            freshness: {
+              ...entry.freshness,
+              current_age_seconds: staleAgeSeconds,
+              state: 'stale' as const,
+            },
+          }
+        : entry),
+    };
+    const runtimeDiagnostics = buildRuntimeDiagnostics(
+      getApp().marketDataRuntimeState,
+      null,
+      getApp().marketFreshnessThresholdSeconds,
+    );
+
+    const diagnostics = buildDataQualityDiagnostics(
+      staleCoverageMatrix,
+      runtimeDiagnostics,
+      now,
+      getApp().db,
+    );
+    const search = diagnostics.families.find((family) => family.family === 'search');
+    const assets = diagnostics.families.find((family) => family.family === 'assets');
+
+    for (const family of [search, assets]) {
+      expect(family).toMatchObject({
+        source: { state: 'seeded', freshness_state: 'stale' },
+        freshness_budget: {
+          status: 'stale',
+          reason: 'freshness_stale',
+          counts_as_live_evidence: false,
+          counts_as_live_freshness_evidence: false,
+        },
+      });
+      expect(family?.freshness_budget.current_age_seconds).toBe(staleAgeSeconds);
+      expect(family?.score).toBeLessThan(family?.target_threshold ?? 9);
+      expect(family?.reason_codes).toEqual(expect.arrayContaining(['stale_source', 'seeded_only']));
+      expect(family?.failing_dimensions).toEqual(expect.arrayContaining(['freshness_liveness']));
+      expect(diagnostics.gate.below_target_families.map((belowTarget) => belowTarget.family)).toContain(family?.family);
+    }
+  });
+
   it('propagates injected provider failures into live-backed data quality scores', async () => {
     await getApp().ready();
 
