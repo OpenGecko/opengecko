@@ -1285,6 +1285,9 @@ export function buildDataQualityDiagnostics(
           reason: runtimeReasonCodes[0] ?? freshnessBudget.reason,
           reason_codes: runtimeReasonCodes.length > 0 ? runtimeReasonCodes : freshnessBudget.reason_codes,
         };
+    const globalAggregateMismatchReasonCodes = config.family === 'global'
+      ? globalQualityEvidence.reason_codes
+      : [];
     const liveSourceScore = runtimeAffected ? Math.min(sourceScore(sourceState), 6) : sourceScore(sourceState);
     const sourceReasonCodes = sourceState === 'live'
       ? []
@@ -1338,10 +1341,15 @@ export function buildDataQualityDiagnostics(
       ),
       buildDimension(
         'metadata_truthfulness',
-        coverageEntry ? 9.5 : 6,
+        globalAggregateMismatchReasonCodes.length > 0 ? 6 : coverageEntry ? 9.5 : 6,
         config.required,
-        coverageEntry ? [] : ['missing_coverage_entry'],
-        'Metadata truthfulness is anchored to the coverage matrix and provider/source evidence.',
+        [
+          ...(coverageEntry ? [] : ['missing_coverage_entry']),
+          ...globalAggregateMismatchReasonCodes,
+        ],
+        config.family === 'global'
+          ? 'Metadata truthfulness is anchored to the coverage matrix and public /global aggregate comparison evidence.'
+          : 'Metadata truthfulness is anchored to the coverage matrix and provider/source evidence.',
       ),
     ];
     const gateDimensionIds = new Set<QualityDimensionId>([
@@ -1570,6 +1578,12 @@ export function buildDataQualityDiagnostics(
       failing_dimensions: family.failing_dimensions,
       reason_codes: family.reason_codes.length > 0 ? family.reason_codes : ['below_target_threshold'],
     }));
+  const gateReasonCodes = [
+    ...new Set([
+      ...(belowTargetFamilies.length === 0 ? [] : ['required_family_below_threshold']),
+      ...belowTargetFamilies.flatMap((family) => family.reason_codes),
+    ]),
+  ].sort();
 
   const aliasMap = Object.fromEntries(
     families.map((family) => [family.family, family.runtime_family_ids]),
@@ -1615,7 +1629,7 @@ export function buildDataQualityDiagnostics(
       required_family_count: families.filter((family) => family.required).length,
       below_target_count: belowTargetFamilies.length,
       below_target_families: belowTargetFamilies,
-      reason_codes: belowTargetFamilies.length === 0 ? [] : ['required_family_below_threshold'],
+      reason_codes: gateReasonCodes,
     },
     families,
     stable_regression_fields: [

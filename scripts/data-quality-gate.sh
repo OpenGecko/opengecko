@@ -15,11 +15,13 @@ if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 TMP_FILE="$(mktemp /tmp/opengecko-data-quality-gate.XXXXXX.json)"
+RUNTIME_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-runtime.XXXXXX.json)"
 RUN_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REQUEST_URL="${BASE_URL}/diagnostics/data_quality"
+RUNTIME_REQUEST_URL="${BASE_URL}/diagnostics/runtime"
 
 cleanup() {
-  rm -f "$TMP_FILE"
+  rm -f "$TMP_FILE" "$RUNTIME_TMP_FILE"
 }
 
 trap cleanup EXIT
@@ -28,14 +30,51 @@ echo "OpenGecko Focused Data Quality Gate"
 echo "Target: ${BASE_URL}"
 echo "Time:   ${RUN_TIMESTAMP}"
 echo "Request: ${REQUEST_URL}"
+echo "Runtime request: ${RUNTIME_REQUEST_URL}"
 echo
 
 curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
   "$REQUEST_URL" > "$TMP_FILE"
 
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$RUNTIME_REQUEST_URL" > "$RUNTIME_TMP_FILE"
+
 if ! jq -e '.data.gate.status and .data.families' "$TMP_FILE" >/dev/null; then
   echo "FAIL diagnostics/data_quality response does not expose .data.gate.status and .data.families" >&2
   jq '.data // .' "$TMP_FILE" >&2 || cat "$TMP_FILE" >&2
+  exit 2
+fi
+
+if ! jq -e '.data.database and .data.validation_profile' "$RUNTIME_TMP_FILE" >/dev/null; then
+  echo "FAIL diagnostics/runtime response does not expose .data.database and .data.validation_profile" >&2
+  jq '.data // .' "$RUNTIME_TMP_FILE" >&2 || cat "$RUNTIME_TMP_FILE" >&2
+  exit 2
+fi
+
+runtime_errors="$(
+  jq -r '
+    .data as $data
+    | ($data.database // {}) as $database
+    | ($data.validation_profile // {}) as $profile
+    | [
+        if ($profile.service_role // "") != "data_quality_gate" then "runtime_service_role_not_data_quality_gate:\($profile.service_role // "null")" else empty end,
+        if ($profile.current_port_approved // false) != true then "runtime_port_not_mission_approved:\($profile.current_port // "null")" else empty end,
+        if (($profile | has("port_3000_required") | not) or $profile.port_3000_required != false) then "runtime_requires_port_3000" else empty end,
+        if ($profile.service_backed_validation.serial_required // false) != true then "runtime_service_backed_validation_not_serial" else empty end,
+        if (($database.path_class // "") == "in_memory") then "sqlite_path_class_in_memory" else empty end,
+        if ($database.storage_mode // "") != "file" then "sqlite_storage_mode_not_file:\($database.storage_mode // "null")" else empty end,
+        if ($database.shared_file // false) != true then "sqlite_shared_file_not_enabled" else empty end,
+        if ($database.wal_enabled // false) != true then "sqlite_wal_not_enabled" else empty end,
+        if (($database.busy_timeout_ms | type) != "number" or $database.busy_timeout_ms <= 0) then "sqlite_busy_timeout_not_positive:\($database.busy_timeout_ms // "null")" else empty end,
+        if (($profile.service_backed_validation.database_path_class // "") == "in_memory") then "sqlite_validation_database_path_class_in_memory" else empty end
+      ][]
+  ' "$RUNTIME_TMP_FILE" || true
+)"
+
+if [[ -n "$runtime_errors" ]]; then
+  echo "FAIL diagnostics/runtime unsafe SQLite runtime configuration" >&2
+  echo "$runtime_errors" >&2
+  jq '{database: .data.database, validation_profile: .data.validation_profile}' "$RUNTIME_TMP_FILE" >&2 || cat "$RUNTIME_TMP_FILE" >&2
   exit 2
 fi
 
@@ -216,9 +255,9 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
       "VAL-DQ-007\t" + (if ([.data.families[] | select(.source.state != "live") | .score_scopes.live_source_fidelity < .target_threshold] | all) then "pass" else "fail" end) + "\tnon-live states are not counted as live source fidelity",
       "VAL-DQ-009\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | type == "object" and (.status | type == "string") and (.reason | type == "string") and (.budget | type == "object")] | all) then "pass" else "fail" end) + "\tdata_quality exposes enforceable per-family freshness budget status and reason fields",
       "VAL-SCHED-001\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | has("current_age_seconds") and has("last_success_at") and has("budget") and has("status") and has("reason")] | all) then "pass" else "fail" end) + "\tfreshness budget records expose age, last-success, budget, status, and reason",
-      "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence",
-      "VAL-DQ-010\tpass\tmanifest includes negative-scenario-capable schema, classification, stale, and overclaim validation"
+      "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence"
     ' "$TMP_FILE"
+    printf 'VAL-DQ-010\tpass\tvalidated negative-scenario-capable schema, classification, stale, overclaim, and unsafe SQLite runtime configuration checks\n'
   } > "$assertion_result_table_path"
 
   jq '{

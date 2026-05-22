@@ -648,6 +648,17 @@ describe('data quality diagnostics', () => {
     const dominanceDeltaRatios = globalFamily?.evidence.global_quality?.public_route_comparison.dominance_delta_ratios as Record<string, number> | undefined;
     expect(dominanceDeltaRatios?.btc).toBeGreaterThan(0);
     expect(globalFamily?.evidence.global_quality?.reason_codes).toContain('sparse_market_rows_or_aggregate_mismatch');
+    expect(globalFamily?.reason_codes).toContain('sparse_market_rows_or_aggregate_mismatch');
+    expect(globalFamily?.failing_dimensions).toContain('metadata_truthfulness');
+    expect(globalFamily?.score).toBeLessThan(globalFamily?.target_threshold ?? 9);
+    expect(diagnostics.gate.status).toBe('fail');
+    expect(diagnostics.gate.reason_codes).toEqual(expect.arrayContaining([
+      'required_family_below_threshold',
+      'sparse_market_rows_or_aggregate_mismatch',
+    ]));
+    expect(diagnostics.gate.below_target_families.map((family) => family.family)).toContain('global');
+    expect(diagnostics.gate.below_target_families.find((family) => family.family === 'global')?.reason_codes)
+      .toContain('sparse_market_rows_or_aggregate_mismatch');
   });
 
   it('exposes catalog hybrid quality evidence for search, assets, treasury, onchain, and supply assertions', async () => {

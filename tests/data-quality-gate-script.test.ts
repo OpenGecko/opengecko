@@ -7,7 +7,35 @@ import { describe, expect, it } from 'vitest';
 
 const SCRIPT_PATH = join(process.cwd(), 'scripts/data-quality-gate.sh');
 
-function runGateWithFixture(fixtureJson: string) {
+function runtimeFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      database: {
+        path_class: 'tmp_validation_file',
+        storage_mode: 'file',
+        shared_file: true,
+        journal_mode: 'wal',
+        wal_enabled: true,
+        busy_timeout_ms: 5000,
+      },
+      validation_profile: {
+        mission_service_ports: [3100, 3102, 3103],
+        current_port: 3103,
+        current_port_approved: true,
+        service_role: 'data_quality_gate',
+        port_3000_required: false,
+        service_backed_validation: {
+          serial_required: true,
+          explicit_database_url: '/tmp/opengecko-quality.sqlite',
+          database_path_class: 'tmp_validation_file',
+        },
+      },
+      ...overrides,
+    },
+  });
+}
+
+function runGateWithFixture(fixtureJson: string, runtimeJson = runtimeFixture()) {
   const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-data-quality-gate-test-'));
   const evidenceDir = join(tempDir, 'evidence');
   const fakeCurlPath = join(tempDir, 'curl');
@@ -19,6 +47,7 @@ set -euo pipefail
 for arg in "$@"; do
   case "$arg" in
     */diagnostics/data_quality) printf '%s' "$DATA_QUALITY_FIXTURE"; exit 0 ;;
+    */diagnostics/runtime) printf '%s' "$RUNTIME_FIXTURE"; exit 0 ;;
   esac
 done
 echo "unexpected curl request: $*" >&2
@@ -37,6 +66,7 @@ exit 22
         BASE_URL: 'http://127.0.0.1:3103',
         OPENGECKO_QUALITY_EVIDENCE_DIR: evidenceDir,
         DATA_QUALITY_FIXTURE: fixtureJson,
+        RUNTIME_FIXTURE: runtimeJson,
       },
     });
   } finally {
@@ -490,6 +520,37 @@ describe('focused data quality gate script', () => {
     expect(result.stderr).toContain('stale_required_family_not_below_target:simple');
   });
 
+  it('rejects unsafe SQLite runtime diagnostics instead of unconditionally passing VAL-DQ-010', () => {
+    const result = runGateWithFixture(passingFixture(), runtimeFixture({
+      database: {
+        path_class: 'in_memory',
+        storage_mode: 'in_memory',
+        shared_file: false,
+        journal_mode: 'memory',
+        wal_enabled: false,
+        busy_timeout_ms: 0,
+      },
+      validation_profile: {
+        mission_service_ports: [3100, 3102, 3103],
+        current_port: 3103,
+        current_port_approved: true,
+        service_role: 'data_quality_gate',
+        port_3000_required: false,
+        service_backed_validation: {
+          serial_required: true,
+          explicit_database_url: ':memory:',
+          database_path_class: 'in_memory',
+        },
+      },
+    }));
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('unsafe SQLite runtime configuration');
+    expect(result.stderr).toContain('sqlite_storage_mode_not_file:in_memory');
+    expect(result.stderr).toContain('sqlite_wal_not_enabled');
+    expect(result.stderr).toContain('sqlite_busy_timeout_not_positive:0');
+  });
+
   it('rejects mismatched below-threshold gate summaries', () => {
     const result = runGateWithFixture(JSON.stringify({
       data: {
@@ -527,6 +588,7 @@ set -euo pipefail
 for arg in "$@"; do
   case "$arg" in
     */diagnostics/data_quality) printf '%s' "$DATA_QUALITY_FIXTURE"; exit 0 ;;
+    */diagnostics/runtime) printf '%s' "$RUNTIME_FIXTURE"; exit 0 ;;
   esac
 done
 echo "unexpected curl request: $*" >&2
@@ -545,6 +607,7 @@ exit 22
           BASE_URL: 'http://127.0.0.1:3103',
           OPENGECKO_QUALITY_EVIDENCE_DIR: evidenceDir,
           DATA_QUALITY_FIXTURE: passingFixture(),
+          RUNTIME_FIXTURE: runtimeFixture(),
         },
       });
 
