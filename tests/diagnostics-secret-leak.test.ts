@@ -111,6 +111,16 @@ describe('diagnostics secret leak guard', () => {
     });
     expect(degradedStateResponse.statusCode).toBe(200);
 
+    const sqliteFaultResponse = await app.inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/sqlite_fault_validation',
+      payload: {
+        mode: 'fatal_persistence',
+        operation: SECRET_ERROR_TEXT,
+      },
+    });
+    expect(sqliteFaultResponse.statusCode).toBe(200);
+
     app.optionalProviderJobs.recordFailure('market_charts', {
       startedAt: new Date('2026-05-12T00:00:00.000Z'),
       finishedAt: new Date('2026-05-12T00:00:01.000Z'),

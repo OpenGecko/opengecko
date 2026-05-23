@@ -832,6 +832,25 @@ describe('diagnostics routes', () => {
       journal_mode: 'wal',
       wal_enabled: true,
       busy_timeout_ms: expect.any(Number),
+      status: 'healthy',
+      status_reason: 'sqlite_ok',
+      lock_contention: {
+        status: 'clear',
+        total_count: 0,
+        busy_count: 0,
+        locked_count: 0,
+        last_observed_at: null,
+        recent_samples: [],
+        max_recent_samples: expect.any(Number),
+      },
+      persistence: {
+        status: 'healthy',
+        reason_code: 'sqlite_ok',
+        fatal_failure_count: 0,
+        last_failure_at: null,
+        recent_failures: [],
+        max_recent_failures: expect.any(Number),
+      },
     });
     expect(runtimeResponse.json().data.database.busy_timeout_ms).toBeGreaterThan(0);
     expect(runtimeResponse.json().data.validation_profile).toEqual({
@@ -926,6 +945,89 @@ describe('diagnostics routes', () => {
         database_path_class: 'tmp_validation_file',
       },
     });
+  });
+
+  it('exposes controlled SQLite contention and fatal persistence diagnostics separately', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        port: 3102,
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+    await getApp().ready();
+
+    const contentionResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/sqlite_fault_validation',
+      payload: {
+        mode: 'contention',
+        operation: 'market refresh token=super-secret /tmp/opengecko-contention.sqlite',
+      },
+    });
+
+    expect(contentionResponse.statusCode).toBe(200);
+    expect(contentionResponse.json().data.validation_path).toEqual({
+      route: '/diagnostics/runtime/sqlite_fault_validation',
+      diagnostics_route: '/diagnostics/runtime',
+      validation_port: 3102,
+      simulated_failure: 'contention',
+    });
+    expect(contentionResponse.json().data.database).toMatchObject({
+      status: 'contention_backoff',
+      status_reason: 'sqlite_contention_observed',
+      lock_contention: {
+        status: 'contention_observed',
+        total_count: 1,
+        busy_count: 1,
+        locked_count: 0,
+        last_observed_at: expect.any(String),
+      },
+      persistence: {
+        status: 'contention_backoff',
+        reason_code: 'sqlite_contention_backoff',
+        fatal_failure_count: 0,
+      },
+    });
+    expect(JSON.stringify(contentionResponse.json().data.database.lock_contention.recent_samples)).not.toContain('super-secret');
+    expect(JSON.stringify(contentionResponse.json().data.database.lock_contention.recent_samples)).not.toContain('/tmp/opengecko-contention.sqlite');
+
+    const fatalResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/sqlite_fault_validation',
+      payload: {
+        mode: 'fatal_persistence',
+        operation: 'worker write password=hunter2 /var/lib/opengecko/opengecko.db',
+      },
+    });
+
+    expect(fatalResponse.statusCode).toBe(200);
+    expect(fatalResponse.json().data.database).toMatchObject({
+      status: 'fatal_persistence_failure',
+      status_reason: 'sqlite_fatal_persistence_failure',
+      lock_contention: {
+        total_count: 1,
+      },
+      persistence: {
+        status: 'fatal_failure',
+        reason_code: 'sqlite_fatal_persistence_failure',
+        fatal_failure_count: 1,
+        last_failure_at: expect.any(String),
+      },
+    });
+    expect(fatalResponse.json().data.database.persistence.recent_failures).toEqual([
+      expect.objectContaining({
+        classification: 'fatal_persistence',
+        reason_code: 'sqlite_corrupt',
+        operation: expect.stringContaining('worker write'),
+      }),
+    ]);
+    expect(JSON.stringify(fatalResponse.json().data.database.persistence.recent_failures)).not.toContain('hunter2');
+    expect(JSON.stringify(fatalResponse.json().data.database.persistence.recent_failures)).not.toContain('/var/lib/opengecko');
   });
 
   it('returns endpoint-family coverage ownership matrix', async () => {

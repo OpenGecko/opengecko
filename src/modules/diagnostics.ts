@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
-import { buildSqliteDatabaseDiagnostics } from '../db/runtime';
+import { buildSqliteDatabaseDiagnostics, recordSqliteDiagnosticFailure } from '../db/runtime';
 import {
   assetPlatforms,
   coinTickers,
@@ -517,6 +517,58 @@ export function registerDiagnosticsRoutes(
           },
         },
         startup_prewarm: app.marketDataRuntimeState.startupPrewarm,
+      },
+    }, dynamicDiagnosticsCachePolicy);
+  });
+
+  app.post('/diagnostics/runtime/sqlite_fault_validation', async (request, reply) => {
+    const boundAddress = app.server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress !== null
+      ? (boundAddress as AddressInfo).port
+      : null;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
+    if (!validationModeEnabled) {
+      reply.code(404);
+      return {
+        error: 'not_found',
+        message: 'Route not found',
+      };
+    }
+
+    const body = (request.body ?? {}) as {
+      mode?: string;
+      operation?: string | null;
+    };
+    const mode = body.mode === 'fatal_persistence' ? 'fatal_persistence' : 'contention';
+    const operation = sanitizeNullableDiagnosticText(
+      typeof body.operation === 'string' && body.operation.trim().length > 0
+        ? body.operation.trim()
+        : mode === 'fatal_persistence'
+          ? 'validation sqlite fatal persistence write'
+          : 'validation sqlite contention backoff',
+    ) ?? 'validation sqlite fault';
+    const error = mode === 'fatal_persistence'
+      ? new Error('SQLITE_CORRUPT: database disk image is malformed at /tmp/opengecko-validation-secret.sqlite?token=redacted')
+      : new Error('SQLITE_BUSY: database is locked at /tmp/opengecko-validation-secret.sqlite?token=redacted');
+    (error as Error & { code?: string }).code = mode === 'fatal_persistence' ? 'SQLITE_CORRUPT' : 'SQLITE_BUSY';
+
+    recordSqliteDiagnosticFailure(database.sqliteDiagnostics, error, {
+      operation,
+      sql: mode === 'fatal_persistence'
+        ? 'INSERT INTO market_snapshots VALUES (?)'
+        : 'UPDATE market_snapshots SET price = ? WHERE coin_id = ?',
+    });
+
+    return sendCacheableJson(request, reply, {
+      data: {
+        validation_path: {
+          route: '/diagnostics/runtime/sqlite_fault_validation',
+          diagnostics_route: '/diagnostics/runtime',
+          validation_port: 3102,
+          simulated_failure: mode === 'fatal_persistence' ? 'fatal_persistence' : 'contention',
+        },
+        database: buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl),
       },
     }, dynamicDiagnosticsCachePolicy);
   });

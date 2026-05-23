@@ -9,6 +9,8 @@ import {
   classifyDatabasePath,
   DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
   createDatabase,
+  createSqliteDiagnosticState,
+  recordSqliteDiagnosticFailure,
 } from '../src/db/runtime';
 import { coins, marketSnapshots } from '../src/db/schema';
 
@@ -83,10 +85,128 @@ describe('sqlite runtime support', () => {
         journal_mode: 'wal',
         wal_enabled: true,
         busy_timeout_ms: DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
+        status: 'healthy',
+        status_reason: 'sqlite_ok',
+        lock_contention: {
+          status: 'clear',
+          total_count: 0,
+          busy_count: 0,
+          locked_count: 0,
+          last_observed_at: null,
+          recent_samples: [],
+          max_recent_samples: expect.any(Number),
+        },
+        persistence: {
+          status: 'healthy',
+          reason_code: 'sqlite_ok',
+          fatal_failure_count: 0,
+          last_failure_at: null,
+          recent_failures: [],
+          max_recent_failures: expect.any(Number),
+        },
       });
     } finally {
       database.client.close();
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('counts SQLite busy and locked failures with sanitized bounded recent samples', () => {
+    const state = createSqliteDiagnosticState();
+
+    for (let index = 0; index < 12; index += 1) {
+      const error = new Error(`SQLITE_BUSY: database is locked at /tmp/opengecko-secret-${index}.sqlite?token=super-secret`);
+      (error as Error & { code?: string }).code = index % 2 === 0 ? 'SQLITE_BUSY' : 'SQLITE_LOCKED';
+      recordSqliteDiagnosticFailure(state, error, {
+        operation: `worker refresh password=hunter2 ${index}`,
+        sql: 'UPDATE market_snapshots SET price = ? WHERE coin_id = ?',
+        now: new Date(Date.UTC(2026, 4, 23, 0, 0, index)),
+      });
+    }
+
+    const database = {
+      runtime: detectSqliteRuntime(),
+      url: ':memory:',
+      client: createDatabase(':memory:').client,
+      sqliteDiagnostics: state,
+    };
+
+    try {
+      const diagnostics = buildSqliteDatabaseDiagnostics(database);
+
+      expect(diagnostics.status).toBe('contention_backoff');
+      expect(diagnostics.status_reason).toBe('sqlite_contention_observed');
+      expect(diagnostics.lock_contention).toMatchObject({
+        status: 'contention_observed',
+        total_count: 12,
+        busy_count: 6,
+        locked_count: 6,
+        last_observed_at: '2026-05-23T00:00:11.000Z',
+        max_recent_samples: 10,
+      });
+      expect(diagnostics.lock_contention.recent_samples).toHaveLength(10);
+      expect(diagnostics.lock_contention.recent_samples[0]).toMatchObject({
+        classification: 'contention',
+        reason_code: 'sqlite_busy',
+        operation: expect.stringContaining('worker refresh'),
+        sql_kind: 'update',
+      });
+      const serialized = JSON.stringify(diagnostics.lock_contention.recent_samples);
+      expect(serialized).not.toContain('hunter2');
+      expect(serialized).not.toContain('super-secret');
+      expect(serialized).not.toContain('/tmp/opengecko-secret');
+    } finally {
+      database.client.close();
+    }
+  });
+
+  it('distinguishes fatal SQLite persistence failures from contention backoff', () => {
+    const state = createSqliteDiagnosticState();
+    const contentionError = new Error('SQLITE_BUSY: database is locked');
+    (contentionError as Error & { code?: string }).code = 'SQLITE_BUSY';
+    recordSqliteDiagnosticFailure(state, contentionError, {
+      operation: 'api read',
+      sql: 'SELECT * FROM coins',
+      now: new Date('2026-05-23T01:00:00.000Z'),
+    });
+
+    const fatalError = new Error('SQLITE_CORRUPT: database disk image is malformed at /var/lib/opengecko/opengecko.db?api_key=secret');
+    (fatalError as Error & { code?: string }).code = 'SQLITE_CORRUPT';
+    recordSqliteDiagnosticFailure(state, fatalError, {
+      operation: 'worker persistence secret=raw-secret',
+      sql: 'INSERT INTO market_snapshots VALUES (?)',
+      now: new Date('2026-05-23T01:00:01.000Z'),
+    });
+
+    const database = {
+      runtime: detectSqliteRuntime(),
+      url: ':memory:',
+      client: createDatabase(':memory:').client,
+      sqliteDiagnostics: state,
+    };
+
+    try {
+      const diagnostics = buildSqliteDatabaseDiagnostics(database);
+
+      expect(diagnostics.status).toBe('fatal_persistence_failure');
+      expect(diagnostics.status_reason).toBe('sqlite_fatal_persistence_failure');
+      expect(diagnostics.lock_contention.total_count).toBe(1);
+      expect(diagnostics.persistence).toMatchObject({
+        status: 'fatal_failure',
+        reason_code: 'sqlite_fatal_persistence_failure',
+        fatal_failure_count: 1,
+        last_failure_at: '2026-05-23T01:00:01.000Z',
+      });
+      expect(diagnostics.persistence.recent_failures).toHaveLength(1);
+      expect(diagnostics.persistence.recent_failures[0]).toMatchObject({
+        classification: 'fatal_persistence',
+        reason_code: 'sqlite_corrupt',
+        sql_kind: 'insert',
+      });
+      expect(JSON.stringify(diagnostics.persistence.recent_failures)).not.toContain('raw-secret');
+      expect(JSON.stringify(diagnostics.persistence.recent_failures)).not.toContain('/var/lib/opengecko');
+    } finally {
+      database.client.close();
     }
   });
 

@@ -8,6 +8,14 @@ import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import type { Database as BunDatabase } from 'bun:sqlite';
 
 import {
+  createSqliteDiagnosticState,
+  instrumentSqliteClient,
+  MAX_SQLITE_RECENT_FAILURES,
+  recordSqliteDiagnosticFailure,
+  type SqliteDiagnosticFailureSample,
+  type SqliteDiagnosticState,
+} from './sqlite-diagnostics';
+import {
   assetPlatforms,
   categories,
   chartResponseSourceCounters,
@@ -39,6 +47,14 @@ import {
   treasurySourceDocuments,
   treasuryTransactions,
 } from './schema';
+
+export {
+  createSqliteDiagnosticState,
+  recordSqliteDiagnosticFailure,
+  type SqliteDiagnosticFailureClassification,
+  type SqliteDiagnosticFailureSample,
+  type SqliteDiagnosticState,
+} from './sqlite-diagnostics';
 
 
 const schema = {
@@ -77,7 +93,7 @@ const schema = {
 type AppSchema = typeof schema;
 type SqliteRuntime = 'node' | 'bun';
 
-type SqliteStatement<Row = unknown> = {
+export type SqliteStatement<Row = unknown> = {
   get(...params: unknown[]): Row | undefined;
   all(...params: unknown[]): Row[];
   run(...params: unknown[]): unknown;
@@ -117,6 +133,25 @@ export type SqliteDatabaseDiagnostics = {
   journal_mode: string | null;
   wal_enabled: boolean;
   busy_timeout_ms: number | null;
+  status: 'healthy' | 'contention_backoff' | 'fatal_persistence_failure';
+  status_reason: 'sqlite_ok' | 'sqlite_contention_observed' | 'sqlite_fatal_persistence_failure';
+  lock_contention: {
+    status: 'clear' | 'contention_observed';
+    total_count: number;
+    busy_count: number;
+    locked_count: number;
+    last_observed_at: string | null;
+    recent_samples: SqliteDiagnosticFailureSample[];
+    max_recent_samples: number;
+  };
+  persistence: {
+    status: 'healthy' | 'contention_backoff' | 'fatal_failure';
+    reason_code: 'sqlite_ok' | 'sqlite_contention_backoff' | 'sqlite_fatal_persistence_failure';
+    fatal_failure_count: number;
+    last_failure_at: string | null;
+    recent_failures: SqliteDiagnosticFailureSample[];
+    max_recent_failures: number;
+  };
 };
 
 export type AppDatabase = {
@@ -125,6 +160,7 @@ export type AppDatabase = {
   runtime: SqliteRuntime;
   url: string;
   persistedTimestampCompatibility: PersistedTimestampCompatibility;
+  sqliteDiagnostics: SqliteDiagnosticState;
 };
 
 class BunSqliteClient implements SqliteClient {
@@ -231,6 +267,28 @@ function readNumberPragma(client: SqliteClient, key: string) {
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
+function safeReadStringPragma(client: SqliteClient, key: string, diagnostics?: SqliteDiagnosticState) {
+  try {
+    return readStringPragma(client, key);
+  } catch (error) {
+    if (diagnostics) {
+      recordSqliteDiagnosticFailure(diagnostics, error, { operation: `diagnostics.pragma.${key}`, sql: `PRAGMA ${key}` });
+    }
+    return null;
+  }
+}
+
+function safeReadNumberPragma(client: SqliteClient, key: string, diagnostics?: SqliteDiagnosticState) {
+  try {
+    return readNumberPragma(client, key);
+  } catch (error) {
+    if (diagnostics) {
+      recordSqliteDiagnosticFailure(diagnostics, error, { operation: `diagnostics.pragma.${key}`, sql: `PRAGMA ${key}` });
+    }
+    return null;
+  }
+}
+
 function redactSensitiveDatabasePath(value: string) {
   return /api[_-]?key|bearer|password|secret|token/i.test(value)
     ? '[database path redacted]'
@@ -238,12 +296,37 @@ function redactSensitiveDatabasePath(value: string) {
 }
 
 export function buildSqliteDatabaseDiagnostics(
-  database: Pick<AppDatabase, 'client' | 'runtime' | 'url'>,
+  database: Pick<AppDatabase, 'client' | 'runtime' | 'url'> & { sqliteDiagnostics?: SqliteDiagnosticState },
   configuredUrl = database.url,
 ): SqliteDatabaseDiagnostics {
   const pathClass = classifyDatabasePath(database.url);
-  const journalMode = readStringPragma(database.client, 'journal_mode');
-  const busyTimeoutMs = readNumberPragma(database.client, 'busy_timeout');
+  const journalMode = safeReadStringPragma(database.client, 'journal_mode', database.sqliteDiagnostics);
+  const busyTimeoutMs = safeReadNumberPragma(database.client, 'busy_timeout', database.sqliteDiagnostics);
+  const state = database.sqliteDiagnostics ?? createSqliteDiagnosticState();
+  const recentContentionSamples = state.recentFailures.filter((sample) => sample.classification === 'contention');
+  const recentFatalFailures = state.recentFailures.filter((sample) => sample.classification === 'fatal_persistence');
+  const hasFatalFailure = state.totalFatalPersistenceCount > 0;
+  const hasContention = state.totalContentionCount > 0;
+  const status = hasFatalFailure
+    ? 'fatal_persistence_failure'
+    : hasContention
+      ? 'contention_backoff'
+      : 'healthy';
+  const statusReason = hasFatalFailure
+    ? 'sqlite_fatal_persistence_failure'
+    : hasContention
+      ? 'sqlite_contention_observed'
+      : 'sqlite_ok';
+  const persistenceStatus = hasFatalFailure
+    ? 'fatal_failure'
+    : hasContention
+      ? 'contention_backoff'
+      : 'healthy';
+  const persistenceReasonCode = hasFatalFailure
+    ? 'sqlite_fatal_persistence_failure'
+    : hasContention
+      ? 'sqlite_contention_backoff'
+      : 'sqlite_ok';
 
   return {
     runtime: database.runtime,
@@ -256,6 +339,25 @@ export function buildSqliteDatabaseDiagnostics(
     journal_mode: journalMode,
     wal_enabled: journalMode === 'wal',
     busy_timeout_ms: busyTimeoutMs,
+    status,
+    status_reason: statusReason,
+    lock_contention: {
+      status: hasContention ? 'contention_observed' : 'clear',
+      total_count: state.totalContentionCount,
+      busy_count: state.busyCount,
+      locked_count: state.lockedCount,
+      last_observed_at: state.lastContentionAt?.toISOString() ?? null,
+      recent_samples: recentContentionSamples,
+      max_recent_samples: MAX_SQLITE_RECENT_FAILURES,
+    },
+    persistence: {
+      status: persistenceStatus,
+      reason_code: persistenceReasonCode,
+      fatal_failure_count: state.totalFatalPersistenceCount,
+      last_failure_at: state.lastFatalPersistenceAt?.toISOString() ?? null,
+      recent_failures: recentFatalFailures,
+      max_recent_failures: MAX_SQLITE_RECENT_FAILURES,
+    },
   };
 }
 
@@ -269,17 +371,20 @@ function createNodeDatabase(resolvedUrl: string): AppDatabase {
     drizzle: (client: BetterSqlite3DatabaseClient, config: { schema: AppSchema }) => BetterSQLite3Database<AppSchema>;
   };
 
-  const client = new Database(resolvedUrl);
+  const rawClient = new Database(resolvedUrl);
+  const sqliteDiagnostics = createSqliteDiagnosticState();
+  const client = instrumentSqliteClient(rawClient, sqliteDiagnostics);
   client.pragma('journal_mode = WAL');
   client.pragma(`busy_timeout = ${DEFAULT_SQLITE_BUSY_TIMEOUT_MS}`);
   client.pragma('foreign_keys = ON');
 
   return {
     client,
-    db: drizzle(client, { schema }),
+    db: drizzle(rawClient, { schema }),
     runtime: 'node',
     url: resolvedUrl,
     persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
+    sqliteDiagnostics,
   };
 }
 
@@ -290,7 +395,8 @@ function createBunDatabase(resolvedUrl: string): AppDatabase {
   };
 
   const rawClient = new Database(resolvedUrl);
-  const client = new BunSqliteClient(rawClient);
+  const sqliteDiagnostics = createSqliteDiagnosticState();
+  const client = instrumentSqliteClient(new BunSqliteClient(rawClient), sqliteDiagnostics);
   client.pragma('journal_mode = WAL');
   client.pragma(`busy_timeout = ${DEFAULT_SQLITE_BUSY_TIMEOUT_MS}`);
   client.pragma('foreign_keys = ON');
@@ -301,6 +407,7 @@ function createBunDatabase(resolvedUrl: string): AppDatabase {
     runtime: 'bun',
     url: resolvedUrl,
     persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
+    sqliteDiagnostics,
   };
 }
 
