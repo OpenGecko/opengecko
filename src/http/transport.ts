@@ -2,13 +2,13 @@ import { brotliCompress, brotliCompressSync, gzip, gzipSync } from 'node:zlib';
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+import { selectAcceptedContentEncoding, type SupportedContentEncoding } from './accept-encoding';
+
 type TransportOptions = {
   responseCompressionThresholdBytes: number;
 };
 
 const MAX_SYNC_COMPRESSION_BYTES = 2 * 1024 * 1024;
-
-type SupportedContentEncoding = 'br' | 'gzip';
 
 function getAcceptedContentEncoding(request: FastifyRequest, reply: FastifyReply): SupportedContentEncoding | null {
   const acceptEncoding = request.headers['accept-encoding'];
@@ -23,15 +23,7 @@ function getAcceptedContentEncoding(request: FastifyRequest, reply: FastifyReply
     return null;
   }
 
-  if (/\bbr\b/.test(acceptEncoding)) {
-    return 'br';
-  }
-
-  if (/\bgzip\b/.test(acceptEncoding)) {
-    return 'gzip';
-  }
-
-  return null;
+  return selectAcceptedContentEncoding(acceptEncoding);
 }
 
 async function compressPayload(payload: string, payloadBytes: number, encoding: SupportedContentEncoding) {
@@ -80,7 +72,13 @@ export function registerTransportControls(app: FastifyInstance, options: Transpo
       return payload;
     }
 
-    const compressed = await compressPayload(payload, payloadBytes, encoding);
+    let compressed: Buffer;
+    try {
+      compressed = await compressPayload(payload, payloadBytes, encoding);
+    } catch {
+      throw new Error('Response compression failed');
+    }
+
     reply.header('content-encoding', encoding);
     reply.header('vary', 'Accept-Encoding');
     reply.header('content-length', String(compressed.byteLength));
