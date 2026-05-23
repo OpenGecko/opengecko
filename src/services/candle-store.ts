@@ -75,6 +75,10 @@ export type OhlcvGapRepairFetcher = (since: number, limit?: number) => Promise<A
   volume?: number | null;
 }>>;
 
+export type OhlcvGapRepairOptions = {
+  beforeWrite?: () => boolean;
+};
+
 export type HistoricalOhlcvStore = {
   getCanonicalCandles: (
     coinId: string,
@@ -99,6 +103,7 @@ export type HistoricalOhlcvStore = {
   repairOhlcvGaps: (
     target: OhlcvGapRepairTarget,
     fetchCandles: OhlcvGapRepairFetcher,
+    options?: OhlcvGapRepairOptions,
   ) => Promise<{
     gapsRepaired: number;
     candlesRepaired: number;
@@ -143,8 +148,8 @@ export function createSqliteHistoricalOhlcvStore(database: AppDatabase): Histori
     },
     detectOhlcvGaps: (coinId, vsCurrency, interval) =>
       detectOhlcvGaps(database, coinId, vsCurrency, interval),
-    repairOhlcvGaps: (target, fetchCandles) =>
-      repairOhlcvGaps(database, target, fetchCandles),
+    repairOhlcvGaps: (target, fetchCandles, options) =>
+      repairOhlcvGaps(database, target, fetchCandles, options),
     enforceOhlcvRetention: (input) =>
       enforceOhlcvRetention(database, input),
   };
@@ -415,6 +420,7 @@ export async function repairOhlcvGaps(
   database: AppDatabase,
   target: OhlcvGapRepairTarget,
   fetchCandles: OhlcvGapRepairFetcher,
+  options: OhlcvGapRepairOptions = {},
 ) {
   const intervalMs = getIntervalMs(target.interval);
   let gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
@@ -423,6 +429,10 @@ export async function repairOhlcvGaps(
   const exhaustedGapStarts = new Set<number>();
 
   while (gaps.length > 0) {
+    if (options.beforeWrite && !options.beforeWrite()) {
+      break;
+    }
+
     const gap = gaps.reduce((selected, candidate) => (
       candidate.missingSlotCount > selected.missingSlotCount
       || (
@@ -447,6 +457,13 @@ export async function repairOhlcvGaps(
       }
       if (!hasValidOhlcInvariants(candle)) {
         continue;
+      }
+      if (options.beforeWrite && !options.beforeWrite()) {
+        return {
+          gapsRepaired: initialGapCount,
+          candlesRepaired: repairedCount,
+          intervalMs,
+        };
       }
 
       upsertCanonicalOhlcvCandle(database, {
@@ -473,7 +490,7 @@ export async function repairOhlcvGaps(
     gaps = detectOhlcvGaps(database, target.coinId, target.vsCurrency, target.interval);
   }
 
-  if (target.retentionDays) {
+  if (target.retentionDays && (!options.beforeWrite || options.beforeWrite())) {
     enforceOhlcvRetention(database, {
       coinId: target.coinId,
       vsCurrency: target.vsCurrency,

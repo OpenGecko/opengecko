@@ -9,6 +9,7 @@ import {
   repairOhlcvGaps,
   upsertCanonicalOhlcvCandle,
 } from './candle-store';
+import { isOhlcvTargetLeaseActive } from './ohlcv-worker-state';
 
 type FetchedOhlcvCandle = Awaited<ReturnType<typeof fetchExchangeOHLCV>>[number];
 
@@ -22,7 +23,7 @@ export type OhlcvSyncResult = FetchedOhlcvCandle[] & {
 type OhlcvSyncTargetLike = Pick<
   OhlcvSyncTargetRow,
   'coinId' | 'exchangeId' | 'symbol' | 'vsCurrency' | 'interval' | 'priorityTier' | 'latestSyncedAt' | 'oldestSyncedAt' | 'targetHistoryDays'
->;
+> & Partial<Pick<OhlcvSyncTargetRow, 'leaseOwner' | 'leaseToken'>>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const HISTORICAL_DEEPEN_CHUNK_DAYS = 180;
@@ -41,8 +42,12 @@ function getSupportedTargetInterval(target: OhlcvSyncTargetLike): CandleInterval
   throw new Error(`Unsupported OHLCV interval: ${target.interval}`);
 }
 
-function createOhlcvSyncResult(rawCandles: FetchedOhlcvCandle[], acceptedCandles: FetchedOhlcvCandle[]): OhlcvSyncResult {
-  const result = [...acceptedCandles] as OhlcvSyncResult;
+function createOhlcvSyncResult(
+  rawCandles: FetchedOhlcvCandle[],
+  acceptedCandles: FetchedOhlcvCandle[],
+  persistedCandles: FetchedOhlcvCandle[] = acceptedCandles,
+): OhlcvSyncResult {
+  const result = [...persistedCandles] as OhlcvSyncResult;
 
   Object.defineProperties(result, {
     rawFetchedCount: {
@@ -54,7 +59,7 @@ function createOhlcvSyncResult(rawCandles: FetchedOhlcvCandle[], acceptedCandles
       enumerable: false,
     },
     persistedCount: {
-      value: acceptedCandles.length,
+      value: persistedCandles.length,
       enumerable: false,
     },
     acceptedCandles: {
@@ -66,11 +71,40 @@ function createOhlcvSyncResult(rawCandles: FetchedOhlcvCandle[], acceptedCandles
   return result;
 }
 
-function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: FetchedOhlcvCandle[]) {
+function hasLeaseGuard(target: OhlcvSyncTargetLike): target is OhlcvSyncTargetLike & { leaseOwner: string; leaseToken: string } {
+  return typeof target.leaseOwner === 'string'
+    && target.leaseOwner.length > 0
+    && typeof target.leaseToken === 'string'
+    && target.leaseToken.length > 0;
+}
+
+function isLeaseActiveForWrite(database: AppDatabase, target: OhlcvSyncTargetLike, activeAt: Date) {
+  if (!hasLeaseGuard(target)) {
+    return true;
+  }
+
+  return isOhlcvTargetLeaseActive(database, {
+    coinId: target.coinId,
+    exchangeId: target.exchangeId,
+    symbol: target.symbol,
+    interval: target.interval,
+    vsCurrency: target.vsCurrency,
+    leaseOwner: target.leaseOwner,
+    leaseToken: target.leaseToken,
+    activeAt,
+  });
+}
+
+function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: FetchedOhlcvCandle[], writeAt: Date) {
   const interval = getSupportedTargetInterval(target);
   const acceptedCandles = candles.filter(hasValidOhlcInvariants);
+  const persistedCandles: FetchedOhlcvCandle[] = [];
 
   for (const candle of acceptedCandles) {
+    if (!isLeaseActiveForWrite(database, target, writeAt)) {
+      break;
+    }
+
     upsertCanonicalOhlcvCandle(database, {
       coinId: target.coinId,
       vsCurrency: target.vsCurrency,
@@ -84,13 +118,17 @@ function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, cand
       totalVolume: candle.volume,
       replaceExisting: true,
     });
+    persistedCandles.push(candle);
   }
 
-  return createOhlcvSyncResult(candles, acceptedCandles);
+  return createOhlcvSyncResult(candles, acceptedCandles, persistedCandles);
 }
 
-async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike) {
+async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike, writeAt: Date) {
   const interval = getSupportedTargetInterval(target);
+  const beforeWrite = hasLeaseGuard(target)
+    ? () => isLeaseActiveForWrite(database, target, writeAt)
+    : undefined;
 
   return repairOhlcvGaps(database, {
     coinId: target.coinId,
@@ -98,7 +136,7 @@ async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTarge
     symbol: target.symbol,
     vsCurrency: target.vsCurrency,
     interval,
-  }, (since, limit) => fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit));
+  }, (since, limit) => fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit), { beforeWrite });
 }
 
 export { detectOhlcvGaps, repairOhlcvGaps, enforceOhlcvRetention };
@@ -120,8 +158,8 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
   const candles = limit === undefined
     ? await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since)
     : await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  const result = persistCandles(database, target, candles);
-  await repairPersistedGaps(database, target);
+  const result = persistCandles(database, target, candles, now);
+  await repairPersistedGaps(database, target, now);
 
   return result;
 }
@@ -142,8 +180,8 @@ export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target:
   const limit = Math.max(Math.ceil((referenceEnd - since) / intervalMs), 1);
 
   const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  const result = persistCandles(database, target, candles);
-  await repairPersistedGaps(database, target);
+  const result = persistCandles(database, target, candles, now);
+  await repairPersistedGaps(database, target, now);
 
   return result;
 }

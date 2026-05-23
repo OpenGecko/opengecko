@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
 import { ohlcvSyncTargets, type OhlcvSyncTargetRow } from '../db/schema';
@@ -67,6 +67,24 @@ function hasMatchingLease(row: OhlcvSyncTargetRow, input: OhlcvLeaseIdentity) {
   }
 
   return true;
+}
+
+function hasRequiredLeaseIdentity(input: OhlcvLeaseIdentity): input is { leaseOwner: string; leaseToken: string } {
+  return typeof input.leaseOwner === 'string'
+    && input.leaseOwner.length > 0
+    && typeof input.leaseToken === 'string'
+    && input.leaseToken.length > 0;
+}
+
+function activeLeaseWhere(input: OhlcvTargetKey & { leaseOwner: string; leaseToken: string }, activeAt: Date) {
+  return and(
+    targetKeyWhere(input),
+    eq(ohlcvSyncTargets.status, 'running'),
+    eq(ohlcvSyncTargets.leaseOwner, input.leaseOwner),
+    eq(ohlcvSyncTargets.leaseToken, input.leaseToken),
+    isNotNull(ohlcvSyncTargets.leaseExpiresAt),
+    gt(ohlcvSyncTargets.leaseExpiresAt, activeAt),
+  );
 }
 
 function classifyLeaseRecoveryReason(target: OhlcvSyncTargetRow, now: Date, leaseTtlMs: number) {
@@ -241,16 +259,49 @@ export function leaseNextOhlcvTarget(
   return null;
 }
 
+export function isOhlcvTargetLeaseActive(
+  database: AppDatabase,
+  input: OhlcvTargetKey & OhlcvLeaseIdentity & { activeAt: Date },
+) {
+  if (!hasRequiredLeaseIdentity(input)) {
+    return false;
+  }
+
+  return database.client.prepare(`
+    SELECT 1
+    FROM ohlcv_sync_targets
+    WHERE coin_id = ?
+      AND exchange_id = ?
+      AND symbol = ?
+      AND interval = ?
+      AND vs_currency = ?
+      AND status = 'running'
+      AND lease_owner = ?
+      AND lease_token = ?
+      AND lease_expires_at IS NOT NULL
+      AND lease_expires_at > ?
+    LIMIT 1
+  `).get(
+    input.coinId,
+    input.exchangeId,
+    input.symbol,
+    input.interval,
+    input.vsCurrency,
+    input.leaseOwner,
+    input.leaseToken,
+    input.activeAt.getTime(),
+  ) !== undefined;
+}
+
 export function markOhlcvTargetSuccess(
   database: AppDatabase,
   input: OhlcvTargetKey & OhlcvLeaseIdentity & { latestSyncedAt: Date | null; oldestSyncedAt: Date | null; completedAt: Date },
 ) {
-  const current = readTarget(database, input);
-  if (!current || !hasMatchingLease(current, input)) {
+  if (!hasRequiredLeaseIdentity(input)) {
     return false;
   }
 
-  database.db.update(ohlcvSyncTargets).set({
+  const changedRows = extractChangedRows(database.db.update(ohlcvSyncTargets).set({
     status: 'idle',
     latestSyncedAt: input.latestSyncedAt,
     oldestSyncedAt: input.oldestSyncedAt,
@@ -263,14 +314,19 @@ export function markOhlcvTargetSuccess(
     leaseAcquiredAt: null,
     leaseExpiresAt: null,
     updatedAt: input.completedAt,
-  }).where(targetKeyWhere(input)).run();
-  return true;
+  }).where(activeLeaseWhere(input, input.completedAt)).run());
+
+  return changedRows > 0;
 }
 
 export function markOhlcvTargetFailure(
   database: AppDatabase,
   input: OhlcvTargetKey & OhlcvLeaseIdentity & { failedAt: Date; error: string },
 ) {
+  if (!hasRequiredLeaseIdentity(input)) {
+    return false;
+  }
+
   const current = readTarget(database, input);
 
   if (!current || !hasMatchingLease(current, input)) {
@@ -281,7 +337,7 @@ export function markOhlcvTargetFailure(
   const backoffMinutes = 5 * (2 ** (failureCount - 1));
   const nextRetryAt = new Date(input.failedAt.getTime() + backoffMinutes * 60_000);
 
-  database.db.update(ohlcvSyncTargets).set({
+  const changedRows = extractChangedRows(database.db.update(ohlcvSyncTargets).set({
     status: 'failed',
     lastError: input.error,
     failureCount,
@@ -291,8 +347,9 @@ export function markOhlcvTargetFailure(
     leaseAcquiredAt: null,
     leaseExpiresAt: null,
     updatedAt: input.failedAt,
-  }).where(targetKeyWhere(input)).run();
-  return true;
+  }).where(activeLeaseWhere(input, input.failedAt)).run());
+
+  return changedRows > 0;
 }
 
 export function promoteOhlcvTargetPriority(

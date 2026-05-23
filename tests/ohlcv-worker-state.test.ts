@@ -273,6 +273,101 @@ describe('ohlcv worker state', () => {
     expect(row.leaseToken).toBeNull();
   });
 
+  it('requires lease identity before completing or failing targets', () => {
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      priorityTier: 'top100',
+      status: 'running',
+      lastAttemptAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseAcquiredAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
+    });
+
+    const successWithoutIdentity = markOhlcvTargetSuccess(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      latestSyncedAt: new Date('2026-03-23T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2025-03-23T00:00:00.000Z'),
+      completedAt: new Date('2026-03-23T00:00:00.000Z'),
+    });
+    const failureWithoutToken = markOhlcvTargetFailure(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      failedAt: new Date('2026-03-23T00:00:00.000Z'),
+      error: 'late failure',
+      leaseOwner: 'worker-a',
+    });
+
+    const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+
+    expect(successWithoutIdentity).toBe(false);
+    expect(failureWithoutToken).toBe(false);
+    expect(row.status).toBe('running');
+    expect(row.latestSyncedAt).toBeNull();
+    expect(row.lastError).toBeNull();
+    expect(row.leaseOwner).toBe('worker-a');
+    expect(row.leaseToken).toBe('lease-a');
+  });
+
+  it('rejects completion and failure updates after the active lease deadline', () => {
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      priorityTier: 'top100',
+      status: 'running',
+      lastAttemptAt: new Date('2026-03-22T23:45:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseAcquiredAt: new Date('2026-03-22T23:45:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-23T00:00:00.000Z'),
+    });
+
+    const lateSuccess = markOhlcvTargetSuccess(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      latestSyncedAt: new Date('2026-03-23T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2025-03-23T00:00:00.000Z'),
+      completedAt: new Date('2026-03-23T00:01:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    });
+    const lateFailure = markOhlcvTargetFailure(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      failedAt: new Date('2026-03-23T00:01:00.000Z'),
+      error: 'late failure',
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    });
+
+    const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+
+    expect(lateSuccess).toBe(false);
+    expect(lateFailure).toBe(false);
+    expect(row.status).toBe('running');
+    expect(row.latestSyncedAt).toBeNull();
+    expect(row.lastError).toBeNull();
+    expect(row.leaseOwner).toBe('worker-a');
+    expect(row.leaseToken).toBe('lease-a');
+  });
+
   it('leases retry-due failed targets before idle targets within the same priority tier', () => {
     seedTarget({
       coinId: 'bitcoin',
@@ -457,9 +552,19 @@ describe('ohlcv worker state', () => {
   });
 
   it('updates latestSyncedAt and oldestSyncedAt on success', () => {
-    seedTarget({ coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT' });
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      status: 'running',
+      lastAttemptAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseAcquiredAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
+    });
 
-    markOhlcvTargetSuccess(database, {
+    const updated = markOhlcvTargetSuccess(database, {
       coinId: 'bitcoin',
       exchangeId: 'binance',
       symbol: 'BTC/USDT',
@@ -468,10 +573,13 @@ describe('ohlcv worker state', () => {
       latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
       oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
       completedAt: new Date('2026-03-23T00:00:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
     });
 
     const row = database.db.select().from(ohlcvSyncTargets).all()[0];
 
+    expect(updated).toBe(true);
     expect(row.status).toBe('idle');
     expect(row.latestSyncedAt?.toISOString()).toBe('2026-03-22T00:00:00.000Z');
     expect(row.oldestSyncedAt?.toISOString()).toBe('2025-03-22T00:00:00.000Z');
@@ -480,9 +588,20 @@ describe('ohlcv worker state', () => {
   });
 
   it('records failure metadata with exponential backoff', () => {
-    seedTarget({ coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', failureCount: 1 });
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      status: 'running',
+      failureCount: 1,
+      lastAttemptAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseAcquiredAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
+    });
 
-    markOhlcvTargetFailure(database, {
+    const updated = markOhlcvTargetFailure(database, {
       coinId: 'bitcoin',
       exchangeId: 'binance',
       symbol: 'BTC/USDT',
@@ -490,10 +609,13 @@ describe('ohlcv worker state', () => {
       vsCurrency: 'usd',
       failedAt: new Date('2026-03-23T00:00:00.000Z'),
       error: 'rate limit',
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
     });
 
     const row = database.db.select().from(ohlcvSyncTargets).all()[0];
 
+    expect(updated).toBe(true);
     expect(row.status).toBe('failed');
     expect(row.failureCount).toBe(2);
     expect(row.lastError).toBe('rate limit');
@@ -505,13 +627,18 @@ describe('ohlcv worker state', () => {
       coinId: 'bitcoin',
       exchangeId: 'binance',
       symbol: 'BTC/USDT',
-      status: 'failed',
+      status: 'running',
       failureCount: 3,
       lastError: 'rate limit',
       nextRetryAt: new Date('2026-03-23T00:40:00.000Z'),
+      lastAttemptAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseAcquiredAt: new Date('2026-03-22T23:55:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
     });
 
-    markOhlcvTargetSuccess(database, {
+    const updated = markOhlcvTargetSuccess(database, {
       coinId: 'bitcoin',
       exchangeId: 'binance',
       symbol: 'BTC/USDT',
@@ -520,10 +647,13 @@ describe('ohlcv worker state', () => {
       latestSyncedAt: new Date('2026-03-23T00:00:00.000Z'),
       oldestSyncedAt: new Date('2025-12-23T00:00:00.000Z'),
       completedAt: new Date('2026-03-23T00:05:00.000Z'),
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
     });
 
     const row = database.db.select().from(ohlcvSyncTargets).all()[0];
 
+    expect(updated).toBe(true);
     expect(row.status).toBe('idle');
     expect(row.failureCount).toBe(0);
     expect(row.lastError).toBeNull();
@@ -569,6 +699,11 @@ describe('ohlcv worker state', () => {
       },
     ], new Date('2026-03-22T00:00:00.000Z'));
 
+    const leased = leaseNextOhlcvTarget(database, new Date('2026-03-22T23:55:00.000Z'), {
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    });
+
     markOhlcvTargetSuccess(database, {
       coinId: 'bitcoin',
       exchangeId: 'binance',
@@ -578,6 +713,8 @@ describe('ohlcv worker state', () => {
       latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
       oldestSyncedAt: new Date('2025-03-22T00:00:00.000Z'),
       completedAt: new Date('2026-03-23T00:00:00.000Z'),
+      leaseOwner: leased?.leaseOwner,
+      leaseToken: leased?.leaseToken,
     });
 
     promoteOhlcvTargetPriority(database, {

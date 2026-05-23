@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDatabase, migrateDatabase, seedStaticReferenceData, type AppDatabase } from '../src/db/client';
-import { coins } from '../src/db/schema';
+import { coins, ohlcvSyncTargets } from '../src/db/schema';
 import { getCanonicalCandles } from '../src/services/candle-store';
 import { deepenHistoricalOhlcvWindow, syncRecentOhlcvWindow } from '../src/services/ohlcv-sync';
 
@@ -61,6 +61,36 @@ describe('ohlcv sync units', () => {
     database.client.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
+
+  function seedLeasedTarget(values: Partial<typeof ohlcvSyncTargets.$inferInsert> = {}) {
+    database.db.insert(ohlcvSyncTargets).values({
+      coinId: values.coinId ?? 'bitcoin',
+      exchangeId: values.exchangeId ?? 'binance',
+      symbol: values.symbol ?? 'BTC/USDT',
+      vsCurrency: values.vsCurrency ?? 'usd',
+      interval: values.interval ?? '1d',
+      priorityTier: values.priorityTier ?? 'top100',
+      latestSyncedAt: values.latestSyncedAt ?? new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: values.oldestSyncedAt ?? new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: values.targetHistoryDays ?? 30,
+      status: values.status ?? 'running',
+      lastAttemptAt: values.lastAttemptAt ?? new Date('2026-03-22T23:55:00.000Z'),
+      lastSuccessAt: values.lastSuccessAt ?? null,
+      lastError: values.lastError ?? null,
+      failureCount: values.failureCount ?? 0,
+      nextRetryAt: values.nextRetryAt ?? null,
+      lastRequestedAt: values.lastRequestedAt ?? null,
+      leaseOwner: values.leaseOwner ?? 'worker-a',
+      leaseToken: values.leaseToken ?? 'lease-a',
+      leaseAcquiredAt: values.leaseAcquiredAt ?? new Date('2026-03-22T23:55:00.000Z'),
+      leaseExpiresAt: values.leaseExpiresAt ?? new Date('2026-03-23T00:10:00.000Z'),
+      leaseRecoveryCount: values.leaseRecoveryCount ?? 0,
+      lastLeaseRecoveredAt: values.lastLeaseRecoveredAt ?? null,
+      lastLeaseRecoveryReason: values.lastLeaseRecoveryReason ?? null,
+      createdAt: values.createdAt ?? new Date('2026-03-22T00:00:00.000Z'),
+      updatedAt: values.updatedAt ?? new Date('2026-03-22T23:55:00.000Z'),
+    }).onConflictDoNothing().run();
+  }
 
   it('continues recent sync from latestSyncedAt instead of refetching a full year', async () => {
     mockedFetchExchangeOHLCV.mockResolvedValue([
@@ -293,6 +323,137 @@ describe('ohlcv sync units', () => {
         timestamp: new Date('2026-03-23T00:00:00.000Z'),
         close: 83_500,
       }),
+    ]);
+  });
+
+  it('does not persist accepted candles after the worker lease is recovered by another owner', async () => {
+    database.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+    seedLeasedTarget();
+    mockedFetchExchangeOHLCV.mockImplementation(async () => {
+      database.client.prepare(`
+        UPDATE ohlcv_sync_targets
+        SET lease_owner = 'worker-b',
+            lease_token = 'lease-b',
+            lease_acquired_at = ?,
+            lease_expires_at = ?,
+            lease_recovery_count = lease_recovery_count + 1,
+            last_lease_recovered_at = ?,
+            last_lease_recovery_reason = 'expired_lease_deadline'
+        WHERE coin_id = 'bitcoin'
+      `).run(
+        Date.parse('2026-03-23T00:00:00.000Z'),
+        Date.parse('2026-03-23T00:15:00.000Z'),
+        Date.parse('2026-03-23T00:00:00.000Z'),
+      );
+
+      return [
+        {
+          exchangeId: 'binance',
+          symbol: 'BTC/USDT',
+          timeframe: '1d',
+          timestamp: Date.parse('2026-03-22T00:00:00.000Z'),
+          open: 82_000,
+          high: 83_000,
+          low: 81_000,
+          close: 82_500,
+          volume: 1_200,
+          raw: [0, 0, 0, 0, 0, 0],
+        },
+      ];
+    });
+
+    const result = await syncRecentOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+      targetHistoryDays: 30,
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(result.rawFetchedCount).toBe(1);
+    expect(result.acceptedCount).toBe(1);
+    expect(result.persistedCount).toBe(0);
+    expect(result).toEqual([]);
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d')).toEqual([]);
+  });
+
+  it('does not repair route-visible OHLCV gaps after lease recovery races', async () => {
+    database.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+    seedLeasedTarget({
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-18T00:00:00.000Z'),
+    });
+    for (const [timestamp, close] of [
+      ['2026-03-18T00:00:00.000Z', 80_000],
+      ['2026-03-20T00:00:00.000Z', 82_000],
+    ] as const) {
+      database.client.prepare(`
+        INSERT INTO ohlcv_candles (
+          coin_id, vs_currency, source, interval, timestamp, open, high, low, close, volume, market_cap, total_volume
+        ) VALUES (?, 'usd', 'canonical', '1d', ?, ?, ?, ?, ?, 10, NULL, 10)
+      `).run('bitcoin', Date.parse(timestamp), close, close + 100, close - 100, close);
+    }
+    mockedFetchExchangeOHLCV.mockImplementation(async (_exchangeId, _symbol, _timeframe, since, limit) => {
+      if (limit === undefined && since === Date.parse('2026-03-23T00:00:00.000Z')) {
+        return [];
+      }
+
+      database.client.prepare(`
+        UPDATE ohlcv_sync_targets
+        SET lease_owner = 'worker-b',
+            lease_token = 'lease-b',
+            lease_acquired_at = ?,
+            lease_expires_at = ?,
+            lease_recovery_count = lease_recovery_count + 1,
+            last_lease_recovered_at = ?,
+            last_lease_recovery_reason = 'expired_lease_deadline'
+        WHERE coin_id = 'bitcoin'
+      `).run(
+        Date.parse('2026-03-23T00:00:00.000Z'),
+        Date.parse('2026-03-23T00:15:00.000Z'),
+        Date.parse('2026-03-23T00:00:00.000Z'),
+      );
+
+      return [
+        {
+          exchangeId: 'binance',
+          symbol: 'BTC/USDT',
+          timeframe: '1d',
+          timestamp: Date.parse('2026-03-19T00:00:00.000Z'),
+          open: 81_000,
+          high: 81_500,
+          low: 80_500,
+          close: 81_250,
+          volume: 11,
+          raw: [],
+        },
+      ];
+    });
+
+    const result = await syncRecentOhlcvWindow(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      vsCurrency: 'usd',
+      interval: '1d',
+      priorityTier: 'top100',
+      latestSyncedAt: new Date('2026-03-22T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2026-03-18T00:00:00.000Z'),
+      targetHistoryDays: 30,
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    }, new Date('2026-03-23T00:00:00.000Z'));
+
+    expect(result.persistedCount).toBe(0);
+    expect(getCanonicalCandles(database, 'bitcoin', 'usd', '1d').map((row) => row.timestamp.toISOString())).toEqual([
+      '2026-03-18T00:00:00.000Z',
+      '2026-03-20T00:00:00.000Z',
     ]);
   });
 
