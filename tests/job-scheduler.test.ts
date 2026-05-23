@@ -79,6 +79,19 @@ describe('unified scheduler', () => {
 
       await scheduler.runNow('failing-job');
       const failedDiagnostic = scheduler.diagnostics()[0]!;
+      expect(failedDiagnostic).toMatchObject({
+        status: 'retrying',
+        status_reason: 'retry_backoff_active',
+        retry_attempt_count: 1,
+        next_retry_at: '2026-05-05T00:00:08.000Z',
+        next_scheduled_at: '2026-05-05T00:00:10.000Z',
+        observed_lag_seconds: 0,
+        backoff: {
+          active: true,
+          attempt_count: 1,
+          next_retry_at: '2026-05-05T00:00:08.000Z',
+        },
+      });
       expect(failedDiagnostic.error_count).toBe(1);
       expect(failedDiagnostic.last_error).toContain('redacted');
       expect(failedDiagnostic.last_error).not.toContain('secret-token');
@@ -93,6 +106,7 @@ describe('unified scheduler', () => {
       await scheduler.runNow('failing-job');
       expect(run).toHaveBeenCalledTimes(2);
       expect(scheduler.diagnostics()[0]).toMatchObject({
+        status: 'idle',
         error_count: 0,
         last_error: null,
         last_success_at: '2026-05-05T00:00:08.000Z',
@@ -120,10 +134,134 @@ describe('unified scheduler', () => {
     expect(scheduler.diagnostics()).toEqual([
       expect.objectContaining({
         name: 'disabled-job',
+        status: 'blocked',
+        status_reason: 'job_disabled',
         disabled: true,
         last_run_at: null,
       }),
     ]);
+  });
+
+  it('reports lagging, failed, skipped, and partial-failure states with stable allowed values', async () => {
+    let currentTime = new Date('2026-05-05T00:00:00.000Z');
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const scheduler = createUnifiedScheduler({
+      logger: createLogger(),
+      now: () => currentTime,
+    });
+
+    try {
+      scheduler.register({
+        name: 'lagging-job',
+        intervalSeconds: 10,
+        run: vi.fn(async () => undefined),
+      });
+      scheduler.register({
+        name: 'failed-job',
+        intervalSeconds: 10,
+        run: vi.fn(async () => {
+          throw new Error('provider failed');
+        }),
+      });
+      scheduler.register({
+        name: 'partial-job',
+        intervalSeconds: 10,
+        run: vi.fn(async () => ({
+          partialFailures: [{ target: 'bitcoin', reason: 'transient provider failure' }],
+        })),
+      });
+      scheduler.register({
+        name: 'skipped-job',
+        intervalSeconds: 10,
+        run: vi.fn(async () => undefined),
+      });
+
+      await scheduler.runNow('lagging-job');
+      await scheduler.runNow('partial-job');
+      currentTime = new Date('2026-05-05T00:00:20.000Z');
+      await scheduler.runNow('failed-job');
+      await scheduler.runNow('skipped-job');
+      await scheduler.stop({ inFlightTimeoutMs: 0 });
+      await scheduler.runNow('skipped-job');
+
+      currentTime = new Date('2026-05-05T00:00:30.000Z');
+      const diagnosticsByName = new Map(scheduler.diagnostics().map((diagnostic) => [diagnostic.name, diagnostic]));
+      const statuses = [...diagnosticsByName.values()].map((diagnostic) => diagnostic.status);
+
+      expect(statuses.every((status) => [
+        'idle',
+        'blocked',
+        'retrying',
+        'failed',
+        'skipped',
+        'partial-failure',
+        'lagging',
+        'stale-run',
+      ].includes(status))).toBe(true);
+      expect(diagnosticsByName.get('lagging-job')).toMatchObject({
+        status: 'lagging',
+        status_reason: 'scheduled_run_lagging',
+        lag_seconds: 20,
+        observed_lag_seconds: 20,
+        next_scheduled_at: '2026-05-05T00:00:10.000Z',
+      });
+      expect(diagnosticsByName.get('failed-job')).toMatchObject({
+        status: 'failed',
+        status_reason: 'retry_due_after_failure',
+        error_count: 1,
+        retry_attempt_count: 1,
+        next_retry_at: '2026-05-05T00:00:28.000Z',
+      });
+      expect(diagnosticsByName.get('partial-job')).toMatchObject({
+        status: 'partial-failure',
+        status_reason: 'last_success_had_partial_failures',
+        partial_failure_count: 1,
+      });
+      expect(diagnosticsByName.get('skipped-job')).toMatchObject({
+        status: 'skipped',
+        status_reason: 'last_tick_skipped',
+        skipped_count: 1,
+      });
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('detects stale in-flight runs and reports recovery eligibility', async () => {
+    let currentTime = new Date('2026-05-05T00:00:00.000Z');
+    const scheduler = createUnifiedScheduler({
+      logger: createLogger(),
+      now: () => currentTime,
+    });
+
+    scheduler.register({
+      name: 'stale-job',
+      intervalSeconds: 10,
+      staleAfterSeconds: 30,
+      run: vi.fn(() => new Promise<void>(() => undefined)),
+    });
+
+    void scheduler.runNow('stale-job');
+    await Promise.resolve();
+
+    currentTime = new Date('2026-05-05T00:00:31.000Z');
+
+    expect(scheduler.diagnostics()[0]).toMatchObject({
+      name: 'stale-job',
+      status: 'stale-run',
+      status_reason: 'in_flight_run_exceeded_stale_threshold',
+      running: true,
+      stale_run: {
+        is_stale: true,
+        owning_job: 'stale-job',
+        started_at: '2026-05-05T00:00:00.000Z',
+        heartbeat_at: '2026-05-05T00:00:00.000Z',
+        stale_after_seconds: 30,
+        stale_duration_seconds: 1,
+        recovery_eligible: true,
+        recovery_reason: 'stale_run_exceeded_threshold',
+      },
+    });
   });
 
   it('bounds shutdown when a background job does not settle', async () => {

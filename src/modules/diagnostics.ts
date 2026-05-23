@@ -28,6 +28,7 @@ import { buildMarketChartProviderDiagnostics } from '../services/market-chart-di
 import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
 import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
 import { sanitizeNullableDiagnosticText } from '../services/diagnostic-sanitizer';
+import { SCHEDULER_JOB_STATUS_VALUES } from '../services/job-scheduler';
 import { runProviderFanoutValidationTrigger } from '../services/provider-fanout-validation-trigger';
 import { buildExchangeDiagnostics } from '../services/exchange-diagnostics';
 import {
@@ -55,6 +56,67 @@ import {
   COINS_MARKETS_ROUTE_CACHE_POLICY,
   SIMPLE_PRICE_ROUTE_CACHE_POLICY,
 } from './route-cache-policies';
+
+const STALE_DATA_FALLBACK_DISCLOSURE_SURFACES = [
+  '/diagnostics/freshness_budgets',
+  '/diagnostics/data_quality',
+  '/diagnostics/coverage_matrix',
+] as const;
+
+const SCHEDULER_REFRESH_JOB_BY_FAMILY: Record<string, string> = {
+  simple: 'market-refresh',
+  coins_markets: 'market-refresh',
+  coin_detail: 'market-refresh',
+  global: 'global-aggregator',
+  exchanges: 'exchange-metadata-rescan',
+  historical_charts: 'ohlcv-tick',
+  stable_catalog: 'coin-catalog-rescan',
+  onchain: 'defillama-pool-sweep',
+  derivatives: 'derivatives-refresh',
+  supply_charts: 'supply-aggregator',
+  treasury: 'treasury-sweep',
+};
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function buildSchedulerStaleDataFallbackDiagnostics(database: AppDatabase) {
+  const freshnessDiagnostics = buildFreshnessBudgetDiagnostics(buildCoverageMatrix(database));
+  const affectedFamilies = freshnessDiagnostics.budgets
+    .filter((budget) => (
+      budget.status === 'stale'
+      || budget.status === 'degraded'
+      || budget.reason_codes.some((reason) => reason.includes('stale') || reason.includes('fallback'))
+    ))
+    .map((budget) => ({
+      family: budget.family,
+      status: budget.status,
+      reason_codes: budget.reason_codes,
+      last_success_at: budget.last_success_at,
+      age_seconds: budget.age_seconds,
+      budget_seconds: budget.budget_seconds,
+      degraded_after_seconds: budget.budget.degraded_after_seconds,
+      public_routes: budget.representative_routes,
+      source_state: budget.source_state,
+      ownership_class: budget.ownership_class,
+      scheduler_correlation: {
+        refresh_job: SCHEDULER_REFRESH_JOB_BY_FAMILY[budget.family] ?? null,
+        disclosure: 'public route may be serving cached or stale data until the scheduler refresh succeeds',
+      },
+    }));
+  const reasonCodes = uniqueStrings(affectedFamilies.flatMap((family) => family.reason_codes));
+
+  return {
+    active: affectedFamilies.length > 0,
+    status: affectedFamilies.length > 0 ? 'active' : 'clear',
+    generated_at: freshnessDiagnostics.generated_at,
+    reason_codes: reasonCodes,
+    affected_family_count: affectedFamilies.length,
+    affected_families: affectedFamilies,
+    disclosure_surfaces: [...STALE_DATA_FALLBACK_DISCLOSURE_SURFACES],
+  };
+}
 
 function toLatestIso(left: string | null, right: Date | null | undefined) {
   if (!right || Number.isNaN(right.getTime())) {
@@ -398,6 +460,8 @@ export function registerDiagnosticsRoutes(
           enabled: !app.appConfig.schedulerDisabled,
           started: app.scheduler?.isStarted() ?? false,
           job_count: schedulerJobs.length,
+          allowed_job_statuses: [...SCHEDULER_JOB_STATUS_VALUES],
+          stale_data_fallback: buildSchedulerStaleDataFallbackDiagnostics(database),
         },
         jobs: schedulerJobs,
         optional_provider_jobs: optionalProviderDiagnostics,

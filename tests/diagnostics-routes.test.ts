@@ -210,10 +210,31 @@ describe('diagnostics routes', () => {
       scheduler: {
         enabled: true,
         job_count: 15,
+        allowed_job_statuses: [
+          'idle',
+          'blocked',
+          'retrying',
+          'failed',
+          'skipped',
+          'partial-failure',
+          'lagging',
+          'stale-run',
+        ],
+        stale_data_fallback: expect.objectContaining({
+          active: expect.any(Boolean),
+          status: expect.stringMatching(/^(clear|active)$/),
+          disclosure_surfaces: [
+            '/diagnostics/freshness_budgets',
+            '/diagnostics/data_quality',
+            '/diagnostics/coverage_matrix',
+          ],
+        }),
       },
       jobs: expect.arrayContaining([
         expect.objectContaining({
           name: 'market-refresh',
+          status: 'idle',
+          status_reason: 'waiting_for_next_scheduled_run',
           interval_seconds: 60,
           last_run_at: null,
           last_success_at: null,
@@ -221,11 +242,31 @@ describe('diagnostics routes', () => {
           last_error: null,
           error_count: 0,
           lag_seconds: null,
+          observed_lag_seconds: null,
+          next_scheduled_at: null,
+          next_retry_at: null,
+          retry_attempt_count: 0,
+          backoff: {
+            active: false,
+            attempt_count: 0,
+            next_retry_at: null,
+          },
+          stale_run: {
+            is_stale: false,
+            owning_job: null,
+            started_at: null,
+            heartbeat_at: null,
+            stale_after_seconds: expect.any(Number),
+            stale_duration_seconds: null,
+            recovery_eligible: false,
+            recovery_reason: null,
+          },
         }),
         expect.objectContaining({
           name: 'currency-rates',
           interval_seconds: 300,
           disabled: true,
+          status: 'blocked',
         }),
         expect.objectContaining({
           name: 'search-rebuild',
@@ -290,6 +331,61 @@ describe('diagnostics routes', () => {
           disabled: false,
         }),
       ]),
+    });
+  });
+
+  it('discloses stale public-route fallback pressure through job diagnostics', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'scheduler-stale-fallback.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: true,
+    });
+    await getApp().ready();
+
+    getApp().db.db.update(marketSnapshots).set({
+      sourceProvidersJson: JSON.stringify(['binance']),
+      sourceCount: 1,
+      lastUpdated: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }).where(eq(marketSnapshots.vsCurrency, 'usd')).run();
+
+    const response = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/jobs',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.scheduler.stale_data_fallback).toMatchObject({
+      active: true,
+      status: 'active',
+      reason_codes: expect.arrayContaining(['freshness_stale']),
+      affected_families: expect.arrayContaining([
+        expect.objectContaining({
+          family: 'simple',
+          status: 'stale',
+          public_routes: expect.arrayContaining(['/simple/price']),
+          scheduler_correlation: expect.objectContaining({
+            refresh_job: 'market-refresh',
+            disclosure: 'public route may be serving cached or stale data until the scheduler refresh succeeds',
+          }),
+        }),
+        expect.objectContaining({
+          family: 'coins_markets',
+          status: 'stale',
+          public_routes: expect.arrayContaining(['/coins/markets']),
+        }),
+      ]),
+      disclosure_surfaces: [
+        '/diagnostics/freshness_budgets',
+        '/diagnostics/data_quality',
+        '/diagnostics/coverage_matrix',
+      ],
     });
   });
 
