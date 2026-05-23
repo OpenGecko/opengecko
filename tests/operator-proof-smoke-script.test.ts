@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 const SCRIPT_PATH = join(process.cwd(), 'scripts/operator-proof-smoke.sh');
 const HELPERS_PATH = join(process.cwd(), 'scripts/lib/operator-proof-helpers.sh');
+const SERVER_PATH = join(process.cwd(), 'src/server.ts');
 const ENDPOINT_SMOKE_PATH = join(process.cwd(), 'scripts/test-endpoints.sh');
 const MODULE_COMMON_PATH = join(process.cwd(), 'scripts/modules/lib/common.sh');
 
@@ -64,6 +65,10 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('DEFAULT_SMOKE_MODULES=(exchanges)');
     expect(contract).toContain('SMOKE_EXECUTED_FILE');
     expect(contract).toContain('SMOKE_SKIPPED_FILE');
+    expect(contract).toContain('SERVER_LIFECYCLE_FILE');
+    expect(contract).toContain('server-lifecycle.jsonl');
+    expect(contract).toContain('assert_server_running 3100 "after-health"');
+    expect(contract).toContain('assert_server_running 3100 "after-smoke-modules"');
     expect(contract).toContain('using curated default modules');
     expect(contract).toContain('for module in "${modules[@]}"');
     expect(contract).not.toContain('serial module smoke skipped');
@@ -75,6 +80,7 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('wait_for_port_clear 3100');
     expect(contract).toContain('wait_for_port_clear 3102');
     expect(contract).toContain('wait_for_port_clear 3103');
+    expect(contract).toContain('wait_for_initial_sync_completed 3103 90');
     expect(contract).toContain('run_data_quality_gate_serially "http://127.0.0.1:3103"');
   });
 
@@ -108,6 +114,10 @@ describe('operator proof smoke script contract', () => {
       'check_reserved_ports_clear',
       'stop_server',
       'record_command',
+      'record_server_lifecycle',
+      'assert_server_running',
+      'capture_server_log_tail',
+      'wait_for_initial_sync_completed',
       'capture_get',
       'capture_post',
       'assert_jq',
@@ -115,10 +125,31 @@ describe('operator proof smoke script contract', () => {
       'write_versions',
       'run_smoke_modules_serially',
       'run_data_quality_gate_serially',
+      'data_quality_gate_failure_is_pending_scope',
       'run_hot_route_consistency_check_serially',
     ]) {
       expect(helpers).toContain(`${helperName}()`);
     }
+  });
+
+  it('captures server process lifecycle in both service logs and proof bundles', () => {
+    const server = readFileSync(SERVER_PATH, 'utf8');
+    const script = readFileSync(SCRIPT_PATH, 'utf8');
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+    const contract = `${script}\n${helpers}`;
+
+    expect(server).toContain("process.once('SIGTERM'");
+    expect(server).toContain("process.once('SIGINT'");
+    expect(server).toContain("process.on('unhandledRejection'");
+    expect(server).toContain("process.once('uncaughtException'");
+    expect(server).toContain("process.on('exit'");
+    expect(server).toContain('logged_and_kept_process_alive');
+    expect(server).toContain('server process lifecycle event=');
+    expect(contract).toContain('record_server_lifecycle');
+    expect(contract).toContain('owned server stopped before expected teardown');
+    expect(contract).toContain('server_lifecycle_file');
+    expect(contract).toContain('data-quality-gate-pending-scope.json');
+    expect(contract).toContain('only pending-scope non-provider live-data families were below threshold');
   });
 
   it('helper command and port recorders write the stable jsonl contract', () => {
@@ -131,14 +162,17 @@ describe('operator proof smoke script contract', () => {
           'PROOF_ROOT="$(mktemp -d /tmp/opengecko-proof-helper-test.XXXXXX)"',
           'COMMANDS_FILE="${PROOF_ROOT}/commands.jsonl"',
           'PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"',
+          'SERVER_LIFECYCLE_FILE="${PROOF_ROOT}/server-lifecycle.jsonl"',
           'SERVER_PID=""',
           'CURRENT_PORT=""',
           'FAILURES=0',
           `source "${HELPERS_PATH}"`,
           'record_command "phase" "echo ok" 0',
           'record_port_check "preflight" 3100 "clear" "no listener found" 0',
+          'record_server_lifecycle "after-health" 3100 "4242" "running" "owned server process and listener are alive" 0',
           'jq -e \'select(.phase == "phase" and .command == "echo ok" and .exit_code == 0)\' "$COMMANDS_FILE" >/dev/null',
           'jq -e \'select(.phase == "preflight" and .port == 3100 and .status == "clear" and .exit_code == 0)\' "$PORT_CHECKS_FILE" >/dev/null',
+          'jq -e \'select(.phase == "after-health" and .port == 3100 and .pid == "4242" and .status == "running" and .exit_code == 0)\' "$SERVER_LIFECYCLE_FILE" >/dev/null',
         ].join('\n'),
       ],
       {

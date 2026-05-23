@@ -10,7 +10,7 @@ import {
   createMarketRuntimeDiagnosticsScheduler,
   type MarketRuntime,
 } from './services/market-runtime';
-import { createMarketDataRuntimeState } from './services/market-runtime-state';
+import { createMarketDataRuntimeState, recordInitialSyncFailure } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
 import { createOptionalProviderJobRegistry, type OptionalProviderJobRegistry } from './services/optional-provider-jobs';
 import type { UnifiedScheduler } from './services/job-scheduler';
@@ -105,7 +105,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   if (runtime) {
-    void runtime.start();
+    void runtime.start().catch((error) => {
+      app.log.error({ error }, 'market runtime failed to start');
+      recordInitialSyncFailure(
+        marketDataRuntimeState,
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   } else {
     app.addHook('onReady', async () => {
       await runBootstrapReadinessFlow(

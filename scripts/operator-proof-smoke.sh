@@ -13,6 +13,7 @@ PROOF_ROOT="${OPENGECKO_OPERATOR_PROOF_DIR:-$(mktemp -d /tmp/opengecko-operator-
 SAMPLES_DIR="${PROOF_ROOT}/samples"
 COMMANDS_FILE="${PROOF_ROOT}/commands.jsonl"
 SUMMARY_FILE="${PROOF_ROOT}/summary.json"
+SERVER_LIFECYCLE_FILE="${PROOF_ROOT}/server-lifecycle.jsonl"
 LOG_3100="${PROOF_ROOT}/server-3100.log"
 LOG_3102="${PROOF_ROOT}/server-3102.log"
 LOG_3103="${PROOF_ROOT}/server-3103.log"
@@ -39,6 +40,7 @@ FAILURES=0
 
 mkdir -p "$SAMPLES_DIR"
 : > "$COMMANDS_FILE"
+: > "$SERVER_LIFECYCLE_FILE"
 : > "$SMOKE_EXECUTED_FILE"
 : > "$SMOKE_SKIPPED_FILE"
 : > "$PORT_CHECKS_FILE"
@@ -65,12 +67,17 @@ main() {
 
   start_server 3100 "$DB_PATH_3100" "$LOG_3100"
   wait_for_health 3100 || mark_failure "port 3100 did not become healthy"
+  assert_server_running 3100 "after-health" || true
   wait_for_cross_overlap_readiness 3100 90 || mark_failure "finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window"
+  assert_server_running 3100 "after-cross-overlap" || true
   capture_post 3100 "normal-control-provider-failure-hidden" '/diagnostics/runtime/provider_failure' '{"active":true}' 404 || true
   capture_post 3100 "normal-control-degraded-hidden" '/diagnostics/runtime/degraded_state' '{"mode":"degraded_seeded_bootstrap"}' 404 || true
   sample_priority_routes 3100 healthy
+  assert_server_running 3100 "after-priority-routes" || true
   run_hot_route_consistency_check_serially "http://127.0.0.1:3100"
+  assert_server_running 3100 "after-hot-route-consistency" || true
   run_smoke_modules_serially "http://127.0.0.1:3100"
+  assert_server_running 3100 "after-smoke-modules" || true
   stop_server
   wait_for_port_clear 3100 || mark_failure "port 3100 not clear after healthy proof"
 
@@ -89,6 +96,7 @@ main() {
 
   start_server 3103 "$DB_PATH_3103" "$LOG_3103"
   wait_for_health 3103 || mark_failure "port 3103 did not become healthy"
+  wait_for_initial_sync_completed 3103 90 || mark_failure "port 3103 initial sync did not complete before data-quality gate"
   sample_priority_routes 3103 data-quality-ready
   run_data_quality_gate_serially "http://127.0.0.1:3103"
   stop_server
