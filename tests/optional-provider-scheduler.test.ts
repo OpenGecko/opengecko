@@ -11,6 +11,7 @@ import { supplyChartPoints } from '../src/db/schema';
 import {
   createConfiguredOptionalProviderSyncJobs,
   createOptionalProviderSyncScheduler,
+  type OptionalProviderScheduledJobResult,
   type OptionalProviderScheduledJob,
 } from '../src/services/optional-provider-scheduler';
 import { createOptionalProviderJobRegistry } from '../src/services/optional-provider-jobs';
@@ -140,6 +141,40 @@ describe('optional provider sync scheduler', () => {
       error: 'provider down',
     });
     expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds shutdown when an optional provider run does not settle', async () => {
+    vi.useFakeTimers();
+    const logger = createLogger();
+    const registry = createOptionalProviderJobRegistry();
+    const scheduler = createOptionalProviderSyncScheduler({
+      enabled: true,
+      intervalSeconds: 60,
+      jobs: [{
+        id: 'market_charts',
+        configuredTargetCount: () => 1,
+        run: vi.fn(() => new Promise<OptionalProviderScheduledJobResult>(() => undefined)),
+      }],
+      registry,
+      logger,
+    });
+
+    void scheduler.runOnce();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const stopped = scheduler.stop({ inFlightTimeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(50);
+    await stopped;
+
+    expect(scheduler.isRunning()).toBe(true);
+    expect(scheduler.isScheduled()).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout_ms: 50,
+      }),
+      'optional provider sync stopped with a job still active after shutdown timeout',
+    );
+    vi.useRealTimers();
   });
 
   it('persists scheduler success outcomes for diagnostics after app restart', async () => {

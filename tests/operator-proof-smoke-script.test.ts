@@ -144,6 +144,8 @@ describe('operator proof smoke script contract', () => {
     expect(server).toContain("process.once('uncaughtException'");
     expect(server).toContain("process.on('exit'");
     expect(server).toContain('logged_and_kept_process_alive');
+    expect(server).toContain('APP_CLOSE_TIMEOUT_MS');
+    expect(server).toContain('app_close_timeout_after_signal');
     expect(server).toContain('server process lifecycle event=');
     expect(contract).toContain('record_server_lifecycle');
     expect(contract).toContain('owned server stopped before expected teardown');

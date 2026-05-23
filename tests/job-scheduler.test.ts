@@ -126,6 +126,39 @@ describe('unified scheduler', () => {
     ]);
   });
 
+  it('bounds shutdown when a background job does not settle', async () => {
+    vi.useFakeTimers();
+    const logger = createLogger();
+    const scheduler = createUnifiedScheduler({ logger });
+
+    scheduler.register({
+      name: 'hung-job',
+      intervalSeconds: 60,
+      run: vi.fn(() => new Promise<void>(() => undefined)),
+    });
+
+    void scheduler.runNow('hung-job');
+    await vi.advanceTimersByTimeAsync(0);
+
+    const stopped = scheduler.stop({ inFlightTimeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(50);
+    await stopped;
+
+    expect(scheduler.isStarted()).toBe(false);
+    expect(scheduler.diagnostics()[0]).toMatchObject({
+      name: 'hung-job',
+      running: true,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobs: ['hung-job'],
+        timeout_ms: 50,
+      }),
+      'background scheduler stopped with jobs still active after shutdown timeout',
+    );
+    vi.useRealTimers();
+  });
+
   it('exposes partial failure counts and sanitized samples from successful mixed job runs', async () => {
     const logger = createLogger();
     const scheduler = createUnifiedScheduler({

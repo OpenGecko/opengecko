@@ -65,6 +65,12 @@ type SchedulerJobState = {
 
 export type UnifiedScheduler = ReturnType<typeof createUnifiedScheduler>;
 
+type SchedulerStopOptions = {
+  inFlightTimeoutMs?: number;
+};
+
+const DEFAULT_IN_FLIGHT_SHUTDOWN_TIMEOUT_MS = 2_500;
+
 function formatTimestamp(date: Date | null) {
   return date?.toISOString() ?? null;
 }
@@ -96,6 +102,49 @@ function sanitizePartialFailures(failures: SchedulerJobResult['partialFailures']
       target: sanitizeSchedulerDiagnosticError(failure.target),
       reason: sanitizeSchedulerDiagnosticError(failure.reason),
     }));
+}
+
+async function waitForInFlightJobsDuringShutdown(
+  states: SchedulerJobState[],
+  timeoutMs: number,
+  logger: SchedulerLogger,
+) {
+  const inFlightStates = states.filter((state) => state.inFlight);
+
+  if (inFlightStates.length === 0) {
+    return;
+  }
+
+  if (timeoutMs <= 0) {
+    logger.warn({
+      timestamp: new Date().toISOString(),
+      jobs: inFlightStates.map((state) => state.definition.name),
+      timeout_ms: timeoutMs,
+    }, 'background scheduler stopped with jobs still active after shutdown timeout');
+    return;
+  }
+
+  let timeout: NodeJS.Timeout | null = null;
+  const allSettled = Promise.all(inFlightStates.map(async (state) => state.inFlight)).then(() => false);
+  const timedOut = new Promise<boolean>((resolve) => {
+    timeout = setTimeout(() => resolve(true), timeoutMs);
+    timeout.unref();
+  });
+  const shutdownTimedOut = await Promise.race([allSettled, timedOut]);
+
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+
+  if (shutdownTimedOut) {
+    logger.warn({
+      timestamp: new Date().toISOString(),
+      jobs: inFlightStates
+        .filter((state) => state.inFlight)
+        .map((state) => state.definition.name),
+      timeout_ms: timeoutMs,
+    }, 'background scheduler stopped with jobs still active after shutdown timeout');
+  }
 }
 
 export function createUnifiedScheduler(options: {
@@ -275,7 +324,7 @@ export function createUnifiedScheduler(options: {
     async runNow(name: string) {
       return runJob(name);
     },
-    async stop() {
+    async stop(stopOptions: SchedulerStopOptions = {}) {
       for (const state of jobs.values()) {
         state.stopped = true;
         if (state.timer) {
@@ -284,11 +333,11 @@ export function createUnifiedScheduler(options: {
         }
       }
 
-      await Promise.all([...jobs.values()].map(async (state) => {
-        if (state.inFlight) {
-          await state.inFlight;
-        }
-      }));
+      await waitForInFlightJobsDuringShutdown(
+        [...jobs.values()],
+        stopOptions.inFlightTimeoutMs ?? DEFAULT_IN_FLIGHT_SHUTDOWN_TIMEOUT_MS,
+        options.logger,
+      );
       started = false;
     },
     diagnostics(): SchedulerJobDiagnostic[] {

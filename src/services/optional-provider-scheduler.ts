@@ -19,6 +19,11 @@ import {
 import { parseSupplyChartTargetConfig, syncSupplyCharts } from './supply-chart-sync';
 
 type SchedulerLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error'>;
+type OptionalProviderSchedulerStopOptions = {
+  inFlightTimeoutMs?: number;
+};
+
+const DEFAULT_IN_FLIGHT_SHUTDOWN_TIMEOUT_MS = 2_500;
 
 export type OptionalProviderScheduledJobResult = {
   targetsAttempted: number;
@@ -176,6 +181,39 @@ export function createOptionalProviderSyncScheduler(options: {
   let timer: NodeJS.Timeout | null = null;
   let inFlight: Promise<void> | null = null;
 
+  async function waitForInFlightRunDuringShutdown(timeoutMs: number) {
+    if (!inFlight) {
+      return;
+    }
+
+    if (timeoutMs <= 0) {
+      options.logger.warn({
+        timestamp: formatRfc3339Timestamp(),
+        timeout_ms: timeoutMs,
+      }, 'optional provider sync stopped with a job still active after shutdown timeout');
+      return;
+    }
+
+    let timeout: NodeJS.Timeout | null = null;
+    const allSettled = inFlight.then(() => false);
+    const timedOut = new Promise<boolean>((resolve) => {
+      timeout = setTimeout(() => resolve(true), timeoutMs);
+      timeout.unref();
+    });
+    const shutdownTimedOut = await Promise.race([allSettled, timedOut]);
+
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    if (shutdownTimedOut) {
+      options.logger.warn({
+        timestamp: formatRfc3339Timestamp(),
+        timeout_ms: timeoutMs,
+      }, 'optional provider sync stopped with a job still active after shutdown timeout');
+    }
+  }
+
   async function runOnce() {
     if (inFlight) {
       options.logger.warn({ timestamp: formatRfc3339Timestamp() }, 'optional provider sync skipped because the previous run is still active');
@@ -238,15 +276,15 @@ export function createOptionalProviderSyncScheduler(options: {
         void runOnce();
       }, options.intervalSeconds * 1000);
     },
-    async stop() {
+    async stop(stopOptions: OptionalProviderSchedulerStopOptions = {}) {
       if (timer) {
         clearInterval(timer);
         timer = null;
       }
 
-      if (inFlight) {
-        await inFlight;
-      }
+      await waitForInFlightRunDuringShutdown(
+        stopOptions.inFlightTimeoutMs ?? DEFAULT_IN_FLIGHT_SHUTDOWN_TIMEOUT_MS,
+      );
     },
     runOnce,
     isRunning() {

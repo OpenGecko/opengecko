@@ -36,6 +36,8 @@ import { registerTier23SchedulerJobs } from './tier23-jobs';
 
 type RuntimeLogger = Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug' | 'child'>;
 type JobRunner = () => Promise<void>;
+const SHUTDOWN_IN_FLIGHT_WAIT_MS = 2_500;
+
 type RuntimeConfig = Pick<AppConfig,
   | 'port'
   | 'databaseUrl'
@@ -406,8 +408,8 @@ export function createMarketRuntime(
       stopRequested = true;
       markMarketRuntimeListenerStopped(state);
       await (overrides.stopOhlcvRuntime ?? (() => Promise.resolve()))();
-      await scheduler.stop();
-      await optionalProviderScheduler.stop();
+      await scheduler.stop({ inFlightTimeoutMs: SHUTDOWN_IN_FLIGHT_WAIT_MS });
+      await optionalProviderScheduler.stop({ inFlightTimeoutMs: SHUTDOWN_IN_FLIGHT_WAIT_MS });
 
       if (startupTask && startupSettled) {
         await startupTask;

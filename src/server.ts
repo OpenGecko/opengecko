@@ -5,6 +5,9 @@ import { serializeErrorForLog } from './lib/logger';
 import { markMarketRuntimeListenerBound } from './services/market-runtime-state';
 import { createStartupProgressTracker } from './services/startup-progress';
 
+const PROCESS_FORCE_EXIT_TIMEOUT_MS = 10_000;
+const APP_CLOSE_TIMEOUT_MS = 8_000;
+
 function writeProcessLifecycleFallback(event: string, detail: Record<string, unknown>) {
   process.stderr.write(`${JSON.stringify({
     level: 'error',
@@ -28,6 +31,37 @@ async function start() {
     writeProcessLifecycleFallback(event, detail);
   };
 
+  const closeAppAfterSignal = async (signal: NodeJS.Signals) => {
+    if (!app) {
+      return;
+    }
+
+    let timeout: NodeJS.Timeout | null = null;
+    const closeTask = app.close().catch((error: unknown) => {
+      writeProcessLifecycleFallback('close_failed_after_signal', {
+        signal,
+        error: serializeErrorForLog(error),
+      });
+    });
+    const closeTimedOut = new Promise<void>((resolve) => {
+      timeout = setTimeout(() => {
+        writeProcessLifecycleFallback('app_close_timeout_after_signal', {
+          signal,
+          timeout_ms: APP_CLOSE_TIMEOUT_MS,
+          action: 'forcing_process_exit_before_outer_signal_timeout',
+        });
+        resolve();
+      }, APP_CLOSE_TIMEOUT_MS);
+      timeout.unref();
+    });
+
+    await Promise.race([closeTask, closeTimedOut]);
+
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  };
+
   const shutdown = async (signal: NodeJS.Signals) => {
     if (shutdownStarted) {
       return;
@@ -38,17 +72,10 @@ async function start() {
     const forceExit = setTimeout(() => {
       writeProcessLifecycleFallback('forced_exit_after_signal', { signal });
       process.exit(1);
-    }, 10_000);
+    }, PROCESS_FORCE_EXIT_TIMEOUT_MS);
     forceExit.unref();
 
-    if (app) {
-      await app.close().catch((error: unknown) => {
-        writeProcessLifecycleFallback('close_failed_after_signal', {
-          signal,
-          error: serializeErrorForLog(error),
-        });
-      });
-    }
+    await closeAppAfterSignal(signal);
 
     process.exit(0);
   };
