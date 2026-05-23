@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
 
 import type { AppDatabase } from '../db/client';
@@ -58,6 +60,7 @@ type ProviderStabilityControls = {
     | 'recordProviderPartialFailure'
     | 'recordProviderRecovery'
   >;
+  elapsedNow?: () => number;
 };
 
 type DefillamaPoolSweepOptions = ProviderStabilityControls & {
@@ -187,6 +190,15 @@ const DEFILLAMA_DEX_OVERRIDES: Record<string, { id: string; name: string; url: s
 const DEFILLAMA_PROVIDER_ID = 'defillama';
 const DEFILLAMA_PROVIDER_FAMILY = 'onchain';
 
+function defaultProviderAttemptElapsedNow() {
+  return performance.now();
+}
+
+function providerAttemptDurationMs(startedAt: number, elapsedNow: () => number) {
+  const durationMs = elapsedNow() - startedAt;
+  return Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+}
+
 function sanitizeFailureReason(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/\s+/g, ' ').slice(0, 240);
@@ -271,7 +283,8 @@ async function runDefillamaProviderAttempt<T>(
     startProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, nowMs);
   }
   options.metrics?.recordProviderAttemptStart(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY);
-  const startedAt = nowMs;
+  const elapsedNow = options.elapsedNow ?? defaultProviderAttemptElapsedNow;
+  const startedAt = elapsedNow();
 
   try {
     const faultError = buildDefillamaFaultError(options.runtimeState);
@@ -286,10 +299,11 @@ async function runDefillamaProviderAttempt<T>(
     if (providerHadFailure) {
       options.metrics?.recordProviderRecovery(DEFILLAMA_PROVIDER_ID);
     }
+    const durationMs = providerAttemptDurationMs(startedAt, elapsedNow);
     if (options.runtimeState) {
-      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', null, nowMs);
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', null, nowMs, durationMs);
     }
-    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', nowMs - startedAt);
+    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', durationMs);
     return { status: 'success', value };
   } catch (error) {
     const classifiedFailure = classifyProviderFailure(error);
@@ -303,14 +317,15 @@ async function runDefillamaProviderAttempt<T>(
       );
     }
     options.metrics?.recordProviderPartialFailure(DEFILLAMA_PROVIDER_ID);
+    const durationMs = providerAttemptDurationMs(startedAt, elapsedNow);
     if (options.runtimeState) {
-      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, outcome, classifiedFailure.reason, nowMs);
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, outcome, classifiedFailure.reason, nowMs, durationMs);
     }
     options.metrics?.recordProviderAttemptEnd(
       DEFILLAMA_PROVIDER_ID,
       DEFILLAMA_PROVIDER_FAMILY,
       toMetricProviderOutcome(outcome),
-      nowMs - startedAt,
+      durationMs,
     );
     throw new Error(classifiedFailure.reason, { cause: error });
   }
@@ -385,7 +400,7 @@ export async function runDefillamaPoolSweep(
   const now = options.now ?? new Date();
   const fetcher = options.fetchPoolData ?? fetchDefillamaPoolData;
   const providerAttempt = await runDefillamaProviderAttempt(
-    { runtimeState: options.runtimeState, metrics: options.metrics, now },
+    { runtimeState: options.runtimeState, metrics: options.metrics, now, elapsedNow: options.elapsedNow },
     async () => {
       const poolData = await fetcher();
       if (!poolData) {
@@ -518,7 +533,7 @@ export async function runDefillamaTokenSweep(
   const targets = readTokenSweepTargets(database, options.targets?.length ?? 225);
   const coinIds = targets.map((target) => `ethereum:${target.address}`);
   const providerAttempt = await runDefillamaProviderAttempt(
-    { runtimeState: options.runtimeState, metrics: options.metrics, now },
+    { runtimeState: options.runtimeState, metrics: options.metrics, now, elapsedNow: options.elapsedNow },
     async () => {
       const prices = await fetcher(coinIds);
       if (!prices) {

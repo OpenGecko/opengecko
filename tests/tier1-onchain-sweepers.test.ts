@@ -403,7 +403,7 @@ describe('Tier 1 onchain background sweepers', () => {
         outcome: 'successful',
         started_at: '2026-05-05T00:07:00.000Z',
         finished_at: '2026-05-05T00:07:00.000Z',
-        duration_ms: 0,
+        duration_ms: expect.any(Number),
       });
       expect(runtimeAfterRecoveryBody.data.readiness.canonical_phase).not.toBe('provider_degraded');
 
@@ -435,6 +435,69 @@ describe('Tier 1 onchain background sweepers', () => {
       expect(metrics.body).toContain('opengecko_provider_attempts_total{family="onchain",outcome="breaker_open",provider="defillama"} 1');
     } finally {
       vi.useRealTimers();
+      await app.close();
+    }
+  });
+
+  it('keeps explicit DeFiLlama diagnostic timestamps deterministic while recording elapsed attempt duration', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-tier1-defillama-duration-'));
+    const app = buildApp({
+      config: {
+        databaseUrl: join(tempDir, 'test.db'),
+        ccxtExchanges: ['binance'],
+        logLevel: 'silent',
+        disableRemoteCurrencyRefresh: true,
+        startupPrewarmBudgetMs: 0,
+      },
+      startBackgroundJobs: false,
+    });
+    const elapsedSamples = [1_000, 1_037];
+
+    try {
+      await app.ready();
+
+      await expect(runDefillamaPoolSweep(app.db, {
+        now: new Date('2026-05-05T00:08:00.000Z'),
+        elapsedNow: () => elapsedSamples.shift() ?? 1_037,
+        targets: [{ id: 'usd-coin' }],
+        runtimeState: app.marketDataRuntimeState,
+        metrics: app.metrics,
+        fetchPoolData: async () => ({
+          protocols: [],
+          pools: [{
+            chain: 'Ethereum',
+            project: 'uniswap-v3',
+            symbol: 'DAI-USDC',
+            pool: 'defillama-duration-dai-usdc',
+            tvlUsd: 5_000_000,
+            volumeUsd1d: 750_000,
+            volumeUsd7d: 5_000_000,
+            underlyingTokens: [
+              '0x6b175474e89094c44da98b954eedeac495271d0f',
+              '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+            ],
+          }],
+        }),
+      })).resolves.toMatchObject({
+        targetsProcessed: 1,
+        rowsWritten: 1,
+        partialFailures: [],
+      });
+
+      const runtimeResponse = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/runtime',
+      });
+      expect(runtimeResponse.json().data.provider_attempts.recent_outcomes[0]).toMatchObject({
+        provider: 'defillama',
+        family: 'onchain',
+        outcome: 'successful',
+        started_at: '2026-05-05T00:08:00.000Z',
+        finished_at: '2026-05-05T00:08:00.000Z',
+        duration_ms: 37,
+      });
+      expect(app.metrics.renderPrometheus()).toContain('opengecko_provider_attempt_duration_ms_sum{family="onchain",outcome="successful",provider="defillama"} 37');
+    } finally {
       await app.close();
     }
   });

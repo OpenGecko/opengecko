@@ -147,6 +147,7 @@ export function finishProviderAttempt(
   outcome: ProviderAttemptOutcome,
   reason: string | null | undefined = null,
   finishedAt = Date.now(),
+  durationMsOverride?: number,
 ) {
   const key = providerAttemptKey(provider, family);
   const providerAttempts = getProviderAttemptDiagnosticsState(state);
@@ -154,7 +155,8 @@ export function finishProviderAttempt(
   delete providerAttempts.inFlight[key];
 
   const startedAt = inFlight?.started_at ?? new Date(finishedAt).toISOString();
-  const durationMs = Math.max(0, finishedAt - Date.parse(startedAt));
+  const measuredDurationMs = durationMsOverride ?? (finishedAt - Date.parse(startedAt));
+  const durationMs = Number.isFinite(measuredDurationMs) ? Math.max(0, measuredDurationMs) : 0;
   const countKey = `${family}:${provider}:${outcome}`;
   providerAttempts.outcomeCounts[countKey] = (providerAttempts.outcomeCounts[countKey] ?? 0) + 1;
   providerAttempts.recentOutcomes.unshift({
