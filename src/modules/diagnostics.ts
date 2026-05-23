@@ -28,6 +28,7 @@ import { buildMarketChartProviderDiagnostics } from '../services/market-chart-di
 import { buildOnchainAnalyticsProviderDiagnostics } from '../services/onchain-analytics-diagnostics';
 import { buildOnchainTradeProviderDiagnostics } from '../services/onchain-trade-diagnostics';
 import { sanitizeNullableDiagnosticText } from '../services/diagnostic-sanitizer';
+import { runProviderFanoutValidationTrigger } from '../services/provider-fanout-validation-trigger';
 import { buildExchangeDiagnostics } from '../services/exchange-diagnostics';
 import {
   buildOptionalProviderJobDiagnostics,
@@ -567,6 +568,64 @@ export function registerDiagnosticsRoutes(
       data: {
         fault_controls: Object.values(getProviderAttemptDiagnosticsState(app.marketDataRuntimeState).faultControls),
       },
+    };
+  });
+
+  app.post('/diagnostics/runtime/provider_fanout_validation', async (request, reply) => {
+    const boundAddress = app.server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress !== null
+      ? (boundAddress as AddressInfo).port
+      : null;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
+    if (!validationModeEnabled) {
+      reply.code(404);
+      return {
+        error: 'not_found',
+        message: 'Route not found',
+      };
+    }
+
+    const body = (request.body ?? {}) as {
+      providers?: string[];
+      budget_ms?: number;
+      concurrency?: number;
+      allow_breaker_probe?: boolean;
+    };
+    const configuredProviders = new Set(app.appConfig.ccxtExchanges.map((exchangeId) => normalizeProviderCapabilityId(exchangeId)));
+    const rawProviders = Array.isArray(body.providers) && body.providers.length > 0
+      ? body.providers
+      : app.appConfig.ccxtExchanges;
+    const providers = [...new Set(rawProviders
+      .filter((provider): provider is string => typeof provider === 'string' && provider.trim().length > 0)
+      .map((provider) => normalizeProviderCapabilityId(provider.trim())))];
+    const unknownProviders = providers.filter((provider) => !configuredProviders.has(provider));
+    const budgetMs = typeof body.budget_ms === 'number' && Number.isFinite(body.budget_ms)
+      ? Math.max(1, Math.floor(body.budget_ms))
+      : undefined;
+    const concurrency = typeof body.concurrency === 'number' && Number.isFinite(body.concurrency)
+      ? Math.max(1, Math.floor(body.concurrency))
+      : app.appConfig.providerFanoutConcurrency;
+
+    if (providers.length === 0 || unknownProviders.length > 0) {
+      reply.code(400);
+      return {
+        error: 'bad_request',
+        message: 'providers must be configured CCXT exchange providers for ticker validation fanout',
+        allowed_providers: [...configuredProviders].sort(),
+        unknown_providers: unknownProviders,
+      };
+    }
+
+    const result = await runProviderFanoutValidationTrigger(app.marketDataRuntimeState, app.metrics, {
+      providers,
+      concurrency,
+      budgetMs,
+      allowBreakerProbe: body.allow_breaker_probe === true,
+    });
+
+    return {
+      data: result,
     };
   });
 

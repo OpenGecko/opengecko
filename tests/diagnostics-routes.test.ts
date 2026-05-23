@@ -3374,4 +3374,297 @@ describe('diagnostics routes', () => {
       fault_controls: [],
     });
   });
+
+  it('actively triggers ticker fanout validation outcomes without cached public route reads', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        disableRemoteCurrencyRefresh: true,
+        logLevel: 'silent',
+        ccxtExchanges: ['binance', 'coinbase'],
+        providerFanoutConcurrency: 2,
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    for (const control of [
+      {
+        provider: 'ccxt.binance',
+        family: 'ticker',
+        mode: 'timeout',
+        reason: 'validator timeout api_key=super-secret',
+      },
+      {
+        provider: 'coinbase',
+        family: 'ticker',
+        mode: 'canceled',
+        reason: 'validator canceled secret=hidden',
+      },
+    ]) {
+      const response = await getApp().inject({
+        method: 'POST',
+        url: '/diagnostics/runtime/provider_fault_control',
+        payload: control,
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const triggerResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fanout_validation',
+      payload: {
+        providers: ['ccxt.binance', 'coinbase'],
+        budget_ms: 50,
+        concurrency: 2,
+      },
+    });
+
+    expect(triggerResponse.statusCode).toBe(200);
+    expect(triggerResponse.json().data.validation_path).toMatchObject({
+      route: '/diagnostics/runtime/provider_fanout_validation',
+      cache_independent: true,
+      scheduler_independent: true,
+      public_route_read_required: false,
+    });
+    expect(triggerResponse.json().data.results).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        status: 'rejected',
+        outcome: 'timed_out',
+        reason: 'provider request timed out',
+      }),
+      expect.objectContaining({
+        provider: 'coinbase',
+        status: 'rejected',
+        outcome: 'canceled',
+        reason: 'provider request canceled',
+      }),
+    ]);
+    expect(triggerResponse.json().data.provider_attempts).toMatchObject({
+      in_flight_count: 0,
+      outcome_counts: expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'binance',
+          family: 'ticker',
+          outcome: 'timed_out',
+          delta: 1,
+        }),
+        expect.objectContaining({
+          provider: 'coinbase',
+          family: 'ticker',
+          outcome: 'canceled',
+          delta: 1,
+        }),
+      ]),
+    });
+    expect(triggerResponse.json().data.metric_deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: 'opengecko_provider_attempts_total',
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'timed_out',
+        delta: 1,
+      }),
+      expect.objectContaining({
+        metric: 'opengecko_provider_attempts_total',
+        provider: 'coinbase',
+        family: 'ticker',
+        outcome: 'canceled',
+        delta: 1,
+      }),
+    ]));
+
+    const metricsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+    expect(metricsResponse.statusCode).toBe(200);
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="timed_out",provider="binance"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="canceled",provider="coinbase"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_in_flight{family="ticker",provider="binance"} 0');
+    expect(metricsResponse.body).toContain('opengecko_provider_in_flight{family="ticker",provider="coinbase"} 0');
+  });
+
+  it('uses the fanout validation trigger to prove breaker-open, recovery, and success metrics', async () => {
+    await getApp().close();
+    app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        disableRemoteCurrencyRefresh: true,
+        logLevel: 'silent',
+        ccxtExchanges: ['binance', 'coinbase'],
+        providerFanoutConcurrency: 2,
+      },
+      startBackgroundJobs: false,
+    });
+    await getApp().ready();
+
+    const failureControlResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        provider: 'binance',
+        family: 'ticker',
+        mode: 'failure',
+        reason: 'validator controlled failure token=secret',
+      },
+    });
+    expect(failureControlResponse.statusCode).toBe(200);
+
+    const failureTriggerResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fanout_validation',
+      payload: {
+        providers: ['binance'],
+        allow_breaker_probe: true,
+      },
+    });
+    expect(failureTriggerResponse.statusCode).toBe(200);
+    expect(failureTriggerResponse.json().data.results).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        outcome: 'failed',
+        reason: 'provider failed',
+      }),
+    ]);
+    expect(failureTriggerResponse.json().data.breaker_summary).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'binance',
+        status: 'open',
+        failure_count: 1,
+      }),
+    ]));
+
+    const breakerOpenResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fanout_validation',
+      payload: {
+        providers: ['binance'],
+      },
+    });
+    expect(breakerOpenResponse.statusCode).toBe(200);
+    expect(breakerOpenResponse.json().data.results).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        outcome: 'breaker_open',
+        reason: 'provider breaker open',
+      }),
+    ]);
+    expect(breakerOpenResponse.json().data.metric_deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: 'provider_blocked_by_breaker_total',
+        provider: 'binance',
+        delta: 1,
+      }),
+    ]));
+
+    const clearFailureControlResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fault_control',
+      payload: {
+        provider: 'binance',
+        family: 'ticker',
+        mode: 'off',
+      },
+    });
+    expect(clearFailureControlResponse.statusCode).toBe(200);
+
+    const recoveryResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/provider_fanout_validation',
+      payload: {
+        providers: ['binance', 'coinbase'],
+        allow_breaker_probe: true,
+        concurrency: 2,
+      },
+    });
+    expect(recoveryResponse.statusCode).toBe(200);
+    expect(recoveryResponse.json().data.results).toEqual([
+      expect.objectContaining({
+        provider: 'binance',
+        status: 'fulfilled',
+        outcome: 'recovered',
+      }),
+      expect.objectContaining({
+        provider: 'coinbase',
+        status: 'fulfilled',
+        outcome: 'successful',
+      }),
+    ]);
+    expect(recoveryResponse.json().data.metric_deltas).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: 'opengecko_provider_attempts_total',
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'recovered',
+        delta: 1,
+      }),
+      expect.objectContaining({
+        metric: 'provider_recovery_total',
+        provider: 'binance',
+        delta: 1,
+      }),
+      expect.objectContaining({
+        metric: 'opengecko_provider_attempts_total',
+        provider: 'coinbase',
+        family: 'ticker',
+        outcome: 'successful',
+        delta: 1,
+      }),
+    ]));
+
+    const diagnosticsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/runtime',
+    });
+    expect(diagnosticsResponse.statusCode).toBe(200);
+    const binanceProvider = diagnosticsResponse.json().data.providers.find((provider: { id: string }) => provider.id === 'binance');
+    expect(binanceProvider).toMatchObject({
+      id: 'binance',
+      state: 'closed',
+      failure_count: 0,
+      last_failure_reason: null,
+    });
+    expect(binanceProvider.last_success_at).not.toBeNull();
+    expect(diagnosticsResponse.json().data.provider_attempts.recent_outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'recovered',
+      }),
+      expect.objectContaining({
+        provider: 'coinbase',
+        family: 'ticker',
+        outcome: 'successful',
+      }),
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'breaker_open',
+      }),
+      expect.objectContaining({
+        provider: 'binance',
+        family: 'ticker',
+        outcome: 'failed',
+      }),
+    ]));
+
+    const metricsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/metrics',
+    });
+    expect(metricsResponse.statusCode).toBe(200);
+    expect(metricsResponse.body).toContain('provider_blocked_by_breaker_total{provider="binance"} 1');
+    expect(metricsResponse.body).toContain('provider_recovery_total{provider="binance"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="failed",provider="binance"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="breaker_open",provider="binance"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="recovered",provider="binance"} 1');
+    expect(metricsResponse.body).toContain('opengecko_provider_attempts_total{family="ticker",outcome="successful",provider="coinbase"} 1');
+  });
 });
