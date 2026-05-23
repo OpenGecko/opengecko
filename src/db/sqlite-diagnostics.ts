@@ -49,21 +49,7 @@ class InstrumentedSqliteClient implements SqliteClient {
   prepare<Row = unknown>(sql: string): SqliteStatement<Row> {
     try {
       const statement = this.delegate.prepare<Row>(sql);
-
-      return {
-        get: (...params) => this.executeStatementMethod(
-          () => statement.get(...params),
-          { operation: 'statement.get', sql },
-        ),
-        all: (...params) => this.executeStatementMethod(
-          () => statement.all(...params),
-          { operation: 'statement.all', sql },
-        ),
-        run: (...params) => this.executeStatementMethod(
-          () => statement.run(...params),
-          { operation: 'statement.run', sql },
-        ),
-      };
+      return this.instrumentStatement(statement, sql);
     } catch (error) {
       recordSqliteDiagnosticFailure(this.diagnostics, error, { operation: 'prepare', sql });
       throw error;
@@ -90,6 +76,85 @@ class InstrumentedSqliteClient implements SqliteClient {
 
   close() {
     this.delegate.close();
+  }
+
+  transaction<T>(operation: (...params: unknown[]) => T) {
+    const delegateWithTransaction = this.delegate as SqliteClient & {
+      transaction?: (operation: (...params: unknown[]) => T) => ((...params: unknown[]) => T) & {
+        deferred?: (...params: unknown[]) => T;
+        immediate?: (...params: unknown[]) => T;
+        exclusive?: (...params: unknown[]) => T;
+      };
+    };
+
+    if (typeof delegateWithTransaction.transaction !== 'function') {
+      throw new TypeError('SQLite client does not support native transactions');
+    }
+
+    try {
+      const nativeTransaction = delegateWithTransaction.transaction((...params: unknown[]) => this.executeStatementMethod(
+        () => operation(...params),
+        { operation: 'transaction.callback' },
+      ));
+
+      const wrapRunner = (runner: (...params: unknown[]) => T, operationName: string) => (...params: unknown[]) => this.executeStatementMethod(
+        () => runner(...params),
+        { operation: operationName },
+      );
+
+      const wrappedTransaction = wrapRunner(nativeTransaction, 'transaction.run') as typeof nativeTransaction;
+      if (typeof nativeTransaction.deferred === 'function') {
+        wrappedTransaction.deferred = wrapRunner(nativeTransaction.deferred, 'transaction.deferred');
+      }
+      if (typeof nativeTransaction.immediate === 'function') {
+        wrappedTransaction.immediate = wrapRunner(nativeTransaction.immediate, 'transaction.immediate');
+      }
+      if (typeof nativeTransaction.exclusive === 'function') {
+        wrappedTransaction.exclusive = wrapRunner(nativeTransaction.exclusive, 'transaction.exclusive');
+      }
+
+      return wrappedTransaction;
+    } catch (error) {
+      recordSqliteDiagnosticFailure(this.diagnostics, error, { operation: 'transaction.prepare' });
+      throw error;
+    }
+  }
+
+  private instrumentStatement<Row>(statement: SqliteStatement<Row>, sql: string): SqliteStatement<Row> {
+    const instrumented: SqliteStatement<Row> = {
+      get: (...params) => this.executeStatementMethod(
+        () => statement.get(...params),
+        { operation: 'statement.get', sql },
+      ),
+      all: (...params) => this.executeStatementMethod(
+        () => statement.all(...params),
+        { operation: 'statement.all', sql },
+      ),
+      run: (...params) => this.executeStatementMethod(
+        () => statement.run(...params),
+        { operation: 'statement.run', sql },
+      ),
+    };
+
+    if (typeof statement.values === 'function') {
+      instrumented.values = (...params) => this.executeStatementMethod(
+        () => statement.values!(...params),
+        { operation: 'statement.values', sql },
+      );
+    }
+
+    if (typeof statement.raw === 'function') {
+      instrumented.raw = () => {
+        try {
+          return this.instrumentStatement(statement.raw!(), sql);
+        } catch (error) {
+          recordSqliteDiagnosticFailure(this.diagnostics, error, { operation: 'statement.raw', sql });
+          throw error;
+        }
+      };
+    }
+
+    return instrumented;
   }
 
   private executeStatementMethod<T>(operation: () => T, context: SqliteDiagnosticFailureContext): T {
@@ -169,6 +234,10 @@ function classifySqliteDiagnosticFailure(error: unknown): {
 
   if (normalizedCode.includes('SQLITE_NOTADB') || message.includes('file is not a database')) {
     return { classification: 'fatal_persistence', reasonCode: 'sqlite_notadb' };
+  }
+
+  if (message.includes('database connection is not open') || message.includes('database is closed')) {
+    return { classification: 'fatal_persistence', reasonCode: 'sqlite_fatal_persistence' };
   }
 
   return { classification: 'untracked', reasonCode: null };

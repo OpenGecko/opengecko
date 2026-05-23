@@ -210,6 +210,84 @@ describe('sqlite runtime support', () => {
     }
   });
 
+  it('records SQLite contention failures thrown by Drizzle database.db operations', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-db-drizzle-contention-'));
+    const dbPath = join(tempDir, 'opengecko-runtime.sqlite');
+    const writerDatabase = createDatabase(dbPath);
+    const contendingDatabase = createDatabase(dbPath);
+
+    try {
+      migrateDatabase(writerDatabase);
+      migrateDatabase(contendingDatabase);
+      contendingDatabase.client.pragma('busy_timeout = 0');
+
+      writerDatabase.client.prepare('BEGIN IMMEDIATE').run();
+
+      expect(() => contendingDatabase.db.insert(coins).values({
+        id: 'drizzle-contention',
+        symbol: 'dbc',
+        name: 'Drizzle Busy Coin',
+        apiSymbol: 'drizzle-contention',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: null,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: new Date('2026-05-23T02:00:00.000Z'),
+        updatedAt: new Date('2026-05-23T02:00:00.000Z'),
+      }).run()).toThrow();
+
+      const diagnostics = buildSqliteDatabaseDiagnostics(contendingDatabase, dbPath, 'worker');
+
+      expect(diagnostics.status).toBe('contention_backoff');
+      expect(diagnostics.status_reason).toBe('sqlite_contention_observed');
+      expect(diagnostics.lock_contention).toMatchObject({
+        status: 'contention_observed',
+        total_count: 1,
+        busy_count: 1,
+        locked_count: 0,
+      });
+      expect(diagnostics.lock_contention.recent_samples[0]).toMatchObject({
+        classification: 'contention',
+        reason_code: 'sqlite_busy',
+        sql_kind: 'insert',
+      });
+    } finally {
+      try {
+        writerDatabase.client.prepare('ROLLBACK').run();
+      } catch {
+        // Ignore rollback cleanup errors if the test failed before the lock was acquired.
+      }
+      writerDatabase.client.close();
+      contendingDatabase.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('records fatal persistence failures thrown by Drizzle database.db operations', () => {
+    const database = createDatabase(':memory:');
+    migrateDatabase(database);
+
+    database.client.close();
+
+    expect(() => database.db.select().from(coins).all()).toThrow(/database connection is not open/i);
+    expect(database.sqliteDiagnostics.totalFatalPersistenceCount).toBeGreaterThanOrEqual(1);
+    expect(database.sqliteDiagnostics.recentFailures).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        classification: 'fatal_persistence',
+        reason_code: 'sqlite_fatal_persistence',
+        sql_kind: 'select',
+      }),
+    ]));
+  });
+
   it('redacts sensitive-looking database path segments from diagnostics without changing classification', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-db-redaction-secret-'));
     const database = createDatabase(join(tempDir, 'opengecko-runtime.sqlite'));

@@ -97,6 +97,8 @@ export type SqliteStatement<Row = unknown> = {
   get(...params: unknown[]): Row | undefined;
   all(...params: unknown[]): Row[];
   run(...params: unknown[]): unknown;
+  raw?(): SqliteStatement<unknown>;
+  values?(...params: unknown[]): unknown[][];
 };
 
 export type SqliteClient = {
@@ -459,7 +461,7 @@ function createNodeDatabase(resolvedUrl: string): AppDatabase {
 
   return {
     client,
-    db: drizzle(rawClient, { schema }),
+    db: drizzle(client as unknown as BetterSqlite3DatabaseClient, { schema }),
     runtime: 'node',
     url: resolvedUrl,
     persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
@@ -476,13 +478,14 @@ function createBunDatabase(resolvedUrl: string): AppDatabase {
   const rawClient = new Database(resolvedUrl);
   const sqliteDiagnostics = createSqliteDiagnosticState();
   const client = instrumentSqliteClient(new BunSqliteClient(rawClient), sqliteDiagnostics);
+  const drizzleClient = instrumentSqliteClient(rawClient as unknown as SqliteClient, sqliteDiagnostics);
   client.pragma('journal_mode = WAL');
   client.pragma(`busy_timeout = ${DEFAULT_SQLITE_BUSY_TIMEOUT_MS}`);
   client.pragma('foreign_keys = ON');
 
   return {
     client,
-    db: drizzle(rawClient, { schema }),
+    db: drizzle(drizzleClient as unknown as BunDatabase, { schema }),
     runtime: 'bun',
     url: resolvedUrl,
     persistedTimestampCompatibility: normalizePersistedLegacySecondTimestamps(client),
