@@ -693,6 +693,65 @@ export function registerDiagnosticsRoutes(
     };
   });
 
+  app.post('/diagnostics/runtime/scheduler_backoff_validation', async (request, reply) => {
+    const boundAddress = app.server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress !== null
+      ? (boundAddress as AddressInfo).port
+      : null;
+    const configuredPort = app.appConfig.port;
+    const validationModeEnabled = boundPort === 3102 || configuredPort === 3102;
+    if (!validationModeEnabled) {
+      reply.code(404);
+      return {
+        error: 'not_found',
+        message: 'Route not found',
+      };
+    }
+
+    if (!app.scheduler) {
+      reply.code(409);
+      return {
+        error: 'scheduler_unavailable',
+        message: 'Scheduler diagnostics are not enabled for this validation runtime.',
+      };
+    }
+
+    const body = (request.body ?? {}) as {
+      reason?: string | null;
+    };
+    const failureReason = typeof body.reason === 'string' && body.reason.trim().length > 0
+      ? body.reason.trim()
+      : 'validation scheduler job forced failure';
+    const validationJobName = 'validation-scheduler-backoff';
+
+    if (!app.scheduler.registeredJobNames().includes(validationJobName)) {
+      app.scheduler.register({
+        name: validationJobName,
+        intervalSeconds: 60,
+        run: async () => {
+          throw new Error(failureReason);
+        },
+      });
+    }
+
+    await app.scheduler.runNow(validationJobName);
+    const job = app.scheduler.diagnostics().find((diagnostic) => diagnostic.name === validationJobName) ?? null;
+
+    return {
+      data: {
+        validation_path: {
+          route: '/diagnostics/runtime/scheduler_backoff_validation',
+          diagnostics_route: '/diagnostics/jobs',
+          validation_port: 3102,
+          cache_independent: true,
+          public_route_read_required: false,
+          forced_job_failure: true,
+        },
+        job,
+      },
+    };
+  });
+
   app.post('/diagnostics/runtime/degraded_state', async (request, reply) => {
     const boundAddress = app.server.address();
     const boundPort = typeof boundAddress === 'object' && boundAddress !== null

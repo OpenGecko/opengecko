@@ -334,6 +334,90 @@ describe('diagnostics routes', () => {
     });
   });
 
+  it('allows validation-control scheduler backoff triggers to prove /diagnostics/jobs retry fields', async () => {
+    const hiddenResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/scheduler_backoff_validation',
+      payload: {
+        reason: 'validator hidden route check',
+      },
+    });
+    expect(hiddenResponse.statusCode).toBe(404);
+
+    await getApp().close();
+    app = buildApp({
+      config: {
+        host: '127.0.0.1',
+        port: 3102,
+        databaseUrl: ':memory:',
+        disableRemoteCurrencyRefresh: true,
+        logLevel: 'silent',
+        ccxtExchanges: ['binance'],
+      },
+      startBackgroundJobs: false,
+      exposeSchedulerDiagnostics: true,
+    });
+    await getApp().ready();
+
+    const triggerResponse = await getApp().inject({
+      method: 'POST',
+      url: '/diagnostics/runtime/scheduler_backoff_validation',
+      payload: {
+        reason: 'scheduler validation forced refresh failure token=super-secret /tmp/opengecko-validation-secret.sqlite',
+      },
+    });
+
+    expect(triggerResponse.statusCode).toBe(200);
+    expect(triggerResponse.json().data.validation_path).toEqual({
+      route: '/diagnostics/runtime/scheduler_backoff_validation',
+      diagnostics_route: '/diagnostics/jobs',
+      validation_port: 3102,
+      cache_independent: true,
+      public_route_read_required: false,
+      forced_job_failure: true,
+    });
+    expect(triggerResponse.json().data.job).toMatchObject({
+      name: 'validation-scheduler-backoff',
+      status: 'retrying',
+      status_reason: 'retry_backoff_active',
+      running: false,
+      retry_attempt_count: 1,
+      error_count: 1,
+      backoff: {
+        active: true,
+        attempt_count: 1,
+      },
+    });
+    expect(triggerResponse.json().data.job.next_retry_at).toEqual(expect.any(String));
+    expect(triggerResponse.json().data.job.backoff.next_retry_at).toBe(triggerResponse.json().data.job.next_retry_at);
+    expect(triggerResponse.json().data.job.last_error).toContain('scheduler validation forced refresh failure');
+    expect(triggerResponse.json().data.job.last_error).not.toContain('super-secret');
+    expect(triggerResponse.json().data.job.last_error).not.toContain('/tmp/opengecko-validation-secret.sqlite');
+
+    const jobsResponse = await getApp().inject({
+      method: 'GET',
+      url: '/diagnostics/jobs',
+    });
+
+    expect(jobsResponse.statusCode).toBe(200);
+    expect(jobsResponse.json().data.scheduler.allowed_job_statuses).toContain('retrying');
+    expect(jobsResponse.json().data.jobs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'validation-scheduler-backoff',
+        status: 'retrying',
+        status_reason: 'retry_backoff_active',
+        retry_attempt_count: 1,
+        next_retry_at: triggerResponse.json().data.job.next_retry_at,
+        backoff: expect.objectContaining({
+          active: true,
+          attempt_count: 1,
+          next_retry_at: triggerResponse.json().data.job.next_retry_at,
+        }),
+        last_error: triggerResponse.json().data.job.last_error,
+      }),
+    ]));
+  });
+
   it('discloses stale public-route fallback pressure through job diagnostics', async () => {
     await getApp().close();
     app = buildApp({
