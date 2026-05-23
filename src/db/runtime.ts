@@ -107,6 +107,7 @@ export type SqliteClient = {
 };
 
 type AppDrizzleDatabase = BetterSQLite3Database<AppSchema> | BunSQLiteDatabase<AppSchema>;
+type SqliteProcessRole = 'api' | 'worker' | 'validation' | 'test' | 'unknown';
 
 type PersistedTimestampCompatibility = {
   normalizedAtOpen: boolean;
@@ -125,6 +126,7 @@ export type SqliteDatabasePathClass =
 export type SqliteDatabaseDiagnostics = {
   runtime: SqliteRuntime;
   driver: 'bun:sqlite' | 'better-sqlite3';
+  process_role: SqliteProcessRole;
   configured_url: string;
   effective_path: string;
   path_class: SqliteDatabasePathClass;
@@ -133,8 +135,19 @@ export type SqliteDatabaseDiagnostics = {
   journal_mode: string | null;
   wal_enabled: boolean;
   busy_timeout_ms: number | null;
-  status: 'healthy' | 'contention_backoff' | 'fatal_persistence_failure';
-  status_reason: 'sqlite_ok' | 'sqlite_contention_observed' | 'sqlite_fatal_persistence_failure';
+  status: 'healthy' | 'contention_backoff' | 'fatal_persistence_failure' | 'unsafe_shared_configuration';
+  status_reason: 'sqlite_ok' | 'sqlite_contention_observed' | 'sqlite_fatal_persistence_failure' | 'sqlite_unsafe_shared_configuration';
+  shared_safety: {
+    status: 'safe' | 'not_shared' | 'unsafe';
+    reason_codes: Array<
+      | 'sqlite_shared_file_wal_enabled'
+      | 'sqlite_shared_file_busy_timeout_positive'
+      | 'sqlite_not_shared_in_memory'
+      | 'sqlite_wal_not_enabled'
+      | 'sqlite_busy_timeout_not_positive'
+    >;
+    process_role: SqliteProcessRole;
+  };
   lock_contention: {
     status: 'clear' | 'contention_observed';
     total_count: number;
@@ -295,13 +308,73 @@ function redactSensitiveDatabasePath(value: string) {
     : value;
 }
 
+function resolveSqliteProcessRole(processRole?: SqliteProcessRole): SqliteProcessRole {
+  if (processRole) {
+    return processRole;
+  }
+
+  const configuredRole = process.env.OPENGECKO_PROCESS_ROLE;
+  if (
+    configuredRole === 'api'
+    || configuredRole === 'worker'
+    || configuredRole === 'validation'
+    || configuredRole === 'test'
+    || configuredRole === 'unknown'
+  ) {
+    return configuredRole;
+  }
+
+  return 'api';
+}
+
+function buildSharedSafety(
+  sharedFile: boolean,
+  walEnabled: boolean,
+  busyTimeoutMs: number | null,
+  processRole: SqliteProcessRole,
+): SqliteDatabaseDiagnostics['shared_safety'] {
+  if (!sharedFile) {
+    return {
+      status: 'not_shared',
+      reason_codes: ['sqlite_not_shared_in_memory'],
+      process_role: processRole,
+    };
+  }
+
+  const reasonCodes: SqliteDatabaseDiagnostics['shared_safety']['reason_codes'] = [];
+  if (walEnabled) {
+    reasonCodes.push('sqlite_shared_file_wal_enabled');
+  } else {
+    reasonCodes.push('sqlite_wal_not_enabled');
+  }
+
+  if (typeof busyTimeoutMs === 'number' && busyTimeoutMs > 0) {
+    reasonCodes.push('sqlite_shared_file_busy_timeout_positive');
+  } else {
+    reasonCodes.push('sqlite_busy_timeout_not_positive');
+  }
+
+  return {
+    status: walEnabled && typeof busyTimeoutMs === 'number' && busyTimeoutMs > 0
+      ? 'safe'
+      : 'unsafe',
+    reason_codes: reasonCodes,
+    process_role: processRole,
+  };
+}
+
 export function buildSqliteDatabaseDiagnostics(
   database: Pick<AppDatabase, 'client' | 'runtime' | 'url'> & { sqliteDiagnostics?: SqliteDiagnosticState },
   configuredUrl = database.url,
+  processRole?: SqliteProcessRole,
 ): SqliteDatabaseDiagnostics {
   const pathClass = classifyDatabasePath(database.url);
   const journalMode = safeReadStringPragma(database.client, 'journal_mode', database.sqliteDiagnostics);
   const busyTimeoutMs = safeReadNumberPragma(database.client, 'busy_timeout', database.sqliteDiagnostics);
+  const resolvedProcessRole = resolveSqliteProcessRole(processRole);
+  const sharedFile = pathClass !== 'in_memory';
+  const walEnabled = journalMode === 'wal';
+  const sharedSafety = buildSharedSafety(sharedFile, walEnabled, busyTimeoutMs, resolvedProcessRole);
   const state = database.sqliteDiagnostics ?? createSqliteDiagnosticState();
   const recentContentionSamples = state.recentFailures.filter((sample) => sample.classification === 'contention');
   const recentFatalFailures = state.recentFailures.filter((sample) => sample.classification === 'fatal_persistence');
@@ -311,12 +384,16 @@ export function buildSqliteDatabaseDiagnostics(
     ? 'fatal_persistence_failure'
     : hasContention
       ? 'contention_backoff'
-      : 'healthy';
+      : sharedSafety.status === 'unsafe'
+        ? 'unsafe_shared_configuration'
+        : 'healthy';
   const statusReason = hasFatalFailure
     ? 'sqlite_fatal_persistence_failure'
     : hasContention
       ? 'sqlite_contention_observed'
-      : 'sqlite_ok';
+      : sharedSafety.status === 'unsafe'
+        ? 'sqlite_unsafe_shared_configuration'
+        : 'sqlite_ok';
   const persistenceStatus = hasFatalFailure
     ? 'fatal_failure'
     : hasContention
@@ -331,16 +408,18 @@ export function buildSqliteDatabaseDiagnostics(
   return {
     runtime: database.runtime,
     driver: database.runtime === 'bun' ? 'bun:sqlite' : 'better-sqlite3',
+    process_role: resolvedProcessRole,
     configured_url: redactSensitiveDatabasePath(configuredUrl),
     effective_path: redactSensitiveDatabasePath(database.url),
     path_class: pathClass,
     storage_mode: pathClass === 'in_memory' ? 'in_memory' : 'file',
-    shared_file: pathClass !== 'in_memory',
+    shared_file: sharedFile,
     journal_mode: journalMode,
-    wal_enabled: journalMode === 'wal',
+    wal_enabled: walEnabled,
     busy_timeout_ms: busyTimeoutMs,
     status,
     status_reason: statusReason,
+    shared_safety: sharedSafety,
     lock_contention: {
       status: hasContention ? 'contention_observed' : 'clear',
       total_count: state.totalContentionCount,

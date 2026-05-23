@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { mergeConfig, type AppConfig } from './config/env';
 import { createDatabase, migrateDatabase, rebuildSearchIndex, seedStaticReferenceData } from './db/client';
 import { closeExchangePool } from './providers/ccxt';
+import { registerSqliteProcessHeartbeat } from './db/sqlite-coordination';
 import { rebuildPersistentSqliteDatabase, resolveBootstrapSnapshotAccessMode } from './services/bootstrap';
 import { createChartResponseSourceDiagnostics, type ChartResponseSourceDiagnostics } from './services/chart-response-source-diagnostics';
 import {
@@ -92,6 +93,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       : null);
 
   migrateDatabase(database);
+  registerSqliteProcessHeartbeat(database, 'api');
   canonicalizePersistedCoinNames(database);
   options.startupProgress?.complete('connect_database');
 

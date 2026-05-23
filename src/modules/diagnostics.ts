@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 
 import type { AppDatabase } from '../db/client';
 import { buildSqliteDatabaseDiagnostics, recordSqliteDiagnosticFailure } from '../db/runtime';
+import { buildSqliteCoordinationDiagnostics } from '../db/sqlite-coordination';
 import {
   assetPlatforms,
   coinTickers,
@@ -479,7 +480,7 @@ export function registerDiagnosticsRoutes(
       .at(-1) ?? null;
     const capabilityEvidence = buildRuntimeCapabilityEvidence(database);
 
-    const databaseDiagnostics = buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl);
+    const databaseDiagnostics = buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl, 'api');
     const missionValidationPorts = [3100, 3102, 3103];
 
     return sendCacheableJson(request, reply, {
@@ -498,6 +499,7 @@ export function registerDiagnosticsRoutes(
           },
         },
         database: databaseDiagnostics,
+        sqlite_coordination: buildSqliteCoordinationDiagnostics(database),
         validation_profile: {
           mission_service_ports: missionValidationPorts,
           current_port: app.appConfig.port,
@@ -568,7 +570,7 @@ export function registerDiagnosticsRoutes(
           validation_port: 3102,
           simulated_failure: mode === 'fatal_persistence' ? 'fatal_persistence' : 'contention',
         },
-        database: buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl),
+        database: buildSqliteDatabaseDiagnostics(database, app.appConfig.databaseUrl, 'api'),
       },
     }, dynamicDiagnosticsCachePolicy);
   });

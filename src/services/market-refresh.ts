@@ -3,6 +3,13 @@ import BigNumber from 'bignumber.js';
 
 import type { AppConfig } from '../config/env';
 import type { AppDatabase } from '../db/client';
+import {
+  acquireSqliteWorkLease,
+  recordSqliteRefreshCommitted,
+  recordSqliteRefreshFailed,
+  releaseSqliteWorkLease,
+  withSqliteImmediateTransaction,
+} from '../db/sqlite-coordination';
 import { coinHistorySnapshots, coinTickers, exchanges, exchangeVolumePoints, marketSnapshots, supplyChartPoints } from '../db/schema';
 import { coins } from '../db/schema';
 import type { Logger } from 'pino';
@@ -121,7 +128,19 @@ type MarketRefreshProgressHandlers = {
   onWaitingExchangeStatus?: (exchangeIds: string[]) => void;
   startupTickerFetchBudgetMs?: number;
   suppressSummaryLogs?: boolean;
+  onBeforePersistenceTransaction?: () => void;
+  onAfterQuoteSnapshotsPersisted?: () => void;
 };
+
+const MARKET_REFRESH_COORDINATION_FAMILY = 'market_refresh';
+const MARKET_REFRESH_AFFECTED_TABLES = [
+  'quote_snapshots',
+  'exchange_volume_points',
+  'exchanges',
+  'market_snapshots',
+  'ohlcv_candles',
+  'coin_tickers',
+] as const;
 
 function createLongPhaseReporter(progress?: MarketRefreshProgressHandlers) {
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -981,6 +1000,20 @@ export async function runMarketRefreshOnce(
     return;
   }
 
+  const workLease = acquireSqliteWorkLease(database, MARKET_REFRESH_COORDINATION_FAMILY, new Date(startTime), {
+    leaseOwner: `market-refresh:${process.pid}`,
+  });
+  if (!workLease.acquired) {
+    refreshLogger?.warn({
+      family: workLease.family,
+      skippedReason: workLease.skippedReason,
+      activeOwner: workLease.activeOwner,
+      activeExpiresAt: workLease.activeExpiresAt?.toISOString() ?? null,
+    }, 'market refresh skipped because another shared SQLite worker owns the durable lease');
+    return;
+  }
+
+  try {
   refreshLogger?.debug({
     exchanges: attemptedExchangeIds,
     blockedExchangeCount,
@@ -1192,37 +1225,61 @@ export async function runMarketRefreshOnce(
     pendingQuoteSnapshots: processingState.pendingQuoteSnapshots,
     pendingCoinTickers: processingState.pendingCoinTickers,
   });
-  persistAcceptedQuoteSnapshots(database, acceptedIngestionPlan.acceptedQuoteSnapshots);
-  updateExchangeVolumes(database, acceptedIngestionPlan.exchangeQuoteVolumes, now);
   const writeSnapshotsPhase = createLongPhaseReporter(progress);
   writeSnapshotsPhase.start(`Still working: writing ${acceptedIngestionPlan.acceptedMarketSamples.size.toLocaleString()} market snapshots`);
-  const usdPriceByCoinId = writeMarketSnapshots(database, acceptedIngestionPlan.acceptedMarketSamples, now);
-  const conversionContext = buildConversionContext(database, usdPriceByCoinId);
-  const knownExchangeIdsForDiagnostics = new Set(
-    database.db.select().from(exchanges).all().map((row) => row.id),
-  );
-  for (const pendingTicker of processingState.pendingCoinTickers) {
-    const diagnostic = exchangeTickerDiagnostics.get(pendingTicker.exchangeId);
-    if (!diagnostic) {
-      continue;
-    }
+  try {
+    progress?.onBeforePersistenceTransaction?.();
+    withSqliteImmediateTransaction(database, () => {
+      persistAcceptedQuoteSnapshots(database, acceptedIngestionPlan.acceptedQuoteSnapshots);
+      progress?.onAfterQuoteSnapshotsPersisted?.();
+      updateExchangeVolumes(database, acceptedIngestionPlan.exchangeQuoteVolumes, now);
+      const usdPriceByCoinId = writeMarketSnapshots(database, acceptedIngestionPlan.acceptedMarketSamples, now);
+      const conversionContext = buildConversionContext(database, usdPriceByCoinId);
+      const knownExchangeIdsForDiagnostics = new Set(
+        database.db.select().from(exchanges).all().map((row) => row.id),
+      );
+      for (const pendingTicker of processingState.pendingCoinTickers) {
+        const diagnostic = exchangeTickerDiagnostics.get(pendingTicker.exchangeId);
+        if (!diagnostic) {
+          continue;
+        }
 
-    if (!knownExchangeIdsForDiagnostics.has(pendingTicker.exchangeId)) {
-      incrementTickerRejection(diagnostic, 'unknown_exchange_identity');
-      continue;
-    }
+        if (!knownExchangeIdsForDiagnostics.has(pendingTicker.exchangeId)) {
+          incrementTickerRejection(diagnostic, 'unknown_exchange_identity');
+          continue;
+        }
 
-    if (!acceptedIngestionPlan.acceptedSamples.has(pendingTicker.marketSample)) {
-      incrementTickerRejection(diagnostic, 'consensus_rejected');
-      continue;
-    }
+        if (!acceptedIngestionPlan.acceptedSamples.has(pendingTicker.marketSample)) {
+          incrementTickerRejection(diagnostic, 'consensus_rejected');
+          continue;
+        }
 
-    diagnostic.accepted_ticker_rows += 1;
+        diagnostic.accepted_ticker_rows += 1;
+      }
+      writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
+      upsertPendingCoinTickers(database, acceptedIngestionPlan.acceptedCoinTickers, conversionContext);
+      enforceQuoteSnapshotRetention(database);
+      recordSqliteRefreshCommitted(
+        database,
+        MARKET_REFRESH_COORDINATION_FAMILY,
+        now,
+        [...MARKET_REFRESH_AFFECTED_TABLES],
+        workLease.lease.leaseOwner,
+      );
+    });
+  } catch (error) {
+    recordSqliteRefreshFailed(
+      database,
+      MARKET_REFRESH_COORDINATION_FAMILY,
+      new Date(),
+      [...MARKET_REFRESH_AFFECTED_TABLES],
+      error,
+      workLease.lease.leaseOwner,
+    );
+    throw error;
+  } finally {
+    writeSnapshotsPhase.stop();
   }
-  writeSnapshotsPhase.update(`Still working: updating ${processingState.pendingCoinTickers.length.toLocaleString()} coin tickers and exchange volumes`);
-  upsertPendingCoinTickers(database, acceptedIngestionPlan.acceptedCoinTickers, conversionContext);
-  writeSnapshotsPhase.stop();
-  enforceQuoteSnapshotRetention(database);
   if (runtimeState) {
     runtimeState.exchangeTickerIngestion = {
       last_refresh_at: now.toISOString(),
@@ -1240,5 +1297,8 @@ export async function runMarketRefreshOnce(
       blockedExchangeCount,
       durationMs,
     }, 'market refresh complete');
+  }
+  } finally {
+    releaseSqliteWorkLease(database, workLease.lease);
   }
 }

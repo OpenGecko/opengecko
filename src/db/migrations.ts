@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 
 import type { AppDatabase } from './runtime';
+import { ensureSqliteCoordinationTables } from './sqlite-coordination';
 import {
   assetPlatforms,
   categories,
@@ -108,6 +109,8 @@ export function migrateDatabase(database: AppDatabase) {
       migrationsFolder: MIGRATIONS_FOLDER,
     });
 
+    ensureSqliteCoordinationTables(database);
+
     return;
   }
 
@@ -118,4 +121,6 @@ export function migrateDatabase(database: AppDatabase) {
   migrate(database.db as BetterSQLite3Database<AppSchema>, {
     migrationsFolder: MIGRATIONS_FOLDER,
   });
+
+  ensureSqliteCoordinationTables(database);
 }

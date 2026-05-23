@@ -2,6 +2,7 @@ import { createLogger } from '../lib/logger';
 
 import { loadConfig } from '../config/env';
 import { createDatabase, initializeDatabase } from '../db/client';
+import { registerSqliteProcessHeartbeat } from '../db/sqlite-coordination';
 import { createOhlcvRuntime } from '../services/ohlcv-runtime';
 
 type RunOhlcvWorkerJobOverrides = {
@@ -18,6 +19,9 @@ export async function runOhlcvWorkerJob(overrides: RunOhlcvWorkerJobOverrides = 
   const logger = overrides.logger ?? createLogger({ level: config.logLevel });
 
   (overrides.initializeDatabase ?? initializeDatabase)(database);
+  if (typeof database.client.exec === 'function') {
+    registerSqliteProcessHeartbeat(database, 'worker');
+  }
 
   const runtime = (overrides.createOhlcvRuntime ?? createOhlcvRuntime)(database, {
     ccxtExchanges: config.ccxtExchanges,
