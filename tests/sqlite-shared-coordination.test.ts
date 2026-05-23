@@ -9,6 +9,7 @@ import { buildSqliteDatabaseDiagnostics } from '../src/db/runtime';
 import {
   acquireSqliteWorkLease,
   buildSqliteCoordinationDiagnostics,
+  DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS,
   recordSqliteRefreshFailed,
   registerSqliteProcessHeartbeat,
   releaseSqliteWorkLease,
@@ -249,6 +250,72 @@ describe('shared SQLite API-worker coordination', () => {
       db_paths: [dbPath],
       single_shared_path: true,
       api_worker_shared: true,
+      heartbeat_freshness_window_seconds: DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS / 1000,
+      total_known_process_count: 2,
+      stale_process_count: 0,
+      inactive_process_count: 0,
+    });
+  });
+
+  it('does not count stale active process heartbeats as currently shared workers', () => {
+    const startedAt = new Date('2026-05-23T00:00:00.000Z');
+    registerSqliteProcessHeartbeat(apiDatabase, 'api', startedAt, 'api:test');
+    registerSqliteProcessHeartbeat(workerDatabase, 'worker', startedAt, 'worker:test');
+
+    const staleNow = new Date(startedAt.getTime() + DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS + 1_000);
+    const coordination = buildSqliteCoordinationDiagnostics(apiDatabase, staleNow);
+
+    expect(coordination.process_heartbeats).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        process_id: 'api:test',
+        active: false,
+        status: 'stale',
+        stored_status: 'active',
+      }),
+      expect.objectContaining({
+        process_id: 'worker:test',
+        active: false,
+        status: 'stale',
+        stored_status: 'active',
+      }),
+    ]));
+    expect(coordination.shared_database).toMatchObject({
+      observed_process_count: 0,
+      observed_roles: [],
+      db_paths: [],
+      single_shared_path: true,
+      api_worker_shared: false,
+      total_known_process_count: 2,
+      stale_process_count: 2,
+      inactive_process_count: 0,
+    });
+  });
+
+  it('refreshes and marks process heartbeats inactive on normal shutdown', () => {
+    const startedAt = new Date('2026-05-23T00:00:00.000Z');
+    const heartbeat = registerSqliteProcessHeartbeat(apiDatabase, 'worker', startedAt, 'worker:test');
+    const refreshedAt = new Date('2026-05-23T00:00:30.000Z');
+    const stoppedAt = new Date('2026-05-23T00:01:00.000Z');
+
+    expect(heartbeat.refresh(refreshedAt)).toBe(true);
+    expect(heartbeat.markInactive(stoppedAt)).toBe(true);
+    heartbeat.stop();
+
+    const coordination = buildSqliteCoordinationDiagnostics(apiDatabase, stoppedAt);
+    expect(coordination.process_heartbeats).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        process_id: 'worker:test',
+        updated_at: '2026-05-23T00:01:00.000Z',
+        active: false,
+        status: 'inactive',
+        stored_status: 'inactive',
+      }),
+    ]));
+    expect(coordination.shared_database).toMatchObject({
+      observed_process_count: 0,
+      total_known_process_count: 1,
+      stale_process_count: 0,
+      inactive_process_count: 1,
     });
   });
 });

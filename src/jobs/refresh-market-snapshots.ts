@@ -1,6 +1,9 @@
 import { loadConfig } from '../config/env';
 import { createDatabase, initializeDatabase, seedStaticReferenceData } from '../db/client';
-import { registerSqliteProcessHeartbeat } from '../db/sqlite-coordination';
+import {
+  registerSqliteProcessHeartbeat,
+  type SqliteProcessHeartbeatRegistration,
+} from '../db/sqlite-coordination';
 import { runMarketRefreshOnce } from '../services/market-refresh';
 
 function readValidationWorkerHoldMs(env: NodeJS.ProcessEnv) {
@@ -11,10 +14,11 @@ function readValidationWorkerHoldMs(env: NodeJS.ProcessEnv) {
 async function refreshMarketSnapshots() {
   const config = loadConfig();
   const database = createDatabase(config.databaseUrl);
+  let sqliteProcessHeartbeat: SqliteProcessHeartbeatRegistration | null = null;
 
   try {
     initializeDatabase(database);
-    registerSqliteProcessHeartbeat(database, 'worker');
+    sqliteProcessHeartbeat = registerSqliteProcessHeartbeat(database, 'worker');
     const validationHoldMs = readValidationWorkerHoldMs(process.env);
     if (validationHoldMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, validationHoldMs));
@@ -22,6 +26,8 @@ async function refreshMarketSnapshots() {
     seedStaticReferenceData(database, { includeSeededExchanges: true });
     await runMarketRefreshOnce(database, config);
   } finally {
+    sqliteProcessHeartbeat?.stop();
+    sqliteProcessHeartbeat?.markInactive();
     database.client.close();
   }
 }

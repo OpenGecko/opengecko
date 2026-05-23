@@ -93,7 +93,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       : null);
 
   migrateDatabase(database);
-  registerSqliteProcessHeartbeat(database, 'api');
+  const sqliteProcessHeartbeat = registerSqliteProcessHeartbeat(database, 'api');
   canonicalizePersistedCoinNames(database);
   options.startupProgress?.complete('connect_database');
 
@@ -146,6 +146,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     }
 
     await closeExchangePool();
+    sqliteProcessHeartbeat.stop();
+    sqliteProcessHeartbeat.markInactive();
     database.client.close();
   });
 

@@ -34,6 +34,24 @@ export type SqliteWorkLeaseAcquisition =
   };
 
 export const DEFAULT_SQLITE_WORK_LEASE_TTL_MS = 15 * 60 * 1000;
+export const DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS = 2 * 60 * 1000;
+const DEFAULT_SQLITE_PROCESS_HEARTBEAT_REFRESH_INTERVAL_MS = 30 * 1000;
+
+export type SqliteProcessHeartbeatRegistration = {
+  processId: string;
+  refresh: (now?: Date) => boolean;
+  markInactive: (now?: Date) => boolean;
+  stop: () => void;
+};
+
+type RegisterSqliteProcessHeartbeatOptions = {
+  autoRefresh?: boolean;
+  refreshIntervalMs?: number;
+};
+
+type SqliteCoordinationDiagnosticsOptions = {
+  processHeartbeatFreshnessMs?: number;
+};
 
 function extractChangedRows(result: unknown) {
   if (result && typeof result === 'object' && 'changes' in result) {
@@ -359,7 +377,8 @@ export function registerSqliteProcessHeartbeat(
   role: SqliteProcessRole,
   now = new Date(),
   processId = processIdFor(role),
-) {
+  options: RegisterSqliteProcessHeartbeatOptions = {},
+): SqliteProcessHeartbeatRegistration {
   ensureSqliteCoordinationTables(database);
   const pathClass = classifyDatabasePath(database.url);
 
@@ -388,6 +407,78 @@ export function registerSqliteProcessHeartbeat(
     now.getTime(),
     now.getTime(),
   );
+
+  const refresh = (refreshedAt = new Date()) => {
+    ensureSqliteCoordinationTables(database);
+    const changedRows = extractChangedRows(database.client.prepare(`
+      UPDATE opengecko_sqlite_process_heartbeats
+      SET
+        updated_at = ?,
+        status = 'active'
+      WHERE process_id = ?
+    `).run(refreshedAt.getTime(), processId));
+
+    return changedRows > 0;
+  };
+
+  const markInactive = (inactiveAt = new Date()) => markSqliteProcessHeartbeatInactive(
+    database,
+    processId,
+    inactiveAt,
+  );
+
+  const autoRefresh = options.autoRefresh ?? arguments.length <= 2;
+  const refreshIntervalMs = Math.max(
+    Math.min(
+      options.refreshIntervalMs ?? DEFAULT_SQLITE_PROCESS_HEARTBEAT_REFRESH_INTERVAL_MS,
+      DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS,
+    ),
+    1_000,
+  );
+  let timer: NodeJS.Timeout | null = null;
+
+  if (autoRefresh) {
+    timer = setInterval(() => {
+      try {
+        refresh();
+      } catch {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+    }, refreshIntervalMs);
+    timer.unref();
+  }
+
+  return {
+    processId,
+    refresh,
+    markInactive,
+    stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
+export function markSqliteProcessHeartbeatInactive(
+  database: AppDatabase,
+  processId: string,
+  now = new Date(),
+) {
+  ensureSqliteCoordinationTables(database);
+  const changedRows = extractChangedRows(database.client.prepare(`
+    UPDATE opengecko_sqlite_process_heartbeats
+    SET
+      updated_at = ?,
+      status = 'inactive'
+    WHERE process_id = ?
+  `).run(now.getTime(), processId));
+
+  return changedRows > 0;
 }
 
 function readJsonArray(value: string | null): string[] {
@@ -405,7 +496,11 @@ function readJsonArray(value: string | null): string[] {
   }
 }
 
-export function buildSqliteCoordinationDiagnostics(database: AppDatabase, now = new Date()) {
+export function buildSqliteCoordinationDiagnostics(
+  database: AppDatabase,
+  now = new Date(),
+  options: SqliteCoordinationDiagnosticsOptions = {},
+) {
   ensureSqliteCoordinationTables(database);
   const revisions = database.client.prepare<{
     family: string;
@@ -440,8 +535,34 @@ export function buildSqliteCoordinationDiagnostics(database: AppDatabase, now = 
     updated_at: number;
     status: string;
   }>('SELECT * FROM opengecko_sqlite_process_heartbeats ORDER BY role, process_id').all();
-  const dbPaths = [...new Set(processes.map((process) => process.db_path))].sort();
-  const roles = [...new Set(processes.map((process) => process.role))].sort();
+  const processHeartbeatFreshnessMs = options.processHeartbeatFreshnessMs
+    ?? DEFAULT_SQLITE_PROCESS_HEARTBEAT_FRESHNESS_MS;
+  const processDiagnostics = processes.map((process) => {
+    const ageMs = Math.max(now.getTime() - process.updated_at, 0);
+    const isFresh = ageMs <= processHeartbeatFreshnessMs;
+    const active = process.status === 'active' && isFresh;
+    const status = process.status === 'active' && !isFresh ? 'stale' : process.status;
+
+    return {
+      process_id: process.process_id,
+      role: process.role,
+      db_path: redactSensitiveSqliteCoordinationText(process.db_path),
+      path_class: process.path_class,
+      started_at: iso(parseTimestamp(process.started_at)),
+      updated_at: iso(parseTimestamp(process.updated_at)),
+      age_seconds: Math.max(Math.floor(ageMs / 1000), 0),
+      active,
+      status,
+      stored_status: process.status,
+      freshness_window_seconds: Math.floor(processHeartbeatFreshnessMs / 1000),
+    };
+  });
+  const activeProcesses = processes.filter((process) => {
+    const ageMs = Math.max(now.getTime() - process.updated_at, 0);
+    return process.status === 'active' && ageMs <= processHeartbeatFreshnessMs;
+  });
+  const dbPaths = [...new Set(activeProcesses.map((process) => process.db_path))].sort();
+  const roles = [...new Set(activeProcesses.map((process) => process.role))].sort();
   const updatedTimestamps = [
     ...revisions.map((revision) => revision.updated_at),
     ...leases.map((lease) => lease.updated_at),
@@ -478,22 +599,17 @@ export function buildSqliteCoordinationDiagnostics(database: AppDatabase, now = 
       last_released_at: iso(parseTimestamp(lease.last_released_at)),
       updated_at: iso(parseTimestamp(lease.updated_at)),
     })),
-    process_heartbeats: processes.map((process) => ({
-      process_id: process.process_id,
-      role: process.role,
-      db_path: redactSensitiveSqliteCoordinationText(process.db_path),
-      path_class: process.path_class,
-      started_at: iso(parseTimestamp(process.started_at)),
-      updated_at: iso(parseTimestamp(process.updated_at)),
-      age_seconds: Math.max(Math.floor((now.getTime() - process.updated_at) / 1000), 0),
-      status: process.status,
-    })),
+    process_heartbeats: processDiagnostics,
     shared_database: {
-      observed_process_count: processes.length,
+      observed_process_count: activeProcesses.length,
       observed_roles: roles,
       db_paths: dbPaths.map(redactSensitiveSqliteCoordinationText),
       single_shared_path: dbPaths.length <= 1,
       api_worker_shared: roles.includes('api') && roles.includes('worker') && dbPaths.length === 1,
+      heartbeat_freshness_window_seconds: Math.floor(processHeartbeatFreshnessMs / 1000),
+      total_known_process_count: processes.length,
+      stale_process_count: processDiagnostics.filter((process) => process.status === 'stale').length,
+      inactive_process_count: processDiagnostics.filter((process) => process.status === 'inactive').length,
     },
   };
 }

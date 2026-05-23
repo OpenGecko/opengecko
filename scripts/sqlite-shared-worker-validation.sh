@@ -63,16 +63,30 @@ curl -fsS "${BASE_URL}/health" >/dev/null
   LOG_PRETTY=false \
   CCXT_EXCHANGES="${WORKER_CCXT_EXCHANGES:-}" \
   OPENGECKO_PROCESS_ROLE=worker \
-  OPENGECKO_VALIDATION_WORKER_HOLD_MS=1500 \
+  OPENGECKO_VALIDATION_WORKER_HOLD_MS=3000 \
   bun run markets:refresh
 ) >"${WORKER_LOG}" 2>&1 &
 worker_pid="$!"
 
-for _ in {1..8}; do
-  curl -fsS "${BASE_URL}/simple/price?ids=bitcoin&vs_currencies=usd" >/dev/null
-  curl -fsS "${BASE_URL}/coins/markets?vs_currency=usd&ids=bitcoin&per_page=1&page=1" >/dev/null
+active_runtime_json="$(mktemp)"
+for _ in {1..20}; do
+  curl -sS "${BASE_URL}/simple/price?ids=bitcoin&vs_currencies=usd" >/dev/null || true
+  curl -sS "${BASE_URL}/coins/markets?vs_currency=usd&ids=bitcoin&per_page=1&page=1" >/dev/null || true
+  curl -fsS "${BASE_URL}/diagnostics/runtime" >"${active_runtime_json}"
+  if jq -e '
+    .data.sqlite_coordination.shared_database.api_worker_shared == true
+    and (.data.sqlite_coordination.shared_database.observed_roles | index("api") != null)
+    and (.data.sqlite_coordination.shared_database.observed_roles | index("worker") != null)
+  ' "${active_runtime_json}" >/dev/null; then
+    break
+  fi
   sleep 0.2
 done
+jq -e '
+  .data.sqlite_coordination.shared_database.api_worker_shared == true
+  and (.data.sqlite_coordination.shared_database.observed_roles | index("api") != null)
+  and (.data.sqlite_coordination.shared_database.observed_roles | index("worker") != null)
+' "${active_runtime_json}" >/dev/null
 
 wait "${worker_pid}"
 worker_pid=""
@@ -89,9 +103,11 @@ jq -e --arg db_path "${DB_PATH}" '
   and .data.database.wal_enabled == true
   and ((.data.database.busy_timeout_ms // 0) > 0)
   and .data.database.shared_safety.status == "safe"
-  and .data.sqlite_coordination.shared_database.api_worker_shared == true
+  and .data.sqlite_coordination.shared_database.api_worker_shared == false
   and (.data.sqlite_coordination.shared_database.observed_roles | index("api") != null)
-  and (.data.sqlite_coordination.shared_database.observed_roles | index("worker") != null)
+  and (.data.sqlite_coordination.shared_database.observed_roles | index("worker") == null)
+  and ((.data.sqlite_coordination.shared_database.inactive_process_count // 0) >= 1)
+  and (.data.sqlite_coordination.process_heartbeats | map(select(.role == "worker" and .status == "inactive" and .active == false)) | length >= 1)
 ' "${runtime_json}" >/dev/null
 
 echo "SQLite shared API-worker validation passed for ${DB_PATH}"
