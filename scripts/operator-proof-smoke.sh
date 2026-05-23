@@ -25,6 +25,7 @@ SMOKE_SKIPPED_FILE="${PROOF_ROOT}/smoke-modules-skipped.jsonl"
 PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"
 CROSS_OVERLAP_FILE="${PROOF_ROOT}/cross-overlap-readiness.json"
 LIVE_PROMOTION_FILE="${PROOF_ROOT}/live-promotion-evidence.json"
+PROMOTED_FAMILY_MANIFEST_FILE="${PROOF_ROOT}/promoted-family-manifest.json"
 RESERVED_PORTS=(3100 3102 3103)
 DEFAULT_SMOKE_MODULES=(exchanges)
 ALL_SMOKE_MODULES=(simple coins exchanges global search assets treasury onchain)

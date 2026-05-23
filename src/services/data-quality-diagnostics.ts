@@ -1635,6 +1635,7 @@ export function buildDataQualityDiagnostics(
     },
     family_aliases: aliasMap,
     aliases,
+    promoted_family_manifest: coverageMatrix.promoted_family_manifest,
     gate: {
       status: belowTargetFamilies.length === 0 ? 'pass' : 'fail',
       threshold: TARGET_THRESHOLD,

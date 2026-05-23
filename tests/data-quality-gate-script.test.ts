@@ -35,7 +35,11 @@ function runtimeFixture(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function runGateWithFixture(fixtureJson: string, runtimeJson = runtimeFixture()) {
+function runGateWithFixture(
+  fixtureJson: string,
+  runtimeJson = runtimeFixture(),
+  extraFixtures: Partial<Record<'coverage' | 'cache' | 'jobs' | 'freshness' | 'exchanges' | 'marketCharts', string>> = {},
+) {
   const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-data-quality-gate-test-'));
   const evidenceDir = join(tempDir, 'evidence');
   const fakeCurlPath = join(tempDir, 'curl');
@@ -48,6 +52,12 @@ for arg in "$@"; do
   case "$arg" in
     */diagnostics/data_quality) printf '%s' "$DATA_QUALITY_FIXTURE"; exit 0 ;;
     */diagnostics/runtime) printf '%s' "$RUNTIME_FIXTURE"; exit 0 ;;
+    */diagnostics/coverage_matrix) printf '%s' "$COVERAGE_FIXTURE"; exit 0 ;;
+    */diagnostics/cache) printf '%s' "$CACHE_FIXTURE"; exit 0 ;;
+    */diagnostics/jobs) printf '%s' "$JOBS_FIXTURE"; exit 0 ;;
+    */diagnostics/freshness_budgets) printf '%s' "$FRESHNESS_FIXTURE"; exit 0 ;;
+    */diagnostics/exchanges) printf '%s' "$EXCHANGES_FIXTURE"; exit 0 ;;
+    */diagnostics/market_charts) printf '%s' "$MARKET_CHARTS_FIXTURE"; exit 0 ;;
   esac
 done
 echo "unexpected curl request: $*" >&2
@@ -67,11 +77,97 @@ exit 22
         OPENGECKO_QUALITY_EVIDENCE_DIR: evidenceDir,
         DATA_QUALITY_FIXTURE: fixtureJson,
         RUNTIME_FIXTURE: runtimeJson,
+        COVERAGE_FIXTURE: extraFixtures.coverage ?? coverageFixture(),
+        CACHE_FIXTURE: extraFixtures.cache ?? cacheFixture(),
+        JOBS_FIXTURE: extraFixtures.jobs ?? jobsFixture(),
+        FRESHNESS_FIXTURE: extraFixtures.freshness ?? freshnessDiagnosticsFixture(),
+        EXCHANGES_FIXTURE: extraFixtures.exchanges ?? exchangesFixture(),
+        MARKET_CHARTS_FIXTURE: extraFixtures.marketCharts ?? marketChartsFixture(),
       },
     });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+function coverageFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      schema_version: 1,
+      generated_at: '2026-05-17T00:00:00.000Z',
+      entries: [],
+      promoted_family_manifest: {
+        schema_version: 1,
+        generated_at: '2026-05-17T00:00:00.000Z',
+        source: '/diagnostics/coverage_matrix',
+        family_count: 0,
+        promoted_family_count: 0,
+        families: [],
+      },
+      ...overrides,
+    },
+  });
+}
+
+function cacheFixture() {
+  return JSON.stringify({
+    data: {
+      hot_data_revision: { last_refresh_at: '2026-05-17T00:00:00.000Z' },
+      freshness: { market_snapshot_threshold_seconds: 60 },
+    },
+  });
+}
+
+function jobsFixture() {
+  return JSON.stringify({
+    data: {
+      scheduler: { enabled: true, started: true, job_count: 0 },
+      jobs: [],
+      stale_data_fallback: { active: false, affected_families: [] },
+      optional_provider_jobs: { jobs: [] },
+    },
+  });
+}
+
+function freshnessDiagnosticsFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      schema_version: 1,
+      generated_at: '2026-05-17T00:00:00.000Z',
+      budgets: [],
+      ...overrides,
+    },
+  });
+}
+
+function exchangesFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      provider_coverage: {
+        attempted_minimum_met: true,
+        live_backed_exchange_count: 1,
+        blocked_exchange_count: 0,
+        unavailable_exchange_count: 0,
+      },
+      providers: [],
+      exchanges: [],
+      ...overrides,
+    },
+  });
+}
+
+function marketChartsFixture(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    data: {
+      summary: {
+        configured_targets: 0,
+        live_backed_configured_targets: 0,
+        status_counts: {},
+      },
+      gaps: {},
+      ...overrides,
+    },
+  });
 }
 
 function freshnessBudgetFixture(overrides: Record<string, unknown> = {}) {
@@ -231,6 +327,67 @@ describe('focused data quality gate script', () => {
     expect(result.stdout).toContain('status: pass');
     expect(result.stdout).toContain('below_target_count: 0');
     expect(result.stdout).toContain('Evidence artifacts:');
+  });
+
+  it('rejects promoted-family claims without paired source-backed data-quality evidence', () => {
+    const result = runGateWithFixture(passingFixture(), runtimeFixture(), {
+      coverage: coverageFixture({
+        entries: [
+          {
+            family: 'phantom_live_family',
+            representative_routes: ['/phantom/live'],
+            ownership_class: 'live',
+            data_fidelity: {
+              source_state: 'live',
+              counts_as_live: true,
+              non_live: false,
+              reason_codes: [],
+            },
+            freshness: {
+              state: 'fresh',
+              current_age_seconds: 10,
+              target_freshness_seconds: 60,
+              degraded_after_seconds: 300,
+            },
+            providers: ['coinbase'],
+            last_successful_refresh_at: '2026-05-17T00:00:00.000Z',
+          },
+        ],
+        promoted_family_manifest: {
+          schema_version: 1,
+          generated_at: '2026-05-17T00:00:00.000Z',
+          source: '/diagnostics/coverage_matrix',
+          family_count: 1,
+          promoted_family_count: 1,
+          families: [
+            {
+              family: 'phantom_live_family',
+              data_quality_family_ids: ['phantom_live_family'],
+              promotion_status: 'promoted_live',
+              claimed_live: true,
+              source_state: 'live',
+              ownership_class: 'live',
+              route_evidence: ['/phantom/live'],
+              diagnostic_evidence: ['/diagnostics/data_quality', '/diagnostics/coverage_matrix', '/diagnostics/freshness_budgets'],
+              paired_evidence: [
+                {
+                  route: '/phantom/live',
+                  diagnostics: ['/diagnostics/data_quality', '/diagnostics/coverage_matrix', '/diagnostics/freshness_budgets'],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      freshness: freshnessDiagnosticsFixture({
+        budgets: [
+          freshnessBudgetFixture({ family: 'phantom_live_family' }),
+        ],
+      }),
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('promoted_data_quality_missing_live:phantom_live_family');
   });
 
   it('prints public global route comparison evidence when diagnostics expose it', () => {
@@ -629,6 +786,12 @@ for arg in "$@"; do
   case "$arg" in
     */diagnostics/data_quality) printf '%s' "$DATA_QUALITY_FIXTURE"; exit 0 ;;
     */diagnostics/runtime) printf '%s' "$RUNTIME_FIXTURE"; exit 0 ;;
+    */diagnostics/coverage_matrix) printf '%s' "$COVERAGE_FIXTURE"; exit 0 ;;
+    */diagnostics/cache) printf '%s' "$CACHE_FIXTURE"; exit 0 ;;
+    */diagnostics/jobs) printf '%s' "$JOBS_FIXTURE"; exit 0 ;;
+    */diagnostics/freshness_budgets) printf '%s' "$FRESHNESS_FIXTURE"; exit 0 ;;
+    */diagnostics/exchanges) printf '%s' "$EXCHANGES_FIXTURE"; exit 0 ;;
+    */diagnostics/market_charts) printf '%s' "$MARKET_CHARTS_FIXTURE"; exit 0 ;;
   esac
 done
 echo "unexpected curl request: $*" >&2
@@ -648,6 +811,12 @@ exit 22
           OPENGECKO_QUALITY_EVIDENCE_DIR: evidenceDir,
           DATA_QUALITY_FIXTURE: passingFixture(),
           RUNTIME_FIXTURE: runtimeFixture(),
+          COVERAGE_FIXTURE: coverageFixture(),
+          CACHE_FIXTURE: cacheFixture(),
+          JOBS_FIXTURE: jobsFixture(),
+          FRESHNESS_FIXTURE: freshnessDiagnosticsFixture(),
+          EXCHANGES_FIXTURE: exchangesFixture(),
+          MARKET_CHARTS_FIXTURE: marketChartsFixture(),
         },
       });
 
@@ -694,6 +863,9 @@ exit 22
       expect(assertionTable).toContain('VAL-DQ-004\tpass');
       expect(assertionTable).toContain('VAL-DQ-009\tpass\tdata_quality freshness budgets force stale required non-live families below target when present');
       expect(assertionTable).toContain('VAL-DQ-010\tpass');
+      expect(assertionTable).toContain('VAL-LIVE-008\tpass');
+      expect(assertionTable).toContain('VAL-CROSS-005\tpass');
+      expect(assertionTable).toContain('VAL-CROSS-006\tpass');
       const parsedMetrics = JSON.parse(readFileSync(manifest.parsed_metrics_path, 'utf8')) as {
         stale_required_non_live_families: unknown[];
       };

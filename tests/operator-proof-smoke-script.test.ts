@@ -120,14 +120,26 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('write_live_promotion_evidence 3100 healthy');
     expect(contract).toContain('VAL-LIVE-001');
     expect(contract).toContain('VAL-LIVE-006');
+    expect(contract).toContain('VAL-LIVE-007');
+    expect(contract).toContain('VAL-LIVE-008');
+    expect(contract).toContain('VAL-CROSS-005');
+    expect(contract).toContain('VAL-CROSS-007');
+    expect(script).toContain('PROMOTED_FAMILY_MANIFEST_FILE="${PROOF_ROOT}/promoted-family-manifest.json"');
     expect(contract).toContain('attempted_exchange_count');
     expect(contract).toContain('live_backed_exchange_count');
     expect(contract).toContain('fixture_seeded_replay_contract_only_do_not_count_as_live');
+    expect(contract).toContain('promoted_family_manifest');
+    expect(contract).toContain('route_diagnostic_pairs');
+    expect(contract).toContain('cross_diagnostic_consistency');
     expect(contract).toContain('live-promotion-attempts-at-least-12');
     expect(contract).toContain('live-promotion-blocked-provider-visibility');
     expect(contract).toContain('live-promotion-hot-market-fresh-live');
     expect(contract).toContain('live-promotion-onchain-external-honest');
+    expect(contract).toContain('live-promotion-promoted-family-manifest-visible');
+    expect(contract).toContain('live-promotion-promoted-families-have-paired-evidence');
+    expect(contract).toContain('live-promotion-cross-diagnostics-consistent');
     expect(contract).toContain('live_promotion_file');
+    expect(contract).toContain('promoted_family_manifest_file');
   });
 
   it('exposes reusable helpers for port checks, command logs, samples, jq assertions, bundles, and module execution', () => {

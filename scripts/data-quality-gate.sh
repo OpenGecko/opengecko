@@ -16,12 +16,24 @@ fi
 
 TMP_FILE="$(mktemp /tmp/opengecko-data-quality-gate.XXXXXX.json)"
 RUNTIME_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-runtime.XXXXXX.json)"
+COVERAGE_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-coverage.XXXXXX.json)"
+CACHE_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-cache.XXXXXX.json)"
+JOBS_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-jobs.XXXXXX.json)"
+FRESHNESS_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-freshness.XXXXXX.json)"
+EXCHANGES_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-exchanges.XXXXXX.json)"
+MARKET_CHARTS_TMP_FILE="$(mktemp /tmp/opengecko-data-quality-market-charts.XXXXXX.json)"
 RUN_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REQUEST_URL="${BASE_URL}/diagnostics/data_quality"
 RUNTIME_REQUEST_URL="${BASE_URL}/diagnostics/runtime"
+COVERAGE_REQUEST_URL="${BASE_URL}/diagnostics/coverage_matrix"
+CACHE_REQUEST_URL="${BASE_URL}/diagnostics/cache"
+JOBS_REQUEST_URL="${BASE_URL}/diagnostics/jobs"
+FRESHNESS_REQUEST_URL="${BASE_URL}/diagnostics/freshness_budgets"
+EXCHANGES_REQUEST_URL="${BASE_URL}/diagnostics/exchanges"
+MARKET_CHARTS_REQUEST_URL="${BASE_URL}/diagnostics/market_charts"
 
 cleanup() {
-  rm -f "$TMP_FILE" "$RUNTIME_TMP_FILE"
+  rm -f "$TMP_FILE" "$RUNTIME_TMP_FILE" "$COVERAGE_TMP_FILE" "$CACHE_TMP_FILE" "$JOBS_TMP_FILE" "$FRESHNESS_TMP_FILE" "$EXCHANGES_TMP_FILE" "$MARKET_CHARTS_TMP_FILE"
 }
 
 trap cleanup EXIT
@@ -31,6 +43,7 @@ echo "Target: ${BASE_URL}"
 echo "Time:   ${RUN_TIMESTAMP}"
 echo "Request: ${REQUEST_URL}"
 echo "Runtime request: ${RUNTIME_REQUEST_URL}"
+echo "Cross-diagnostics: ${COVERAGE_REQUEST_URL}, ${CACHE_REQUEST_URL}, ${JOBS_REQUEST_URL}, ${FRESHNESS_REQUEST_URL}, ${EXCHANGES_REQUEST_URL}, ${MARKET_CHARTS_REQUEST_URL}"
 echo
 
 curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
@@ -38,6 +51,24 @@ curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
 
 curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
   "$RUNTIME_REQUEST_URL" > "$RUNTIME_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$COVERAGE_REQUEST_URL" > "$COVERAGE_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$CACHE_REQUEST_URL" > "$CACHE_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$JOBS_REQUEST_URL" > "$JOBS_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$FRESHNESS_REQUEST_URL" > "$FRESHNESS_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$EXCHANGES_REQUEST_URL" > "$EXCHANGES_TMP_FILE"
+
+curl -sS -f --max-time "$ENDPOINT_CURL_MAX_TIME" \
+  "$MARKET_CHARTS_REQUEST_URL" > "$MARKET_CHARTS_TMP_FILE"
 
 if ! jq -e '.data.gate.status and .data.families' "$TMP_FILE" >/dev/null; then
   echo "FAIL diagnostics/data_quality response does not expose .data.gate.status and .data.families" >&2
@@ -48,6 +79,12 @@ fi
 if ! jq -e '.data.database and .data.validation_profile' "$RUNTIME_TMP_FILE" >/dev/null; then
   echo "FAIL diagnostics/runtime response does not expose .data.database and .data.validation_profile" >&2
   jq '.data // .' "$RUNTIME_TMP_FILE" >&2 || cat "$RUNTIME_TMP_FILE" >&2
+  exit 2
+fi
+
+if ! jq -e '.data.promoted_family_manifest and (.data.promoted_family_manifest.families | type == "array") and (.data.entries | type == "array")' "$COVERAGE_TMP_FILE" >/dev/null; then
+  echo "FAIL diagnostics/coverage_matrix response does not expose .data.promoted_family_manifest.families and .data.entries" >&2
+  jq '.data // .' "$COVERAGE_TMP_FILE" >&2 || cat "$COVERAGE_TMP_FILE" >&2
   exit 2
 fi
 
@@ -205,6 +242,71 @@ if [[ -n "$schema_errors" ]]; then
   exit 2
 fi
 
+cross_diagnostic_errors="$(
+  jq -nr \
+    --slurpfile quality "$TMP_FILE" \
+    --slurpfile coverage "$COVERAGE_TMP_FILE" \
+    --slurpfile cache "$CACHE_TMP_FILE" \
+    --slurpfile jobs "$JOBS_TMP_FILE" \
+    --slurpfile freshness "$FRESHNESS_TMP_FILE" \
+    --slurpfile exchanges "$EXCHANGES_TMP_FILE" \
+    --slurpfile charts "$MARKET_CHARTS_TMP_FILE" '
+      ($quality[0].data.families // []) as $quality_families
+      | ($coverage[0].data.entries // []) as $coverage_entries
+      | ($coverage[0].data.promoted_family_manifest // $quality[0].data.promoted_family_manifest // {families: []}) as $manifest
+      | ($manifest.families // []) as $manifest_families
+      | ($freshness[0].data.budgets // []) as $freshness_budgets
+      | [
+          if ($manifest | type) != "object" then "promoted_family_manifest_missing" else empty end,
+          if ($manifest_families | type) != "array" then "promoted_family_manifest_families_not_array" else empty end,
+          if (($manifest.family_count // ($manifest_families | length)) != ($manifest_families | length)) then "promoted_family_manifest_count_mismatch" else empty end,
+          if (($manifest.promoted_family_count // ($manifest_families | map(select(.claimed_live == true)) | length)) != ($manifest_families | map(select(.claimed_live == true)) | length)) then "promoted_family_count_mismatch" else empty end,
+          if ($cache[0].data.hot_data_revision? == null) then "cache_hot_data_revision_missing" else empty end,
+          if (($jobs[0].data.scheduler.enabled? | type) != "boolean" and (($jobs[0].data.optional_provider_jobs // null) | type) != "object") then "scheduler_jobs_surface_missing" else empty end,
+          if (($freshness[0].data.budgets // null) | type) != "array" then "freshness_budgets_surface_missing" else empty end,
+          if (($exchanges[0].data.provider_coverage // null) | type) != "object" then "exchange_provider_coverage_missing" else empty end,
+          if (($charts[0].data.summary // null) | type) != "object" then "market_chart_summary_missing" else empty end,
+          (
+            $manifest_families[]? as $manifest_family
+            | ($manifest_family.family // "<missing>") as $family_id
+            | ($coverage_entries | map(select(.family == $family_id))[0] // null) as $coverage_entry
+            | ($freshness_budgets | map(select(.family == $family_id))[0] // null) as $freshness_budget
+            | ($quality_families | map(. as $quality_family | select((($manifest_family.data_quality_family_ids // [$family_id]) | index($quality_family.family)) != null))) as $matching_quality
+            | [
+                if ($manifest_family.family | type) != "string" or ($manifest_family.family | length) == 0 then "promoted_family_missing_id" else empty end,
+                if (($manifest_family.route_evidence // []) | type) != "array" or (($manifest_family.route_evidence // []) | length) == 0 then "promoted_route_evidence_missing:\($family_id)" else empty end,
+                if (($manifest_family.diagnostic_evidence // []) | type) != "array" or (($manifest_family.diagnostic_evidence // []) | length) == 0 then "promoted_diagnostic_evidence_missing:\($family_id)" else empty end,
+                if (($manifest_family.paired_evidence // []) | type) != "array" or (($manifest_family.paired_evidence // []) | length) < (($manifest_family.route_evidence // []) | length) then "promoted_route_diagnostic_pairs_missing:\($family_id)" else empty end,
+                if $coverage_entry == null then "promoted_coverage_entry_missing:\($family_id)" else empty end,
+                if $freshness_budget == null then "promoted_freshness_budget_missing:\($family_id)" else empty end,
+                if $coverage_entry != null and $freshness_budget != null and (($coverage_entry.data_fidelity.source_state // "") != ($freshness_budget.source_state // "")) then "coverage_freshness_source_state_mismatch:\($family_id):\($coverage_entry.data_fidelity.source_state // "null"):\($freshness_budget.source_state // "null")" else empty end,
+                if ($manifest_family.claimed_live // false) == true and (($manifest_family.promotion_status // "") != "promoted_live") then "promoted_live_status_mismatch:\($family_id):\($manifest_family.promotion_status // "null")" else empty end,
+                if ($manifest_family.claimed_live // false) == true and ($coverage_entry == null or (($coverage_entry.data_fidelity.counts_as_live // false) != true) or (($coverage_entry.data_fidelity.source_state // "") != "live")) then "promoted_coverage_lacks_live_evidence:\($family_id)" else empty end,
+                if ($manifest_family.claimed_live // false) == true and (($matching_quality | any(.source.state == "live" and ((.freshness_budget.counts_as_live_freshness_evidence // false) == true))) | not) then "promoted_data_quality_missing_live:\($family_id)" else empty end,
+                if ($manifest_family.claimed_live // false) == true and ($freshness_budget != null and (($freshness_budget.counts_as_live_freshness_evidence // false) != true)) then "promoted_freshness_not_live_fresh:\($family_id)" else empty end,
+                if ($family_id == "exchanges" and ($manifest_family.claimed_live // false) == true and (($exchanges[0].data.provider_coverage.live_backed_exchange_count // 0) < 1)) then "promoted_exchanges_without_live_backed_exchange" else empty end,
+                if ($family_id == "historical_charts" and ($manifest_family.claimed_live // false) == true and (($charts[0].data.summary.live_backed_configured_targets // 0) < 1)) then "promoted_historical_without_live_chart_target" else empty end
+              ][]
+          )
+        ][]
+    ' || true
+)"
+
+if [[ -n "$cross_diagnostic_errors" ]]; then
+  echo "FAIL promoted-family/cross-diagnostic consistency validation failed" >&2
+  echo "$cross_diagnostic_errors" >&2
+  jq -n \
+    --slurpfile quality "$TMP_FILE" \
+    --slurpfile coverage "$COVERAGE_TMP_FILE" \
+    --slurpfile cache "$CACHE_TMP_FILE" \
+    --slurpfile jobs "$JOBS_TMP_FILE" \
+    --slurpfile freshness "$FRESHNESS_TMP_FILE" \
+    --slurpfile exchanges "$EXCHANGES_TMP_FILE" \
+    --slurpfile charts "$MARKET_CHARTS_TMP_FILE" \
+    '{promoted_family_manifest: ($coverage[0].data.promoted_family_manifest // $quality[0].data.promoted_family_manifest // null), coverage_entries: ($coverage[0].data.entries // []), quality_families: ($quality[0].data.families // []), cache: $cache[0].data, jobs: $jobs[0].data, freshness_budgets: ($freshness[0].data.budgets // []), exchanges: $exchanges[0].data.provider_coverage, market_charts: $charts[0].data.summary}' >&2
+  exit 2
+fi
+
 status="$(jq -r '.data.gate.status' "$TMP_FILE")"
 threshold="$(jq -r '.data.gate.threshold' "$TMP_FILE")"
 below_count="$(jq -r '.data.gate.below_target_count // (.data.gate.below_target_families // [] | length)' "$TMP_FILE")"
@@ -216,12 +318,34 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
   raw_response_path="${EVIDENCE_DIR}/diagnostics-data-quality.raw.json"
   parsed_metrics_path="${EVIDENCE_DIR}/parsed-metrics.json"
   diagnostics_snapshot_path="${EVIDENCE_DIR}/diagnostics-snapshot.json"
+  cross_diagnostics_snapshot_path="${EVIDENCE_DIR}/cross-diagnostics-snapshot.json"
+  promoted_family_manifest_path="${EVIDENCE_DIR}/promoted-family-manifest.json"
   assertion_result_table_path="${EVIDENCE_DIR}/assertion-results.tsv"
   mismatch_report_path="${EVIDENCE_DIR}/mismatch-report.json"
   manifest_path="${EVIDENCE_DIR}/manifest.json"
 
   cp "$TMP_FILE" "$raw_response_path"
   cp "$TMP_FILE" "$diagnostics_snapshot_path"
+
+  jq -n \
+    --slurpfile runtime "$RUNTIME_TMP_FILE" \
+    --slurpfile coverage "$COVERAGE_TMP_FILE" \
+    --slurpfile cache "$CACHE_TMP_FILE" \
+    --slurpfile jobs "$JOBS_TMP_FILE" \
+    --slurpfile freshness "$FRESHNESS_TMP_FILE" \
+    --slurpfile exchanges "$EXCHANGES_TMP_FILE" \
+    --slurpfile charts "$MARKET_CHARTS_TMP_FILE" \
+    '{
+      runtime: $runtime[0],
+      coverage_matrix: $coverage[0],
+      cache: $cache[0],
+      jobs: $jobs[0],
+      freshness_budgets: $freshness[0],
+      exchanges: $exchanges[0],
+      market_charts: $charts[0]
+    }' > "$cross_diagnostics_snapshot_path"
+
+  jq '.data.promoted_family_manifest' "$COVERAGE_TMP_FILE" > "$promoted_family_manifest_path"
 
   jq '{
     gate: .data.gate,
@@ -272,13 +396,18 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
         ([.data.families[] | select((.required // false) == true and .source.state != "live" and (((.freshness_budget // .source.freshness_budget).status // "") == "stale")) | (.score < (.target_threshold // 9))] | all)
       ) then "pass" else "fail" end) + "\tdata_quality freshness budgets force stale required non-live families below target when present",
       "VAL-SCHED-001\t" + (if ([.data.families[] | (.freshness_budget // .source.freshness_budget) | has("current_age_seconds") and has("last_success_at") and has("budget") and has("status") and has("reason")] | all) then "pass" else "fail" end) + "\tfreshness budget records expose age, last-success, budget, status, and reason",
-      "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence"
+      "VAL-SCHED-002\t" + (if ([.data.families[] | select(.source.state != "live") | (.freshness_budget // .source.freshness_budget) | (.counts_as_live_evidence == false and .counts_as_live_freshness_evidence == false)] | all) then "pass" else "fail" end) + "\tnon-live data does not count as live freshness evidence",
+      "VAL-LIVE-008\tpass\tpromoted-family manifest is exposed through diagnostics/coverage_matrix with route and diagnostic evidence requirements",
+      "VAL-CROSS-005\tpass\tprovider, cache, freshness, scheduler, exchange, and chart diagnostics were fetched and cross-checked for contradictions",
+      "VAL-CROSS-006\tpass\tpromoted live claims require source-backed data-quality and freshness evidence",
+      "VAL-CROSS-007\tpass\toperator/data-quality proof records route assertions paired with diagnostic evidence requirements"
     ' "$TMP_FILE"
     printf 'VAL-DQ-010\tpass\tvalidated negative-scenario-capable schema, classification, stale, overclaim, and unsafe SQLite runtime configuration checks\n'
   } > "$assertion_result_table_path"
 
   jq '{
     coverage_data_quality_mismatches: [],
+    promoted_family_manifest_path: "'"${promoted_family_manifest_path}"'",
     below_target_families: (.data.gate.below_target_families // []),
     stale_required_non_live_families: [
       .data.families[]
@@ -305,6 +434,8 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
     --arg raw_response_path "$raw_response_path" \
     --arg parsed_metrics_path "$parsed_metrics_path" \
     --arg diagnostics_snapshot_path "$diagnostics_snapshot_path" \
+    --arg cross_diagnostics_snapshot_path "$cross_diagnostics_snapshot_path" \
+    --arg promoted_family_manifest_path "$promoted_family_manifest_path" \
     --arg assertion_result_table_path "$assertion_result_table_path" \
     --arg mismatch_report_path "$mismatch_report_path" \
     '{
@@ -317,12 +448,16 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
       raw_response_path: $raw_response_path,
       parsed_metrics_path: $parsed_metrics_path,
       diagnostics_snapshot_path: $diagnostics_snapshot_path,
+      cross_diagnostics_snapshot_path: $cross_diagnostics_snapshot_path,
+      promoted_family_manifest_path: $promoted_family_manifest_path,
       assertion_result_table_path: $assertion_result_table_path,
       mismatch_report_path: $mismatch_report_path,
       artifact_paths: {
         raw_response: $raw_response_path,
         parsed_metrics: $parsed_metrics_path,
         diagnostics_snapshot: $diagnostics_snapshot_path,
+        cross_diagnostics_snapshot: $cross_diagnostics_snapshot_path,
+        promoted_family_manifest: $promoted_family_manifest_path,
         assertion_result_table: $assertion_result_table_path,
         mismatch_report: $mismatch_report_path
       }

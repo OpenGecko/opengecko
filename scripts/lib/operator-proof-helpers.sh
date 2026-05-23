@@ -779,6 +779,10 @@ write_live_promotion_evidence() {
   capture_get "$port" "${prefix}-live-promotion-exchanges" '/diagnostics/exchanges' 200 || true
   capture_get "$port" "${prefix}-live-promotion-data-quality" '/diagnostics/data_quality' 200 || true
   capture_get "$port" "${prefix}-live-promotion-coverage" '/diagnostics/coverage_matrix' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-cache" '/diagnostics/cache' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-jobs" '/diagnostics/jobs' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-freshness" '/diagnostics/freshness_budgets' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-charts" '/diagnostics/market_charts' 200 || true
   capture_get "$port" "${prefix}-live-promotion-onchain" '/diagnostics/onchain' 200 || true
 
   jq -n \
@@ -788,6 +792,10 @@ write_live_promotion_evidence() {
     --slurpfile exchanges "${SAMPLES_DIR}/${prefix}-live-promotion-exchanges.json" \
     --slurpfile quality "${SAMPLES_DIR}/${prefix}-live-promotion-data-quality.json" \
     --slurpfile coverage "${SAMPLES_DIR}/${prefix}-live-promotion-coverage.json" \
+    --slurpfile cache "${SAMPLES_DIR}/${prefix}-live-promotion-cache.json" \
+    --slurpfile jobs "${SAMPLES_DIR}/${prefix}-live-promotion-jobs.json" \
+    --slurpfile freshness "${SAMPLES_DIR}/${prefix}-live-promotion-freshness.json" \
+    --slurpfile charts "${SAMPLES_DIR}/${prefix}-live-promotion-charts.json" \
     --slurpfile onchain "${SAMPLES_DIR}/${prefix}-live-promotion-onchain.json" \
     '
       ($configured_csv | split(",") | map(select(length > 0))) as $configured_ids
@@ -795,6 +803,9 @@ write_live_promotion_evidence() {
       | ($exchanges[0].data.providers // []) as $exchange_providers
       | ($quality[0].data.families // []) as $families
       | ($coverage[0].data.entries // []) as $coverage_entries
+      | (($coverage[0].data.promoted_family_manifest // $quality[0].data.promoted_family_manifest // {families: []})) as $promoted_manifest
+      | ($promoted_manifest.families // []) as $manifest_families
+      | ($manifest_families | map(select(.claimed_live == true))) as $promoted_families
       | ($families | map(select(.family == "simple"))[0] // {}) as $simple
       | ($families | map(select(.family == "coins"))[0] // {}) as $coins
       | ($families | map(select(.family == "exchanges"))[0] // {}) as $exchange_family
@@ -805,7 +816,34 @@ write_live_promotion_evidence() {
       | ($exchange_providers | map(select((.failed // false) == true or (.blocked // false) == true))) as $blocked_or_unavailable_providers
       | {
           generated_at: $generated_at,
-          assertions: ["VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006"],
+          assertions: ["VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006", "VAL-LIVE-007", "VAL-LIVE-008", "VAL-CROSS-005", "VAL-CROSS-007"],
+          promoted_family_manifest: $promoted_manifest,
+          route_diagnostic_pairs: [
+            $manifest_families[]?
+            | {
+                family,
+                claimed_live,
+                promotion_status,
+                route_count: ((.route_evidence // []) | length),
+                diagnostic_count: ((.diagnostic_evidence // []) | length),
+                route_evidence: (.route_evidence // []),
+                diagnostic_evidence: (.diagnostic_evidence // []),
+                paired_evidence: (.paired_evidence // []),
+                paired: (((.route_evidence // []) | length) > 0 and ((.diagnostic_evidence // []) | length) > 0 and ((.paired_evidence // []) | length) >= ((.route_evidence // []) | length))
+              }
+          ],
+          cross_diagnostic_consistency: {
+            coverage_manifest_visible: (($manifest_families | length) > 0),
+            promoted_family_count_matches_manifest: (($promoted_manifest.promoted_family_count // ($promoted_families | length)) == ($promoted_families | length)),
+            freshness_budget_surface_visible: (($freshness[0].data.budgets // []) | type == "array"),
+            runtime_provider_surface_visible: (($runtime[0].data.providers // []) | type == "array"),
+            cache_surface_visible: ($cache[0].data.hot_data_revision? != null),
+            scheduler_surface_visible: (($jobs[0].data.scheduler.enabled? | type) == "boolean" or (($jobs[0].data.optional_provider_jobs // {}) | type == "object")),
+            exchange_surface_visible: (($exchanges[0].data.provider_coverage // {}) | type == "object"),
+            chart_surface_visible: (($charts[0].data.summary // {}) | type == "object"),
+            promoted_families_have_route_and_diagnostic_pairs: (all($manifest_families[]?; (((.route_evidence // []) | length) > 0 and ((.diagnostic_evidence // []) | length) > 0 and ((.paired_evidence // []) | length) >= ((.route_evidence // []) | length)))),
+            promoted_live_families_have_quality_live_evidence: (all($promoted_families[]?; . as $manifest_family | any($families[]?; . as $quality_family | ((($manifest_family.data_quality_family_ids // [$manifest_family.family]) | index($quality_family.family)) != null) and ($quality_family.source.state == "live") and (($quality_family.freshness_budget.counts_as_live_freshness_evidence // false) == true))))
+          },
           exchange_attempts: {
             configured_exchange_ids: ($exchange_coverage.configured_exchange_ids // $configured_ids),
             configured_exchange_count: ($exchange_coverage.configured_exchange_count // ($configured_ids | length)),
@@ -867,10 +905,16 @@ write_live_promotion_evidence() {
             runtime: $runtime[0],
             exchanges: $exchanges[0],
             data_quality: $quality[0],
-            coverage: $coverage[0]
+            coverage: $coverage[0],
+            cache: $cache[0],
+            jobs: $jobs[0],
+            freshness: $freshness[0],
+            market_charts: $charts[0]
           }
         }
     ' > "$LIVE_PROMOTION_FILE"
+
+  jq '.promoted_family_manifest' "$LIVE_PROMOTION_FILE" > "$PROMOTED_FAMILY_MANIFEST_FILE"
 
   assert_jq "live-promotion-attempts-at-least-12" "$LIVE_PROMOTION_FILE" '.exchange_attempts.attempted_minimum_met == true' || true
   assert_jq "live-promotion-has-live-backed-exchange" "$LIVE_PROMOTION_FILE" '.exchange_attempts.live_backed_exchange_count >= 1' || true
@@ -878,6 +922,10 @@ write_live_promotion_evidence() {
   assert_jq "live-promotion-no-non-live-overclaims" "$LIVE_PROMOTION_FILE" '.live_data_rules.fixture_seeded_replay_contract_only_do_not_count_as_live == true' || true
   assert_jq "live-promotion-hot-market-fresh-live" "$LIVE_PROMOTION_FILE" '.hot_market.source_backed == true' || true
   assert_jq "live-promotion-onchain-external-honest" "$LIVE_PROMOTION_FILE" '.onchain_external.honest == true' || true
+  assert_jq "live-promotion-promoted-family-manifest-visible" "$LIVE_PROMOTION_FILE" '.cross_diagnostic_consistency.coverage_manifest_visible == true' || true
+  assert_jq "live-promotion-promoted-families-have-paired-evidence" "$LIVE_PROMOTION_FILE" '.cross_diagnostic_consistency.promoted_families_have_route_and_diagnostic_pairs == true' || true
+  assert_jq "live-promotion-promoted-live-has-quality-evidence" "$LIVE_PROMOTION_FILE" '.cross_diagnostic_consistency.promoted_live_families_have_quality_live_evidence == true' || true
+  assert_jq "live-promotion-cross-diagnostics-consistent" "$LIVE_PROMOTION_FILE" '(.cross_diagnostic_consistency | [.promoted_family_count_matches_manifest, .freshness_budget_surface_visible, .runtime_provider_surface_visible, .cache_surface_visible, .scheduler_surface_visible, .exchange_surface_visible, .chart_surface_visible] | all(. == true))' || true
 }
 
 sample_priority_routes() {
@@ -923,6 +971,7 @@ write_summary() {
     --arg server_lifecycle_file "$SERVER_LIFECYCLE_FILE" \
     --arg cross_overlap_file "$CROSS_OVERLAP_FILE" \
     --arg live_promotion_file "$LIVE_PROMOTION_FILE" \
+    --arg promoted_family_manifest_file "$PROMOTED_FAMILY_MANIFEST_FILE" \
     --arg smoke_executed_file "$SMOKE_EXECUTED_FILE" \
     --arg smoke_skipped_file "$SMOKE_SKIPPED_FILE" \
     --arg samples_dir "$SAMPLES_DIR" \
@@ -937,13 +986,14 @@ write_summary() {
       server_lifecycle_file: $server_lifecycle_file,
       cross_overlap_file: $cross_overlap_file,
       live_promotion_file: $live_promotion_file,
+      promoted_family_manifest_file: $promoted_family_manifest_file,
       smoke_executed_file: $smoke_executed_file,
       smoke_skipped_file: $smoke_skipped_file,
       samples_dir: $samples_dir,
       failures: $failures,
       exit_code: $exit_code,
       states: ["first_run_ready", "healthy", "degraded_but_serving", "recovered"],
-      assertions: ["VAL-CROSS-001", "VAL-CROSS-002", "VAL-CROSS-003", "VAL-CROSS-004", "VAL-CROSS-005", "VAL-CROSS-006", "VAL-CROSS-007", "VAL-CROSS-008", "VAL-CROSS-009", "VAL-CROSS-010", "VAL-CROSS-011", "VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006"]
+      assertions: ["VAL-CROSS-001", "VAL-CROSS-002", "VAL-CROSS-003", "VAL-CROSS-004", "VAL-CROSS-005", "VAL-CROSS-006", "VAL-CROSS-007", "VAL-CROSS-008", "VAL-CROSS-009", "VAL-CROSS-010", "VAL-CROSS-011", "VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006", "VAL-LIVE-007", "VAL-LIVE-008"]
     }' > "$SUMMARY_FILE"
 }
 

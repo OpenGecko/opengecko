@@ -48,6 +48,100 @@ type CoverageMatrixEntryConfig = {
   notes: string;
 };
 
+const PROMOTED_FAMILY_DATA_QUALITY_IDS: Record<string, string[]> = {
+  simple: ['simple'],
+  coins_markets: ['coins'],
+  coin_detail: ['coins'],
+  exchanges: ['exchanges'],
+  onchain: ['onchain'],
+  derivatives: ['derivatives'],
+  historical_charts: ['historical'],
+  supply_charts: ['supply'],
+  treasury: ['treasury'],
+  stable_catalog: ['search', 'assets'],
+};
+
+const PROMOTED_FAMILY_EXTRA_DIAGNOSTICS: Record<string, string[]> = {
+  simple: ['/diagnostics/cache', '/diagnostics/jobs'],
+  coins_markets: ['/diagnostics/cache', '/diagnostics/jobs'],
+  coin_detail: ['/diagnostics/cache', '/diagnostics/jobs'],
+  exchanges: ['/diagnostics/exchanges', '/diagnostics/jobs'],
+  onchain: ['/diagnostics/onchain', '/diagnostics/jobs'],
+  derivatives: ['/diagnostics/derivatives', '/diagnostics/jobs'],
+  historical_charts: ['/diagnostics/market_charts', '/diagnostics/jobs'],
+  supply_charts: ['/diagnostics/supply_charts', '/diagnostics/jobs'],
+  treasury: ['/diagnostics/jobs'],
+  stable_catalog: ['/diagnostics/cache', '/diagnostics/jobs'],
+};
+
+function uniqueSorted(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function buildPromotedFamilyManifest(
+  entries: ReturnType<typeof buildEntry>[],
+  generatedAt: string,
+) {
+  const families = entries.map((entry) => {
+    const claimedLive = entry.data_fidelity.counts_as_live === true;
+    const diagnosticEvidence = uniqueSorted([
+      '/diagnostics/data_quality',
+      '/diagnostics/coverage_matrix',
+      '/diagnostics/freshness_budgets',
+      '/diagnostics/runtime',
+      ...(PROMOTED_FAMILY_EXTRA_DIAGNOSTICS[entry.family] ?? ['/diagnostics/jobs']),
+    ]);
+
+    return {
+      family: entry.family,
+      data_quality_family_ids: PROMOTED_FAMILY_DATA_QUALITY_IDS[entry.family] ?? [entry.family],
+      promotion_status: claimedLive
+        ? 'promoted_live'
+        : entry.ownership_class === 'unavailable'
+          ? 'blocked_or_unavailable'
+          : 'not_promoted',
+      claimed_live: claimedLive,
+      source_state: entry.data_fidelity.source_state,
+      ownership_class: entry.ownership_class,
+      freshness_state: entry.freshness.state,
+      provider_ids: [...entry.providers],
+      route_evidence: [...entry.representative_routes],
+      diagnostic_evidence: diagnosticEvidence,
+      expected_evidence_types: ['public_route', 'data_quality', 'coverage', 'freshness', 'runtime', 'scheduler'],
+      live_evidence_requirements: {
+        source_state: 'live',
+        coverage_counts_as_live: true,
+        freshness_counts_as_live_freshness_evidence: true,
+        provider_or_public_source_required: true,
+        non_live_states_never_count_as_live: true,
+      },
+      paired_evidence: entry.representative_routes.map((route) => ({
+        route,
+        diagnostics: diagnosticEvidence,
+      })),
+      cross_diagnostic_requirements: {
+        provider_runtime_surface: '/diagnostics/runtime',
+        cache_surface: diagnosticEvidence.includes('/diagnostics/cache') ? '/diagnostics/cache' : null,
+        scheduler_surface: '/diagnostics/jobs',
+        freshness_surface: '/diagnostics/freshness_budgets',
+        coverage_surface: '/diagnostics/coverage_matrix',
+        exchange_surface: diagnosticEvidence.includes('/diagnostics/exchanges') ? '/diagnostics/exchanges' : null,
+        chart_surface: diagnosticEvidence.includes('/diagnostics/market_charts') ? '/diagnostics/market_charts' : null,
+      },
+    };
+  });
+
+  return {
+    schema_version: 1,
+    generated_at: generatedAt,
+    source: '/diagnostics/coverage_matrix',
+    live_claim_rule: 'Only families with claimed_live=true and source_state=live are promoted; blocked, degraded, stale, seeded, fixture, replay, synthetic, fallback, unavailable, and out_of_scope families are diagnostic-only claims.',
+    family_count: families.length,
+    promoted_family_count: families.filter((family) => family.claimed_live).length,
+    families,
+  };
+}
+
 function latestDate<T>(rows: T[], selector: (row: T) => Date | null | undefined) {
   return rows.reduce<Date | null>((latest, row) => {
     const value = selector(row);
@@ -426,9 +520,12 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
     }, observedAt),
   ];
 
+  const generatedAt = observedAt.toISOString();
+  const promotedFamilyManifest = buildPromotedFamilyManifest(entries, generatedAt);
+
   return {
     schema_version: 1,
-    generated_at: observedAt.toISOString(),
+    generated_at: generatedAt,
     classification_contract: {
       contract_support_statuses: ['supported'],
       data_fidelity_classifications: [...COVERAGE_OWNERSHIP_CLASS_VALUES],
@@ -441,6 +538,7 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
         seeded_fixture_replay_synthetic_fallback_degraded_stale_unavailable_out_of_scope_are_non_live: true,
       },
     },
+    promoted_family_manifest: promotedFamilyManifest,
     entries,
   };
 }
