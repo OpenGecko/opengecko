@@ -506,7 +506,48 @@ function createExchangeTickerRefreshDiagnostic(): ExchangeTickerRefreshDiagnosti
     accepted_ticker_rows: 0,
     rejected_ticker_rows: 0,
     rejection_reasons: {},
+    failed_kind: null,
     failed_reason: null,
+  };
+}
+
+function writeExchangeTickerIngestionDiagnostics(
+  runtimeState: MarketDataRuntimeState | undefined,
+  lastRefreshAt: Date,
+  summary: {
+    configuredExchangeIds: string[];
+    attemptedExchangeIds: string[];
+    failedExchangeIds: string[];
+    blockedExchangeIds: string[];
+    exchangeTickerDiagnostics: Map<ExchangeId, ExchangeTickerRefreshDiagnostic>;
+  },
+) {
+  if (!runtimeState) {
+    return;
+  }
+
+  const failedExchangeIds = new Set(summary.failedExchangeIds);
+  const successfulExchangeIds = summary.attemptedExchangeIds.filter((exchangeId) => !failedExchangeIds.has(exchangeId));
+  const previousPromotionAttemptedExchangeIds = runtimeState.exchangeTickerIngestion?.promotion_attempted_exchange_ids ?? [];
+  const promotionAttemptedExchangeIds = summary.attemptedExchangeIds.length >= previousPromotionAttemptedExchangeIds.length
+    ? summary.attemptedExchangeIds
+    : previousPromotionAttemptedExchangeIds;
+  const liveBackedExchangeIds = successfulExchangeIds.filter((exchangeId) => (
+    (summary.exchangeTickerDiagnostics.get(exchangeId)?.accepted_ticker_rows ?? 0) > 0
+  ));
+  const unavailableExchangeIds = [...new Set([...summary.failedExchangeIds, ...summary.blockedExchangeIds])];
+
+  runtimeState.exchangeTickerIngestion = {
+    last_refresh_at: lastRefreshAt.toISOString(),
+    configured_exchange_ids: summary.configuredExchangeIds,
+    attempted_exchange_ids: summary.attemptedExchangeIds,
+    promotion_attempted_exchange_ids: promotionAttemptedExchangeIds,
+    successful_exchange_ids: successfulExchangeIds,
+    live_backed_exchange_ids: liveBackedExchangeIds,
+    failed_exchange_ids: summary.failedExchangeIds,
+    blocked_exchange_ids: summary.blockedExchangeIds,
+    unavailable_exchange_ids: unavailableExchangeIds,
+    exchange_results: Object.fromEntries(summary.exchangeTickerDiagnostics),
   };
 }
 
@@ -980,18 +1021,24 @@ export async function runMarketRefreshOnce(
   const attemptedExchangeIds = providerBreakers
     ? exchangeIds.filter((exchangeId) => canAttemptProvider(providerBreakers, exchangeId, startTime))
     : exchangeIds;
+  const blockedExchangeIds = exchangeIds.filter((exchangeId) => !attemptedExchangeIds.includes(exchangeId));
   const blockedExchangeCount = exchangeIds.length - attemptedExchangeIds.length;
-  for (const exchangeId of exchangeIds) {
-    if (!attemptedExchangeIds.includes(exchangeId)) {
-      metrics?.recordProviderBlockedByBreaker(exchangeId);
-      metrics?.recordProviderAttemptEnd?.(exchangeId, 'ticker', 'breaker_open', 0);
-      if (runtimeState) {
-        finishProviderAttempt(runtimeState, exchangeId, 'ticker', 'breaker_open', 'provider breaker open');
-      }
+  for (const exchangeId of blockedExchangeIds) {
+    metrics?.recordProviderBlockedByBreaker(exchangeId);
+    metrics?.recordProviderAttemptEnd?.(exchangeId, 'ticker', 'breaker_open', 0);
+    if (runtimeState) {
+      finishProviderAttempt(runtimeState, exchangeId, 'ticker', 'breaker_open', 'provider breaker open');
     }
   }
 
   if (attemptedExchangeIds.length === 0) {
+    writeExchangeTickerIngestionDiagnostics(runtimeState, new Date(startTime), {
+      configuredExchangeIds: exchangeIds,
+      attemptedExchangeIds,
+      failedExchangeIds: [],
+      blockedExchangeIds,
+      exchangeTickerDiagnostics: new Map(),
+    });
     metrics?.recordProviderRefresh('breaker_skip', exchangeIds.length, 0);
     refreshLogger?.warn({
       exchangeCount: exchangeIds.length,
@@ -1107,6 +1154,7 @@ export async function runMarketRefreshOnce(
         : { message: String(result.reason) };
       const classifiedFailure = classifyProviderFailure(result.reason);
       if (tickerDiagnostic) {
+        tickerDiagnostic.failed_kind = classifiedFailure.kind;
         tickerDiagnostic.failed_reason = classifiedFailure.reason;
       }
       if (providerBreakers) {
@@ -1189,6 +1237,13 @@ export async function runMarketRefreshOnce(
   const unavailableExchangeCount = failedExchanges + blockedExchangeCount;
 
   if (failedExchanges === attemptedExchangeIds.length) {
+    writeExchangeTickerIngestionDiagnostics(runtimeState, new Date(startTime), {
+      configuredExchangeIds: exchangeIds,
+      attemptedExchangeIds,
+      failedExchangeIds,
+      blockedExchangeIds,
+      exchangeTickerDiagnostics,
+    });
     if (runtimeState) {
       recordProviderFailureCooldown(runtimeState, startTime + PROVIDER_FAILURE_COOLDOWN_MS);
     }
@@ -1280,12 +1335,13 @@ export async function runMarketRefreshOnce(
   } finally {
     writeSnapshotsPhase.stop();
   }
-  if (runtimeState) {
-    runtimeState.exchangeTickerIngestion = {
-      last_refresh_at: now.toISOString(),
-      exchange_results: Object.fromEntries(exchangeTickerDiagnostics),
-    };
-  }
+  writeExchangeTickerIngestionDiagnostics(runtimeState, now, {
+    configuredExchangeIds: exchangeIds,
+    attemptedExchangeIds,
+    failedExchangeIds,
+    blockedExchangeIds,
+    exchangeTickerDiagnostics,
+  });
 
   const durationMs = Date.now() - startTime;
   if (!progress) {

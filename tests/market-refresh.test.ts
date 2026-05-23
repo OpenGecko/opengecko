@@ -1278,10 +1278,12 @@ describe('market refresh service', () => {
       }];
     });
 
+    const runtimeState = createMarketDataRuntimeState(['binance', 'coinbase', 'kraken']);
+
     await expect(runMarketRefreshOnce(database, {
       ccxtExchanges: ['binance', 'coinbase', 'kraken'],
       providerFanoutConcurrency: 2,
-    })).resolves.toBeUndefined();
+    }, undefined, runtimeState)).resolves.toBeUndefined();
 
     const ingestedTickers = database.db.select().from(coinTickers).all();
     expect(ingestedTickers).toEqual(expect.arrayContaining([
@@ -1289,6 +1291,22 @@ describe('market refresh service', () => {
       expect.objectContaining({ exchangeId: 'coinbase', coinId: 'ethereum', convertedLastUsd: 2_300 }),
     ]));
     expect(ingestedTickers.some((ticker) => ticker.exchangeId === 'kraken')).toBe(false);
+    expect(runtimeState.exchangeTickerIngestion).toMatchObject({
+      configured_exchange_ids: ['binance', 'coinbase', 'kraken'],
+      attempted_exchange_ids: ['binance', 'coinbase', 'kraken'],
+      promotion_attempted_exchange_ids: ['binance', 'coinbase', 'kraken'],
+      successful_exchange_ids: ['binance', 'coinbase'],
+      live_backed_exchange_ids: ['binance', 'coinbase'],
+      failed_exchange_ids: ['kraken'],
+      blocked_exchange_ids: [],
+      unavailable_exchange_ids: ['kraken'],
+      exchange_results: {
+        kraken: expect.objectContaining({
+          failed_kind: 'timeout',
+          failed_reason: 'provider request timed out',
+        }),
+      },
+    });
   });
 
   it('writes source-backed normalized snapshots while rejecting malformed, stale, and outlier provider candidates', async () => {

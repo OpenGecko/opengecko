@@ -70,12 +70,21 @@ export type MarketDataRuntimeState = {
   providerAttempts?: ProviderAttemptDiagnosticsState;
   exchangeTickerIngestion?: {
     last_refresh_at: string | null;
+    configured_exchange_ids: string[];
+    attempted_exchange_ids: string[];
+    promotion_attempted_exchange_ids: string[];
+    successful_exchange_ids: string[];
+    live_backed_exchange_ids: string[];
+    failed_exchange_ids: string[];
+    blocked_exchange_ids: string[];
+    unavailable_exchange_ids: string[];
     exchange_results: Record<string, {
       fetched_ticker_count: number;
       matched_ticker_count: number;
       accepted_ticker_rows: number;
       rejected_ticker_rows: number;
       rejection_reasons: Record<string, number>;
+      failed_kind: string | null;
       failed_reason: string | null;
     }>;
   };
@@ -439,6 +448,14 @@ export function createMarketDataRuntimeState(providerIds: string[] = []): Market
     },
     exchangeTickerIngestion: {
       last_refresh_at: null,
+      configured_exchange_ids: providerIds,
+      attempted_exchange_ids: [],
+      promotion_attempted_exchange_ids: [],
+      successful_exchange_ids: [],
+      live_backed_exchange_ids: [],
+      failed_exchange_ids: [],
+      blocked_exchange_ids: [],
+      unavailable_exchange_ids: [],
       exchange_results: {},
     },
     startupPrewarm: {

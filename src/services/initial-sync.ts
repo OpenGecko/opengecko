@@ -17,7 +17,7 @@ function didInitialSyncProduceUsableLiveSnapshots(result: InitialSyncResult) {
 }
 
 const STARTUP_EXCHANGE_METADATA_BUDGET_MS = 3_000;
-const PRIORITIZED_STARTUP_TICKER_RESCUE_EXCHANGES = ['binance', 'coinbase', 'okx', 'kraken'] as const;
+const PRIORITIZED_STARTUP_TICKER_RESCUE_EXCHANGES = ['coinbase', 'kraken', 'okx', 'gate', 'binance', 'bybit'] as const;
 
 const EXCHANGE_METADATA_OVERRIDES: Record<string, Partial<typeof exchanges.$inferInsert>> = {
   binance: {
@@ -387,6 +387,24 @@ export async function runInitialMarketSync(
     } else if (broadMarketRefreshError) {
       throw broadMarketRefreshError;
     }
+  }
+
+  if (runtimeState?.exchangeTickerIngestion) {
+    const metadataFailedExchangeIds = exchangeMetadataFailures.map((failure) => failure.exchangeId);
+    runtimeState.exchangeTickerIngestion = {
+      ...runtimeState.exchangeTickerIngestion,
+      configured_exchange_ids: exchangeIds,
+      promotion_attempted_exchange_ids: exchangeIds,
+      failed_exchange_ids: [...new Set([
+        ...runtimeState.exchangeTickerIngestion.failed_exchange_ids,
+        ...metadataFailedExchangeIds,
+      ])],
+      unavailable_exchange_ids: [...new Set([
+        ...runtimeState.exchangeTickerIngestion.unavailable_exchange_ids,
+        ...metadataFailedExchangeIds,
+        ...runtimeState.exchangeTickerIngestion.blocked_exchange_ids,
+      ])],
+    };
   }
 
   // Step 4: Count only rows refreshed during this initial sync. Residual

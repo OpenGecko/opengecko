@@ -1282,7 +1282,12 @@ export function buildDataQualityDiagnostics(
       ?? coverageByFamily.get(config.fallbackCoverageFamily ?? '');
     const sourceState = sourceStateForOwnership(coverageEntry?.ownership_class);
     const freshness = freshnessScore(coverageEntry, sourceState);
-    const runtimeAffected = runtimeAffectsFamily(runtimeDiagnostics, config.runtimeFamilyIds);
+    const hasAlternateFreshLiveCoverage = sourceState === 'live'
+      && coverageEntry?.freshness.state === 'fresh'
+      && !runtimeDiagnostics.degraded.injected_provider_failure.active
+      && runtimeDiagnostics.degraded.validation_override.mode === 'off';
+    const runtimeAffected = runtimeAffectsFamily(runtimeDiagnostics, config.runtimeFamilyIds)
+      && !hasAlternateFreshLiveCoverage;
     const effectiveSourceState = runtimeAffected && sourceState === 'live' ? 'degraded' as SourceState : sourceState;
     const freshnessBudget = buildFreshnessBudgetRecord(coverageEntry, config.coverageFamily ?? config.fallbackCoverageFamily ?? config.family);
     const effectiveFreshnessBudget = effectiveSourceState === sourceState

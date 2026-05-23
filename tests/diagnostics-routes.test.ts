@@ -494,6 +494,23 @@ describe('diagnostics routes', () => {
     ]));
 
     expect(exchangeDiagnosticsResponse.statusCode).toBe(200);
+    expect(exchangeDiagnosticsResponse.json().data.provider_coverage).toMatchObject({
+      configured_exchange_ids: ['binance', 'coinbase', 'kraken', 'okx'],
+      configured_exchange_count: 4,
+      attempted_exchange_count: 4,
+      promotion_attempted_exchange_count: 4,
+      live_backed_exchange_ids: expect.arrayContaining(['binance']),
+      live_backed_exchange_count: expect.any(Number),
+      minimum_promotion_attempt_count: 12,
+    });
+    expect(exchangeDiagnosticsResponse.json().data.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'binance',
+        attempted: true,
+        live_backed: true,
+        failure_kind: null,
+      }),
+    ]));
     expect(exchangeDiagnosticsResponse.json().data.exchanges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'binance',
@@ -507,6 +524,7 @@ describe('diagnostics routes', () => {
           accepted_ticker_rows: expect.any(Number),
           rejected_ticker_rows: expect.any(Number),
           rejection_reasons: expect.any(Object),
+          failed_kind: null,
         }),
       }),
     ]));

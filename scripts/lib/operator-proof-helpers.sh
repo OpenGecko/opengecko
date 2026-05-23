@@ -207,7 +207,14 @@ require_tool() {
   fi
 }
 
+default_ccxt_exchanges_csv() {
+  local IFS=,
+  printf '%s' "${DEFAULT_LIVE_PROMOTION_CCXT_EXCHANGES[*]}"
+}
+
 write_versions() {
+  local default_ccxt_exchanges
+  default_ccxt_exchanges="$(default_ccxt_exchanges_csv)"
   {
     echo "{"
     echo "  \"timestamp\": $(json_escape "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),"
@@ -226,8 +233,10 @@ write_versions() {
     echo "  \"ports\": [3100, 3102, 3103],"
     echo "  \"runtime_ports\": [3100, 3102, 3103],"
     echo "  \"provider_env\": {"
+    echo "    \"OPEN_GECKO_DISABLE_REPO_DOTENV\": $(json_escape "${OPEN_GECKO_DISABLE_REPO_DOTENV:-1}"),"
     echo "    \"DEFILLAMA_BASE_URL\": $(json_escape "${DEFILLAMA_BASE_URL:-https://coins.llama.fi}"),"
-    echo "    \"CCXT_EXCHANGES\": $(json_escape "${CCXT_EXCHANGES:-coinbase,kraken,okx,kucoin,gateio,bitstamp}"),"
+    echo "    \"CCXT_EXCHANGES\": $(json_escape "${OPENGECKO_OPERATOR_PROOF_CCXT_EXCHANGES:-${default_ccxt_exchanges}}"),"
+    echo "    \"minimum_live_promotion_exchange_attempts\": 12,"
     echo "    \"PROVIDER_FANOUT_CONCURRENCY\": $(json_escape "${PROVIDER_FANOUT_CONCURRENCY:-3}")"
     echo "  },"
     echo "  \"reserved_ports_policy\": \"preflight and post-cleanup checks require mission ports 3100, 3102, and 3103 to be clear; the script refuses to touch unknown listeners\","
@@ -243,9 +252,12 @@ start_server() {
   local db_path="$2"
   local log_path="$3"
   local defillama_base_url="${DEFILLAMA_BASE_URL:-https://coins.llama.fi}"
-  local ccxt_exchanges="${CCXT_EXCHANGES:-coinbase,kraken,okx,kucoin,gateio,bitstamp}"
+  local disable_repo_dotenv="${OPEN_GECKO_DISABLE_REPO_DOTENV:-1}"
+  local default_ccxt_exchanges
+  default_ccxt_exchanges="$(default_ccxt_exchanges_csv)"
+  local ccxt_exchanges="${OPENGECKO_OPERATOR_PROOF_CCXT_EXCHANGES:-${default_ccxt_exchanges}}"
   local provider_fanout_concurrency="${PROVIDER_FANOUT_CONCURRENCY:-3}"
-  local command="HOST=127.0.0.1 PORT=${port} DATABASE_URL=\"${db_path}\" LOG_LEVEL=warn LOG_PRETTY=false DEFILLAMA_BASE_URL=\"${defillama_base_url}\" CCXT_EXCHANGES=\"${ccxt_exchanges}\" PROVIDER_FANOUT_CONCURRENCY=\"${provider_fanout_concurrency}\" bun run serve"
+  local command="HOST=127.0.0.1 PORT=${port} DATABASE_URL=\"${db_path}\" LOG_LEVEL=warn LOG_PRETTY=false OPEN_GECKO_DISABLE_REPO_DOTENV=\"${disable_repo_dotenv}\" DEFILLAMA_BASE_URL=\"${defillama_base_url}\" CCXT_EXCHANGES=\"${ccxt_exchanges}\" PROVIDER_FANOUT_CONCURRENCY=\"${provider_fanout_concurrency}\" bun run serve"
 
   if lsof -ti ":${port}" >/dev/null 2>&1; then
     echo "Port ${port} is already in use; refusing to touch unknown process." >&2
@@ -258,6 +270,7 @@ start_server() {
     DATABASE_URL="${db_path}" \
     LOG_LEVEL=warn \
     LOG_PRETTY=false \
+    OPEN_GECKO_DISABLE_REPO_DOTENV="${disable_repo_dotenv}" \
     DEFILLAMA_BASE_URL="${defillama_base_url}" \
     CCXT_EXCHANGES="${ccxt_exchanges}" \
     PROVIDER_FANOUT_CONCURRENCY="${provider_fanout_concurrency}" \
@@ -459,21 +472,45 @@ has_recent_ohlc_points() {
   ' "$file" >/dev/null 2>&1
 }
 
+select_source_backed_exchange_id() {
+  local diagnostics_file="$1"
+  local fallback="${2:-binance}"
+  local selected
+
+  selected="$(jq -r '
+    first(([
+      (.data.exchanges[]? | select((.ticker_evidence.live_row_count // 0) > 0) | .id),
+      .data.provider_coverage.live_backed_exchange_ids[0],
+      .data.provider_coverage.successful_exchange_ids[0]
+    ] | map(select(type == "string" and length > 0)))[]) // empty
+  ' "$diagnostics_file" 2>/dev/null)"
+
+  if [[ -n "$selected" && "$selected" != "null" ]]; then
+    printf '%s' "$selected"
+    return 0
+  fi
+
+  printf '%s' "$fallback"
+}
+
 write_cross_overlap_evidence() {
   local coin="$1"
   local prefix="$2"
+  local exchange_id="$3"
 
   jq -n \
     --arg coin "$coin" \
+    --arg exchange_id "$exchange_id" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg market_route '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' \
     --arg coin_tickers_route "/coins/${coin}/tickers?depth=true&include_exchange_logo=false&page=1" \
-    --arg exchange_tickers_route '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' \
+    --arg exchange_tickers_route "/exchanges/${exchange_id}/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1" \
     --arg market_chart_route "/coins/${coin}/market_chart?vs_currency=usd&days=1" \
     --arg ohlc_route "/coins/${coin}/ohlc?vs_currency=usd&days=1" \
     --slurpfile markets "${SAMPLES_DIR}/${prefix}-markets.json" \
     --slurpfile coin_tickers "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" \
     --slurpfile exchange_tickers "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" \
+    --slurpfile exchange_diagnostics "${SAMPLES_DIR}/${prefix}-exchange-diagnostics.json" \
     --slurpfile market_chart "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
     --slurpfile ohlc "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json" \
     --slurpfile runtime "${SAMPLES_DIR}/${prefix}-runtime.json" \
@@ -481,6 +518,7 @@ write_cross_overlap_evidence() {
     '{
       generated_at: $generated_at,
       matched_coin_id: $coin,
+      matched_exchange_id: $exchange_id,
       routes: {
         markets: $market_route,
         coin_tickers: $coin_tickers_route,
@@ -488,6 +526,7 @@ write_cross_overlap_evidence() {
         market_chart: $market_chart_route,
         ohlc: $ohlc_route,
         runtime_diagnostics: "/diagnostics/runtime",
+        exchange_diagnostics: "/diagnostics/exchanges",
         chart_diagnostics: "/diagnostics/market_charts"
       },
       readiness: {
@@ -501,6 +540,7 @@ write_cross_overlap_evidence() {
         markets: $markets[0],
         coin_tickers: $coin_tickers[0],
         exchange_tickers: $exchange_tickers[0],
+        exchange_diagnostics: $exchange_diagnostics[0],
         market_chart: $market_chart[0],
         ohlc: $ohlc[0],
         runtime_diagnostics: $runtime[0],
@@ -518,11 +558,14 @@ wait_for_cross_overlap_readiness() {
 
   while true; do
     capture_get "$port" "${prefix}-runtime" '/diagnostics/runtime' 200 || true
+    capture_get "$port" "${prefix}-exchange-diagnostics" '/diagnostics/exchanges' 200 || true
     capture_get "$port" "${prefix}-chart-diagnostics" '/diagnostics/market_charts' 200 || true
     capture_get "$port" "${prefix}-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' 200 || true
     capture_get "$port" "${prefix}-bitcoin-coin-tickers" '/coins/bitcoin/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
     capture_get "$port" "${prefix}-ethereum-coin-tickers" '/coins/ethereum/tickers?depth=true&include_exchange_logo=false&page=1' 200 || true
-    capture_get "$port" "${prefix}-exchange-tickers" '/exchanges/binance/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1' 200 || true
+    local exchange_id
+    exchange_id="$(select_source_backed_exchange_id "${SAMPLES_DIR}/${prefix}-exchange-diagnostics.json" "coinbase")"
+    capture_get "$port" "${prefix}-exchange-tickers" "/exchanges/${exchange_id}/tickers?coin_ids=bitcoin,ethereum&depth=true&page=1" 200 || true
     capture_get "$port" "${prefix}-bitcoin-market-chart" '/coins/bitcoin/market_chart?vs_currency=usd&days=1' 200 || true
     capture_get "$port" "${prefix}-ethereum-market-chart" '/coins/ethereum/market_chart?vs_currency=usd&days=1' 200 || true
     capture_get "$port" "${prefix}-bitcoin-ohlc" '/coins/bitcoin/ohlc?vs_currency=usd&days=1' 200 || true
@@ -533,7 +576,7 @@ wait_for_cross_overlap_readiness() {
         && { has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-${coin}-coin-tickers.json" "$coin" || has_finite_ticker_coin "${SAMPLES_DIR}/${prefix}-exchange-tickers.json" "$coin"; } \
         && has_recent_chart_points "${SAMPLES_DIR}/${prefix}-${coin}-market-chart.json" \
         && has_recent_ohlc_points "${SAMPLES_DIR}/${prefix}-${coin}-ohlc.json"; then
-        write_cross_overlap_evidence "$coin" "$prefix"
+        write_cross_overlap_evidence "$coin" "$prefix" "$exchange_id"
         record_command "wait-cross-overlap-readiness-${port}" "curl priority BTC/ETH markets, tickers, chart, OHLC until one live/source-backed overlap is finite" 0
         return 0
       fi
@@ -726,6 +769,117 @@ run_hot_route_consistency_check_serially() {
   return 0
 }
 
+write_live_promotion_evidence() {
+  local port="$1"
+  local prefix="$2"
+  local configured_csv
+  configured_csv="${OPENGECKO_OPERATOR_PROOF_CCXT_EXCHANGES:-$(default_ccxt_exchanges_csv)}"
+
+  capture_get "$port" "${prefix}-live-promotion-runtime" '/diagnostics/runtime' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-exchanges" '/diagnostics/exchanges' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-data-quality" '/diagnostics/data_quality' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-coverage" '/diagnostics/coverage_matrix' 200 || true
+  capture_get "$port" "${prefix}-live-promotion-onchain" '/diagnostics/onchain' 200 || true
+
+  jq -n \
+    --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg configured_csv "$configured_csv" \
+    --slurpfile runtime "${SAMPLES_DIR}/${prefix}-live-promotion-runtime.json" \
+    --slurpfile exchanges "${SAMPLES_DIR}/${prefix}-live-promotion-exchanges.json" \
+    --slurpfile quality "${SAMPLES_DIR}/${prefix}-live-promotion-data-quality.json" \
+    --slurpfile coverage "${SAMPLES_DIR}/${prefix}-live-promotion-coverage.json" \
+    --slurpfile onchain "${SAMPLES_DIR}/${prefix}-live-promotion-onchain.json" \
+    '
+      ($configured_csv | split(",") | map(select(length > 0))) as $configured_ids
+      | ($exchanges[0].data.provider_coverage // {}) as $exchange_coverage
+      | ($exchanges[0].data.providers // []) as $exchange_providers
+      | ($quality[0].data.families // []) as $families
+      | ($coverage[0].data.entries // []) as $coverage_entries
+      | ($families | map(select(.family == "simple"))[0] // {}) as $simple
+      | ($families | map(select(.family == "coins"))[0] // {}) as $coins
+      | ($families | map(select(.family == "exchanges"))[0] // {}) as $exchange_family
+      | ($families | map(select(.family == "onchain"))[0] // {}) as $onchain_family
+      | ($coverage_entries | map(select(.family == "simple"))[0] // {}) as $simple_coverage
+      | ($coverage_entries | map(select(.family == "coins_markets"))[0] // {}) as $coins_coverage
+      | ($families | map(select((.source.state // "") == "live" and (((.source.ownership_class // "") != "live") or ((.source.fallback // false) == true))))) as $non_live_overclaims
+      | ($exchange_providers | map(select((.failed // false) == true or (.blocked // false) == true))) as $blocked_or_unavailable_providers
+      | {
+          generated_at: $generated_at,
+          assertions: ["VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006"],
+          exchange_attempts: {
+            configured_exchange_ids: ($exchange_coverage.configured_exchange_ids // $configured_ids),
+            configured_exchange_count: ($exchange_coverage.configured_exchange_count // ($configured_ids | length)),
+            attempted_exchange_ids: ($exchange_coverage.attempted_exchange_ids // []),
+            attempted_exchange_count: ($exchange_coverage.attempted_exchange_count // 0),
+            promotion_attempted_exchange_ids: ($exchange_coverage.promotion_attempted_exchange_ids // $exchange_coverage.attempted_exchange_ids // []),
+            promotion_attempted_exchange_count: ($exchange_coverage.promotion_attempted_exchange_count // $exchange_coverage.attempted_exchange_count // 0),
+            successful_exchange_ids: ($exchange_coverage.successful_exchange_ids // []),
+            successful_exchange_count: ($exchange_coverage.successful_exchange_count // 0),
+            live_backed_exchange_ids: ($exchange_coverage.live_backed_exchange_ids // []),
+            live_backed_exchange_count: ($exchange_coverage.live_backed_exchange_count // 0),
+            failed_exchange_ids: ($exchange_coverage.failed_exchange_ids // []),
+            failed_exchange_count: ($exchange_coverage.failed_exchange_count // 0),
+            blocked_exchange_ids: ($exchange_coverage.blocked_exchange_ids // []),
+            blocked_exchange_count: ($exchange_coverage.blocked_exchange_count // 0),
+            unavailable_exchange_ids: ($exchange_coverage.unavailable_exchange_ids // []),
+            unavailable_exchange_count: ($exchange_coverage.unavailable_exchange_count // 0),
+            minimum_promotion_attempt_count: 12,
+            attempted_minimum_met: (($exchange_coverage.promotion_attempted_exchange_count // $exchange_coverage.attempted_exchange_count // 0) >= 12),
+            source_backed_route: "/diagnostics/exchanges"
+          },
+          blocked_or_unavailable: {
+            provider_count: ($blocked_or_unavailable_providers | length),
+            providers: $blocked_or_unavailable_providers,
+            visible: (($blocked_or_unavailable_providers | length) == 0 or all($blocked_or_unavailable_providers[]; (((.failure_kind // .failure_reason // "") | tostring | length) > 0) or (.attempt_status == "blocked_by_breaker"))),
+            note: "Blocked/unavailable providers are diagnostic facts and never count as live evidence."
+          },
+          hot_market: {
+            simple_state: ($simple.source.state // "unknown"),
+            simple_ownership_class: ($simple.source.ownership_class // "unknown"),
+            simple_freshness_status: ($simple.freshness_budget.status // "unknown"),
+            coins_state: ($coins.source.state // "unknown"),
+            coverage_states: {
+              simple: ($simple_coverage.data_fidelity.source_state // "unknown"),
+              coins_markets: ($coins_coverage.data_fidelity.source_state // "unknown")
+            },
+            source_backed: (($simple.source.state // "") == "live" and ($simple.freshness_budget.counts_as_live_freshness_evidence // false) == true)
+          },
+          exchange_family: {
+            state: ($exchange_family.source.state // "unknown"),
+            ownership_class: ($exchange_family.source.ownership_class // "unknown"),
+            source_backed: (($exchange_coverage.live_backed_exchange_count // 0) > 0),
+            route_evidence: ["/exchanges", "/exchanges/{id}/tickers", "/diagnostics/exchanges"]
+          },
+          onchain_external: {
+            state: ($onchain_family.source.state // "unknown"),
+            ownership_class: ($onchain_family.source.ownership_class // "unknown"),
+            provider_ids: ($onchain_family.source.provider_ids // []),
+            fallback: ($onchain_family.source.fallback // true),
+            honest: (($onchain_family.source.state // "") != "live" or ((($onchain_family.source.provider_ids // []) | length) > 0 and (($onchain_family.source.fallback // true) == false))),
+            diagnostics_sample: $onchain[0].data
+          },
+          live_data_rules: {
+            non_live_overclaims: $non_live_overclaims,
+            fixture_seeded_replay_contract_only_do_not_count_as_live: ($non_live_overclaims | length) == 0,
+            source_states_observed: ($families | map({family, state: .source.state, ownership_class: .source.ownership_class, fallback: .source.fallback}))
+          },
+          raw_samples: {
+            runtime: $runtime[0],
+            exchanges: $exchanges[0],
+            data_quality: $quality[0],
+            coverage: $coverage[0]
+          }
+        }
+    ' > "$LIVE_PROMOTION_FILE"
+
+  assert_jq "live-promotion-attempts-at-least-12" "$LIVE_PROMOTION_FILE" '.exchange_attempts.attempted_minimum_met == true' || true
+  assert_jq "live-promotion-has-live-backed-exchange" "$LIVE_PROMOTION_FILE" '.exchange_attempts.live_backed_exchange_count >= 1' || true
+  assert_jq "live-promotion-blocked-provider-visibility" "$LIVE_PROMOTION_FILE" '.blocked_or_unavailable.visible == true' || true
+  assert_jq "live-promotion-no-non-live-overclaims" "$LIVE_PROMOTION_FILE" '.live_data_rules.fixture_seeded_replay_contract_only_do_not_count_as_live == true' || true
+  assert_jq "live-promotion-hot-market-fresh-live" "$LIVE_PROMOTION_FILE" '.hot_market.source_backed == true' || true
+  assert_jq "live-promotion-onchain-external-honest" "$LIVE_PROMOTION_FILE" '.onchain_external.honest == true' || true
+}
+
 sample_priority_routes() {
   local port="$1"
   local prefix="$2"
@@ -736,13 +890,16 @@ sample_priority_routes() {
   capture_get "$port" "${prefix}-jobs" '/diagnostics/jobs' 200 || true
   capture_get "$port" "${prefix}-cache" '/diagnostics/cache' 200 || true
   capture_get "$port" "${prefix}-coverage" '/diagnostics/coverage_matrix' 200 || true
+  capture_get "$port" "${prefix}-exchange-diagnostics" '/diagnostics/exchanges' 200 || true
   capture_get "$port" "${prefix}-chart-diagnostics" '/diagnostics/market_charts' 200 || true
+  local exchange_id
+  exchange_id="$(select_source_backed_exchange_id "${SAMPLES_DIR}/${prefix}-exchange-diagnostics.json" "coinbase")"
   capture_get "$port" "${prefix}-simple-price" '/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_last_updated_at=true' 200 || true
   capture_get "$port" "${prefix}-markets" '/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc&per_page=2&page=1&sparkline=false&price_change_percentage=24h' 200 || true
   capture_get "$port" "${prefix}-coin-detail" '/coins/bitcoin?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false' 200 || true
-  capture_get "$port" "${prefix}-coin-tickers" '/coins/bitcoin/tickers?exchange_ids=binance&depth=true&include_exchange_logo=false&page=1' 200 || true
+  capture_get "$port" "${prefix}-coin-tickers" "/coins/bitcoin/tickers?exchange_ids=${exchange_id}&depth=true&include_exchange_logo=false&page=1" 200 || true
   capture_get "$port" "${prefix}-exchanges" '/exchanges?per_page=5&page=1' 200 || true
-  capture_get "$port" "${prefix}-exchange-tickers" '/exchanges/binance/tickers?coin_ids=bitcoin&depth=true&page=1' 200 || true
+  capture_get "$port" "${prefix}-exchange-tickers" "/exchanges/${exchange_id}/tickers?coin_ids=bitcoin&depth=true&page=1" 200 || true
   capture_get "$port" "${prefix}-market-chart" '/coins/bitcoin/market_chart?vs_currency=usd&days=1' 200 || true
   capture_get "$port" "${prefix}-ohlc" '/coins/bitcoin/ohlc?vs_currency=usd&days=1' 200 || true
 
@@ -765,6 +922,7 @@ write_summary() {
     --arg port_checks_file "$PORT_CHECKS_FILE" \
     --arg server_lifecycle_file "$SERVER_LIFECYCLE_FILE" \
     --arg cross_overlap_file "$CROSS_OVERLAP_FILE" \
+    --arg live_promotion_file "$LIVE_PROMOTION_FILE" \
     --arg smoke_executed_file "$SMOKE_EXECUTED_FILE" \
     --arg smoke_skipped_file "$SMOKE_SKIPPED_FILE" \
     --arg samples_dir "$SAMPLES_DIR" \
@@ -778,13 +936,14 @@ write_summary() {
       port_checks_file: $port_checks_file,
       server_lifecycle_file: $server_lifecycle_file,
       cross_overlap_file: $cross_overlap_file,
+      live_promotion_file: $live_promotion_file,
       smoke_executed_file: $smoke_executed_file,
       smoke_skipped_file: $smoke_skipped_file,
       samples_dir: $samples_dir,
       failures: $failures,
       exit_code: $exit_code,
       states: ["first_run_ready", "healthy", "degraded_but_serving", "recovered"],
-      assertions: ["VAL-CROSS-001", "VAL-CROSS-002", "VAL-CROSS-003", "VAL-CROSS-004", "VAL-CROSS-005", "VAL-CROSS-006", "VAL-CROSS-007", "VAL-CROSS-008", "VAL-CROSS-009", "VAL-CROSS-010", "VAL-CROSS-011"]
+      assertions: ["VAL-CROSS-001", "VAL-CROSS-002", "VAL-CROSS-003", "VAL-CROSS-004", "VAL-CROSS-005", "VAL-CROSS-006", "VAL-CROSS-007", "VAL-CROSS-008", "VAL-CROSS-009", "VAL-CROSS-010", "VAL-CROSS-011", "VAL-LIVE-001", "VAL-LIVE-002", "VAL-LIVE-003", "VAL-LIVE-004", "VAL-LIVE-005", "VAL-LIVE-006"]
     }' > "$SUMMARY_FILE"
 }
 

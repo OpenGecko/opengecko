@@ -24,9 +24,11 @@ SMOKE_EXECUTED_FILE="${PROOF_ROOT}/smoke-modules-executed.jsonl"
 SMOKE_SKIPPED_FILE="${PROOF_ROOT}/smoke-modules-skipped.jsonl"
 PORT_CHECKS_FILE="${PROOF_ROOT}/port-checks.jsonl"
 CROSS_OVERLAP_FILE="${PROOF_ROOT}/cross-overlap-readiness.json"
+LIVE_PROMOTION_FILE="${PROOF_ROOT}/live-promotion-evidence.json"
 RESERVED_PORTS=(3100 3102 3103)
 DEFAULT_SMOKE_MODULES=(exchanges)
 ALL_SMOKE_MODULES=(simple coins exchanges global search assets treasury onchain)
+DEFAULT_LIVE_PROMOTION_CCXT_EXCHANGES=(coinbase kraken okx gate mexc bitget bigone kucoin htx bitmart lbank whitebit coinex ascendex binance bybit)
 # Startup proof command fragments intentionally use:
 # PORT=3100
 # PORT=3102
@@ -73,6 +75,7 @@ main() {
   capture_post 3100 "normal-control-provider-failure-hidden" '/diagnostics/runtime/provider_failure' '{"active":true}' 404 || true
   capture_post 3100 "normal-control-degraded-hidden" '/diagnostics/runtime/degraded_state' '{"mode":"degraded_seeded_bootstrap"}' 404 || true
   sample_priority_routes 3100 healthy
+  write_live_promotion_evidence 3100 healthy
   assert_server_running 3100 "after-priority-routes" || true
   run_hot_route_consistency_check_serially "http://127.0.0.1:3100"
   assert_server_running 3100 "after-hot-route-consistency" || true

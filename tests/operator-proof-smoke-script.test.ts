@@ -43,8 +43,11 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('PORT=3102');
     expect(contract).toContain('PORT=3103');
     expect(contract).toContain('DEFILLAMA_BASE_URL="${defillama_base_url}"');
+    expect(contract).toContain('OPEN_GECKO_DISABLE_REPO_DOTENV="${disable_repo_dotenv}"');
     expect(contract).toContain('CCXT_EXCHANGES="${ccxt_exchanges}"');
     expect(contract).toContain('PROVIDER_FANOUT_CONCURRENCY="${provider_fanout_concurrency}"');
+    expect(contract).toContain('DEFAULT_LIVE_PROMOTION_CCXT_EXCHANGES=(coinbase kraken okx gate mexc bitget bigone kucoin htx bitmart lbank whitebit coinex ascendex binance bybit)');
+    expect(contract).toContain('minimum_live_promotion_exchange_attempts');
     expect(contract).toContain('RESERVED_PORTS=(3100 3102 3103)');
     expect(contract).not.toContain('RESERVED_PORTS=(3100 3101 3102)');
     expect(contract).toContain('check_reserved_ports_clear "preflight"');
@@ -100,11 +103,31 @@ describe('operator proof smoke script contract', () => {
     expect(contract).toContain('/coins/markets?vs_currency=usd&ids=bitcoin,ethereum');
     expect(contract).toContain('/coins/bitcoin/tickers?depth=true');
     expect(contract).toContain('/coins/ethereum/tickers?depth=true');
-    expect(contract).toContain('/exchanges/binance/tickers?coin_ids=bitcoin,ethereum');
+    expect(contract).toContain('select_source_backed_exchange_id');
+    expect(contract).toContain('/exchanges/${exchange_id}/tickers?coin_ids=bitcoin,ethereum');
     expect(contract).toContain('/coins/bitcoin/market_chart?vs_currency=usd&days=1');
     expect(contract).toContain('/coins/bitcoin/ohlc?vs_currency=usd&days=1');
     expect(contract).toContain('provider_variability_classified_by_diagnostics');
     expect(contract).toContain('finite BTC/ETH market, ticker, chart, and OHLC overlap was not ready within proof window');
+  });
+
+  it('writes live-promotion evidence for reachable exchange, hot market, onchain, and blocked-provider assertions', () => {
+    const script = readFileSync(SCRIPT_PATH, 'utf8');
+    const helpers = readFileSync(HELPERS_PATH, 'utf8');
+    const contract = `${script}\n${helpers}`;
+
+    expect(contract).toContain('LIVE_PROMOTION_FILE="${PROOF_ROOT}/live-promotion-evidence.json"');
+    expect(contract).toContain('write_live_promotion_evidence 3100 healthy');
+    expect(contract).toContain('VAL-LIVE-001');
+    expect(contract).toContain('VAL-LIVE-006');
+    expect(contract).toContain('attempted_exchange_count');
+    expect(contract).toContain('live_backed_exchange_count');
+    expect(contract).toContain('fixture_seeded_replay_contract_only_do_not_count_as_live');
+    expect(contract).toContain('live-promotion-attempts-at-least-12');
+    expect(contract).toContain('live-promotion-blocked-provider-visibility');
+    expect(contract).toContain('live-promotion-hot-market-fresh-live');
+    expect(contract).toContain('live-promotion-onchain-external-honest');
+    expect(contract).toContain('live_promotion_file');
   });
 
   it('exposes reusable helpers for port checks, command logs, samples, jq assertions, bundles, and module execution', () => {
@@ -123,6 +146,9 @@ describe('operator proof smoke script contract', () => {
       'assert_jq',
       'write_summary',
       'write_versions',
+      'default_ccxt_exchanges_csv',
+      'select_source_backed_exchange_id',
+      'write_live_promotion_evidence',
       'run_smoke_modules_serially',
       'run_data_quality_gate_serially',
       'data_quality_gate_failure_is_pending_scope',
