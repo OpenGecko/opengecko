@@ -309,6 +309,7 @@ describe('Tier 1 onchain background sweepers', () => {
       });
       expect(fetchCalls).toBe(1);
 
+      vi.useFakeTimers({ now: new Date('2026-05-05T00:06:30.000Z') });
       const runtimeDuringFailure = await app.inject({
         method: 'GET',
         url: '/diagnostics/runtime',
@@ -352,6 +353,7 @@ describe('Tier 1 onchain background sweepers', () => {
       const breakerEntry = app.marketDataRuntimeState.providerBreakers?.providers.defillama;
       expect(breakerEntry).toBeDefined();
       breakerEntry!.openedUntil = Date.parse('2026-05-05T00:06:59.000Z');
+      vi.setSystemTime(new Date('2026-05-05T00:07:00.000Z'));
 
       await expect(runDefillamaPoolSweep(app.db, {
         now: new Date('2026-05-05T00:07:00.000Z'),
@@ -384,6 +386,7 @@ describe('Tier 1 onchain background sweepers', () => {
         method: 'GET',
         url: '/diagnostics/runtime',
       });
+      const runtimeAfterRecoveryBody = runtimeAfterRecovery.json();
       expect(runtimeAfterRecovery.json().data.providers).toEqual(expect.arrayContaining([
         expect.objectContaining({
           id: 'defillama',
@@ -391,10 +394,36 @@ describe('Tier 1 onchain background sweepers', () => {
           failure_count: 0,
           failure_kind: null,
           last_failure_reason: null,
-          last_success_at: expect.any(String),
+          last_success_at: '2026-05-05T00:07:00.000Z',
         }),
       ]));
-      expect(runtimeAfterRecovery.json().data.readiness.canonical_phase).not.toBe('provider_degraded');
+      expect(runtimeAfterRecoveryBody.data.provider_attempts.recent_outcomes[0]).toMatchObject({
+        provider: 'defillama',
+        family: 'onchain',
+        outcome: 'successful',
+        started_at: '2026-05-05T00:07:00.000Z',
+        finished_at: '2026-05-05T00:07:00.000Z',
+        duration_ms: 0,
+      });
+      expect(runtimeAfterRecoveryBody.data.readiness.canonical_phase).not.toBe('provider_degraded');
+
+      const dataQualityAfterRecovery = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/data_quality',
+      });
+      const recoveredOnchainQuality = dataQualityAfterRecovery.json().data.families.find((family: { family: string }) => family.family === 'onchain');
+      expect(recoveredOnchainQuality.evidence.runtime_degradation).toEqual({
+        active: false,
+        reason_codes: [],
+        reason: null,
+      });
+      expect(recoveredOnchainQuality.reason_codes).not.toEqual(expect.arrayContaining([
+        'provider_blocked',
+        'provider_error',
+        'provider_degraded',
+        'regional_block',
+        'runtime_degraded',
+      ]));
 
       const metrics = await app.inject({
         method: 'GET',
@@ -405,6 +434,7 @@ describe('Tier 1 onchain background sweepers', () => {
       expect(metrics.body).toContain('opengecko_provider_attempts_total{family="onchain",outcome="blocked_unavailable",provider="defillama"} 1');
       expect(metrics.body).toContain('opengecko_provider_attempts_total{family="onchain",outcome="breaker_open",provider="defillama"} 1');
     } finally {
+      vi.useRealTimers();
       await app.close();
     }
   });

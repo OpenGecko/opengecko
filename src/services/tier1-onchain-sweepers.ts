@@ -281,15 +281,15 @@ async function runDefillamaProviderAttempt<T>(
 
     const value = await operation();
     if (providerBreakers) {
-      recordProviderSuccess(providerBreakers, DEFILLAMA_PROVIDER_ID, Date.now());
+      recordProviderSuccess(providerBreakers, DEFILLAMA_PROVIDER_ID, nowMs);
     }
     if (providerHadFailure) {
       options.metrics?.recordProviderRecovery(DEFILLAMA_PROVIDER_ID);
     }
     if (options.runtimeState) {
-      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', null);
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', null, nowMs);
     }
-    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', Date.now() - startedAt);
+    options.metrics?.recordProviderAttemptEnd(DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, 'successful', nowMs - startedAt);
     return { status: 'success', value };
   } catch (error) {
     const classifiedFailure = classifyProviderFailure(error);
@@ -298,19 +298,19 @@ async function runDefillamaProviderAttempt<T>(
       recordProviderFailure(
         providerBreakers,
         DEFILLAMA_PROVIDER_ID,
-        Date.now(),
+        nowMs,
         error instanceof Error ? error.message : String(error),
       );
     }
     options.metrics?.recordProviderPartialFailure(DEFILLAMA_PROVIDER_ID);
     if (options.runtimeState) {
-      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, outcome, classifiedFailure.reason);
+      finishProviderAttempt(options.runtimeState, DEFILLAMA_PROVIDER_ID, DEFILLAMA_PROVIDER_FAMILY, outcome, classifiedFailure.reason, nowMs);
     }
     options.metrics?.recordProviderAttemptEnd(
       DEFILLAMA_PROVIDER_ID,
       DEFILLAMA_PROVIDER_FAMILY,
       toMetricProviderOutcome(outcome),
-      Date.now() - startedAt,
+      nowMs - startedAt,
     );
     throw new Error(classifiedFailure.reason, { cause: error });
   }
