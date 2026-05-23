@@ -119,6 +119,8 @@ describe('chart route invariants', () => {
       },
       startBackgroundJobs: false,
     });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-21T00:00:00.000Z'));
 
     mockedFetchExchangeOHLCV.mockResolvedValueOnce([
       {
@@ -182,6 +184,7 @@ describe('chart route invariants', () => {
         refreshTargets: vi.fn().mockResolvedValue(undefined),
       });
       await runtime.tick(new Date('2026-03-21T00:00:00.000Z'));
+      vi.useRealTimers();
 
       const chartResponse = await app.inject({
         method: 'GET',
@@ -223,6 +226,7 @@ describe('chart route invariants', () => {
       });
     } finally {
       await app.close();
+      vi.useRealTimers();
     }
   });
 

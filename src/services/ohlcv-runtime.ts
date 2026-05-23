@@ -789,6 +789,7 @@ export function createOhlcvRuntime(
             nextOldestSyncedAt = deriveOhlcvOldestSyncedAt(leased, historicalCandles);
           }
 
+          const completedAt = new Date();
           (overrides.markOhlcvTargetSuccess ?? markOhlcvTargetSuccess)(database, {
             coinId: leased.coinId,
             exchangeId: leased.exchangeId,
@@ -797,19 +798,20 @@ export function createOhlcvRuntime(
             vsCurrency: leased.vsCurrency,
             latestSyncedAt: nextLatestSyncedAt,
             oldestSyncedAt: nextOldestSyncedAt,
-            completedAt: now,
+            completedAt,
             leaseOwner: leased.leaseOwner,
             leaseToken: leased.leaseToken,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          const failedAt = new Date();
           (overrides.markOhlcvTargetFailure ?? markOhlcvTargetFailure)(database, {
             coinId: leased.coinId,
             exchangeId: leased.exchangeId,
             symbol: leased.symbol,
             interval: leased.interval,
             vsCurrency: leased.vsCurrency,
-            failedAt: now,
+            failedAt,
             error: message,
             leaseOwner: leased.leaseOwner,
             leaseToken: leased.leaseToken,

@@ -399,6 +399,7 @@ describe('ohlcv runtime', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-retry-'));
     const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));
     const now = new Date('2026-03-23T00:00:00.000Z');
+    vi.setSystemTime(now);
 
     try {
       migrateDatabase(database);
@@ -466,6 +467,162 @@ describe('ohlcv runtime', () => {
         due: 0,
         backoff: 0,
       });
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not clear a lease when provider work outlives the lease ttl before completion', async () => {
+    vi.setSystemTime(new Date('2026-03-23T00:00:00.000Z'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-lease-success-'));
+    const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));
+
+    try {
+      migrateDatabase(database);
+      seedStaticReferenceData(database);
+      database.db.insert(coins).values({
+        id: 'bitcoin',
+        symbol: 'btc',
+        name: 'Bitcoin',
+        apiSymbol: 'bitcoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 1,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-22T00:00:00.000Z'),
+      }).onConflictDoNothing().run();
+      database.db.insert(ohlcvSyncTargets).values({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+        targetHistoryDays: 30,
+        status: 'running',
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: null,
+        lastError: null,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastRequestedAt: null,
+        leaseOwner: 'worker-a',
+        leaseToken: 'lease-a',
+        leaseAcquiredAt: new Date('2026-03-23T00:00:00.000Z'),
+        leaseExpiresAt: new Date('2026-03-23T00:00:30.000Z'),
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-23T00:00:00.000Z'),
+      }).run();
+
+      const leased = database.db.select().from(ohlcvSyncTargets).all()[0];
+      const runtime = createOhlcvRuntime(database, { ccxtExchanges: ['binance'] }, logger, {
+        refreshTargets: vi.fn().mockResolvedValue(undefined),
+        leaseNextOhlcvTarget: vi.fn().mockReturnValue(leased),
+        syncRecentOhlcvWindow: vi.fn().mockImplementation(async () => {
+          vi.setSystemTime(new Date('2026-03-23T00:01:00.000Z'));
+          return [{ timestamp: Date.parse('2026-03-22T00:00:00.000Z') }];
+        }),
+        deepenHistoricalOhlcvWindow: vi.fn().mockResolvedValue([]),
+      });
+
+      await runtime.tick(new Date('2026-03-23T00:00:00.000Z'));
+
+      const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+      expect(row.status).toBe('running');
+      expect(row.lastSuccessAt).toBeNull();
+      expect(row.leaseOwner).toBe('worker-a');
+      expect(row.leaseToken).toBe('lease-a');
+      expect(row.latestSyncedAt?.toISOString()).toBe('2026-03-21T00:00:00.000Z');
+    } finally {
+      database.client.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not fail and clear a lease when provider work outlives the lease ttl before failure', async () => {
+    vi.setSystemTime(new Date('2026-03-23T00:00:00.000Z'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'opengecko-ohlcv-runtime-lease-failure-'));
+    const database: AppDatabase = createDatabase(join(tempDir, 'test.db'));
+
+    try {
+      migrateDatabase(database);
+      seedStaticReferenceData(database);
+      database.db.insert(coins).values({
+        id: 'bitcoin',
+        symbol: 'btc',
+        name: 'Bitcoin',
+        apiSymbol: 'bitcoin',
+        hashingAlgorithm: null,
+        blockTimeInMinutes: null,
+        categoriesJson: '[]',
+        descriptionJson: '{}',
+        linksJson: '{}',
+        imageThumbUrl: null,
+        imageSmallUrl: null,
+        imageLargeUrl: null,
+        marketCapRank: 1,
+        genesisDate: null,
+        platformsJson: '{}',
+        status: 'active',
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-22T00:00:00.000Z'),
+      }).onConflictDoNothing().run();
+      database.db.insert(ohlcvSyncTargets).values({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-03-21T00:00:00.000Z'),
+        targetHistoryDays: 30,
+        status: 'running',
+        lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastSuccessAt: null,
+        lastError: null,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastRequestedAt: null,
+        leaseOwner: 'worker-a',
+        leaseToken: 'lease-a',
+        leaseAcquiredAt: new Date('2026-03-23T00:00:00.000Z'),
+        leaseExpiresAt: new Date('2026-03-23T00:00:30.000Z'),
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-23T00:00:00.000Z'),
+      }).run();
+
+      const leased = database.db.select().from(ohlcvSyncTargets).all()[0];
+      const runtime = createOhlcvRuntime(database, { ccxtExchanges: ['binance'] }, logger, {
+        refreshTargets: vi.fn().mockResolvedValue(undefined),
+        leaseNextOhlcvTarget: vi.fn().mockReturnValue(leased),
+        syncRecentOhlcvWindow: vi.fn().mockImplementation(async () => {
+          vi.setSystemTime(new Date('2026-03-23T00:01:00.000Z'));
+          throw new Error('provider timeout');
+        }),
+        deepenHistoricalOhlcvWindow: vi.fn().mockResolvedValue([]),
+      });
+
+      await runtime.tick(new Date('2026-03-23T00:00:00.000Z'));
+
+      const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+      expect(row.status).toBe('running');
+      expect(row.failureCount).toBe(0);
+      expect(row.lastError).toBeNull();
+      expect(row.leaseOwner).toBe('worker-a');
+      expect(row.leaseToken).toBe('lease-a');
     } finally {
       database.client.close();
       rmSync(tempDir, { recursive: true, force: true });

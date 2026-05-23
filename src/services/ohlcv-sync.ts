@@ -95,12 +95,13 @@ function isLeaseActiveForWrite(database: AppDatabase, target: OhlcvSyncTargetLik
   });
 }
 
-function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: FetchedOhlcvCandle[], writeAt: Date) {
+function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, candles: FetchedOhlcvCandle[]) {
   const interval = getSupportedTargetInterval(target);
   const acceptedCandles = candles.filter(hasValidOhlcInvariants);
   const persistedCandles: FetchedOhlcvCandle[] = [];
 
   for (const candle of acceptedCandles) {
+    const writeAt = new Date();
     if (!isLeaseActiveForWrite(database, target, writeAt)) {
       break;
     }
@@ -124,10 +125,10 @@ function persistCandles(database: AppDatabase, target: OhlcvSyncTargetLike, cand
   return createOhlcvSyncResult(candles, acceptedCandles, persistedCandles);
 }
 
-async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike, writeAt: Date) {
+async function repairPersistedGaps(database: AppDatabase, target: OhlcvSyncTargetLike) {
   const interval = getSupportedTargetInterval(target);
   const beforeWrite = hasLeaseGuard(target)
-    ? () => isLeaseActiveForWrite(database, target, writeAt)
+    ? () => isLeaseActiveForWrite(database, target, new Date())
     : undefined;
 
   return repairOhlcvGaps(database, {
@@ -158,8 +159,8 @@ export async function syncRecentOhlcvWindow(database: AppDatabase, target: Ohlcv
   const candles = limit === undefined
     ? await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since)
     : await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  const result = persistCandles(database, target, candles, now);
-  await repairPersistedGaps(database, target, now);
+  const result = persistCandles(database, target, candles);
+  await repairPersistedGaps(database, target);
 
   return result;
 }
@@ -180,8 +181,8 @@ export async function deepenHistoricalOhlcvWindow(database: AppDatabase, target:
   const limit = Math.max(Math.ceil((referenceEnd - since) / intervalMs), 1);
 
   const candles = await fetchExchangeOHLCV(target.exchangeId, target.symbol, interval, since, limit);
-  const result = persistCandles(database, target, candles, now);
-  await repairPersistedGaps(database, target, now);
+  const result = persistCandles(database, target, candles);
+  await repairPersistedGaps(database, target);
 
   return result;
 }
