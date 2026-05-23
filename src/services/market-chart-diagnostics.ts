@@ -1,7 +1,8 @@
 import type { AppDatabase } from '../db/client';
-import { coins, marketChartSourcePoints } from '../db/schema';
+import { coins, marketChartSourcePoints, ohlcvSyncTargets } from '../db/schema';
 import type { ChartResponseSourceCounts, ChartResponseSourceRecentEvent } from './chart-response-source-diagnostics';
 import { parseMarketChartTargetConfig } from './market-chart-sync';
+import { DEFAULT_OHLCV_LEASE_TTL_MS, isOhlcvLeaseExpired } from './ohlcv-scheduling-policy';
 
 type MarketChartSourceRow = typeof marketChartSourcePoints.$inferSelect;
 type ResponseSourceRecentEventSource = ChartResponseSourceRecentEvent['source'];
@@ -121,6 +122,67 @@ function buildCoverageDiagnostics(rows: MarketChartSourceRow[], interval: string
       : sourceCoverageDays >= depthThreshold
         ? 'deep'
         : 'shallow',
+  };
+}
+
+function emptyOhlcvStatusCounts() {
+  return {
+    idle: 0,
+    running: 0,
+    failed: 0,
+  };
+}
+
+function buildOhlcvSyncDiagnosticsForTarget(
+  rows: Array<typeof ohlcvSyncTargets.$inferSelect>,
+  interval: string,
+  now: Date,
+) {
+  const statusCounts = emptyOhlcvStatusCounts();
+  let activeLeaseCount = 0;
+  let staleLeaseCount = 0;
+  let recoveredStaleTotal = 0;
+  let latestSyncedAt: Date | null = null;
+  let oldestSyncedAt: Date | null = null;
+
+  for (const row of rows) {
+    statusCounts[row.status] += 1;
+    if (row.status === 'running') {
+      if (isOhlcvLeaseExpired(row, now)) {
+        staleLeaseCount += 1;
+      } else {
+        activeLeaseCount += 1;
+      }
+    }
+    recoveredStaleTotal += row.leaseRecoveryCount;
+    if (row.latestSyncedAt && (!latestSyncedAt || row.latestSyncedAt.getTime() > latestSyncedAt.getTime())) {
+      latestSyncedAt = row.latestSyncedAt;
+    }
+    if (row.oldestSyncedAt && (!oldestSyncedAt || row.oldestSyncedAt.getTime() < oldestSyncedAt.getTime())) {
+      oldestSyncedAt = row.oldestSyncedAt;
+    }
+  }
+
+  const freshnessThreshold = freshnessThresholdSeconds(interval);
+  const latestAgeSeconds = latestSyncedAt
+    ? Math.max(0, Math.floor((now.getTime() - latestSyncedAt.getTime()) / 1_000))
+    : null;
+
+  return {
+    target_count: rows.length,
+    status_counts: statusCounts,
+    active_leases: activeLeaseCount,
+    stale_leases: staleLeaseCount,
+    recovered_stale_total: recoveredStaleTotal,
+    latest_synced_at: latestSyncedAt?.toISOString() ?? null,
+    oldest_synced_at: oldestSyncedAt?.toISOString() ?? null,
+    latest_age_seconds: latestAgeSeconds,
+    freshness_threshold_seconds: freshnessThreshold,
+    freshness: latestAgeSeconds === null
+      ? 'unknown'
+      : latestAgeSeconds <= freshnessThreshold
+        ? 'fresh'
+        : 'stale',
   };
 }
 
@@ -779,6 +841,7 @@ export function buildMarketChartProviderDiagnostics(
   const configuredTargets = parseMarketChartTargetConfig(configuredTargetText);
   const coinRows = database.db.select().from(coins).all();
   const chartRows = database.db.select().from(marketChartSourcePoints).all();
+  const syncTargetRows = database.db.select().from(ohlcvSyncTargets).all();
 
   const candidateKeys = new Set<string>();
   for (const target of configuredTargets) {
@@ -797,6 +860,8 @@ export function buildMarketChartProviderDiagnostics(
       target.coinId === coinId && target.vsCurrency === vsCurrency && target.interval === interval) ?? null;
     const coin = coinRows.find((row) => row.id === coinId) ?? null;
     const coinChartRows = chartRows.filter((row) =>
+      row.coinId === coinId && row.vsCurrency === vsCurrency && row.interval === interval);
+    const coinSyncTargetRows = syncTargetRows.filter((row) =>
       row.coinId === coinId && row.vsCurrency === vsCurrency && row.interval === interval);
     const liveRows = coinChartRows.filter((row) => row.sourceKind === 'live');
     const replayRows = coinChartRows.filter((row) => row.sourceKind === 'replay');
@@ -828,6 +893,7 @@ export function buildMarketChartProviderDiagnostics(
       },
       latest_source_fetched_at: latestDate(coinChartRows)?.toISOString() ?? null,
       coverage,
+      ohlcv_sync: buildOhlcvSyncDiagnosticsForTarget(coinSyncTargetRows, interval, now),
     };
   });
   const configuredCoinDiagnostics = coinDiagnostics.filter((coin) => coin.configured_provider !== null);
@@ -845,6 +911,7 @@ export function buildMarketChartProviderDiagnostics(
       responseSourceTargetSuggestions?.length ?? 0,
     )
     : null;
+  const configuredOhlcvSyncDiagnostics = configuredCoinDiagnostics.map((coin) => coin.ohlcv_sync);
 
   return {
     configured_targets: configuredTargets.map((target) => ({
@@ -881,6 +948,19 @@ export function buildMarketChartProviderDiagnostics(
         configuredCoinDiagnostics.map((coin) => coin.coverage.depth),
         ['deep', 'shallow', 'empty'],
       ),
+      ohlcv_sync: {
+        target_count: configuredOhlcvSyncDiagnostics.reduce((total, sync) => total + sync.target_count, 0),
+        active_leases: configuredOhlcvSyncDiagnostics.reduce((total, sync) => total + sync.active_leases, 0),
+        stale_leases: configuredOhlcvSyncDiagnostics.reduce((total, sync) => total + sync.stale_leases, 0),
+        recovered_stale_total: configuredOhlcvSyncDiagnostics.reduce((total, sync) => total + sync.recovered_stale_total, 0),
+        stale_targets: configuredCoinDiagnostics
+          .filter((coin) => coin.ohlcv_sync.freshness === 'stale' || coin.ohlcv_sync.stale_leases > 0)
+          .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)),
+        recovered_targets: configuredCoinDiagnostics
+          .filter((coin) => coin.ohlcv_sync.recovered_stale_total > 0)
+          .map((coin) => candidateKey(coin.coin_id, coin.vs_currency, coin.interval)),
+        lease_ttl_seconds: Math.floor(DEFAULT_OHLCV_LEASE_TTL_MS / 1000),
+      },
     },
     response_source_counts: responseSourceCounts ?? null,
     response_source_recent_events: responseSourceRecentEvents ?? null,

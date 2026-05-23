@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { coinTickers, marketChartSourcePoints, ohlcvCandles } from '../src/db/schema';
+import { coinTickers, marketChartSourcePoints, ohlcvCandles, ohlcvSyncTargets } from '../src/db/schema';
+import { createOhlcvRuntime } from '../src/services/ohlcv-runtime';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeOHLCV: vi.fn(),
@@ -17,6 +18,14 @@ import { fetchExchangeOHLCV } from '../src/providers/ccxt';
 const mockedFetchExchangeOHLCV = fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
 
 describe('chart route invariants', () => {
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  };
+
   it('filters malformed provider-filled OHLC rows before persistence and serialization', async () => {
     const app = buildApp({
       config: {
@@ -101,6 +110,122 @@ describe('chart route invariants', () => {
       await app.close();
     }
   });
+
+  it('preserves chart and OHLC route quality after recovering a stale OHLCV lease', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-20T00:00:00.000Z'),
+        open: 90_000,
+        high: 92_000,
+        low: 89_000,
+        close: 91_000,
+        volume: 20,
+        raw: [],
+      },
+      {
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        timeframe: '1d',
+        timestamp: Date.parse('2026-03-21T00:00:00.000Z'),
+        open: 91_000,
+        high: 93_000,
+        low: 90_000,
+        close: 92_000,
+        volume: 30,
+        raw: [],
+      },
+    ]);
+
+    try {
+      await app.ready();
+      app.db.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
+      app.db.db.insert(ohlcvSyncTargets).values({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: new Date('2026-03-19T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2026-03-19T00:00:00.000Z'),
+        targetHistoryDays: 30,
+        status: 'running',
+        lastAttemptAt: new Date('2026-03-20T23:40:00.000Z'),
+        lastSuccessAt: new Date('2026-03-19T00:00:00.000Z'),
+        lastError: null,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastRequestedAt: null,
+        leaseOwner: 'crashed-worker',
+        leaseToken: 'crashed-token',
+        leaseAcquiredAt: new Date('2026-03-20T23:40:00.000Z'),
+        leaseExpiresAt: new Date('2026-03-20T23:55:00.000Z'),
+        leaseRecoveryCount: 0,
+        lastLeaseRecoveredAt: null,
+        lastLeaseRecoveryReason: null,
+        createdAt: new Date('2026-03-20T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-20T23:40:00.000Z'),
+      }).run();
+
+      const runtime = createOhlcvRuntime(app.db, { ccxtExchanges: ['binance'] }, logger, {
+        refreshTargets: vi.fn().mockResolvedValue(undefined),
+      });
+      await runtime.tick(new Date('2026-03-21T00:00:00.000Z'));
+
+      const chartResponse = await app.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1773964800&to=1774051200',
+      });
+      const ohlcResponse = await app.inject({
+        method: 'GET',
+        url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1773964800&to=1774051200',
+      });
+      const ohlcvDiagnostics = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/ohlcv_sync',
+      });
+      const chartDiagnostics = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/market_charts',
+      });
+
+      expect(chartResponse.statusCode).toBe(200);
+      expect(chartResponse.json().prices).toEqual([
+        [1773964800 * 1_000, 91_000],
+        [1774051200 * 1_000, 92_000],
+      ]);
+      expect(ohlcResponse.statusCode).toBe(200);
+      expect(ohlcResponse.json()).toEqual([
+        [1773964800 * 1_000, 90_000, 92_000, 89_000, 91_000],
+        [1774051200 * 1_000, 91_000, 93_000, 90_000, 92_000],
+      ]);
+      expect(ohlcvDiagnostics.json().data.leases).toMatchObject({
+        recovered_stale_total: 1,
+        active: 0,
+        stale: 0,
+      });
+      const bitcoinChartDiagnostics = chartDiagnostics.json().data.coins.find((coin: { coin_id: string }) => coin.coin_id === 'bitcoin');
+      expect(bitcoinChartDiagnostics.ohlcv_sync).toMatchObject({
+        recovered_stale_total: 1,
+        latest_synced_at: '2026-03-21T00:00:00.000Z',
+        freshness: 'stale',
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
 
   it('filters malformed source-backed chart and OHLC rows without changing public response shapes', async () => {
     const app = buildApp({

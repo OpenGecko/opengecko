@@ -707,6 +707,11 @@ describe('ohlcv runtime', () => {
                 targetHistoryDays: 30,
                 failureCount: 0,
                 nextRetryAt: null,
+                lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
+                leaseOwner: 'worker-a',
+                leaseToken: 'lease-a',
+                leaseAcquiredAt: new Date('2026-03-23T00:00:00.000Z'),
+                leaseExpiresAt: new Date('2026-03-23T00:15:00.000Z'),
               },
             ],
           }),
@@ -1435,6 +1440,10 @@ describe('ohlcv runtime', () => {
         lastAttemptAt: new Date('2026-03-23T00:00:00.000Z'),
         lastSuccessAt: new Date('2026-03-22T00:00:00.000Z'),
         lastError: null,
+        leaseOwner: 'worker-a',
+        leaseToken: 'lease-a',
+        leaseAcquiredAt: new Date('2026-03-23T00:00:00.000Z'),
+        leaseExpiresAt: new Date('2026-03-23T00:15:00.000Z'),
       },
     ];
 

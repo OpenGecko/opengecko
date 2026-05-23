@@ -190,6 +190,13 @@
       "when": 1778037600000,
       "tag": "0025_chart_response_source_events",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1778038200000,
+      "tag": "0026_ohlcv_lease_recovery",
+      "breakpoints": true
     }
   ]
 }

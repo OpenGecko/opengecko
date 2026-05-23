@@ -1854,6 +1854,15 @@ describe('diagnostics routes', () => {
         shallow: 1,
         empty: 0,
       },
+      ohlcv_sync: {
+        target_count: 0,
+        active_leases: 0,
+        stale_leases: 0,
+        recovered_stale_total: 0,
+        stale_targets: [],
+        recovered_targets: [],
+        lease_ttl_seconds: 900,
+      },
     });
     expect(freshDiagnostics.gaps.shallow_source_targets).toContain('bitcoin:usd:1d');
     expect(freshDiagnostics.gaps.shallow_source_targets).not.toContain('ethereum:usd:1d');

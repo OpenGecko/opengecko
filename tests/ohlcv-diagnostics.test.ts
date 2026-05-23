@@ -64,6 +64,34 @@ describe('ohlcv diagnostics route', () => {
         retry_scheduled: 3,
         max_target_history_days: 365,
       },
+      leases: {
+        ttl_seconds: 900,
+        active: 2,
+        stale: 1,
+        recoverable: 1,
+        missing_deadline: 0,
+        recovered_stale_total: 4,
+        active_samples: [
+          {
+            coin_id: 'bitcoin',
+            exchange_id: 'binance',
+            symbol: 'BTC/USDT',
+            vs_currency: 'usd',
+            interval: '1d',
+            status: 'running',
+            lease_owner: 'worker-a',
+            lease_acquired_at: '2026-03-23T00:00:00.000Z',
+            lease_expires_at: '2026-03-23T00:15:00.000Z',
+            lease_age_seconds: 60,
+            stale_seconds: 0,
+            recovery_count: 1,
+            last_recovered_at: '2026-03-22T23:00:00.000Z',
+            last_recovery_reason: 'expired_lease_deadline',
+          },
+        ],
+        stale_samples: [],
+        recent_recoveries: [],
+      },
       history: {
         target_depth_days: 365,
         desired_oldest_at: '2025-03-23T00:00:00.000Z',
@@ -290,6 +318,7 @@ describe('ohlcv diagnostics route', () => {
           retry_scheduled: 3,
           max_target_history_days: 365,
         },
+        leases: summary.leases,
         history: summary.history,
       },
     });
@@ -304,6 +333,8 @@ describe('ohlcv diagnostics route', () => {
     expect(response.json().data.backfill.behind).toBeGreaterThanOrEqual(0);
     expect(response.json().data.backfill.retry_scheduled).toBeGreaterThanOrEqual(0);
     expect(response.json().data.backfill.max_target_history_days).toBeGreaterThanOrEqual(0);
+    expect(response.json().data.leases.ttl_seconds).toBe(900);
+    expect(response.json().data.leases.recovered_stale_total).toBe(4);
     expect(response.json().data.history.target_depth_days).toBe(365);
     expect(response.json().data.history.targets_with_any_history).toBeGreaterThanOrEqual(response.json().data.history.targets_at_target_depth);
     expect(response.json().data.history.by_tier.top100).toMatchObject({

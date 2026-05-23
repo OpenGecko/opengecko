@@ -69,6 +69,13 @@ describe('ohlcv worker state', () => {
       failureCount: values.failureCount ?? 0,
       nextRetryAt: values.nextRetryAt ?? null,
       lastRequestedAt: values.lastRequestedAt ?? null,
+      leaseOwner: values.leaseOwner ?? null,
+      leaseToken: values.leaseToken ?? null,
+      leaseAcquiredAt: values.leaseAcquiredAt ?? null,
+      leaseExpiresAt: values.leaseExpiresAt ?? null,
+      leaseRecoveryCount: values.leaseRecoveryCount ?? 0,
+      lastLeaseRecoveredAt: values.lastLeaseRecoveredAt ?? null,
+      lastLeaseRecoveryReason: values.lastLeaseRecoveryReason ?? null,
       createdAt: values.createdAt ?? new Date('2026-03-22T00:00:00.000Z'),
       updatedAt: values.updatedAt ?? new Date('2026-03-22T00:00:00.000Z'),
     }).onConflictDoNothing().run();
@@ -134,6 +141,136 @@ describe('ohlcv worker state', () => {
 
     expect(leased?.coinId).toBe('bitcoin');
     expect(leased?.status).toBe('running');
+    expect(leased?.leaseOwner).toMatch(/^ohlcv-worker:/);
+    expect(leased?.leaseToken).toEqual(expect.any(String));
+    expect(leased?.leaseExpiresAt?.toISOString()).toBe('2026-03-23T00:15:00.000Z');
+  });
+
+  it('prevents overlapping active leases on the same target', () => {
+    seedTarget({ coinId: 'bitcoin', exchangeId: 'binance', symbol: 'BTC/USDT', priorityTier: 'top100' });
+
+    const firstLease = leaseNextOhlcvTarget(database, new Date('2026-03-23T00:00:00.000Z'), {
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+      leaseTtlMs: 10 * 60 * 1000,
+    });
+    const secondLease = leaseNextOhlcvTarget(database, new Date('2026-03-23T00:01:00.000Z'), {
+      leaseOwner: 'worker-b',
+      leaseToken: 'lease-b',
+      leaseTtlMs: 10 * 60 * 1000,
+    });
+
+    const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+
+    expect(firstLease).toMatchObject({
+      coinId: 'bitcoin',
+      status: 'running',
+      leaseOwner: 'worker-a',
+      leaseToken: 'lease-a',
+    });
+    expect(secondLease).toBeNull();
+    expect(row.leaseOwner).toBe('worker-a');
+    expect(row.leaseToken).toBe('lease-a');
+    expect(row.leaseRecoveryCount).toBe(0);
+  });
+
+  it('recovers expired running leases and records recovery diagnostics', () => {
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      priorityTier: 'top100',
+      status: 'running',
+      lastAttemptAt: new Date('2026-03-22T23:40:00.000Z'),
+      leaseOwner: 'crashed-worker',
+      leaseToken: 'crashed-token',
+      leaseAcquiredAt: new Date('2026-03-22T23:40:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-22T23:55:00.000Z'),
+    });
+
+    const recovered = leaseNextOhlcvTarget(database, new Date('2026-03-23T00:00:00.000Z'), {
+      leaseOwner: 'worker-b',
+      leaseToken: 'lease-b',
+      leaseTtlMs: 10 * 60 * 1000,
+    });
+
+    expect(recovered).toMatchObject({
+      coinId: 'bitcoin',
+      status: 'running',
+      leaseOwner: 'worker-b',
+      leaseToken: 'lease-b',
+      leaseRecoveryCount: 1,
+      lastLeaseRecoveryReason: 'expired_lease_deadline',
+    });
+    expect(recovered?.lastLeaseRecoveredAt?.toISOString()).toBe('2026-03-23T00:00:00.000Z');
+    expect(recovered?.leaseExpiresAt?.toISOString()).toBe('2026-03-23T00:10:00.000Z');
+  });
+
+  it('does not let stale workers complete or fail a recovered lease', () => {
+    seedTarget({
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      priorityTier: 'top100',
+      status: 'running',
+      lastAttemptAt: new Date('2026-03-22T23:40:00.000Z'),
+      leaseOwner: 'crashed-worker',
+      leaseToken: 'crashed-token',
+      leaseAcquiredAt: new Date('2026-03-22T23:40:00.000Z'),
+      leaseExpiresAt: new Date('2026-03-22T23:55:00.000Z'),
+    });
+
+    const recovered = leaseNextOhlcvTarget(database, new Date('2026-03-23T00:00:00.000Z'), {
+      leaseOwner: 'worker-b',
+      leaseToken: 'lease-b',
+    });
+
+    const staleSuccess = markOhlcvTargetSuccess(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      latestSyncedAt: new Date('2026-03-23T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2025-03-23T00:00:00.000Z'),
+      completedAt: new Date('2026-03-23T00:01:00.000Z'),
+      leaseOwner: 'crashed-worker',
+      leaseToken: 'crashed-token',
+    });
+    const staleFailure = markOhlcvTargetFailure(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      failedAt: new Date('2026-03-23T00:01:00.000Z'),
+      error: 'late stale worker failure',
+      leaseOwner: 'crashed-worker',
+      leaseToken: 'crashed-token',
+    });
+    const ownerSuccess = markOhlcvTargetSuccess(database, {
+      coinId: 'bitcoin',
+      exchangeId: 'binance',
+      symbol: 'BTC/USDT',
+      interval: '1d',
+      vsCurrency: 'usd',
+      latestSyncedAt: new Date('2026-03-23T00:00:00.000Z'),
+      oldestSyncedAt: new Date('2025-03-23T00:00:00.000Z'),
+      completedAt: new Date('2026-03-23T00:02:00.000Z'),
+      leaseOwner: recovered?.leaseOwner,
+      leaseToken: recovered?.leaseToken,
+    });
+
+    const row = database.db.select().from(ohlcvSyncTargets).all()[0];
+
+    expect(staleSuccess).toBe(false);
+    expect(staleFailure).toBe(false);
+    expect(ownerSuccess).toBe(true);
+    expect(row.status).toBe('idle');
+    expect(row.latestSyncedAt?.toISOString()).toBe('2026-03-23T00:00:00.000Z');
+    expect(row.lastError).toBeNull();
+    expect(row.leaseOwner).toBeNull();
+    expect(row.leaseToken).toBeNull();
   });
 
   it('leases retry-due failed targets before idle targets within the same priority tier', () => {

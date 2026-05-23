@@ -2,6 +2,7 @@ import type { OhlcvSyncTargetRow } from '../db/schema';
 import type { OhlcvPriorityTier } from './ohlcv-targets';
 
 export const OHLCV_DAY_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_OHLCV_LEASE_TTL_MS = 15 * 60 * 1000;
 
 const PRIORITY_RANK: Record<OhlcvPriorityTier, number> = {
   top100: 0,
@@ -32,8 +33,10 @@ export type OhlcvSchedulingTarget = Pick<
   | 'targetHistoryDays'
   | 'status'
   | 'lastSuccessAt'
+  | 'lastAttemptAt'
   | 'updatedAt'
   | 'nextRetryAt'
+  | 'leaseExpiresAt'
 >;
 
 export type OhlcvCursorCandle = {
@@ -60,7 +63,31 @@ export function isOhlcvRecentCoverageCurrentEnough(latestSyncedAt: Date | null, 
   return latestSyncedAt.getTime() >= now.getTime() - OHLCV_DAY_MS;
 }
 
-export function isOhlcvTargetLeaseEligible(target: Pick<OhlcvSchedulingTarget, 'status' | 'nextRetryAt'>, now: Date) {
+export function isOhlcvLeaseExpired(
+  target: Pick<OhlcvSchedulingTarget, 'leaseExpiresAt' | 'lastAttemptAt'>,
+  now: Date,
+  leaseTtlMs = DEFAULT_OHLCV_LEASE_TTL_MS,
+) {
+  if (target.leaseExpiresAt) {
+    return target.leaseExpiresAt.getTime() <= now.getTime();
+  }
+
+  if (!target.lastAttemptAt) {
+    return true;
+  }
+
+  return target.lastAttemptAt.getTime() <= now.getTime() - leaseTtlMs;
+}
+
+export function isOhlcvTargetLeaseEligible(
+  target: Pick<OhlcvSchedulingTarget, 'status' | 'nextRetryAt' | 'leaseExpiresAt' | 'lastAttemptAt'>,
+  now: Date,
+  leaseTtlMs = DEFAULT_OHLCV_LEASE_TTL_MS,
+) {
+  if (target.status === 'running') {
+    return isOhlcvLeaseExpired(target, now, leaseTtlMs);
+  }
+
   return (target.status === 'idle' || target.status === 'failed')
     && (!target.nextRetryAt || target.nextRetryAt.getTime() <= now.getTime());
 }
@@ -114,14 +141,14 @@ export function compareOhlcvLeaseTargets(left: OhlcvSchedulingTarget, right: Ohl
   return left.coinId.localeCompare(right.coinId);
 }
 
-export function rankOhlcvLeaseTargets<T extends OhlcvSchedulingTarget>(targets: readonly T[], now: Date): T[] {
+export function rankOhlcvLeaseTargets<T extends OhlcvSchedulingTarget>(targets: readonly T[], now: Date, leaseTtlMs = DEFAULT_OHLCV_LEASE_TTL_MS): T[] {
   return targets
-    .filter((target) => isOhlcvTargetLeaseEligible(target, now))
+    .filter((target) => isOhlcvTargetLeaseEligible(target, now, leaseTtlMs))
     .sort((left, right) => compareOhlcvLeaseTargets(left, right, now));
 }
 
-export function selectNextOhlcvLeaseTarget<T extends OhlcvSchedulingTarget>(targets: readonly T[], now: Date): T | null {
-  return rankOhlcvLeaseTargets(targets, now)[0] ?? null;
+export function selectNextOhlcvLeaseTarget<T extends OhlcvSchedulingTarget>(targets: readonly T[], now: Date, leaseTtlMs = DEFAULT_OHLCV_LEASE_TTL_MS): T | null {
+  return rankOhlcvLeaseTargets(targets, now, leaseTtlMs)[0] ?? null;
 }
 
 export function deriveOhlcvLatestSyncedAt(

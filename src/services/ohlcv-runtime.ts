@@ -8,8 +8,10 @@ import { buildOhlcvSyncTargets } from './ohlcv-targets';
 import {
   deriveOhlcvLatestSyncedAt,
   deriveOhlcvOldestSyncedAt,
+  DEFAULT_OHLCV_LEASE_TTL_MS,
   getOhlcvTargetHistoricalGapMs,
   getOhlcvTargetRemainingDepthDays,
+  isOhlcvLeaseExpired,
   isOhlcvRecentCoverageCurrentEnough,
   isOhlcvTargetLeaseEligible,
   OHLCV_DAY_MS,
@@ -73,6 +75,23 @@ type OhlcvQueuePriorityCounts = {
   starved_retry_due: number;
 };
 
+type OhlcvLeaseSummarySample = {
+  coin_id: string;
+  exchange_id: string;
+  symbol: string;
+  vs_currency: string;
+  interval: string;
+  status: string;
+  lease_owner: string | null;
+  lease_acquired_at: string | null;
+  lease_expires_at: string | null;
+  lease_age_seconds: number | null;
+  stale_seconds: number | null;
+  recovery_count: number;
+  last_recovered_at: string | null;
+  last_recovery_reason: string | null;
+};
+
 export type OhlcvRuntime = {
   start: () => Promise<void>;
   stop: () => Promise<void>;
@@ -98,6 +117,17 @@ export type OhlcvSyncSummary = {
     behind: number;
     retry_scheduled: number;
     max_target_history_days: number;
+  };
+  leases: {
+    ttl_seconds: number;
+    active: number;
+    stale: number;
+    recoverable: number;
+    missing_deadline: number;
+    recovered_stale_total: number;
+    active_samples: OhlcvLeaseSummarySample[];
+    stale_samples: OhlcvLeaseSummarySample[];
+    recent_recoveries: OhlcvLeaseSummarySample[];
   };
   history: {
     target_depth_days: number;
@@ -181,6 +211,7 @@ export type OhlcvSyncSummary = {
 const DAY_MS = OHLCV_DAY_MS;
 const MOST_BEHIND_SAMPLE_LIMIT = 5;
 const BLOCKED_TARGET_SAMPLE_LIMIT = 5;
+const LEASE_SAMPLE_LIMIT = 5;
 const LAST_ERROR_MAX_LENGTH = 180;
 const RETRY_STARVATION_DUE_AGE_SECONDS = 120;
 const DEPTH_COMPLETE_REMAINING_DAYS = 0;
@@ -318,6 +349,43 @@ function sanitizeLastError(value: string | null) {
     : sanitized;
 }
 
+function leaseAgeSeconds(acquiredAt: Date | null, now: Date) {
+  return acquiredAt
+    ? Math.max(0, Math.floor((now.getTime() - acquiredAt.getTime()) / 1000))
+    : null;
+}
+
+function leaseStaleSeconds(expiresAt: Date | null, lastAttemptAt: Date | null, now: Date) {
+  if (expiresAt) {
+    return Math.max(0, Math.floor((now.getTime() - expiresAt.getTime()) / 1000));
+  }
+
+  if (lastAttemptAt) {
+    return Math.max(0, Math.floor((now.getTime() - lastAttemptAt.getTime() - DEFAULT_OHLCV_LEASE_TTL_MS) / 1000));
+  }
+
+  return null;
+}
+
+function toLeaseSample(row: typeof ohlcvSyncTargets.$inferSelect, now: Date): OhlcvLeaseSummarySample {
+  return {
+    coin_id: row.coinId,
+    exchange_id: row.exchangeId,
+    symbol: row.symbol,
+    vs_currency: row.vsCurrency,
+    interval: row.interval,
+    status: row.status,
+    lease_owner: row.leaseOwner,
+    lease_acquired_at: row.leaseAcquiredAt?.toISOString() ?? null,
+    lease_expires_at: row.leaseExpiresAt?.toISOString() ?? null,
+    lease_age_seconds: leaseAgeSeconds(row.leaseAcquiredAt, now),
+    stale_seconds: leaseStaleSeconds(row.leaseExpiresAt, row.lastAttemptAt, now),
+    recovery_count: row.leaseRecoveryCount ?? 0,
+    last_recovered_at: row.lastLeaseRecoveredAt?.toISOString() ?? null,
+    last_recovery_reason: row.lastLeaseRecoveryReason,
+  };
+}
+
 export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): OhlcvSyncSummary {
   const rows = database.db.select().from(ohlcvSyncTargets).all();
   let top100Total = 0;
@@ -331,6 +399,11 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
   let behind = 0;
   let retryScheduled = 0;
   let maxTargetHistoryDays = 0;
+  let activeLeases = 0;
+  let staleLeases = 0;
+  let recoverableLeases = 0;
+  let missingDeadlineLeases = 0;
+  let recoveredStaleTotal = 0;
   let oldestCoveredMs: number | null = null;
   let newestCoveredMs: number | null = null;
   let targetsWithAnyHistory = 0;
@@ -362,6 +435,9 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
   };
   const mostBehindSamples = emptyMostBehindSamples();
   const blockedTargetSamples = emptyBlockedTargetSamples();
+  const activeLeaseSamples: OhlcvLeaseSummarySample[] = [];
+  const staleLeaseSamples: OhlcvLeaseSummarySample[] = [];
+  const recentRecoveries: OhlcvLeaseSummarySample[] = [];
 
   for (const row of rows) {
     const tier = historyByTier[row.priorityTier];
@@ -378,10 +454,26 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
 
     if (row.status === 'running') {
       running += 1;
+      activeLeases += 1;
+      const staleLease = isOhlcvLeaseExpired(row, now);
+      if (staleLease) {
+        staleLeases += 1;
+        recoverableLeases += 1;
+        staleLeaseSamples.push(toLeaseSample(row, now));
+      } else {
+        activeLeaseSamples.push(toLeaseSample(row, now));
+      }
+      if (!row.leaseExpiresAt) {
+        missingDeadlineLeases += 1;
+      }
     } else if (row.status === 'failed') {
       failed += 1;
     } else {
       waiting += 1;
+    }
+    recoveredStaleTotal += row.leaseRecoveryCount ?? 0;
+    if (row.lastLeaseRecoveredAt) {
+      recentRecoveries.push(toLeaseSample(row, now));
     }
 
     const recentLagMs = row.latestSyncedAt ? now.getTime() - row.latestSyncedAt.getTime() : Number.MAX_SAFE_INTEGER;
@@ -539,6 +631,31 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
     samples.splice(BLOCKED_TARGET_SAMPLE_LIMIT);
   }
 
+  activeLeaseSamples.sort((left, right) =>
+    (right.lease_age_seconds ?? -1) - (left.lease_age_seconds ?? -1)
+    || left.coin_id.localeCompare(right.coin_id)
+    || left.exchange_id.localeCompare(right.exchange_id)
+    || left.symbol.localeCompare(right.symbol));
+  activeLeaseSamples.splice(LEASE_SAMPLE_LIMIT);
+
+  staleLeaseSamples.sort((left, right) =>
+    (right.stale_seconds ?? -1) - (left.stale_seconds ?? -1)
+    || left.coin_id.localeCompare(right.coin_id)
+    || left.exchange_id.localeCompare(right.exchange_id)
+    || left.symbol.localeCompare(right.symbol));
+  staleLeaseSamples.splice(LEASE_SAMPLE_LIMIT);
+
+  recentRecoveries.sort((left, right) => {
+    const leftRecovered = left.last_recovered_at ? Date.parse(left.last_recovered_at) : 0;
+    const rightRecovered = right.last_recovered_at ? Date.parse(right.last_recovered_at) : 0;
+
+    return rightRecovered - leftRecovered
+      || left.coin_id.localeCompare(right.coin_id)
+      || left.exchange_id.localeCompare(right.exchange_id)
+      || left.symbol.localeCompare(right.symbol);
+  });
+  recentRecoveries.splice(LEASE_SAMPLE_LIMIT);
+
   for (const tierName of Object.keys(historyByTier) as Array<keyof typeof historyByTier>) {
     const tier = historyByTier[tierName];
     const coverage = tierCoverageTotals[tierName];
@@ -565,6 +682,17 @@ export function summarizeOhlcvSyncStatus(database: AppDatabase, now: Date): Ohlc
       behind,
       retry_scheduled: retryScheduled,
       max_target_history_days: maxTargetHistoryDays,
+    },
+    leases: {
+      ttl_seconds: Math.floor(DEFAULT_OHLCV_LEASE_TTL_MS / 1000),
+      active: activeLeases,
+      stale: staleLeases,
+      recoverable: recoverableLeases,
+      missing_deadline: missingDeadlineLeases,
+      recovered_stale_total: recoveredStaleTotal,
+      active_samples: activeLeaseSamples,
+      stale_samples: staleLeaseSamples,
+      recent_recoveries: recentRecoveries,
     },
     history: {
       target_depth_days: maxTargetHistoryDays,
@@ -670,6 +798,8 @@ export function createOhlcvRuntime(
             latestSyncedAt: nextLatestSyncedAt,
             oldestSyncedAt: nextOldestSyncedAt,
             completedAt: now,
+            leaseOwner: leased.leaseOwner,
+            leaseToken: leased.leaseToken,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -681,6 +811,8 @@ export function createOhlcvRuntime(
             vsCurrency: leased.vsCurrency,
             failedAt: now,
             error: message,
+            leaseOwner: leased.leaseOwner,
+            leaseToken: leased.leaseToken,
           });
           logger.error({ error: message, coinId: leased.coinId }, 'ohlcv runtime tick failed');
         }

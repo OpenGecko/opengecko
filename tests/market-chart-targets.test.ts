@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
+import { ohlcvSyncTargets } from '../src/db/schema';
 import {
   coverageTargetsToMarketChartTargets,
   parseCoverageTargetManifest,
@@ -274,6 +275,78 @@ describe('market chart target manifest', () => {
           latest_source_fetched_at: '2026-05-06T00:15:00.000Z',
         }),
       ]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('links market chart diagnostics to OHLCV lease recovery and lag state', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        marketChartTargets: 'mock.chart=bitcoin:1d:usd',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+
+    try {
+      await app.ready();
+      app.db.db.insert(ohlcvSyncTargets).values({
+        coinId: 'bitcoin',
+        exchangeId: 'binance',
+        symbol: 'BTC/USDT',
+        vsCurrency: 'usd',
+        interval: '1d',
+        priorityTier: 'top100',
+        latestSyncedAt: new Date('2026-03-20T00:00:00.000Z'),
+        oldestSyncedAt: new Date('2025-03-20T00:00:00.000Z'),
+        targetHistoryDays: 365,
+        status: 'running',
+        lastAttemptAt: new Date('2026-03-22T23:40:00.000Z'),
+        lastSuccessAt: new Date('2026-03-20T00:00:00.000Z'),
+        lastError: null,
+        failureCount: 0,
+        nextRetryAt: null,
+        lastRequestedAt: null,
+        leaseOwner: 'worker-b',
+        leaseToken: 'lease-b',
+        leaseAcquiredAt: new Date('2026-03-23T00:00:00.000Z'),
+        leaseExpiresAt: new Date('2026-06-01T00:15:00.000Z'),
+        leaseRecoveryCount: 1,
+        lastLeaseRecoveredAt: new Date('2026-03-23T00:00:00.000Z'),
+        lastLeaseRecoveryReason: 'expired_lease_deadline',
+        createdAt: new Date('2026-03-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-23T00:00:00.000Z'),
+      }).run();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/diagnostics/market_charts',
+      });
+      const bitcoin = response.json().data.coins.find((coin: { coin_id: string }) => coin.coin_id === 'bitcoin');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.summary.ohlcv_sync).toMatchObject({
+        target_count: 1,
+        active_leases: 1,
+        stale_leases: 0,
+        recovered_stale_total: 1,
+        recovered_targets: ['bitcoin:usd:1d'],
+      });
+      expect(bitcoin.ohlcv_sync).toMatchObject({
+        target_count: 1,
+        status_counts: {
+          idle: 0,
+          running: 1,
+          failed: 0,
+        },
+        active_leases: 1,
+        stale_leases: 0,
+        recovered_stale_total: 1,
+        latest_synced_at: '2026-03-20T00:00:00.000Z',
+      });
+      expect(['fresh', 'stale', 'unknown']).toContain(bitcoin.ohlcv_sync.freshness);
     } finally {
       await app.close();
     }

@@ -25,8 +25,10 @@ function target(overrides: Partial<PolicyTarget> & Pick<PolicyTarget, 'coinId'>)
     targetHistoryDays: overrides.targetHistoryDays ?? 365,
     status: overrides.status ?? 'idle',
     lastSuccessAt: overrides.lastSuccessAt ?? null,
+    lastAttemptAt: overrides.lastAttemptAt ?? null,
     updatedAt: overrides.updatedAt ?? new Date('2026-03-22T00:00:00.000Z'),
     nextRetryAt: overrides.nextRetryAt ?? null,
+    leaseExpiresAt: overrides.leaseExpiresAt ?? null,
   };
 }
 
@@ -86,7 +88,7 @@ describe('ohlcv scheduling policy', () => {
     expect(candidates).toEqual(before);
   });
 
-  it('excludes retry-backoff and running targets from pure lease ranking without mutating them', () => {
+  it('excludes retry-backoff and active running targets from pure lease ranking without mutating them', () => {
     const candidates = [
       target({
         coinId: 'bitcoin-backoff',
@@ -98,6 +100,7 @@ describe('ohlcv scheduling policy', () => {
         coinId: 'ethereum-running',
         priorityTier: 'top100',
         status: 'running',
+        leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
       }),
       target({
         coinId: 'cardano-idle',
@@ -109,6 +112,33 @@ describe('ohlcv scheduling policy', () => {
 
     expect(rankOhlcvLeaseTargets(candidates, NOW).map((row) => row.coinId)).toEqual(['cardano-idle']);
     expect(candidates).toEqual(before);
+  });
+
+  it('ranks expired running leases as recoverable without stealing active leases', () => {
+    const candidates = [
+      target({
+        coinId: 'bitcoin-active',
+        priorityTier: 'top100',
+        status: 'running',
+        leaseExpiresAt: new Date('2026-03-23T00:10:00.000Z'),
+      }),
+      target({
+        coinId: 'ethereum-expired',
+        priorityTier: 'top100',
+        status: 'running',
+        leaseExpiresAt: new Date('2026-03-22T23:59:00.000Z'),
+      }),
+      target({
+        coinId: 'solana-idle',
+        priorityTier: 'requested',
+        status: 'idle',
+      }),
+    ];
+
+    expect(rankOhlcvLeaseTargets(candidates, NOW).map((row) => row.coinId)).toEqual([
+      'ethereum-expired',
+      'solana-idle',
+    ]);
   });
 
   it('derives cursor advancement only from accepted persisted candle arrays', () => {
