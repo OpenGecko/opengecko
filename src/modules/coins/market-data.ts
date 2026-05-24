@@ -27,17 +27,14 @@ export type CoinMarketsCacheEntry = {
 
 export const COINS_MARKETS_CACHE_TTL_MS = 5_000;
 
-export function getSeriesExtremes(
-  database: AppDatabase,
-  coinId: string,
-  vsCurrency: string,
-  marketFreshnessThresholdSeconds: number,
-  snapshotAccessPolicy: SnapshotAccessPolicy,
-  precision: number | 'full' = 'full',
-  snapshotPrice: number | null = null,
+type ChartSeries = ReturnType<typeof getChartSeries>;
+
+function getSeriesExtremesFromRows(
+  rows: ChartSeries,
+  rate: number,
+  precision: number | 'full',
+  snapshotPrice: number | null,
 ) {
-  const rows = getChartSeries(database, coinId, 'usd');
-  const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const values = rows.map((row) => row.price * rate);
 
   if (snapshotPrice !== null) {
@@ -55,6 +52,21 @@ export function getSeriesExtremes(
     high24h: toNumberOrNull(Math.max(...values), precision),
     low24h: toNumberOrNull(Math.min(...values), precision),
   };
+}
+
+export function getSeriesExtremes(
+  database: AppDatabase,
+  coinId: string,
+  vsCurrency: string,
+  marketFreshnessThresholdSeconds: number,
+  snapshotAccessPolicy: SnapshotAccessPolicy,
+  precision: number | 'full' = 'full',
+  snapshotPrice: number | null = null,
+) {
+  const rows = getChartSeries(database, coinId, 'usd');
+  const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
+
+  return getSeriesExtremesFromRows(rows, rate, precision, snapshotPrice);
 }
 
 export function getConsistent24hExtremes(
@@ -265,12 +277,9 @@ export function buildMarketRow(
     || validationOverrideMode === 'degraded_seeded_bootstrap';
   const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, snapshotAccessPolicy);
   const chartSeries = getChartSeries(database, row.coin.id, 'usd');
-  const seriesExtremes = getSeriesExtremes(
-    database,
-    row.coin.id,
-    vsCurrency,
-    marketFreshnessThresholdSeconds,
-    snapshotAccessPolicy,
+  const seriesExtremes = getSeriesExtremesFromRows(
+    chartSeries,
+    rate,
     options.precision,
     snapshot ? snapshot.price : null,
   );

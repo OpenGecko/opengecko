@@ -1,9 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { buildApp } from '../src/app';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { coins, marketSnapshots, supplyChartPoints } from '../src/db/schema';
+
+type MarketRowNullShapeFixture = {
+  mode: string;
+  request: string;
+  rows: Array<{
+    id: string;
+    keys: string[];
+    nullFields: string[];
+    populatedFields: string[];
+  }>;
+};
+
+function readMarketRowNullShapeFixture(mode: string): MarketRowNullShapeFixture {
+  return JSON.parse(readFileSync(
+    join(process.cwd(), 'tests/fixtures/market-row-validation-overrides', `${mode}.json`),
+    'utf8',
+  )) as MarketRowNullShapeFixture;
+}
+
+function summarizeMarketRowNullShape(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    keys: Object.keys(row),
+    nullFields: Object.keys(row).filter((key) => row[key] === null),
+    populatedFields: Object.keys(row).filter((key) => row[key] !== null),
+  };
+}
 
 describe('coins markets parity', () => {
   let app: FastifyInstance;
@@ -829,6 +859,43 @@ describe('coins markets parity', () => {
       error: 'invalid_parameter',
       message: 'Invalid precision value: not-a-number',
     });
+  });
+
+  it('pins market row null shape for every validation override mode', async () => {
+    await app.ready();
+
+    const modes = [
+      'undefined',
+      'off',
+      'stale_disallowed',
+      'degraded_seeded_bootstrap',
+      'seeded_bootstrap',
+    ];
+
+    for (const mode of modes) {
+      const fixture = readMarketRowNullShapeFixture(mode);
+
+      if (mode === 'undefined') {
+        delete (app.marketDataRuntimeState as Partial<typeof app.marketDataRuntimeState>).validationOverride;
+      } else {
+        app.marketDataRuntimeState.validationOverride = {
+          mode: mode as typeof app.marketDataRuntimeState.validationOverride.mode,
+          reason: `${mode} fixture`,
+          snapshotTimestampOverride: null,
+          snapshotSourceCountOverride: null,
+        };
+      }
+
+      app.marketDataRuntimeState.hotDataRevision += 1;
+
+      const response = await app.inject({
+        method: 'GET',
+        url: fixture.request,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().map((row: Record<string, unknown>) => summarizeMarketRowNullShape(row))).toEqual(fixture.rows);
+    }
   });
 
   it('keeps fresh live rows ahead of stale disallowed rows for market metric sorting', async () => {

@@ -7146,14 +7146,89 @@ describe('OpenGecko app scaffold', () => {
 
   it('reuses preloaded chart series for market rows', async () => {
     const getCanonicalCloseSeriesSpy = vi.spyOn(candleStore, 'getCanonicalCloseSeries');
+    const noRangeChartSeriesCalls = () => getCanonicalCloseSeriesSpy.mock.calls
+      .filter(([, , vsCurrency, interval, range]) => vsCurrency === 'usd' && interval === '1d' && range === undefined);
+    const countNoRangeChartSeriesCallsByCoin = () => noRangeChartSeriesCalls()
+      .reduce<Record<string, number>>((counts, [, coinId]) => ({
+        ...counts,
+        [coinId]: (counts[coinId] ?? 0) + 1,
+      }), {});
+    const marketsUrl = '/coins/markets?vs_currency=usd&per_page=3&page=1&sparkline=true&price_change_percentage=24h,7d';
+
     const response = await getApp().inject({
       method: 'GET',
-      url: '/coins/markets?vs_currency=usd&per_page=3&page=1&sparkline=true&price_change_percentage=24h,7d',
+      url: marketsUrl,
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(3);
-    expect(getCanonicalCloseSeriesSpy).toHaveBeenCalledTimes(6);
+    expect(noRangeChartSeriesCalls()).toHaveLength(3);
+    expect(countNoRangeChartSeriesCallsByCoin()).toEqual(
+      Object.fromEntries(response.json().map((row: { id: string }) => [row.id, 1])),
+    );
+
+    getCanonicalCloseSeriesSpy.mockClear();
+
+    const cachedResponse = await getApp().inject({
+      method: 'GET',
+      url: marketsUrl,
+    });
+
+    expect(cachedResponse.statusCode).toBe(200);
+    expect(cachedResponse.json()).toEqual(response.json());
+    expect(noRangeChartSeriesCalls()).toHaveLength(0);
+
+    getApp().marketDataRuntimeState.hotDataRevision += 1;
+    getCanonicalCloseSeriesSpy.mockClear();
+
+    const postRevisionResponse = await getApp().inject({
+      method: 'GET',
+      url: marketsUrl,
+    });
+
+    expect(postRevisionResponse.statusCode).toBe(200);
+    expect(postRevisionResponse.json()).toEqual(response.json());
+    expect(noRangeChartSeriesCalls()).toHaveLength(3);
+
+    getCanonicalCloseSeriesSpy.mockClear();
+
+    const optionsVariantResponse = await getApp().inject({
+      method: 'GET',
+      url: '/coins/markets?vs_currency=usd&per_page=3&page=1&sparkline=false',
+    });
+
+    expect(optionsVariantResponse.statusCode).toBe(200);
+    expect(optionsVariantResponse.json()).toHaveLength(3);
+    expect(noRangeChartSeriesCalls()).toHaveLength(3);
+
+    getApp().marketDataRuntimeState.hotDataRevision += 1;
+    getCanonicalCloseSeriesSpy.mockClear();
+
+    const uncompressedResponse = await getApp().inject({
+      method: 'GET',
+      url: marketsUrl,
+      headers: {
+        'accept-encoding': 'identity',
+      },
+    });
+
+    expect(uncompressedResponse.statusCode).toBe(200);
+    expect(noRangeChartSeriesCalls()).toHaveLength(3);
+
+    getCanonicalCloseSeriesSpy.mockClear();
+
+    const compressedCacheHitResponse = await getApp().inject({
+      method: 'GET',
+      url: marketsUrl,
+      headers: {
+        'accept-encoding': 'br',
+      },
+    });
+
+    expect(compressedCacheHitResponse.statusCode).toBe(200);
+    expect(compressedCacheHitResponse.headers['content-encoding']).toBe('br');
+    expect(JSON.parse(brotliDecompressSync(compressedCacheHitResponse.rawPayload).toString('utf8'))).toEqual(uncompressedResponse.json());
+    expect(noRangeChartSeriesCalls()).toHaveLength(0);
   });
 
   it('returns dual top movers payloads with stable polarity and explicit arrays', async () => {
