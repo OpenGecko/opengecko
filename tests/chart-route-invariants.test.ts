@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app';
-import { coinTickers, marketChartSourcePoints, ohlcvCandles, ohlcvSyncTargets } from '../src/db/schema';
+import { marketChartSourcePoints, ohlcvCandles, ohlcvSyncTargets } from '../src/db/schema';
 import { createOhlcvRuntime } from '../src/services/ohlcv-runtime';
+import * as candleStore from '../src/services/candle-store';
 
 vi.mock('../src/providers/ccxt', () => ({
   fetchExchangeOHLCV: vi.fn(),
@@ -26,7 +27,7 @@ describe('chart route invariants', () => {
     child: vi.fn().mockReturnThis(),
   };
 
-  it('filters malformed provider-filled OHLC rows before persistence and serialization', async () => {
+  it('returns degraded chart and OHLC payloads without provider fetches or candle writes when persisted rows are missing', async () => {
     const app = buildApp({
       config: {
         databaseUrl: ':memory:',
@@ -35,78 +36,141 @@ describe('chart route invariants', () => {
       startBackgroundJobs: false,
     });
 
-    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp: Date.parse('2026-03-19T00:00:00.000Z'),
-        open: 90_000,
-        high: 89_000,
-        low: 91_000,
-        close: 90_500,
-        volume: 10,
-        raw: [],
-      },
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp: Date.parse('2026-03-20T00:00:00.000Z'),
-        open: 91_000,
-        high: 92_000,
-        low: 90_000,
-        close: 91_500,
-        volume: 11,
-        raw: [],
-      },
-    ]);
+    mockedFetchExchangeOHLCV.mockResolvedValue([]);
 
     try {
       await app.ready();
+      mockedFetchExchangeOHLCV.mockClear();
+      const upsertSpy = vi.spyOn(candleStore, 'upsertCanonicalOhlcvCandle');
+      const recordSpy = vi.spyOn(app.chartResponseSources, 'record');
+      app.db.client.prepare("DELETE FROM chart_points WHERE coin_id = 'bitcoin'").run();
       app.db.client.prepare("DELETE FROM ohlcv_candles WHERE coin_id = 'bitcoin'").run();
-      app.db.client.prepare("DELETE FROM coin_tickers WHERE coin_id = 'bitcoin'").run();
-      app.db.db.insert(coinTickers).values({
-        coinId: 'bitcoin',
-        exchangeId: 'binance',
-        base: 'BTC',
-        target: 'USDT',
-        marketName: 'BTC/USDT',
-        last: 91_500,
-        volume: 11,
-        convertedLastUsd: 91_500,
-        convertedLastBtc: 1,
-        convertedVolumeUsd: 1_000_000,
-        bidAskSpreadPercentage: null,
-        trustScore: 'green',
-        lastTradedAt: new Date('2026-03-20T00:00:00.000Z'),
-        lastFetchAt: new Date('2026-03-20T00:00:00.000Z'),
-        isAnomaly: false,
-        isStale: false,
-        tradeUrl: null,
-        tokenInfoUrl: null,
-        coinGeckoUrl: null,
-      }).run();
+      app.db.client.prepare("DELETE FROM market_chart_source_points WHERE coin_id = 'bitcoin'").run();
 
-      const ohlcResponse = await app.inject({
-        method: 'GET',
-        url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1773878400&to=1773964800',
-      });
-
-      expect(ohlcResponse.statusCode).toBe(200);
-      expect(ohlcResponse.json()).toEqual([
-        [1773964800 * 1_000, 91_000, 92_000, 90_000, 91_500],
-      ]);
-      const bitcoinCandles = app.db.db.select().from(ohlcvCandles).all()
-        .filter((row) => row.coinId === 'bitcoin');
-
-      expect(bitcoinCandles).toEqual([
-        expect.objectContaining({
-          timestamp: new Date('2026-03-20T00:00:00.000Z'),
-          close: 91_500,
+      const responses = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1773878400&to=1773964800&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/bitcoin/ohlc?vs_currency=usd&days=14&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1773878400&to=1773964800&interval=daily',
         }),
       ]);
+
+      for (const response of responses) {
+        expect(response.statusCode).toBe(200);
+      }
+      expect(responses[0].json()).toEqual({ prices: [], market_caps: [], total_volumes: [] });
+      expect(responses[1].json()).toEqual({ prices: [], market_caps: [], total_volumes: [] });
+      expect(responses[2].json()).toEqual([]);
+      expect(responses[3].json()).toEqual([]);
+      expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
+      expect(upsertSpy).not.toHaveBeenCalled();
+      expect(app.db.db.select().from(ohlcvCandles).all()
+        .filter((row) => row.coinId === 'bitcoin')).toEqual([]);
+      expect(recordSpy.mock.calls.map(([, source]) => source)).toEqual(['empty', 'empty', 'empty', 'empty']);
+      expect(recordSpy.mock.calls.some(([, source]) => source === 'provider_filled')).toBe(false);
+      upsertSpy.mockRestore();
     } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps persisted chart, OHLC, contract, and unknown-coin request paths free of provider and upsert side effects', async () => {
+    const app = buildApp({
+      config: {
+        databaseUrl: ':memory:',
+        logLevel: 'silent',
+      },
+      startBackgroundJobs: false,
+    });
+    const upsertSpy = vi.spyOn(candleStore, 'upsertCanonicalOhlcvCandle');
+
+    try {
+      await app.ready();
+      mockedFetchExchangeOHLCV.mockClear();
+      const recordSpy = vi.spyOn(app.chartResponseSources, 'record');
+      const modes = ['off', 'stale_disallowed', 'degraded_seeded_bootstrap', 'seeded_bootstrap'] as const;
+
+      for (const mode of modes) {
+        app.marketDataRuntimeState.validationOverride = {
+          mode,
+          reason: `${mode} read-purity fixture`,
+          snapshotTimestampOverride: null,
+          snapshotSourceCountOverride: null,
+        };
+        app.marketDataRuntimeState.hotDataRevision += 1;
+
+        const responses = await Promise.all([
+          app.inject({
+            method: 'GET',
+            url: '/coins/bitcoin/market_chart?vs_currency=usd&days=7&interval=daily',
+          }),
+          app.inject({
+            method: 'GET',
+            url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=1773446400&to=1773964800&interval=daily',
+          }),
+          app.inject({
+            method: 'GET',
+            url: '/coins/bitcoin/ohlc?vs_currency=usd&days=14&interval=daily',
+          }),
+          app.inject({
+            method: 'GET',
+            url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1773446400&to=1773964800&interval=daily',
+          }),
+        ]);
+
+        for (const response of responses) {
+          expect(response.statusCode).toBe(200);
+        }
+      }
+
+      const [coinChartResponse, contractChartResponse, coinRangeResponse, contractRangeResponse] = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/coins/usd-coin/market_chart?vs_currency=usd&days=7&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/ethereum/contract/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/market_chart?vs_currency=usd&days=7&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/usd-coin/market_chart/range?vs_currency=usd&from=1773446400&to=1773964800&interval=daily',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/coins/ethereum/contract/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48/market_chart/range?vs_currency=usd&from=1773446400&to=1773964800&interval=daily',
+        }),
+      ]);
+      const unknownResponse = await app.inject({
+        method: 'GET',
+        url: '/coins/not-a-coin/market_chart?vs_currency=usd&days=7',
+      });
+
+      expect(contractChartResponse.statusCode).toBe(200);
+      expect(contractRangeResponse.statusCode).toBe(200);
+      expect(contractChartResponse.json()).toEqual(coinChartResponse.json());
+      expect(contractRangeResponse.json()).toEqual(coinRangeResponse.json());
+      expect(unknownResponse.statusCode).toBe(404);
+      expect(unknownResponse.json()).toMatchObject({
+        error: 'not_found',
+        message: 'Coin not found: not-a-coin',
+      });
+      expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
+      expect(upsertSpy).not.toHaveBeenCalled();
+      expect(recordSpy.mock.calls.some(([, source]) => source === 'provider_filled')).toBe(false);
+    } finally {
+      upsertSpy.mockRestore();
       await app.close();
     }
   });

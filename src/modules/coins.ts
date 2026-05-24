@@ -18,10 +18,6 @@ import { getCategories, getCoinByContract, getCoinById, getCoins, getMarketRows,
 import { getEffectiveSnapshot, getSnapshotAccessPolicy, getUsableSnapshot } from './market-freshness';
 import {
   buildChartPayload,
-  fetchProviderChartRowsForDays,
-  fetchProviderChartRowsForRange,
-  fetchProviderOhlcRowsForDays,
-  fetchProviderOhlcRowsForRange,
   getChartRowsForDays,
   getChartRowsForRange,
   getCanonicalChartRowsForDays,
@@ -585,21 +581,16 @@ export function registerCoinRoutes(
     const canonicalRows = sourceRows.length > 0
       ? []
       : getCanonicalChartRowsForDays(database, params.id, query.days, query.interval);
-    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
-      ? null
-      : await fetchProviderChartRowsForDays(database, params.id, query.days, query.interval);
     const rows = sourceRows.length > 0
       ? sourceRows
       : canonicalRows.length > 0
         ? canonicalRows
-        : providerRows ?? [];
+        : [];
     const responseSource = sourceRows.length > 0
       ? 'source_backed'
       : canonicalRows.length > 0
         ? 'canonical'
-        : providerRows && providerRows.length > 0
-          ? 'provider_filled'
-          : 'empty';
+        : 'empty';
     chartResponseSources.record('market_chart_days', responseSource, {
       coinId: params.id,
       vsCurrency,
@@ -625,21 +616,16 @@ export function registerCoinRoutes(
     const canonicalRows = sourceRows.length > 0
       ? []
       : getCanonicalChartRowsForRange(database, params.id, range, query.interval);
-    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
-      ? null
-      : await fetchProviderChartRowsForRange(database, params.id, range, query.interval);
     const rows = sourceRows.length > 0
       ? sourceRows
       : canonicalRows.length > 0
         ? canonicalRows
-        : providerRows ?? [];
+        : [];
     const responseSource = sourceRows.length > 0
       ? 'source_backed'
       : canonicalRows.length > 0
         ? 'canonical'
-        : providerRows && providerRows.length > 0
-          ? 'provider_filled'
-          : 'empty';
+        : 'empty';
     chartResponseSources.record('market_chart_range', responseSource, {
       coinId: params.id,
       vsCurrency,
@@ -663,22 +649,17 @@ export function registerCoinRoutes(
     const vsCurrency = query.vs_currency.toLowerCase();
     const rate = getConversionRate(database, vsCurrency, marketFreshnessThresholdSeconds, getSnapshotAccessPolicy(runtimeState));
     const sourceRows = getSourceBackedOhlcRowsForDays(database, params.id, query.days, query.interval);
-    const providerRows = sourceRows.length > 0
-      ? null
-      : await fetchProviderOhlcRowsForDays(database, params.id, query.days, query.interval);
-    const canonicalRows = sourceRows.length > 0 || providerRows
+    const canonicalRows = sourceRows.length > 0
       ? []
       : getCanonicalOhlcRowsForDays(database, params.id, query.days, query.interval);
     const rows = sourceRows.length > 0
       ? sourceRows
-      : providerRows ?? canonicalRows;
+      : canonicalRows;
     const responseSource = sourceRows.length > 0
       ? 'source_backed'
-      : providerRows && providerRows.length > 0
-        ? 'provider_filled'
-        : canonicalRows.length > 0
-          ? 'canonical'
-          : 'empty';
+      : canonicalRows.length > 0
+        ? 'canonical'
+        : 'empty';
     chartResponseSources.record('ohlc_days', responseSource, {
       coinId: params.id,
       vsCurrency,
@@ -710,21 +691,16 @@ export function registerCoinRoutes(
     const canonicalRows = sourceRows.length > 0
       ? []
       : getCanonicalOhlcRowsForRange(database, params.id, range, query.interval);
-    const providerRows = sourceRows.length > 0 || canonicalRows.length > 0
-      ? null
-      : await fetchProviderOhlcRowsForRange(database, params.id, range, query.interval);
     const rows = sourceRows.length > 0
       ? sourceRows
       : canonicalRows.length > 0
         ? canonicalRows
-        : providerRows ?? [];
+        : [];
     const responseSource = sourceRows.length > 0
       ? 'source_backed'
       : canonicalRows.length > 0
         ? 'canonical'
-        : providerRows && providerRows.length > 0
-          ? 'provider_filled'
-          : 'empty';
+        : 'empty';
     chartResponseSources.record('ohlc_range', responseSource, {
       coinId: params.id,
       vsCurrency,

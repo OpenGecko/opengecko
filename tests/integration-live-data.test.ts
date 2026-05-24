@@ -155,7 +155,8 @@ describe('live data integration', () => {
     });
   });
 
-  it('serves OHLCV tuples from the mocked backfill candles', async () => {
+  it('serves persisted OHLCV tuples without route-time provider fallback', async () => {
+    mockedFetchExchangeOHLCV.mockClear();
     const response = await app.inject({
       method: 'GET',
       url: '/coins/bitcoin/ohlc?vs_currency=usd&days=30',
@@ -166,13 +167,10 @@ describe('live data integration', () => {
     expect(body.length).toBeGreaterThan(0);
     // Each OHLC entry should be [timestamp, open, high, low, close]
     expect(body[0]).toHaveLength(5);
-    expect(body).toContainEqual([
-      Date.parse('2026-03-20T00:00:00Z'),
-      88_000,
-      91_000,
-      87_000,
-      90_000,
-    ]);
+    expect(body.every((tuple: unknown[]) =>
+      tuple.length === 5
+      && tuple.every((value) => typeof value === 'number' && Number.isFinite(value)))).toBe(true);
+    expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
   });
 
   it('returns exchange rates with btc as the base unit and a finite usd conversion', async () => {
@@ -300,7 +298,7 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.16.9');
+    expect(packageJson.version).toBe('0.16.10');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(packageJson.version.startsWith('0.16.')).toBe(true);
   });

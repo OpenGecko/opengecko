@@ -7885,28 +7885,14 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
-  it('fills empty daily market chart day windows from provider ohlcv close rows', async () => {
+  it('returns degraded daily market chart windows without provider fetches or candle writes when persisted rows are missing', async () => {
     await getApp().ready();
     getApp().db.db.delete(chartPoints).where(eq(chartPoints.coinId, 'bitcoin')).run();
     getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
     getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
 
-    const timestamp = currentDailyBucket();
     const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
-    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp,
-        open: 94_000,
-        high: 96_000,
-        low: 93_500,
-        close: 95_500,
-        volume: 3_456,
-        raw: [timestamp, 94_000, 96_000, 93_500, 95_500, 3_456],
-      },
-    ]);
+    mockedFetchExchangeOHLCV.mockClear();
 
     const response = await getApp().inject({
       method: 'GET',
@@ -7915,44 +7901,24 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      prices: [[timestamp, 95_500]],
-      market_caps: [[timestamp, null]],
-      total_volumes: [[timestamp, 3_456]],
+      prices: [],
+      market_caps: [],
+      total_volumes: [],
     });
-    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', expect.any(Number), undefined);
+    expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
     expect(getApp().db.db.select().from(ohlcvCandles)
       .where(eq(ohlcvCandles.coinId, 'bitcoin'))
-      .all()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        interval: '1d',
-        timestamp: new Date(timestamp),
-        close: 95_500,
-        totalVolume: 3_456,
-      }),
-    ]));
+      .all()).toEqual([]);
   });
 
-  it('fills empty daily market chart ranges from provider ohlcv close rows and keeps chart shape stable', async () => {
+  it('returns degraded daily market chart ranges without provider fetches or candle writes when persisted rows are missing', async () => {
     await getApp().ready();
     getApp().db.db.delete(chartPoints).where(eq(chartPoints.coinId, 'bitcoin')).run();
     getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
     getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
 
     const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
-    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp: 1775088000000,
-        open: 92_000,
-        high: 94_000,
-        low: 91_500,
-        close: 93_500,
-        volume: 2_345,
-        raw: [1775088000000, 92_000, 94_000, 91_500, 93_500, 2_345],
-      },
-    ]);
+    mockedFetchExchangeOHLCV.mockClear();
 
     const response = await getApp().inject({
       method: 'GET',
@@ -7961,21 +7927,14 @@ describe('OpenGecko app scaffold', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      prices: [[1775088000000, 93_500]],
-      market_caps: [[1775088000000, null]],
-      total_volumes: [[1775088000000, 2_345]],
+      prices: [],
+      market_caps: [],
+      total_volumes: [],
     });
-    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', 1775088000000, 1);
+    expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
     expect(getApp().db.db.select().from(ohlcvCandles)
       .where(eq(ohlcvCandles.coinId, 'bitcoin'))
-      .all()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        interval: '1d',
-        timestamp: new Date(1775088000000),
-        close: 93_500,
-        totalVolume: 2_345,
-      }),
-    ]));
+      .all()).toEqual([]);
   });
 
   it('returns ranged coin ohlc tuples in ascending chronological order', async () => {
@@ -7995,25 +7954,12 @@ describe('OpenGecko app scaffold', () => {
     }
   });
 
-  it('fills empty daily ranged coin ohlc responses from the provider fallback and persists candles', async () => {
+  it('returns degraded daily ranged coin ohlc responses without provider fetches or candle writes when persisted rows are missing', async () => {
     await getApp().ready();
     getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
 
     const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
-    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp: 1775001600000,
-        open: 91_000,
-        high: 92_500,
-        low: 90_250,
-        close: 92_000,
-        volume: 1_234,
-        raw: [1775001600000, 91_000, 92_500, 90_250, 92_000, 1_234],
-      },
-    ]);
+    mockedFetchExchangeOHLCV.mockClear();
 
     const response = await getApp().inject({
       method: 'GET',
@@ -8021,23 +7967,11 @@ describe('OpenGecko app scaffold', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
-      [1775001600000, 91_000, 92_500, 90_250, 92_000],
-    ]);
-    expect(mockedFetchExchangeOHLCV).toHaveBeenCalledWith('binance', 'BTC/USDT', '1d', 1775001600000, 1);
+    expect(response.json()).toEqual([]);
+    expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
     expect(getApp().db.db.select().from(ohlcvCandles)
       .where(eq(ohlcvCandles.coinId, 'bitcoin'))
-      .all()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        interval: '1d',
-        timestamp: new Date(1775001600000),
-        open: 91_000,
-        high: 92_500,
-        low: 90_250,
-        close: 92_000,
-        volume: 1_234,
-      }),
-    ]));
+      .all()).toEqual([]);
   });
 
   it('supports ranged coin ohlc interval semantics with explicit daily and empty hourly responses', async () => {

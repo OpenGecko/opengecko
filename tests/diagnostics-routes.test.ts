@@ -2200,33 +2200,19 @@ describe('diagnostics routes', () => {
     getApp().db.db.delete(marketChartSourcePoints).where(eq(marketChartSourcePoints.coinId, 'bitcoin')).run();
     getApp().db.db.delete(ohlcvCandles).where(eq(ohlcvCandles.coinId, 'bitcoin')).run();
     const mockedFetchExchangeOHLCV = ccxtProvider.fetchExchangeOHLCV as ReturnType<typeof vi.fn>;
-    mockedFetchExchangeOHLCV.mockResolvedValueOnce([
-      {
-        exchangeId: 'binance',
-        symbol: 'BTC/USDT',
-        timeframe: '1d',
-        timestamp: 1775001600000,
-        open: 91_000,
-        high: 92_500,
-        low: 90_250,
-        close: 92_000,
-        volume: 1_234,
-        raw: [1775001600000, 91_000, 92_500, 90_250, 92_000, 1_234],
-      },
-    ]);
-    const providerOhlcResponse = await getApp().inject({
+    mockedFetchExchangeOHLCV.mockClear();
+    const emptyOhlcResponse = await getApp().inject({
       method: 'GET',
       url: '/coins/bitcoin/ohlc/range?vs_currency=usd&from=1775001600&to=1775001600&interval=daily',
     });
-    expect(providerOhlcResponse.statusCode).toBe(200);
-    const providerOhlcPayload = providerOhlcResponse.json();
-    expect(providerOhlcPayload).toEqual([
-      [1775001600000, 91_000, 92_500, 90_250, 92_000],
-    ]);
-    expect(providerOhlcPayload).not.toHaveProperty('response_source_counts');
-    expect(providerOhlcPayload).not.toHaveProperty('response_source_fallback_alert');
-    expect(providerOhlcPayload).not.toHaveProperty('response_source_target_suggestion_overflow');
-    expect(providerOhlcPayload).not.toHaveProperty('response_source_target_suggestion_batch_previews');
+    expect(emptyOhlcResponse.statusCode).toBe(200);
+    const emptyOhlcPayload = emptyOhlcResponse.json();
+    expect(emptyOhlcPayload).toEqual([]);
+    expect(mockedFetchExchangeOHLCV).not.toHaveBeenCalled();
+    expect(emptyOhlcPayload).not.toHaveProperty('response_source_counts');
+    expect(emptyOhlcPayload).not.toHaveProperty('response_source_fallback_alert');
+    expect(emptyOhlcPayload).not.toHaveProperty('response_source_target_suggestion_overflow');
+    expect(emptyOhlcPayload).not.toHaveProperty('response_source_target_suggestion_batch_previews');
 
     const emptyChartResponse = await getApp().inject({
       method: 'GET',
@@ -2289,16 +2275,16 @@ describe('diagnostics routes', () => {
         empty: 3,
       },
       ohlc_range: {
-        provider_filled: 2,
+        provider_filled: 1,
         source_backed: 0,
         canonical: 0,
-        empty: 0,
+        empty: 1,
       },
     });
     expect(diagnosticsResponse.json().data.response_source_recent_events).toEqual(expect.arrayContaining([
       expect.objectContaining({
         route: 'ohlc_range',
-        source: 'provider_filled',
+        source: 'empty',
         coin_id: 'bitcoin',
         vs_currency: 'usd',
         interval: 'daily',
@@ -2365,8 +2351,8 @@ describe('diagnostics routes', () => {
           empty: 3,
         },
         ohlc_range: {
-          provider_filled: 2,
-          empty: 0,
+          provider_filled: 1,
+          empty: 1,
         },
       },
       by_coin: [
@@ -2395,16 +2381,16 @@ describe('diagnostics routes', () => {
           coin_id: 'bitcoin',
           vs_currency: 'usd',
           total: 2,
-          provider_filled: 1,
-          empty: 1,
+          provider_filled: 0,
+          empty: 2,
           routes: {
             market_chart_range: {
               provider_filled: 0,
               empty: 1,
             },
             ohlc_range: {
-              provider_filled: 1,
-              empty: 0,
+              provider_filled: 0,
+              empty: 1,
             },
           },
         },
@@ -2488,8 +2474,8 @@ describe('diagnostics routes', () => {
         reason: 'recent provider-filled or empty public chart/OHLC fallback events',
         event_counts: {
           total: 2,
-          provider_filled: 1,
-          empty: 1,
+          provider_filled: 0,
+          empty: 2,
         },
         priority: {
           rank: 2,
@@ -2535,8 +2521,8 @@ describe('diagnostics routes', () => {
             empty: 1,
           },
           ohlc_range: {
-            provider_filled: 1,
-            empty: 0,
+            provider_filled: 0,
+            empty: 1,
           },
         }),
       }),
@@ -2706,11 +2692,12 @@ describe('diagnostics routes', () => {
         empty: 3,
       },
       ohlc_range: {
-        provider_filled: 2,
+        provider_filled: 1,
+        empty: 1,
       },
     });
     expect(restartedDiagnosticsResponse.json().data.response_source_recent_events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ route: 'ohlc_range', source: 'provider_filled', coin_id: 'bitcoin' }),
+      expect.objectContaining({ route: 'ohlc_range', source: 'empty', coin_id: 'bitcoin' }),
       expect.objectContaining({ route: 'market_chart_range', source: 'empty', coin_id: 'bitcoin' }),
       expect.objectContaining({ route: 'market_chart_days', source: 'empty', coin_id: 'ethereum' }),
       expect.objectContaining({ route: 'market_chart_range', source: 'empty', coin_id: 'solana', interval: 'hourly' }),
@@ -2727,8 +2714,8 @@ describe('diagnostics routes', () => {
         {
           coin_id: 'bitcoin',
           total: 2,
-          provider_filled: 1,
-          empty: 1,
+          provider_filled: 0,
+          empty: 2,
         },
         {
           coin_id: 'solana',
@@ -2793,8 +2780,8 @@ describe('diagnostics routes', () => {
         target_template: '<provider>=bitcoin:1d:usd',
         event_counts: {
           total: 2,
-          provider_filled: 1,
-          empty: 1,
+          provider_filled: 0,
+          empty: 2,
         },
         priority: {
           rank: 2,
