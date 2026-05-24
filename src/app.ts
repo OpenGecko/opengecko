@@ -14,6 +14,7 @@ import {
 import { createMarketDataRuntimeState, recordInitialSyncFailure } from './services/market-runtime-state';
 import { createMetricsRegistry, type MetricsRegistry } from './services/metrics';
 import { createOptionalProviderJobRegistry, type OptionalProviderJobRegistry } from './services/optional-provider-jobs';
+import { createRouteInventory, type OpenGeckoRouteInventory } from './services/route-inventory';
 import type { UnifiedScheduler } from './services/job-scheduler';
 import type { ResponseCache } from './services/response-cache';
 import { createFastifyApp } from './app/fastify';
@@ -34,6 +35,7 @@ declare module 'fastify' {
     metrics: MetricsRegistry;
     optionalProviderJobs: OptionalProviderJobRegistry;
     chartResponseSources: ChartResponseSourceDiagnostics;
+    routeInventory: OpenGeckoRouteInventory;
     db: ReturnType<typeof createDatabase>;
     appConfig: AppConfig;
     marketFreshnessThresholdSeconds: number;
@@ -68,6 +70,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const seedValidationSnapshotMode = bootstrapSnapshotAccessMode === 'seeded_bootstrap'
     && bootstrapOnlyValidationRuntime;
   const app = createFastifyApp(config, options);
+  const routeInventory = createRouteInventory();
+  app.addHook('onRoute', routeInventory.recordRoute);
   options.startupProgress?.begin('connect_database');
   if (config.rebuildCanonicalDbOnStart) {
     rebuildPersistentSqliteDatabase(config.databaseUrl);
@@ -157,6 +161,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.decorate('metrics', metrics);
   app.decorate('optionalProviderJobs', optionalProviderJobs);
   app.decorate('chartResponseSources', chartResponseSources);
+  app.decorate('routeInventory', routeInventory);
   app.decorate('db', database);
   app.decorate('appConfig', config);
   app.decorate('marketFreshnessThresholdSeconds', config.marketFreshnessThresholdSeconds);

@@ -298,9 +298,9 @@ describe('live data integration', () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(packageJson.version).toBe('0.16.10');
+    expect(packageJson.version).toBe('0.17.0');
     expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(packageJson.version.startsWith('0.16.')).toBe(true);
+    expect(packageJson.version.startsWith('0.17.')).toBe(true);
   });
 
   it('keeps CeFi and DeFi USD prices within the contract coherence threshold on the onchain simple token price path', async () => {

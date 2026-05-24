@@ -448,10 +448,12 @@ export async function fetchExchangeDerivativeTickers(
   ));
 }
 
-export async function fetchExchangeMarkets(exchangeId: ExchangeId) {
+export async function fetchExchangeMarkets(exchangeId: ExchangeId, options: CcxtFetchOptions = {}) {
   const exchange = getOrCreateExchange(exchangeId);
 
+  throwIfAborted(options.signal, exchangeId);
   await exchange.loadMarkets();
+  throwIfAborted(options.signal, exchangeId);
 
   return Object.values(exchange.markets).map((market) =>
     toMarketSnapshot(

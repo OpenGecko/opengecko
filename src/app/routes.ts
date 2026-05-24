@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { registerErrorHandler } from '../http/errors';
 import { registerTransportControls } from '../http/transport';
+import { registerApiInventoryRoutes } from '../modules/apis';
 import { registerAssetPlatformRoutes } from '../modules/assets';
 import { registerCoinRoutes } from '../modules/coins';
 import { registerDerivativeRoutes } from '../modules/derivatives';
@@ -27,6 +28,7 @@ export function registerAppRoutes(app: FastifyInstance, {
   registerTransportControls(app, {
     responseCompressionThresholdBytes: config.responseCompressionThresholdBytes,
   });
+  registerApiInventoryRoutes(app);
   registerHealthRoutes(app);
   registerDiagnosticsRoutes(
     app,

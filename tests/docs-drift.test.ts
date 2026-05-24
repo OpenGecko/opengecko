@@ -26,6 +26,7 @@ const coverageOwnershipClasses: DataOwnershipClass[] = [
 ];
 
 const intentionallyUndocumentedPublicRoutes = new Set([
+  '/apis',
   '/health',
   '/metrics',
 ]);

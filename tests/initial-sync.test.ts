@@ -137,6 +137,33 @@ describe('initial market sync', () => {
     expect(maxInFlight).toBeLessThanOrEqual(2);
   });
 
+  it('scales startup exchange metadata budget across fanout waves', async () => {
+    const startedExchangeIds: string[] = [];
+
+    mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
+      startedExchangeIds.push(exchangeId);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      return [
+        { exchangeId, symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', active: true, spot: true, baseName: 'Bitcoin', raw: {} },
+      ];
+    });
+
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn().mockReturnThis() };
+    const result = await syncExchangesFromCCXT(
+      database,
+      ['binance', 'coinbase', 'kraken', 'bybit'],
+      mockLogger as never,
+      2,
+      undefined,
+      { startupExchangeMetadataBudgetMs: 25 },
+    );
+
+    expect(startedExchangeIds).toEqual(['binance', 'coinbase', 'kraken', 'bybit']);
+    expect(result.failedExchangeIds).toEqual([]);
+    expect(result.succeededExchangeIds).toEqual(['binance', 'coinbase', 'kraken', 'bybit']);
+  });
+
   it('defers OHLCV history work to the background worker after snapshot sync', async () => {
     mockedFetchExchangeMarkets.mockImplementation(async (exchangeId) => {
       if (exchangeId === 'binance') return [

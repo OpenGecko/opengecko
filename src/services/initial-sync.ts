@@ -238,8 +238,15 @@ async function fetchExchangeMarketResults(
   concurrency: number,
   startupExchangeMetadataBudgetMs?: number,
 ) {
+  const normalizedConcurrency = exchangeIds.length === 0
+    ? 0
+    : Math.min(Math.max(1, Math.floor(concurrency)), exchangeIds.length);
+  const effectiveStartupExchangeMetadataBudgetMs = startupExchangeMetadataBudgetMs && startupExchangeMetadataBudgetMs > 0
+    ? startupExchangeMetadataBudgetMs * Math.ceil(exchangeIds.length / Math.max(1, normalizedConcurrency))
+    : startupExchangeMetadataBudgetMs;
+
   const buildBudgetError = (exchangeId: string) => {
-    const error = new Error(`${exchangeId} startup exchange metadata budget exceeded after ${startupExchangeMetadataBudgetMs}ms`);
+    const error = new Error(`${exchangeId} startup exchange metadata budget exceeded after ${effectiveStartupExchangeMetadataBudgetMs}ms`);
     error.name = 'ExchangeMetadataStartupBudgetExceededError';
     return error;
   };
@@ -247,8 +254,8 @@ async function fetchExchangeMarketResults(
   return await runBudgetedProviderFanout({
     items: exchangeIds,
     concurrency,
-    budgetMs: startupExchangeMetadataBudgetMs,
-    run: fetchExchangeMarkets,
+    budgetMs: effectiveStartupExchangeMetadataBudgetMs,
+    run: (exchangeId, _index, signal) => fetchExchangeMarkets(exchangeId, { signal }),
     buildBudgetError,
   });
 }
