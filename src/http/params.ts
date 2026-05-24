@@ -14,7 +14,13 @@ function parseUnsignedIntegerLiteral(value: string, parameterName: string) {
     invalidParameter(parameterName, value);
   }
 
-  return Number(normalizedValue);
+  const parsed = Number(normalizedValue);
+
+  if (!Number.isFinite(parsed)) {
+    invalidParameter(parameterName, value);
+  }
+
+  return parsed;
 }
 
 export function parseBooleanQuery(value: string | undefined, defaultValue = false) {
