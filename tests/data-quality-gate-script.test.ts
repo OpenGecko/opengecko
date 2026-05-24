@@ -583,6 +583,167 @@ describe('focused data quality gate script', () => {
     expect(result.stdout).toContain('market_quality');
   });
 
+  it('accepts only explicit expected non-live dimensions and reason codes for below-threshold families', () => {
+    const baseFamily = JSON.parse(passingFixture()).data.families[0];
+    const onchainFreshness = freshnessBudgetFixture({
+      family: 'onchain',
+      source_state: 'fixture',
+      ownership_class: 'fixture',
+      counts_as_live_evidence: false,
+      counts_as_live_freshness_evidence: false,
+      non_live_evidence: true,
+      provider_ids: ['fixture'],
+      provider_count: 1,
+    });
+    const result = runGateWithFixture(JSON.stringify({
+      data: {
+        gate: {
+          status: 'fail',
+          threshold: 9,
+          below_target_count: 1,
+          below_target_families: [
+            {
+              family: 'onchain',
+              score: 6,
+              failing_dimensions: ['live_source_fidelity'],
+              reason_codes: ['fixture_only', 'fixture_source'],
+            },
+          ],
+          reason_codes: ['required_family_below_threshold'],
+        },
+        families: [
+          {
+            ...baseFamily,
+            family: 'onchain',
+            required: true,
+            score: 6,
+            target_threshold: 9,
+            status: 'degraded',
+            score_scopes: {
+              contract_compatibility: 9.5,
+              freshness_liveness: 9.5,
+              live_source_fidelity: 6,
+              fixture_fallback_transparency: 9.5,
+              overall: 6,
+            },
+            source: {
+              state: 'fixture',
+              ownership_class: 'fixture',
+              fallback: true,
+              fallback_status: 'fixture',
+              latest_source_at: null,
+              freshness_state: 'fresh',
+              freshness_budget: onchainFreshness,
+              provider_ids: ['fixture'],
+            },
+            freshness_budget: onchainFreshness,
+            dimensions: [
+              {
+                id: 'live_source_fidelity',
+                score: 6,
+                status: 'degraded',
+                reason_codes: ['fixture_only', 'fixture_source'],
+                message: 'Onchain remains explicitly fixture-backed for this gate.',
+              },
+            ],
+            reason_codes: ['fixture_only', 'fixture_source'],
+            failing_dimensions: ['live_source_fidelity'],
+          },
+        ],
+      },
+    }));
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain('explicit allowed non-live dimension/reason-code expectations');
+  });
+
+  it('rejects freshness, contract, provider, or unexpected below-threshold diagnostics even for historically allowed families', () => {
+    const baseFamily = JSON.parse(passingFixture()).data.families[0];
+    const staleFreshness = freshnessBudgetFixture({
+      family: 'onchain',
+      current_age_seconds: 90_000,
+      age_seconds: 90_000,
+      status: 'stale',
+      reason: 'freshness_stale',
+      reason_codes: ['stale_source'],
+      source_state: 'fixture',
+      ownership_class: 'fixture',
+      counts_as_live_evidence: false,
+      counts_as_live_freshness_evidence: false,
+      non_live_evidence: true,
+      provider_ids: ['fixture'],
+      provider_count: 1,
+    });
+    const result = runGateWithFixture(JSON.stringify({
+      data: {
+        gate: {
+          status: 'fail',
+          threshold: 9,
+          below_target_count: 1,
+          below_target_families: [
+            {
+              family: 'onchain',
+              score: 6,
+              failing_dimensions: ['freshness_liveness', 'live_source_fidelity'],
+              reason_codes: ['stale_source', 'provider_error'],
+            },
+          ],
+          reason_codes: ['required_family_below_threshold'],
+        },
+        families: [
+          {
+            ...baseFamily,
+            family: 'onchain',
+            required: true,
+            score: 6,
+            target_threshold: 9,
+            status: 'degraded',
+            score_scopes: {
+              contract_compatibility: 9.5,
+              freshness_liveness: 6,
+              live_source_fidelity: 6,
+              fixture_fallback_transparency: 9.5,
+              overall: 6,
+            },
+            source: {
+              state: 'fixture',
+              ownership_class: 'fixture',
+              fallback: true,
+              fallback_status: 'fixture',
+              latest_source_at: null,
+              freshness_state: 'stale',
+              freshness_budget: staleFreshness,
+              provider_ids: ['fixture'],
+            },
+            freshness_budget: staleFreshness,
+            dimensions: [
+              {
+                id: 'freshness_liveness',
+                score: 6,
+                status: 'degraded',
+                reason_codes: ['stale_source'],
+                message: 'Freshness is stale.',
+              },
+              {
+                id: 'live_source_fidelity',
+                score: 6,
+                status: 'degraded',
+                reason_codes: ['provider_error'],
+                message: 'Provider failed.',
+              },
+            ],
+            reason_codes: ['stale_source', 'provider_error'],
+            failing_dimensions: ['freshness_liveness', 'live_source_fidelity'],
+          },
+        ],
+      },
+    }));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('outside the explicit dimension/reason-code allowlist');
+    expect(result.stderr).toContain('onchain|dimensions=freshness_liveness,live_source_fidelity|reason_codes=provider_error,stale_source');
+  });
+
   it('rejects malformed passing diagnostics with no family entries', () => {
     const result = runGateWithFixture(JSON.stringify({
       data: {

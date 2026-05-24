@@ -1,6 +1,13 @@
 {
-  "totalTests": 1049,
-  "passed": 1049,
-  "skipped": 0,
-  "failed": 0
+  "schemaVersion": 1,
+  "source": "pre-decomposition-git-history",
+  "preDecompositionCommit": "79eb8fafd027aa5a7b8387417a69511398393921",
+  "firstDecompositionCommit": "b79813e0ec2389974c2bd8a56372a4cd88554c37",
+  "captureCommand": "git show 79eb8fafd027aa5a7b8387417a69511398393921:tests/app.test.ts | wc -l",
+  "testCounts": {
+    "tests/app.test.ts": {
+      "metric": "line_count",
+      "count": 8207
+    }
+  }
 }

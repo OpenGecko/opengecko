@@ -76,6 +76,13 @@ function fixturePath(name: string) {
 }
 
 function readFixture(name: string): BaselineFixture {
+  if (!existsSync(fixturePath(name))) {
+    throw new Error(
+      `Missing committed onchain baseline fixture ${fixturePath(name)}. ` +
+        'Set UPDATE_ONCHAIN_BASELINES=1 to intentionally regenerate baseline fixtures.',
+    );
+  }
+
   return JSON.parse(readFileSync(fixturePath(name), 'utf8')) as BaselineFixture;
 }
 
@@ -87,6 +94,16 @@ function writeFixture(name: string, fixture: BaselineFixture) {
 describe('onchain route decomposition baselines', () => {
   let app: FastifyInstance | undefined;
   let tempDir: string;
+
+  it('requires committed fixture files unless baseline update mode is explicitly enabled', () => {
+    if (updateBaselines) {
+      return;
+    }
+
+    for (const request of representativeOnchainRequests) {
+      expect(existsSync(fixturePath(request.name)), `${request.name} fixture must be committed`).toBe(true);
+    }
+  });
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'opengecko-onchain-baseline-'));
@@ -130,7 +147,7 @@ describe('onchain route decomposition baselines', () => {
         payload: response.payload,
       };
 
-      if (updateBaselines || !existsSync(fixturePath(request.name))) {
+      if (updateBaselines) {
         writeFixture(request.name, actual);
       }
 

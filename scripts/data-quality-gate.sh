@@ -8,7 +8,7 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:3103}"
 ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
 MAX_EVIDENCE_CHARS="${MAX_EVIDENCE_CHARS:-1200}"
 EVIDENCE_DIR="${OPENGECKO_QUALITY_EVIDENCE_DIR:-${QUALITY_EVIDENCE_DIR:-}}"
-DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES="${DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES:-onchain,treasury}"
+DATA_QUALITY_ALLOWED_BELOW_TARGET_REGRESSIONS="${DATA_QUALITY_ALLOWED_BELOW_TARGET_REGRESSIONS:-onchain|live_source_fidelity|fixture_only,fixture_source,replay_only,source_unavailable,unavailable_only;treasury|live_source_fidelity|fixture_only,fixture_source,seeded_only,seeded_source,source_unavailable,unavailable_only}"
 
 if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
   echo "ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds" >&2
@@ -533,19 +533,60 @@ if [[ "$status" == "pass" ]]; then
   exit 0
 fi
 
-blocking_below_target_families="$(
-  jq -r --arg allowed "$DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES" '
-    ($allowed | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $allowedFamilies
-    | (.data.gate.below_target_families // [])
-    | map(.family)
-    | map(. as $family | select(($allowedFamilies | index($family)) == null))
-    | .[]
+blocking_below_target_regressions="$(
+  jq -r --arg allowed "$DATA_QUALITY_ALLOWED_BELOW_TARGET_REGRESSIONS" '
+    def trim: gsub("^\\s+|\\s+$"; "");
+    def sorted_strings: map(select(type == "string")) | unique | sort;
+    def allowed_entries:
+      $allowed
+      | split(";")
+      | map(trim)
+      | map(select(length > 0))
+      | map(
+          split("|") as $parts
+          | {
+              family: (($parts[0] // "") | trim),
+              dimensions: (($parts[1] // "") | split(",") | map(trim) | map(select(length > 0)) | sort),
+              reason_codes: (($parts[2] // "") | split(",") | map(trim) | map(select(length > 0)) | sort)
+            }
+        );
+    def allowed($entry):
+      [
+        allowed_entries[]?
+        | select(.family == $entry.family)
+        | select((($entry.failing_dimensions - .dimensions) | length) == 0)
+        | select((($entry.reason_codes - .reason_codes) | length) == 0)
+      ]
+      | length > 0;
+
+    .data as $data
+    | ($data.gate.below_target_families // [])[]? as $gate
+    | ($gate.family // "<missing>") as $family_id
+    | (($data.families // []) | map(select(.family == $family_id))[0] // {}) as $family
+    | {
+        family: $family_id,
+        failing_dimensions: ([
+          ($gate.failing_dimensions // [])[]?,
+          ($family.failing_dimensions // [])[]?,
+          (($family.dimensions // [])[]? | select((.status // "pass") != "pass") | .id)
+        ] | sorted_strings),
+        reason_codes: ([
+          ($gate.reason_codes // [])[]?,
+          ($family.reason_codes // [])[]?,
+          (($family.dimensions // [])[]? | select((.status // "pass") != "pass") | (.reason_codes // [])[]?)
+        ] | sorted_strings)
+      } as $entry
+    | select((allowed($entry)) | not)
+    | "\($entry.family)|dimensions=\($entry.failing_dimensions | join(","))|reason_codes=\($entry.reason_codes | join(","))"
   ' "$TMP_FILE"
 )"
 
-if [[ -z "$blocking_below_target_families" ]]; then
-  echo "Diagnostic gate accepted: below-target families are limited to allowed non-live families (${DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES})."
+if [[ -z "$blocking_below_target_regressions" ]]; then
+  echo "Diagnostic gate accepted: below-target entries match explicit allowed non-live dimension/reason-code expectations (${DATA_QUALITY_ALLOWED_BELOW_TARGET_REGRESSIONS})."
   exit 0
 fi
+
+echo "FAIL diagnostics/data_quality has below-target entries outside the explicit dimension/reason-code allowlist" >&2
+echo "$blocking_below_target_regressions" >&2
 
 exit 1
