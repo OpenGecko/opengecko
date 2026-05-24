@@ -1,0 +1,4 @@
+{
+  "statusCode": 200,
+  "payload": "{\"data\":[{\"id\":\"curve\",\"type\":\"dex\",\"attributes\":{\"name\":\"Curve\",\"url\":\"https://curve.fi\",\"image_url\":\"https://assets.coingecko.com/markets/images/538/small/curve.png\"},\"relationships\":{\"network\":{\"data\":{\"type\":\"network\",\"id\":\"eth\"}}}},{\"id\":\"uniswap_v3\",\"type\":\"dex\",\"attributes\":{\"name\":\"Uniswap V3\",\"url\":\"https://app.uniswap.org\",\"image_url\":\"https://assets.coingecko.com/markets/images/665/small/uniswap.png\"},\"relationships\":{\"network\":{\"data\":{\"type\":\"network\",\"id\":\"eth\"}}}}],\"meta\":{\"page\":1,\"per_page\":100,\"total_pages\":1,\"total_count\":2,\"network\":\"eth\"}}"
+}

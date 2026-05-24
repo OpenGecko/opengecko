@@ -1,0 +1,4 @@
+{
+  "statusCode": 200,
+  "payload": "{\"data\":[{\"id\":\"eth\",\"type\":\"network\",\"attributes\":{\"name\":\"Ethereum\",\"chain_identifier\":1,\"coingecko_asset_platform_id\":\"ethereum\",\"native_currency_coin_id\":\"ethereum\",\"image_url\":\"https://assets.coingecko.com/asset_platforms/images/279/small/ethereum.png\"}},{\"id\":\"solana\",\"type\":\"network\",\"attributes\":{\"name\":\"Solana\",\"chain_identifier\":101,\"coingecko_asset_platform_id\":\"solana\",\"native_currency_coin_id\":\"solana\",\"image_url\":\"https://assets.coingecko.com/asset_platforms/images/4128/small/solana.png\"}}],\"meta\":{\"page\":1,\"per_page\":100,\"total_pages\":1,\"total_count\":2}}"
+}

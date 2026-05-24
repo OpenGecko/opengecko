@@ -104,12 +104,23 @@ function sourceTreeContains(value: string, directory = resolve(process.cwd(), 's
   });
 }
 
+function listModuleSourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = resolve(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      return listModuleSourceFiles(entryPath);
+    }
+
+    return entry.isFile() && entry.name.endsWith('.ts') ? [entryPath] : [];
+  });
+}
+
 function extractRegisteredCoinGeckoGetRoutes() {
   const modulesDir = resolve(process.cwd(), 'src/modules');
-  const registeredRoutes = readdirSync(modulesDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
-    .flatMap((entry) => {
-      const source = readFileSync(resolve(modulesDir, entry.name), 'utf8');
+  const registeredRoutes = listModuleSourceFiles(modulesDir)
+    .flatMap((entryPath) => {
+      const source = readFileSync(entryPath, 'utf8');
       return [...source.matchAll(/app\.get\(\s*['`]([^'`]+)['`]/g)].map((match) => match[1]);
     })
     .filter((route) => !route.startsWith('/diagnostics/'))
