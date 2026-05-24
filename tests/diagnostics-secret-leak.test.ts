@@ -13,6 +13,7 @@ import { resetCurrencyApiSnapshotForTests } from '../src/services/currency-rates
 
 const DIAGNOSTIC_ROUTES = [
   '/diagnostics/runtime',
+  '/diagnostics/data_quality',
   '/diagnostics/jobs',
   '/diagnostics/coverage_matrix',
   '/diagnostics/freshness_budgets',
