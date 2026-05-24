@@ -1,0 +1,38 @@
+[
+  {
+    "input": "1",
+    "fieldName": "from",
+    "outcome": {
+      "value": 1000
+    }
+  },
+  {
+    "input": "1773446400",
+    "fieldName": "to",
+    "outcome": {
+      "value": 1773446400000
+    }
+  },
+  {
+    "input": "bad",
+    "fieldName": "from",
+    "outcome": {
+      "error": {
+        "statusCode": 400,
+        "code": "invalid_parameter",
+        "message": "Invalid from value: bad"
+      }
+    }
+  },
+  {
+    "input": "Infinity",
+    "fieldName": "to",
+    "outcome": {
+      "error": {
+        "statusCode": 400,
+        "code": "invalid_parameter",
+        "message": "Invalid to value: Infinity"
+      }
+    }
+  }
+]

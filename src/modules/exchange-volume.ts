@@ -3,13 +3,10 @@ import { asc, eq } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { exchangeVolumePoints } from '../db/schema';
 import { HttpError } from '../http/errors';
+import { parseFiniteNumber, parsePositiveInt } from '../http/params';
 
 export function getExchangeVolumeChart(database: AppDatabase, exchangeId: string, days: string) {
-  const parsedDays = Number(days);
-
-  if (!Number.isFinite(parsedDays) || parsedDays <= 0) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
-  }
+  const parsedDays = parsePositiveInt(days, 1, 'days');
 
   const cutoffMs = Date.now() - parsedDays * 24 * 60 * 60 * 1000;
 
@@ -32,13 +29,7 @@ export function getExchangeVolumeChart(database: AppDatabase, exchangeId: string
 }
 
 function parseRangeBound(value: string, name: 'from' | 'to') {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid ${name} value: ${value}`);
-  }
-
-  return parsed;
+  return parseFiniteNumber(value, 0, name);
 }
 
 export function getExchangeVolumeChartRange(database: AppDatabase, exchangeId: string, from: string, to: string) {

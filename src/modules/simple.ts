@@ -66,7 +66,7 @@ function toPreciseNumber(value: number | null | undefined, precision: number | '
     return value;
   }
 
-  return Number(value.toFixed(precision));
+  return +value.toFixed(precision);
 }
 
 function isPositiveFiniteNumber(value: unknown): value is number {

@@ -1,0 +1,51 @@
+[
+  {
+    "queryString": "show_max=12abc",
+    "statusCode": 400,
+    "body": {
+      "error": "invalid_parameter",
+      "message": "Invalid show_max value: 12abc"
+    }
+  },
+  {
+    "queryString": "show_max=12%20",
+    "statusCode": 400,
+    "body": {
+      "error": "invalid_parameter",
+      "message": "Invalid show_max value: 12 "
+    }
+  },
+  {
+    "queryString": "show_max=%2B12",
+    "statusCode": 400,
+    "body": {
+      "error": "invalid_parameter",
+      "message": "Invalid show_max value: +12"
+    }
+  },
+  {
+    "queryString": "show_max=0x12",
+    "statusCode": 400,
+    "body": {
+      "error": "invalid_parameter",
+      "message": "Invalid show_max value: 0x12"
+    }
+  },
+  {
+    "queryString": "show_max=",
+    "statusCode": 400,
+    "body": {
+      "error": "invalid_parameter",
+      "message": "Invalid show_max value: "
+    }
+  },
+  {
+    "queryString": "show_max=12",
+    "statusCode": 200,
+    "body": {
+      "meta": {
+        "show_max": 12
+      }
+    }
+  }
+]

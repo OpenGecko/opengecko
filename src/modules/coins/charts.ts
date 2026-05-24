@@ -2,6 +2,7 @@ import type { AppDatabase } from '../../db/client';
 import type { MarketSnapshotRow } from '../../db/schema';
 import { coinTickers } from '../../db/schema';
 import { HttpError } from '../../http/errors';
+import { parsePositiveInt } from '../../http/params';
 import { getConversionRate } from '../../lib/conversion';
 import { getChartSeries, getMarketRows } from '../catalog';
 import { downsampleTimeSeries, getRangeDurationMs } from '../chart-semantics';
@@ -171,11 +172,7 @@ export function getCanonicalChartRowsForDays(database: AppDatabase, coinId: stri
     return normalizeChartRows(downsampleTimeSeries(rows, getGranularityMs(duration, interval)));
   }
 
-  const dayCount = Number(days);
-
-  if (!Number.isFinite(dayCount) || dayCount <= 0) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
-  }
+  const dayCount = parsePositiveInt(days, 1, 'days');
 
   const latestTimestamp = rows.at(-1)?.timestamp?.getTime();
 
@@ -257,11 +254,7 @@ export function getCanonicalOhlcRowsForDays(database: AppDatabase, coinId: strin
     return normalizeOhlcRows(rows);
   }
 
-  const dayCount = Number(days);
-
-  if (!Number.isFinite(dayCount) || dayCount <= 0) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${days}`);
-  }
+  const dayCount = parsePositiveInt(days, 1, 'days');
 
   const latestTimestamp = rows.at(-1)?.timestamp?.getTime();
 
@@ -283,8 +276,10 @@ export async function fetchProviderOhlcRowsForDays(database: AppDatabase, coinId
     return null;
   }
 
-  const dayCount = Number(days);
-  if (!Number.isFinite(dayCount) || dayCount <= 0) {
+  let dayCount: number;
+  try {
+    dayCount = parsePositiveInt(days, 1, 'days');
+  } catch {
     return null;
   }
 

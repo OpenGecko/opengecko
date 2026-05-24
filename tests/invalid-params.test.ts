@@ -260,6 +260,54 @@ describe('OpenGecko invalid parameter handling', () => {
     expect(badBoundsResponse.json()).toMatchObject(errorFixtures.coinChartRangeBadBounds);
   });
 
+  it('rejects degenerate numeric query primitives without 500s', async () => {
+    const requests = [
+      {
+        url: '/coins/markets?vs_currency=usd&per_page=1e2',
+        message: 'Invalid integer value: 1e2',
+      },
+      {
+        url: '/simple/price?ids=bitcoin&vs_currencies=usd&precision=',
+        message: 'Invalid precision value: ',
+      },
+      {
+        url: '/onchain/pools/megafilter?min_reserve_in_usd=Infinity',
+        message: 'Invalid min_reserve_in_usd value: Infinity',
+      },
+      {
+        url: '/onchain/pools/megafilter?max_reserve_in_usd=NaN',
+        message: 'Invalid max_reserve_in_usd value: NaN',
+      },
+      {
+        url: '/onchain/pools/megafilter?min_volume_usd_h24=',
+        message: 'Invalid min_volume_usd_h24 value: ',
+      },
+      {
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?before_timestamp=0',
+        message: 'Invalid before_timestamp value: 0',
+      },
+      {
+        url: '/onchain/networks/eth/pools/0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640/ohlcv/hour?before_timestamp=1.5',
+        message: 'Invalid before_timestamp value: 1.5',
+      },
+      {
+        url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=0&to=1773964800',
+        message: 'Invalid from value: 0',
+      },
+    ];
+
+    const responses = await Promise.all(requests.map(({ url }) => app!.inject({ method: 'GET', url })));
+
+    for (const [index, response] of responses.entries()) {
+      expect(response.statusCode, requests[index]!.url).toBe(400);
+      expect(response.json()).toEqual({
+        error: 'invalid_parameter',
+        message: requests[index]!.message,
+      });
+      expect(response.body).not.toMatch(/stack|trace|at\s+\w+/i);
+    }
+  });
+
   it('rejects invalid ranged ohlc values', async () => {
     const badFromResponse = await app!.inject({
       method: 'GET',

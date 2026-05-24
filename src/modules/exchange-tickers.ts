@@ -236,8 +236,8 @@ function buildExchangeTickerPayload(
     token_info_url: row.coin_tickers.tokenInfoUrl,
     ...(options.includeDepth
       ? {
-          cost_to_move_up_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.001).toFixed(2)),
-          cost_to_move_down_usd: row.coin_tickers.convertedVolumeUsd === null ? null : Number((row.coin_tickers.convertedVolumeUsd * 0.0008).toFixed(2)),
+          cost_to_move_up_usd: row.coin_tickers.convertedVolumeUsd === null ? null : +(row.coin_tickers.convertedVolumeUsd * 0.001).toFixed(2),
+          cost_to_move_down_usd: row.coin_tickers.convertedVolumeUsd === null ? null : +(row.coin_tickers.convertedVolumeUsd * 0.0008).toFixed(2),
         }
       : {}),
     coin_id: row.coin_tickers.coinId,

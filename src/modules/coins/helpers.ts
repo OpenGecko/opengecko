@@ -2,6 +2,7 @@ import type { AppDatabase } from '../../db/client';
 import BigNumber from 'bignumber.js';
 import type { CoinRow, MarketSnapshotRow } from '../../db/schema';
 import { HttpError } from '../../http/errors';
+import { parsePositiveInt, parseTimestampSeconds } from '../../http/params';
 import { parseJsonObject } from '../../lib/shared';
 import { getChartGranularityMs } from '../chart-semantics';
 import { getSnapshotOwnership } from '../../services/market-snapshots';
@@ -150,9 +151,14 @@ export function parseTopCoinsLimit(value: string | undefined) {
     return 30;
   }
 
-  const parsed = Number(value);
+  let parsed: number;
+  try {
+    parsed = parsePositiveInt(value, 30, 'top_coins');
+  } catch {
+    throw new HttpError(400, 'invalid_parameter', `Unsupported top_coins value: ${value}`);
+  }
 
-  if (!Number.isInteger(parsed) || ![100, 300, 500, 1000].includes(parsed)) {
+  if (![100, 300, 500, 1000].includes(parsed)) {
     throw new HttpError(400, 'invalid_parameter', `Unsupported top_coins value: ${value}`);
   }
 
@@ -214,13 +220,7 @@ export function parseHistoryDate(date: string) {
 }
 
 export function parseUnixTimestampSeconds(value: string, fieldName: string) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid ${fieldName} value: ${value}`);
-  }
-
-  return parsed * 1000;
+  return parseTimestampSeconds(value, fieldName) * 1000;
 }
 
 export function buildSupplyPayload(

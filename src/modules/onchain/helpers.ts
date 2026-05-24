@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { HttpError } from '../../http/errors';
-import { parseCsvQuery } from '../../http/params';
+import { parseCsvQuery, parseFiniteNumber, parsePositiveInt, parseTimestampSeconds } from '../../http/params';
 
 export type LiveOnchainPoolPatch = {
   priceUsd: number | null;
@@ -272,17 +272,7 @@ export function formatMetricValue(value: number | null) {
 }
 
 export function parseTradeVolumeThreshold(value: string | undefined) {
-  if (value === undefined) {
-    return null;
-  }
-
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid trade_volume_in_usd_greater_than value: ${value}`);
-  }
-
-  return parsed;
+  return parseFiniteNumber(value, null, 'trade_volume_in_usd_greater_than');
 }
 
 export function parseAnalyticsCount(value: string | undefined, parameterName: 'holders' | 'traders', defaultValue: number) {
@@ -290,10 +280,7 @@ export function parseAnalyticsCount(value: string | undefined, parameterName: 'h
     return defaultValue;
   }
 
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid ${parameterName} value: ${value}`);
-  }
+  const parsed = parsePositiveInt(value, defaultValue, parameterName);
 
   return Math.min(parsed, 100);
 }
@@ -315,12 +302,7 @@ export function parseHoldersChartDays(value: string | undefined) {
     return 30;
   }
 
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid days value: ${value}`);
-  }
-
-  return parsed;
+  return parsePositiveInt(value, 30, 'days');
 }
 
 export function parseOnchainOhlcvTimeframe(value: string): OnchainOhlcvTimeframe {
@@ -332,12 +314,11 @@ export function parseOnchainOhlcvTimeframe(value: string): OnchainOhlcvTimeframe
 }
 
 export function parseOptionalPositiveNumber(value: string | undefined, parameterName: string) {
-  if (value === undefined) {
+  const parsed = parseFiniteNumber(value, null, parameterName);
+  if (parsed === null) {
     return null;
   }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (parsed <= 0) {
     throw new HttpError(400, 'invalid_parameter', `Invalid ${parameterName} value: ${value}`);
   }
 
@@ -345,20 +326,18 @@ export function parseOptionalPositiveNumber(value: string | undefined, parameter
 }
 
 export function parseOptionalPositiveInteger(value: string | undefined, parameterName: string) {
-  const parsed = parseOptionalPositiveNumber(value, parameterName);
-  if (parsed === null) {
+  if (value === undefined) {
     return null;
   }
-  if (!Number.isInteger(parsed)) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid ${parameterName} value: ${value}`);
-  }
-
-  return parsed;
+  return parsePositiveInt(value, 1, parameterName);
 }
 
 export function parseOptionalTimestamp(value: string | undefined, parameterName: string) {
-  const parsed = parseOptionalPositiveNumber(value, parameterName);
-  return parsed === null ? null : Math.floor(parsed);
+  if (value === undefined) {
+    return null;
+  }
+
+  return parseTimestampSeconds(value, parameterName);
 }
 
 export function resolveOnchainOhlcvWindowMs(timeframe: OnchainOhlcvTimeframe, aggregate: number) {
@@ -403,16 +382,7 @@ export function parseMegafilterSort(value: string | undefined): MegafilterSort {
 }
 
 export function parseOptionalFiniteNumber(value: string | undefined, parameterName: string) {
-  if (value === undefined) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new HttpError(400, 'invalid_parameter', `Invalid ${parameterName} value: ${value}`);
-  }
-
-  return parsed;
+  return parseFiniteNumber(value, null, parameterName);
 }
 
 export function buildPaginationMeta(page: number, perPage: number, totalCount: number) {
