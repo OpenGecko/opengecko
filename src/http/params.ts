@@ -16,7 +16,7 @@ function parseUnsignedIntegerLiteral(value: string, parameterName: string) {
 
   const parsed = Number(normalizedValue);
 
-  if (!Number.isFinite(parsed)) {
+  if (!Number.isFinite(parsed) || !Number.isSafeInteger(parsed)) {
     invalidParameter(parameterName, value);
   }
 
@@ -107,7 +107,7 @@ export function parseFiniteNumber<TDefault extends number | null>(
 
   const parsed = Number(normalizedValue);
 
-  if (!Number.isFinite(parsed)) {
+  if (!Number.isFinite(parsed) || (Number.isInteger(parsed) && !Number.isSafeInteger(parsed))) {
     invalidParameter(parameterName, value);
   }
 

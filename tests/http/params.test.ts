@@ -28,6 +28,8 @@ function expectHttpError(
 
 describe('HTTP query parameter helpers', () => {
   it('preserves boolean, CSV, positive integer, and precision helper contracts', () => {
+    const unsafeInteger = '9'.repeat(30);
+
     expect(parseBooleanQuery(undefined)).toBe(false);
     expect(parseBooleanQuery(undefined, true)).toBe(true);
     expect(parseBooleanQuery('true')).toBe(true);
@@ -44,7 +46,7 @@ describe('HTTP query parameter helpers', () => {
 
     expect(parsePositiveInt(undefined, 7)).toBe(7);
     expect(parsePositiveInt('42', 7)).toBe(42);
-    for (const value of ['0', '-1', '1.5', '1e2', 'NaN', '']) {
+    for (const value of ['0', '-1', '1.5', '1e2', 'NaN', '', unsafeInteger]) {
       expectHttpError(() => parsePositiveInt(value, 7), {
         statusCode: 400,
         code: 'invalid_parameter',
@@ -67,11 +69,13 @@ describe('HTTP query parameter helpers', () => {
   });
 
   it('parses non-negative integers with default and invalid-parameter semantics', () => {
+    const unsafeInteger = '9'.repeat(30);
+
     expect(parseNonNegativeInt(undefined, 3)).toBe(3);
     expect(parseNonNegativeInt('0', 3)).toBe(0);
     expect(parseNonNegativeInt('42', 3)).toBe(42);
 
-    for (const value of ['-1', '1.5', '1e2', 'NaN', '', '   ']) {
+    for (const value of ['-1', '1.5', '1e2', 'NaN', '', '   ', unsafeInteger]) {
       expectHttpError(() => parseNonNegativeInt(value, 3, 'limit'), {
         statusCode: 400,
         code: 'invalid_parameter',
@@ -81,6 +85,8 @@ describe('HTTP query parameter helpers', () => {
   });
 
   it('parses finite numbers with default and invalid-parameter semantics', () => {
+    const unsafeInteger = '9'.repeat(30);
+
     expect(parseFiniteNumber(undefined, 1.25)).toBe(1.25);
     expect(parseFiniteNumber('0', null, 'threshold')).toBe(0);
     expect(parseFiniteNumber('1.5', null, 'threshold')).toBe(1.5);
@@ -89,7 +95,7 @@ describe('HTTP query parameter helpers', () => {
     expect(parseFiniteNumber('1.2e-1', null, 'threshold')).toBe(0.12);
     expect(parseFiniteNumber(' 1 ', null, 'threshold')).toBe(1);
 
-    for (const value of ['NaN', 'Infinity', '-Infinity', '', '   ', 'abc']) {
+    for (const value of ['NaN', 'Infinity', '-Infinity', '', '   ', 'abc', unsafeInteger]) {
       expectHttpError(() => parseFiniteNumber(value, null, 'threshold'), {
         statusCode: 400,
         code: 'invalid_parameter',
@@ -99,11 +105,13 @@ describe('HTTP query parameter helpers', () => {
   });
 
   it('parses timestamp seconds with default and invalid-parameter semantics', () => {
+    const unsafeInteger = '9'.repeat(30);
+
     expect(parseTimestampSeconds(undefined, 'before_timestamp', 123)).toBe(123);
     expect(parseTimestampSeconds('1', 'before_timestamp')).toBe(1);
     expect(parseTimestampSeconds('1773446400', 'from')).toBe(1773446400);
 
-    for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '', '   ']) {
+    for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '', '   ', unsafeInteger]) {
       expectHttpError(() => parseTimestampSeconds(value, 'before_timestamp'), {
         statusCode: 400,
         code: 'invalid_parameter',

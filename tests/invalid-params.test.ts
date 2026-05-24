@@ -262,10 +262,19 @@ describe('OpenGecko invalid parameter handling', () => {
 
   it('rejects degenerate numeric query primitives without 500s', async () => {
     const overflowingInteger = '9'.repeat(400);
+    const unsafeInteger = '9'.repeat(30);
     const requests = [
       {
         url: '/coins/markets?vs_currency=usd&per_page=1e2',
         message: 'Invalid integer value: 1e2',
+      },
+      {
+        url: `/coins/markets?vs_currency=usd&page=${unsafeInteger}`,
+        message: `Invalid integer value: ${unsafeInteger}`,
+      },
+      {
+        url: `/coins/markets?vs_currency=usd&per_page=${unsafeInteger}`,
+        message: `Invalid integer value: ${unsafeInteger}`,
       },
       {
         url: `/coins/markets?vs_currency=usd&per_page=${overflowingInteger}`,
@@ -298,6 +307,10 @@ describe('OpenGecko invalid parameter handling', () => {
       {
         url: '/coins/bitcoin/market_chart/range?vs_currency=usd&from=0&to=1773964800',
         message: 'Invalid from value: 0',
+      },
+      {
+        url: `/coins/bitcoin/market_chart?vs_currency=usd&days=${unsafeInteger}`,
+        message: `Invalid days value: ${unsafeInteger}`,
       },
       {
         url: `/coins/bitcoin/market_chart/range?vs_currency=usd&from=${overflowingInteger}&to=1773964800`,
