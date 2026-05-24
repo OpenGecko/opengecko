@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=4",
     "test:coverage": "vitest run --coverage",
     "test:endpoint": "bash scripts/test-endpoints.sh",
     "test:endpoint:assets": "bash scripts/modules/assets/assets.sh",

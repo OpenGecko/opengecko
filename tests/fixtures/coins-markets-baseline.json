@@ -1,0 +1,15 @@
+{
+  "request": "/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=true&price_change_percentage=24h,7d",
+  "canonicalization": {
+    "sortObjectKeys": true,
+    "excludedTimingFields": [
+      "last_updated",
+      "updated_at",
+      "timestamp",
+      "duration_ms",
+      "age_seconds"
+    ]
+  },
+  "rowCount": 50,
+  "sha256": "890e0eeff9225c11e9a263a66bce2f8fbcb4eff47ed3e8250dc29d81efd4e623"
+}

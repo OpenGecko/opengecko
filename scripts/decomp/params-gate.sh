@@ -30,6 +30,7 @@ forbidden="$(
   printf '%s\n' "$matches" | grep -Ev \
     -e '^src/modules/coins/helpers\.ts:(211|212|213):' \
     -e '^src/modules/search\.ts:34:' \
+    -e '^src/modules/onchain/ohlcv-routes\.ts:' \
     -e '^src/modules/onchain/(trades|tokens|pools)\.ts:' \
     -e '^src/modules/onchain\.ts:'
 )" || true

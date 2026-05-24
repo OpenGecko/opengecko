@@ -1,0 +1,10 @@
+{
+  "command": "bun run test",
+  "preDurationsSeconds": [
+    183.98,
+    189.24,
+    191.34
+  ],
+  "preMedianSeconds": 189.24,
+  "allowedRegressionMultiplier": 1.25
+}

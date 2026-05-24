@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -18,6 +19,50 @@ type MarketRowNullShapeFixture = {
     populatedFields: string[];
   }>;
 };
+
+type CoinsMarketsBaselineFixture = {
+  request: string;
+  rowCount: number;
+  sha256: string;
+};
+
+const EXCLUDED_TIMING_FIELDS = new Set([
+  'last_updated',
+  'updated_at',
+  'timestamp',
+  'duration_ms',
+  'age_seconds',
+]);
+
+function canonicalizeForParityHash(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeForParityHash);
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value)
+        .filter((key) => !EXCLUDED_TIMING_FIELDS.has(key))
+        .sort()
+        .map((key) => [key, canonicalizeForParityHash((value as Record<string, unknown>)[key])]),
+    );
+  }
+
+  return value;
+}
+
+function sha256CanonicalJson(value: unknown) {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalizeForParityHash(value)))
+    .digest('hex');
+}
+
+function readCoinsMarketsBaselineFixture(): CoinsMarketsBaselineFixture {
+  return JSON.parse(readFileSync(
+    join(process.cwd(), 'tests/fixtures/coins-markets-baseline.json'),
+    'utf8',
+  )) as CoinsMarketsBaselineFixture;
+}
 
 function readMarketRowNullShapeFixture(mode: string): MarketRowNullShapeFixture {
   return JSON.parse(readFileSync(
@@ -51,6 +96,19 @@ describe('coins markets parity', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('matches the final canonical /coins/markets parity hash', { timeout: 30000 }, async () => {
+    const baseline = readCoinsMarketsBaselineFixture();
+    const response = await app.inject({
+      method: 'GET',
+      url: baseline.request,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveLength(baseline.rowCount);
+    expect(sha256CanonicalJson(body)).toBe(baseline.sha256);
   });
 
   it('preserves canonical membership, ordering, and core market fields for the sampled assets', { timeout: 30000 }, async () => {

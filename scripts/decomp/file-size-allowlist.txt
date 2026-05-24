@@ -1,0 +1,3 @@
+# path max_lines reason
+tests/modules/diagnostics-routes/market-chart-response-sources.test.ts 976 pre-existing split diagnostics fixture coverage
+tests/modules/onchain.test.ts 860 pre-existing broad onchain route-family coverage

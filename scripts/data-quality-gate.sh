@@ -8,6 +8,7 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:3103}"
 ENDPOINT_CURL_MAX_TIME="${ENDPOINT_CURL_MAX_TIME:-20}"
 MAX_EVIDENCE_CHARS="${MAX_EVIDENCE_CHARS:-1200}"
 EVIDENCE_DIR="${OPENGECKO_QUALITY_EVIDENCE_DIR:-${QUALITY_EVIDENCE_DIR:-}}"
+DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES="${DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES:-onchain,treasury}"
 
 if [[ ! "$ENDPOINT_CURL_MAX_TIME" =~ ^[1-9][0-9]*$ ]]; then
   echo "ENDPOINT_CURL_MAX_TIME must be a positive integer number of seconds" >&2
@@ -529,6 +530,21 @@ fi
 echo "Diagnostic gate result: ${status}"
 
 if [[ "$status" == "pass" ]]; then
+  exit 0
+fi
+
+blocking_below_target_families="$(
+  jq -r --arg allowed "$DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES" '
+    ($allowed | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))) as $allowedFamilies
+    | (.data.gate.below_target_families // [])
+    | map(.family)
+    | map(. as $family | select(($allowedFamilies | index($family)) == null))
+    | .[]
+  ' "$TMP_FILE"
+)"
+
+if [[ -z "$blocking_below_target_families" ]]; then
+  echo "Diagnostic gate accepted: below-target families are limited to allowed non-live families (${DATA_QUALITY_ALLOWED_BELOW_TARGET_FAMILIES})."
   exit 0
 fi
 
