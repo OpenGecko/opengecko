@@ -417,7 +417,7 @@ export function buildCoverageMatrix(database: AppDatabase, now = new Date()) {
       ownershipClass: latestMarketSnapshotAt || latestExchangeTickerAt || latestCoinHistorySnapshotAt ? 'hybrid' : 'seeded',
       providers: ['CCXT', 'seed catalog', 'coin history replay'],
       lastSuccessfulRefreshAt: latestCoinDetailDataAt,
-      evidence: ['tests/coin-detail-parity.test.ts', 'tests/app.test.ts', 'tests/provider-replay-coin-history.test.ts'],
+      evidence: ['tests/coin-detail-parity.test.ts', 'tests/modules/app-scaffold/coins-detail-tickers.test.ts', 'tests/modules/app-scaffold/coins-charts-ohlc.test.ts', 'tests/provider-replay-coin-history.test.ts'],
       notes: latestCoinHistorySnapshotAt
         ? 'Metadata is seeded/catalog-backed while market fields, tickers, and dated history snapshots can read source-attributed replay/live rows; replay history must not be advertised as live.'
         : 'Metadata is seeded/catalog-backed while market fields and tickers can be live-backed; dated history still falls back to seeded chart/current snapshot blending until source-attributed history rows are ingested.',
