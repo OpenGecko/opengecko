@@ -8,6 +8,7 @@
     safePersistJson
   } from '$lib/dashboard-local-state';
   import type { DashboardControlsState, RowsPerPage, Segment } from '$lib/dashboard-local-state';
+  import { sortMarketRows, type MarketSortDirection, type MarketSortKey } from '$lib/market-sort';
   import {
     Activity,
     ArrowDown,
@@ -122,7 +123,8 @@
     };
   };
 
-  type SortKey = 'rank' | 'price' | 'change24h' | 'volume' | 'marketCap' | 'fdv';
+  type SortKey = MarketSortKey;
+  type SortDirection = MarketSortDirection;
   type ResourceKey = 'markets' | 'trending' | 'global' | 'runtime' | 'categories' | 'exchanges';
   type ResourceResult = { key: ResourceKey; ok: true } | { key: ResourceKey; ok: false; error: string };
 
@@ -179,7 +181,7 @@
   let mobileMenuOpen = false;
   let segment: Segment = 'all';
   let sortKey: SortKey = 'rank';
-  let sortDirection: 'asc' | 'desc' = 'asc';
+  let sortDirection: SortDirection = 'asc';
   let rowsPerPage: RowsPerPage = 25;
   let loading = false;
   let hasLoadedOnce = false;
@@ -257,42 +259,6 @@
   function capFdvRatio(coin: MarketCoin) {
     if (!coin.market_cap || !coin.fully_diluted_valuation) return null;
     return (coin.market_cap / coin.fully_diluted_valuation) * 100;
-  }
-
-  function nullableSortValue(coin: MarketCoin, key: SortKey) {
-    switch (key) {
-      case 'price':
-        return coin.current_price;
-      case 'change24h':
-        return coin.price_change_percentage_24h;
-      case 'volume':
-        return coin.total_volume;
-      case 'marketCap':
-        return coin.market_cap;
-      case 'fdv':
-        return coin.fully_diluted_valuation;
-      case 'rank':
-      default:
-        return coin.market_cap_rank;
-    }
-  }
-
-  function compareMarkets(left: MarketCoin, right: MarketCoin) {
-    const modifier = sortDirection === 'asc' ? 1 : -1;
-    const leftValue = nullableSortValue(left, sortKey);
-    const rightValue = nullableSortValue(right, sortKey);
-
-    if (leftValue == null && rightValue != null) return 1;
-    if (rightValue == null && leftValue != null) return -1;
-    if (leftValue != null && rightValue != null && leftValue !== rightValue) {
-      return (leftValue - rightValue) * modifier;
-    }
-
-    return (
-      safeNumber(left.market_cap_rank, 999999) - safeNumber(right.market_cap_rank, 999999)
-      || left.name.localeCompare(right.name)
-      || left.id.localeCompare(right.id)
-    );
   }
 
   function setSort(key: SortKey) {
@@ -515,7 +481,7 @@
     return true;
   });
 
-  $: sortedMarkets = [...segmentedMarkets].sort(compareMarkets);
+  $: sortedMarkets = sortMarketRows(segmentedMarkets, sortKey, sortDirection);
 
   $: visibleMarkets = sortedMarkets.slice(0, rowsPerPage);
   $: topCoin = markets[0] ?? null;
