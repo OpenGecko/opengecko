@@ -131,6 +131,14 @@
     categories: 'Sector radar',
     exchanges: 'Exchange quality'
   };
+  const sortLabels: Record<SortKey, string> = {
+    rank: 'rank',
+    price: 'price',
+    change24h: '24h change',
+    volume: '24h volume',
+    marketCap: 'market cap',
+    fdv: 'FDV'
+  };
   const resourceOrder: ResourceKey[] = ['markets', 'trending', 'global', 'runtime', 'categories', 'exchanges'];
 
   const formatUsd = new Intl.NumberFormat('en-US', {
@@ -173,6 +181,7 @@
   let watchlist = new Set<string>();
   let compare = new Set<string>();
   let holdings: Record<string, number> = {};
+  let discoveryMessage = '';
 
   const apiUrl = (path: string) => `${apiBase}${path}`;
 
@@ -261,6 +270,11 @@
     sortDirection = key === 'rank' ? 'asc' : 'desc';
   }
 
+  function sortIndicator(key: SortKey) {
+    if (sortKey !== key) return '';
+    return sortDirection === 'asc' ? '↑' : '↓';
+  }
+
   function toggleWatch(id: string) {
     const next = new Set(watchlist);
     if (next.has(id)) {
@@ -294,6 +308,30 @@
   function selectCoin(coin: MarketCoin) {
     selectedCoin = coin;
     searchOpen = false;
+  }
+
+  function scrollToMarkets() {
+    document.getElementById('markets')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function selectTrending(item: NonNullable<TrendingCoin['item']>) {
+    const match = markets.find((coin) => {
+      const symbol = item.symbol.toLowerCase();
+      return coin.id === item.id || coin.name.toLowerCase() === item.name.toLowerCase() || coin.symbol.toLowerCase() === symbol;
+    });
+
+    segment = 'all';
+
+    if (match) {
+      query = '';
+      selectCoin(match);
+      discoveryMessage = `${match.name} selected from Search Heat. The drawer and market-row highlight now show that asset.`;
+    } else {
+      query = item.name;
+      discoveryMessage = `${item.name} is trending but is not in the loaded top-100 market rows, so the table is filtered to the closest loaded match.`;
+    }
+
+    scrollToMarkets();
   }
 
   $: searchedMarkets = markets.filter((coin) => {
@@ -332,6 +370,7 @@
   $: loadingCopy = hasLoadedOnce ? 'Refreshing dashboard data from the OpenGecko API.' : 'Loading dashboard data from the OpenGecko API.';
   $: apiBoundaryLabel = apiBase || 'frontend proxy → OpenGecko API';
   $: marketEmptyCopy = computeMarketEmptyMessage(Boolean(resourceErrors.markets), markets.length, query, segment);
+  $: sortStatus = `${sortLabels[sortKey]} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`;
 
   async function fetchJson<T>(path: string): Promise<T> {
     const response = await fetch(apiUrl(path), {
@@ -468,7 +507,7 @@
   />
 </svelte:head>
 
-<main class="og-shell min-h-screen overflow-hidden text-[#f4f1e8]">
+<main class="og-shell min-h-screen overflow-hidden pb-36 text-[#f4f1e8] md:pb-0">
   <section class="relative border-b border-white/10 bg-[#07110f]/95">
     <div class="og-noise"></div>
     <div class="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#91a59a]">
@@ -664,7 +703,11 @@
               {#each trending.slice(0, 6) as trend, index}
                 {@const item = trend.item}
                 {#if item}
-                  <button class="group flex w-full items-center justify-between rounded-2xl border border-black/5 bg-white/55 p-3 text-left transition hover:-translate-y-0.5 hover:bg-white" on:click={() => (query = item.name)}>
+                  <button
+                    class="group flex w-full items-center justify-between rounded-2xl border border-black/5 bg-white/55 p-3 text-left transition hover:-translate-y-0.5 hover:bg-white"
+                    aria-label={`Select or filter by trending coin ${item.name}`}
+                    on:click={() => selectTrending(item)}
+                  >
                     <span class="flex min-w-0 items-center gap-3">
                       <span class="grid size-7 place-items-center rounded-full bg-[#07110f] text-xs font-black text-[#b8ff4d]">{index + 1}</span>
                       {#if safeImageUrl(item.thumb)}<img class="size-8 rounded-full" src={safeImageUrl(item.thumb) ?? ''} alt="" />{/if}
@@ -774,14 +817,17 @@
             <div class="rounded-2xl border border-black/5 bg-white/60 p-4 text-sm font-black text-[#617269]">The exchanges endpoint returned no venues.</div>
           {:else}
             {#each exchanges.slice(0, 5) as exchange, index}
-              <a class="flex items-center justify-between rounded-2xl border border-black/5 bg-white/60 p-3 transition hover:bg-white" href={`/exchanges/${exchange.id}`} target="_blank" rel="noreferrer">
+              <div class="flex items-center justify-between gap-3 rounded-2xl border border-black/5 bg-white/60 p-3 transition hover:bg-white">
                 <span class="flex min-w-0 items-center gap-3">
                   <span class="grid size-7 place-items-center rounded-full bg-[#07110f] text-xs font-black text-[#b8ff4d]">{exchange.trust_score_rank ?? index + 1}</span>
                   {#if safeImageUrl(exchange.image)}<img class="size-8 rounded-full" src={safeImageUrl(exchange.image) ?? ''} alt="" />{:else}<span class="grid size-8 place-items-center rounded-full bg-[#dfe7d8] text-xs font-black">{exchange.name.slice(0, 1)}</span>{/if}
                   <span class="truncate font-black">{exchange.name}</span>
                 </span>
-                <span class="text-sm font-black text-[#617269]">{money((exchange.trade_volume_24h_btc ?? 0) * (topCoin?.current_price ?? 0), true)}</span>
-              </a>
+                <span class="flex shrink-0 items-center gap-3 text-sm font-black text-[#617269]">
+                  <span>{money((exchange.trade_volume_24h_btc ?? 0) * (topCoin?.current_price ?? 0), true)}</span>
+                  <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={`/exchanges/${exchange.id}`} target="_blank" rel="noreferrer">Open raw API</a>
+                </span>
+              </div>
             {/each}
           {/if}
         </div>
@@ -824,6 +870,10 @@
           <div class="mb-4 rounded-2xl border border-[#ff5c5c]/30 bg-[#ff5c5c]/10 px-4 py-3 text-sm font-bold text-[#ffc2c2]">{error}</div>
         {/if}
 
+        {#if discoveryMessage}
+          <div class="mb-4 rounded-2xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-4 py-3 text-sm font-bold text-[#d7ff9c]" aria-live="polite">{discoveryMessage}</div>
+        {/if}
+
         <Tabs.Root bind:value={segment}>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <Tabs.List class="flex flex-wrap gap-2">
@@ -834,31 +884,47 @@
             </Tabs.List>
 
             <div class="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]">
-              <span class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2"><SlidersHorizontal size={14} /> Sort {sortKey}</span>
-              <span class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2"><Eye size={14} /> Showing {visibleMarkets.length}</span>
+              <span class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2"><SlidersHorizontal size={14} /> Sort {sortStatus}</span>
+              <span class="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2"><Eye size={14} /> Showing {visibleMarkets.length} of {sortedMarkets.length} loaded matches</span>
             </div>
           </div>
         </Tabs.Root>
+        <p class="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-[#91a59a]">
+          Rows is a local limit over the loaded top-100 `/coins/markets` response; no fake page navigation is shown.
+          <span class="text-[#b8ff4d] md:hidden"> On mobile, swipe the table horizontally to reach holdings, compare, trace, and raw-detail actions.</span>
+        </p>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[1280px] border-collapse text-sm">
+      <div class="market-table-wrap overflow-x-auto" role="region" aria-label="Scrollable market table with sortable columns, holdings, compare, and trace controls">
+        <table class="market-table w-full min-w-[1320px] border-collapse text-sm">
           <thead class="bg-white/[0.03] text-left text-[11px] font-black uppercase tracking-[0.14em] text-[#91a59a]">
             <tr>
               <th class="w-12 px-4 py-4"></th>
-              <th class="w-16 px-3 py-4"><button class="font-black" on:click={() => setSort('rank')}>#</button></th>
+              <th class="w-16 px-3 py-4" aria-sort={sortKey === 'rank' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by rank; currently ${sortStatus}`} on:click={() => setSort('rank')}># {sortIndicator('rank')}</button>
+              </th>
               <th class="px-3 py-4">Coin</th>
-              <th class="px-3 py-4 text-right"><button class="font-black" on:click={() => setSort('price')}>Price</button></th>
+              <th class="px-3 py-4 text-right" aria-sort={sortKey === 'price' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by price; currently ${sortStatus}`} on:click={() => setSort('price')}>Price {sortIndicator('price')}</button>
+              </th>
               <th class="px-3 py-4 text-right">1h</th>
-              <th class="px-3 py-4 text-right"><button class="font-black" on:click={() => setSort('change24h')}>24h</button></th>
+              <th class="px-3 py-4 text-right" aria-sort={sortKey === 'change24h' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by 24h change; currently ${sortStatus}`} on:click={() => setSort('change24h')}>24h {sortIndicator('change24h')}</button>
+              </th>
               <th class="px-3 py-4 text-right">7d</th>
               <th class="px-3 py-4 text-right">30d</th>
-              <th class="px-3 py-4 text-right"><button class="font-black" on:click={() => setSort('volume')}>24h Volume</button></th>
-              <th class="px-3 py-4 text-right"><button class="font-black" on:click={() => setSort('marketCap')}>Market Cap</button></th>
-              <th class="px-3 py-4 text-right"><button class="font-black" on:click={() => setSort('fdv')}>FDV</button></th>
+              <th class="px-3 py-4 text-right" aria-sort={sortKey === 'volume' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by 24h volume; currently ${sortStatus}`} on:click={() => setSort('volume')}>24h Volume {sortIndicator('volume')}</button>
+              </th>
+              <th class="px-3 py-4 text-right" aria-sort={sortKey === 'marketCap' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by market cap; currently ${sortStatus}`} on:click={() => setSort('marketCap')}>Market Cap {sortIndicator('marketCap')}</button>
+              </th>
+              <th class="px-3 py-4 text-right" aria-sort={sortKey === 'fdv' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by FDV; currently ${sortStatus}`} on:click={() => setSort('fdv')}>FDV {sortIndicator('fdv')}</button>
+              </th>
               <th class="px-3 py-4 text-right">Mkt / FDV</th>
               <th class="px-3 py-4 text-right">Holdings</th>
-              <th class="px-4 py-4 text-right">7D Trace</th>
+              <th class="px-4 py-4 text-right">Compare / 7D Trace</th>
             </tr>
           </thead>
           <tbody>
@@ -910,9 +976,13 @@
                     <button class={compare.has(coin.id) ? 'grid size-9 place-items-center rounded-xl bg-[#b8ff4d] text-[#07110f]' : 'grid size-9 place-items-center rounded-xl border border-white/10 text-[#91a59a]'} aria-label={`Compare ${coin.name}`} on:click={() => toggleCompare(coin.id)}>
                       {#if compare.has(coin.id)}<Check size={15} />{:else}<LineChart size={15} />{/if}
                     </button>
-                    <svg class="h-10 w-[154px]" viewBox="0 0 154 42" role="img" aria-label={`${coin.name} sparkline`}>
-                      <path d={sparkPath(coin.sparkline_in_7d?.price)} fill="none" stroke={isPositive(coin.price_change_percentage_7d_in_currency) ? '#b8ff4d' : '#ff5c5c'} stroke-linecap="round" stroke-width="2.4" />
-                    </svg>
+                    {#if sparkPath(coin.sparkline_in_7d?.price)}
+                      <svg class="h-10 w-[154px]" viewBox="0 0 154 42" role="img" aria-label={`${coin.name} 7-day sparkline from /coins/markets`}>
+                        <path d={sparkPath(coin.sparkline_in_7d?.price)} fill="none" stroke={isPositive(coin.price_change_percentage_7d_in_currency) ? '#b8ff4d' : '#ff5c5c'} stroke-linecap="round" stroke-width="2.4" />
+                      </svg>
+                    {:else}
+                      <span class="w-[154px] text-right text-xs font-black uppercase tracking-[0.12em] text-[#91a59a]">No sparkline</span>
+                    {/if}
                   </div>
                 </td>
               </tr>

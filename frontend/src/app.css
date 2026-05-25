@@ -89,3 +89,49 @@ input {
   padding: 1rem;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
 }
+
+.market-table-wrap {
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgb(184 255 77 / 70%) rgb(255 255 255 / 10%);
+}
+
+@media (width <= 767px) {
+  .market-table-wrap {
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+  }
+
+  .market-table th:nth-child(1),
+  .market-table td:nth-child(1),
+  .market-table th:nth-child(2),
+  .market-table td:nth-child(2),
+  .market-table th:nth-child(3),
+  .market-table td:nth-child(3) {
+    position: sticky;
+    background: #0d1714;
+  }
+
+  .market-table th:nth-child(1),
+  .market-table td:nth-child(1) {
+    left: 0;
+    z-index: 2;
+  }
+
+  .market-table th:nth-child(2),
+  .market-table td:nth-child(2) {
+    left: 3rem;
+    z-index: 2;
+  }
+
+  .market-table th:nth-child(3),
+  .market-table td:nth-child(3) {
+    left: 7rem;
+    z-index: 2;
+    min-width: 12rem;
+    box-shadow: 16px 0 24px -22px rgb(0 0 0 / 90%);
+  }
+
+  .market-table thead th {
+    z-index: 3;
+  }
+}
