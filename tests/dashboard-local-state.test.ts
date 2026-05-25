@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  reconcileDashboardLocalStateWithMarkets,
   restoreDashboardLocalState,
   safePersistJson,
   sanitizeControls,
@@ -108,5 +109,56 @@ describe('dashboard local state helpers', () => {
     };
 
     expect(safePersistJson(storage, keys.watchlist, ['bitcoin'])).toBe(false);
+  });
+
+  it('reconciles restored dashboard ids against loaded market rows', () => {
+    const reconciled = reconcileDashboardLocalStateWithMarkets(
+      {
+        watchlistIds: ['bitcoin', 'stale-watch'],
+        holdings: {
+          bitcoin: 1,
+          'stale-holding': 2
+        },
+        controls: {
+          compareIds: ['bitcoin', 'ethereum', 'stale-compare-1', 'stale-compare-2'],
+          selectedCoinId: 'stale-selected',
+          rowsPerPage: 50,
+          segment: 'watchlist'
+        }
+      },
+      ['bitcoin', 'ethereum']
+    );
+
+    expect(reconciled.changed).toBe(true);
+    expect(reconciled.state.watchlistIds).toEqual(['bitcoin']);
+    expect(reconciled.state.holdings).toEqual({ bitcoin: 1 });
+    expect(reconciled.state.controls.compareIds).toEqual(['bitcoin', 'ethereum']);
+    expect(reconciled.state.controls.selectedCoinId).toBeNull();
+    expect(reconciled.state.controls.rowsPerPage).toBe(50);
+    expect(reconciled.state.controls.segment).toBe('watchlist');
+    expect(reconciled.removed).toEqual({
+      watchlistIds: ['stale-watch'],
+      holdingIds: ['stale-holding'],
+      compareIds: ['stale-compare-1', 'stale-compare-2'],
+      selectedCoinId: 'stale-selected'
+    });
+  });
+
+  it('does not discard local state when no market ids are loaded', () => {
+    const state = {
+      watchlistIds: ['bitcoin'],
+      holdings: { bitcoin: 1 },
+      controls: {
+        compareIds: ['bitcoin'],
+        selectedCoinId: 'bitcoin',
+        rowsPerPage: 25 as const,
+        segment: 'all' as const
+      }
+    };
+
+    const reconciled = reconcileDashboardLocalStateWithMarkets(state, []);
+
+    expect(reconciled.changed).toBe(false);
+    expect(reconciled.state).toBe(state);
   });
 });

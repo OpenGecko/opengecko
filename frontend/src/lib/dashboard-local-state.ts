@@ -25,6 +25,23 @@ export type RestoredDashboardState = {
   repairedKeys: string[];
 };
 
+export type DashboardLocalStateSnapshot = {
+  watchlistIds: string[];
+  holdings: Record<string, number>;
+  controls: DashboardControlsState;
+};
+
+export type ReconciledDashboardLocalState = {
+  state: DashboardLocalStateSnapshot;
+  removed: {
+    watchlistIds: string[];
+    holdingIds: string[];
+    compareIds: string[];
+    selectedCoinId: string | null;
+  };
+  changed: boolean;
+};
+
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const validSegments = new Set<Segment>(['all', 'gainers', 'losers', 'watchlist']);
@@ -162,5 +179,73 @@ export function restoreDashboardLocalState(storage: StorageLike, keys: Dashboard
     holdings,
     controls,
     repairedKeys
+  };
+}
+
+export function reconcileDashboardLocalStateWithMarkets(
+  state: DashboardLocalStateSnapshot,
+  marketIds: Iterable<string>
+): ReconciledDashboardLocalState {
+  const loadedIds = new Set<string>();
+  for (const rawId of marketIds) {
+    const id = normalizeId(rawId);
+    if (id) loadedIds.add(id);
+  }
+
+  if (loadedIds.size === 0) {
+    return {
+      state,
+      removed: {
+        watchlistIds: [],
+        holdingIds: [],
+        compareIds: [],
+        selectedCoinId: null
+      },
+      changed: false
+    };
+  }
+
+  const watchlistIds = state.watchlistIds.filter((id) => loadedIds.has(id));
+  const removedWatchlistIds = state.watchlistIds.filter((id) => !loadedIds.has(id));
+  const holdings: Record<string, number> = {};
+  const removedHoldingIds: string[] = [];
+
+  for (const [id, amount] of Object.entries(state.holdings)) {
+    if (loadedIds.has(id)) {
+      holdings[id] = amount;
+    } else {
+      removedHoldingIds.push(id);
+    }
+  }
+
+  const compareIds = state.controls.compareIds.filter((id) => loadedIds.has(id));
+  const removedCompareIds = state.controls.compareIds.filter((id) => !loadedIds.has(id));
+  const selectedCoinId = state.controls.selectedCoinId && loadedIds.has(state.controls.selectedCoinId)
+    ? state.controls.selectedCoinId
+    : null;
+  const removedSelectedCoinId = state.controls.selectedCoinId && selectedCoinId == null ? state.controls.selectedCoinId : null;
+
+  const changed = removedWatchlistIds.length > 0
+    || removedHoldingIds.length > 0
+    || removedCompareIds.length > 0
+    || removedSelectedCoinId != null;
+
+  return {
+    state: {
+      watchlistIds,
+      holdings,
+      controls: {
+        ...state.controls,
+        compareIds,
+        selectedCoinId
+      }
+    },
+    removed: {
+      watchlistIds: removedWatchlistIds,
+      holdingIds: removedHoldingIds,
+      compareIds: removedCompareIds,
+      selectedCoinId: removedSelectedCoinId
+    },
+    changed
   };
 }

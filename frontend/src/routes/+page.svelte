@@ -3,6 +3,7 @@
   import { Tabs } from 'bits-ui';
   import {
     compareSelectionLimit,
+    reconcileDashboardLocalStateWithMarkets,
     restoreDashboardLocalState,
     safePersistJson
   } from '$lib/dashboard-local-state';
@@ -349,6 +350,68 @@
     safePersistJson(localStorage, portfolioStorageKey, holdings);
   }
 
+  function persistDashboardLocalSnapshot() {
+    safePersistJson(localStorage, watchlistStorageKey, [...watchlist]);
+    safePersistJson(localStorage, portfolioStorageKey, holdings);
+    safePersistJson(localStorage, dashboardControlsStorageKey, {
+      compareIds: [...compare],
+      selectedCoinId,
+      rowsPerPage,
+      segment
+    });
+  }
+
+  function resetLocalDashboardState() {
+    watchlist = new Set();
+    compare = new Set();
+    holdings = {};
+    selectedCoinId = null;
+    compareLimitMessage = '';
+    discoveryMessage = '';
+    rowsPerPage = 25;
+    segment = 'all';
+    localStateMessage = 'Local dashboard state was reset. Watchlist, holdings, compare bench, selected drawer, row limit, and active tab are clear in this browser.';
+    persistDashboardLocalSnapshot();
+  }
+
+  function reconcileLocalStateWithLoadedMarkets(marketRows: MarketCoin[]) {
+    if (!localStateRestored || marketRows.length === 0) return;
+
+    const reconciled = reconcileDashboardLocalStateWithMarkets(
+      {
+        watchlistIds: [...watchlist],
+        holdings,
+        controls: {
+          compareIds: [...compare],
+          selectedCoinId,
+          rowsPerPage,
+          segment
+        }
+      },
+      marketRows.map((coin) => coin.id)
+    );
+
+    if (!reconciled.changed) return;
+
+    watchlist = new Set(reconciled.state.watchlistIds);
+    holdings = reconciled.state.holdings;
+    compare = new Set(reconciled.state.controls.compareIds);
+    selectedCoinId = reconciled.state.controls.selectedCoinId;
+    rowsPerPage = reconciled.state.controls.rowsPerPage;
+    segment = reconciled.state.controls.segment;
+    compareLimitMessage = '';
+    persistDashboardLocalSnapshot();
+
+    const removedIds = [
+      ...reconciled.removed.watchlistIds,
+      ...reconciled.removed.holdingIds,
+      ...reconciled.removed.compareIds,
+      ...(reconciled.removed.selectedCoinId ? [reconciled.removed.selectedCoinId] : [])
+    ];
+    const removedCount = new Set(removedIds).size;
+    localStateMessage = `Removed ${removedCount} stale local asset ${removedCount === 1 ? 'id' : 'ids'} that are not in the currently loaded market rows. Compare, watchlist, portfolio, and selected drawer now match visible rows.`;
+  }
+
   function closeSearch(restoreFocus = true) {
     searchOpen = false;
     if (restoreFocus && searchReturnFocus?.isConnected) {
@@ -398,8 +461,13 @@
     return `Compare ${coin.name}`;
   }
 
-  async function openSearch() {
-    searchReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  async function openSearch(returnFocusTarget: HTMLElement | null = null) {
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    searchReturnFocus = returnFocusTarget?.isConnected
+      ? returnFocusTarget
+      : mobileMenuOpen && menuButton?.isConnected
+        ? menuButton
+        : activeElement;
     searchOpen = true;
     closeMobileMenu();
     await tick();
@@ -462,6 +530,7 @@
   $: compareCoins = markets.filter((coin) => compare.has(coin.id));
   $: failedResourceLabels = resourceOrder.filter((key) => resourceErrors[key]).map((key) => resourceLabels[key]);
   $: hasAnyDashboardData = markets.length > 0 || trending.length > 0 || categories.length > 0 || exchanges.length > 0 || globalData != null || runtime != null;
+  $: initialDashboardPending = !hasLoadedOnce && !error;
   $: loadingCopy = hasLoadedOnce ? 'Refreshing dashboard data from the OpenGecko API.' : 'Loading dashboard data from the OpenGecko API.';
   $: apiBoundaryLabel = apiBase || 'frontend proxy → OpenGecko API';
   $: marketEmptyCopy = computeMarketEmptyMessage(Boolean(resourceErrors.markets), markets.length, query, segment);
@@ -516,9 +585,7 @@
           marketRequestPath,
           (marketRows) => {
             markets = Array.isArray(marketRows) ? marketRows : [];
-            if (selectedCoinId && markets.length > 0 && !markets.some((coin) => coin.id === selectedCoinId)) {
-              selectedCoinId = null;
-            }
+            reconcileLocalStateWithLoadedMarkets(markets);
           }
         ),
         loadResource<{ coins?: TrendingCoin[] }>('trending', '/search/trending?show_max=10', (trendingPayload) => {
@@ -563,7 +630,7 @@
   }
 
   function computeMarketEmptyMessage(hasMarketError: boolean, marketCount: number, searchQuery: string, activeSegment: Segment) {
-    if (!hasLoadedOnce && loading) return 'Loading market rows from /coins/markets...';
+    if (!hasLoadedOnce) return 'Loading market rows from /coins/markets...';
     if (hasMarketError && marketCount === 0) return 'Market rows are unavailable. Check the API service and press Refresh.';
     if (searchQuery.trim()) return `No loaded coins match "${searchQuery.trim()}". Try another name, ticker, or id.`;
     if (activeSegment === 'watchlist') return 'Your watchlist is empty. Star a market row to add it here.';
@@ -702,7 +769,7 @@
           <a href="#exchanges" on:click={(event) => { event.preventDefault(); void navigateToSection('exchanges'); }}>Exchanges</a>
           <a href="#portfolio" on:click={(event) => { event.preventDefault(); void navigateToSection('portfolio'); }}>Portfolio</a>
           <a href="#api" on:click={(event) => { event.preventDefault(); void navigateToSection('api'); }}>API Proof</a>
-          <button class="text-left" type="button" on:click={() => void openSearch()}>Search loaded market coins</button>
+          <button class="text-left" type="button" on:click={() => void openSearch(menuButton)}>Search loaded market coins</button>
         </div>
       </div>
     {/if}
@@ -715,11 +782,11 @@
       <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div class="flex min-w-0 items-start gap-3">
           <span class={error ? 'mt-1 grid size-9 shrink-0 place-items-center rounded-2xl bg-[#ff5c5c]/15 text-[#ff9b9b]' : 'mt-1 grid size-9 shrink-0 place-items-center rounded-2xl bg-[#b8ff4d]/15 text-[#b8ff4d]'}>
-            {#if loading}<LoaderCircle class="animate-spin" size={18} />{:else if error}<Server size={18} />{:else}<ShieldCheck size={18} />{/if}
+            {#if loading || initialDashboardPending}<LoaderCircle class="animate-spin" size={18} />{:else if error}<Server size={18} />{:else}<ShieldCheck size={18} />{/if}
           </span>
           <div class="min-w-0">
             <div class="font-black text-[#f4f1e8]">
-              {#if loading}
+              {#if loading || initialDashboardPending}
                 {loadingCopy}
               {:else if error}
                 {error}
@@ -771,7 +838,7 @@
             </div>
 
             <div class="rounded-[1.5rem] border border-[#b8ff4d]/20 bg-black/30 p-4 font-mono text-xs text-[#b7c8bf] shadow-[inset_0_0_40px_rgba(184,255,77,0.05)]">
-              <div class="mb-3 flex items-center justify-between text-[#b8ff4d]"><span>{loading ? 'LOADING REQUEST' : 'LIVE REQUEST'}</span><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /></div>
+              <div class="mb-3 flex items-center justify-between text-[#b8ff4d]"><span>{loading || initialDashboardPending ? 'LOADING REQUEST' : 'LIVE REQUEST'}</span><RefreshCw size={14} class={loading || initialDashboardPending ? 'animate-spin' : ''} /></div>
               <div class="space-y-2">
                 <div><span class="text-[#ffbf47]">GET</span> /coins/markets</div>
                 <div class="text-[#91a59a]">vs_currency=usd</div>
@@ -816,7 +883,7 @@
             <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/search/trending')} target="_blank" rel="noreferrer">Open raw /search/trending</a>
           </div>
           <div class="space-y-2">
-            {#if loading && trending.length === 0}
+            {#if initialDashboardPending && trending.length === 0}
               <div class="rounded-2xl border border-black/5 bg-white/55 p-4 text-sm font-black text-[#617269]">Loading search heat from /search/trending...</div>
             {:else if resourceErrors.trending && trending.length === 0}
               <div class="rounded-2xl border border-[#b45309]/20 bg-[#ffbf47]/20 p-4 text-sm font-black text-[#6d4b12]">Trending data is temporarily unavailable. Refresh after the API returns.</div>
@@ -854,7 +921,7 @@
             <span class="text-xs font-black uppercase tracking-[0.2em] text-[#91a59a]">24h signal</span>
           </div>
           <div class="grid gap-3 sm:grid-cols-2">
-            {#if loading && markets.length === 0}
+            {#if initialDashboardPending && markets.length === 0}
               <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a] sm:col-span-2">Loading 24h movers from market rows...</div>
             {:else if resourceErrors.markets && markets.length === 0}
               <div class="rounded-2xl border border-[#ff5c5c]/30 bg-[#ff5c5c]/10 p-4 text-sm font-bold text-[#ffc2c2] sm:col-span-2">Movers need /coins/markets. Restore the API and use Refresh.</div>
@@ -899,7 +966,7 @@
           <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
-          {#if loading && categories.length === 0}
+          {#if initialDashboardPending && categories.length === 0}
             <div class="rounded-3xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a] sm:col-span-2">Loading sector radar from /coins/categories...</div>
           {:else if resourceErrors.categories && categories.length === 0}
             <div class="rounded-3xl border border-[#ff5c5c]/30 bg-[#ff5c5c]/10 p-4 text-sm font-bold text-[#ffc2c2] sm:col-span-2">Sector radar is unavailable. Other dashboard panels remain usable.</div>
@@ -933,7 +1000,7 @@
           <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/exchanges')} target="_blank" rel="noreferrer">Open raw /exchanges</a>
         </div>
         <div class="grid gap-2">
-          {#if loading && exchanges.length === 0}
+          {#if initialDashboardPending && exchanges.length === 0}
             <div class="rounded-2xl border border-black/5 bg-white/60 p-4 text-sm font-black text-[#617269]">Loading exchange quality from /exchanges...</div>
           {:else if resourceErrors.exchanges && exchanges.length === 0}
             <div class="rounded-2xl border border-[#b45309]/20 bg-[#ffbf47]/20 p-4 text-sm font-black text-[#6d4b12]">Exchange data is unavailable. Refresh when the API is healthy.</div>
@@ -1004,7 +1071,10 @@
         {/if}
 
         {#if localStateMessage}
-          <div class="mb-4 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]" aria-live="polite">{localStateMessage}</div>
+          <div class="mb-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a] sm:flex-row sm:items-center sm:justify-between" aria-live="polite">
+            <span>{localStateMessage}</span>
+            <button class="shrink-0 rounded-full border border-[#ffbf47]/40 px-3 py-2 text-[#ffdf9b] hover:bg-[#ffbf47]/10" type="button" on:click={resetLocalDashboardState}>Reset local dashboard state</button>
+          </div>
         {/if}
 
         <Tabs.Root bind:value={segment}>
@@ -1247,7 +1317,7 @@
         </div>
         <p id="search-dialog-help" class="border-b border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]">Results are filtered from the loaded top-100 market rows. Use Enter to select a result or Escape to close.</p>
         <div class="max-h-[520px] overflow-y-auto p-3">
-          {#if loading && markets.length === 0}
+          {#if initialDashboardPending && markets.length === 0}
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">Loading searchable market coins...</div>
           {:else if searchedMarkets.length === 0}
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">{marketEmptyCopy}</div>
