@@ -194,6 +194,10 @@
   let localStateMessage = '';
   let compareLimitMessage = '';
   let searchInput: HTMLInputElement | null = null;
+  let menuButton: HTMLButtonElement | null = null;
+  let selectedCoinCloseButton: HTMLButtonElement | null = null;
+  let searchReturnFocus: HTMLElement | null = null;
+  let selectedDrawerReturnFocus: HTMLElement | null = null;
 
   const apiUrl = (path: string) => `${apiBase}${path}`;
 
@@ -345,13 +349,47 @@
     safePersistJson(localStorage, portfolioStorageKey, holdings);
   }
 
-  function selectCoin(coin: MarketCoin) {
-    selectedCoinId = coin.id;
+  function closeSearch(restoreFocus = true) {
     searchOpen = false;
+    if (restoreFocus && searchReturnFocus?.isConnected) {
+      const target = searchReturnFocus;
+      void tick().then(() => target.focus({ preventScroll: true }));
+    }
+    searchReturnFocus = null;
+  }
+
+  function closeMobileMenu(restoreFocus = false) {
+    mobileMenuOpen = false;
+    if (restoreFocus) {
+      void tick().then(() => menuButton?.focus({ preventScroll: true }));
+    }
+  }
+
+  async function navigateToSection(sectionId: string) {
+    closeMobileMenu();
+    await tick();
+    const target = document.getElementById(sectionId);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target?.focus({ preventScroll: true });
+  }
+
+  function selectCoin(coin: MarketCoin) {
+    if (document.activeElement instanceof HTMLElement) {
+      selectedDrawerReturnFocus = document.activeElement;
+    }
+    selectedCoinId = coin.id;
+    if (searchOpen) closeSearch(false);
+    closeMobileMenu();
+    void tick().then(() => selectedCoinCloseButton?.focus({ preventScroll: true }));
   }
 
   function closeSelectedCoin() {
     selectedCoinId = null;
+    const target = selectedDrawerReturnFocus;
+    selectedDrawerReturnFocus = null;
+    if (target?.isConnected) {
+      void tick().then(() => target.focus({ preventScroll: true }));
+    }
   }
 
   function compareButtonLabel(coin: MarketCoin, isSelected: boolean, selectedCount: number) {
@@ -361,7 +399,9 @@
   }
 
   async function openSearch() {
+    searchReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     searchOpen = true;
+    closeMobileMenu();
     await tick();
     searchInput?.focus();
     searchInput?.select();
@@ -562,9 +602,9 @@
       }
 
       if (event.key === 'Escape') {
-        searchOpen = false;
-        mobileMenuOpen = false;
-        selectedCoinId = null;
+        if (searchOpen) closeSearch();
+        if (mobileMenuOpen) closeMobileMenu(true);
+        if (selectedCoinId) closeSelectedCoin();
       }
     };
 
@@ -607,7 +647,11 @@
     <div class="mx-auto flex h-20 max-w-[1500px] items-center gap-4 px-4">
       <button
         class="grid size-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-[#f4f1e8] lg:hidden"
-        aria-label="Open menu"
+        bind:this={menuButton}
+        type="button"
+        aria-label={mobileMenuOpen ? 'Close mobile navigation menu' : 'Open mobile navigation menu'}
+        aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-navigation"
         on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
       >
         {#if mobileMenuOpen}<X size={18} />{:else}<Menu size={18} />{/if}
@@ -634,13 +678,15 @@
 
       <button
         class="ml-auto hidden h-12 min-w-[360px] items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-left text-sm text-[#91a59a] transition hover:border-[#b8ff4d]/40 hover:bg-white/[0.09] md:flex"
+        type="button"
+        aria-label="Open search for loaded market coins"
         on:click={() => void openSearch()}
       >
         <span class="flex items-center gap-2"><Search size={17} /> Search loaded market coins</span>
         <kbd class="rounded-lg border border-white/15 bg-black/30 px-2 py-1 text-[11px] font-black text-[#f4f1e8]">/</kbd>
       </button>
 
-      <button class="grid size-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#cbd8d0]" aria-label="Notifications">
+      <button class="grid size-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#cbd8d0] disabled:opacity-50" type="button" disabled aria-label="Notifications are not configured in this local dashboard">
         <Bell size={18} />
       </button>
       <a class="hidden rounded-2xl bg-[#b8ff4d] px-5 py-3 text-sm font-black text-[#07110f] shadow-[0_0_28px_rgba(184,255,77,0.25)] sm:inline-flex" href={apiUrl('/ping')} target="_blank" rel="noreferrer">
@@ -649,13 +695,14 @@
     </div>
 
     {#if mobileMenuOpen}
-      <div class="border-t border-white/10 bg-[#07110f] px-4 py-3 lg:hidden">
+      <div id="mobile-navigation" class="border-t border-white/10 bg-[#07110f] px-4 py-3 lg:hidden">
         <div class="grid gap-3 text-sm font-black text-[#f4f1e8]">
-          <a href="#markets">Markets</a>
-          <a href="#discover">Discover</a>
-          <a href="#exchanges">Exchanges</a>
-          <a href="#portfolio">Portfolio</a>
-          <button class="text-left" on:click={() => { mobileMenuOpen = false; void openSearch(); }}>Search</button>
+          <a href="#markets" on:click={(event) => { event.preventDefault(); void navigateToSection('markets'); }}>Markets</a>
+          <a href="#discover" on:click={(event) => { event.preventDefault(); void navigateToSection('discover'); }}>Discover</a>
+          <a href="#exchanges" on:click={(event) => { event.preventDefault(); void navigateToSection('exchanges'); }}>Exchanges</a>
+          <a href="#portfolio" on:click={(event) => { event.preventDefault(); void navigateToSection('portfolio'); }}>Portfolio</a>
+          <a href="#api" on:click={(event) => { event.preventDefault(); void navigateToSection('api'); }}>API Proof</a>
+          <button class="text-left" type="button" on:click={() => void openSearch()}>Search loaded market coins</button>
         </div>
       </div>
     {/if}
@@ -691,6 +738,8 @@
         </div>
         <button
           class="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-4 py-3 text-sm font-black text-[#b8ff4d] disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          aria-label={loading ? 'Dashboard data is loading' : 'Refresh dashboard data'}
           disabled={loading}
           on:click={loadDashboard}
         >
@@ -760,7 +809,7 @@
         </div>
       </section>
 
-      <aside id="discover" class="grid gap-5 lg:grid-cols-2 xl:grid-cols-1">
+      <aside id="discover" tabindex="-1" class="grid gap-5 lg:grid-cols-2 xl:grid-cols-1">
         <section class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="flex items-center gap-2 text-xl font-black tracking-[-0.04em]"><Flame class="text-[#f59e0b]" size={22} /> Search Heat</h2>
@@ -779,6 +828,7 @@
                 {#if item}
                   <button
                     class="group flex w-full items-center justify-between rounded-2xl border border-black/5 bg-white/55 p-3 text-left transition hover:-translate-y-0.5 hover:bg-white"
+                    type="button"
                     aria-label={`Select or filter by trending coin ${item.name}`}
                     on:click={() => selectTrending(item)}
                   >
@@ -812,7 +862,7 @@
             <div class="space-y-2">
               <div class="text-xs font-black uppercase tracking-[0.18em] text-[#b8ff4d]">Gainers</div>
               {#each topGainers as coin}
-                <button class="flex w-full items-center justify-between rounded-2xl border border-[#b8ff4d]/15 bg-[#b8ff4d]/10 p-3 text-left" on:click={() => selectCoin(coin)}>
+                <button class="flex w-full items-center justify-between rounded-2xl border border-[#b8ff4d]/15 bg-[#b8ff4d]/10 p-3 text-left" type="button" aria-label={`Open selected coin drawer for top gainer ${coin.name}`} on:click={() => selectCoin(coin)}>
                   <span class="flex min-w-0 items-center gap-2">
                     {#if safeImageUrl(coin.image)}<img class="size-7 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
                     <span class="truncate font-black">{coin.symbol.toUpperCase()}</span>
@@ -824,7 +874,7 @@
             <div class="space-y-2">
               <div class="text-xs font-black uppercase tracking-[0.18em] text-[#ff5c5c]">Losers</div>
               {#each topLosers as coin}
-                <button class="flex w-full items-center justify-between rounded-2xl border border-[#ff5c5c]/15 bg-[#ff5c5c]/10 p-3 text-left" on:click={() => selectCoin(coin)}>
+                <button class="flex w-full items-center justify-between rounded-2xl border border-[#ff5c5c]/15 bg-[#ff5c5c]/10 p-3 text-left" type="button" aria-label={`Open selected coin drawer for top loser ${coin.name}`} on:click={() => selectCoin(coin)}>
                   <span class="flex min-w-0 items-center gap-2">
                     {#if safeImageUrl(coin.image)}<img class="size-7 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
                     <span class="truncate font-black">{coin.symbol.toUpperCase()}</span>
@@ -840,7 +890,7 @@
     </div>
 
     <div class="mb-6 grid gap-5 lg:grid-cols-2">
-      <section id="categories" class="rounded-[2rem] border border-white/10 bg-[#0d1714]/90 p-5 shadow-xl">
+      <section id="categories" tabindex="-1" class="rounded-[2rem] border border-white/10 bg-[#0d1714]/90 p-5 shadow-xl">
         <div class="mb-5 flex items-center justify-between">
           <div>
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><Layers3 size={22} /> Sector Radar</h2>
@@ -874,7 +924,7 @@
         </div>
       </section>
 
-      <section id="exchanges" class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
+      <section id="exchanges" tabindex="-1" class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
         <div class="mb-5 flex items-center justify-between">
           <div>
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><BriefcaseBusiness size={22} /> Exchange Quality</h2>
@@ -908,7 +958,7 @@
       </section>
     </div>
 
-    <section id="markets" class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0d1714]/95 shadow-2xl">
+    <section id="markets" tabindex="-1" class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0d1714]/95 shadow-2xl">
       <div class="border-b border-white/10 p-5">
         <div class="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
@@ -918,7 +968,7 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <button class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]" on:click={() => void openSearch()}>
+            <button class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]" type="button" aria-label="Open search for loaded market coins" on:click={() => void openSearch()}>
               <Search size={16} /> Search
             </button>
             <a class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#b8ff4d]" href={apiUrl(marketRequestPath)} target="_blank" rel="noreferrer">
@@ -926,6 +976,8 @@
             </a>
             <button
               class="inline-flex items-center gap-2 rounded-2xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-4 py-3 text-sm font-black text-[#b8ff4d] disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              aria-label={loading ? 'Market data is loading' : 'Refresh market dashboard data'}
               disabled={loading}
               on:click={loadDashboard}
             >
@@ -934,7 +986,7 @@
             </button>
             <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]">
               <ListFilter size={16} /> Rows
-              <select class="bg-transparent font-black outline-none" bind:value={rowsPerPage}>
+              <select class="bg-transparent font-black outline-none" bind:value={rowsPerPage} aria-label="Rows to show from loaded market rows">
                 <option class="bg-[#07110f]" value={25}>25</option>
                 <option class="bg-[#07110f]" value={50}>50</option>
                 <option class="bg-[#07110f]" value={100}>100</option>
@@ -957,7 +1009,7 @@
 
         <Tabs.Root bind:value={segment}>
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <Tabs.List class="flex flex-wrap gap-2">
+              <Tabs.List class="flex flex-wrap gap-2" aria-label="Market segment filters">
               <Tabs.Trigger value="all" class="rounded-full border border-white/10 px-4 py-2 text-sm font-black text-[#91a59a] data-[state=active]:border-[#b8ff4d]/40 data-[state=active]:bg-[#b8ff4d] data-[state=active]:text-[#07110f]">All Coins</Tabs.Trigger>
               <Tabs.Trigger value="gainers" class="rounded-full border border-white/10 px-4 py-2 text-sm font-black text-[#91a59a] data-[state=active]:border-[#b8ff4d]/40 data-[state=active]:bg-[#b8ff4d] data-[state=active]:text-[#07110f]">Gainers</Tabs.Trigger>
               <Tabs.Trigger value="losers" class="rounded-full border border-white/10 px-4 py-2 text-sm font-black text-[#91a59a] data-[state=active]:border-[#b8ff4d]/40 data-[state=active]:bg-[#b8ff4d] data-[state=active]:text-[#07110f]">Losers</Tabs.Trigger>
@@ -983,26 +1035,26 @@
             <tr>
               <th class="w-12 px-4 py-4"></th>
               <th class="w-16 px-3 py-4" aria-sort={sortKey === 'rank' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by rank; currently ${sortStatus}`} on:click={() => setSort('rank')}># {sortIndicator('rank')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by rank; currently ${sortStatus}`} on:click={() => setSort('rank')}># {sortIndicator('rank')}</button>
               </th>
               <th class="px-3 py-4">Coin</th>
               <th class="px-3 py-4 text-right" aria-sort={sortKey === 'price' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by price; currently ${sortStatus}`} on:click={() => setSort('price')}>Price {sortIndicator('price')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by price; currently ${sortStatus}`} on:click={() => setSort('price')}>Price {sortIndicator('price')}</button>
               </th>
               <th class="px-3 py-4 text-right">1h</th>
               <th class="px-3 py-4 text-right" aria-sort={sortKey === 'change24h' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by 24h change; currently ${sortStatus}`} on:click={() => setSort('change24h')}>24h {sortIndicator('change24h')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by 24h change; currently ${sortStatus}`} on:click={() => setSort('change24h')}>24h {sortIndicator('change24h')}</button>
               </th>
               <th class="px-3 py-4 text-right">7d</th>
               <th class="px-3 py-4 text-right">30d</th>
               <th class="px-3 py-4 text-right" aria-sort={sortKey === 'volume' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by 24h volume; currently ${sortStatus}`} on:click={() => setSort('volume')}>24h Volume {sortIndicator('volume')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by 24h volume; currently ${sortStatus}`} on:click={() => setSort('volume')}>24h Volume {sortIndicator('volume')}</button>
               </th>
               <th class="px-3 py-4 text-right" aria-sort={sortKey === 'marketCap' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by market cap; currently ${sortStatus}`} on:click={() => setSort('marketCap')}>Market Cap {sortIndicator('marketCap')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by market cap; currently ${sortStatus}`} on:click={() => setSort('marketCap')}>Market Cap {sortIndicator('marketCap')}</button>
               </th>
               <th class="px-3 py-4 text-right" aria-sort={sortKey === 'fdv' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                <button class="font-black text-[#f4f1e8]" aria-label={`Sort by FDV; currently ${sortStatus}`} on:click={() => setSort('fdv')}>FDV {sortIndicator('fdv')}</button>
+                <button class="font-black text-[#f4f1e8]" type="button" aria-label={`Sort by FDV; currently ${sortStatus}`} on:click={() => setSort('fdv')}>FDV {sortIndicator('fdv')}</button>
               </th>
               <th class="px-3 py-4 text-right">Mkt / FDV</th>
               <th class="px-3 py-4 text-right">Holdings</th>
@@ -1018,13 +1070,13 @@
             {#each visibleMarkets as coin}
               <tr class={selectedCoin?.id === coin.id ? 'selected-market-row border-t border-white/10 bg-[#b8ff4d]/10 transition hover:bg-white/[0.04]' : 'border-t border-white/10 transition hover:bg-white/[0.04]'}>
                 <td class="px-4 py-4">
-                  <button class={watchlist.has(coin.id) ? 'text-[#ffbf47]' : 'text-white/25 hover:text-[#ffbf47]'} aria-label={watchlist.has(coin.id) ? `Remove ${coin.name} from watchlist` : `Add ${coin.name} to watchlist`} on:click={() => toggleWatch(coin.id)}>
+                  <button class={watchlist.has(coin.id) ? 'text-[#ffbf47]' : 'text-white/25 hover:text-[#ffbf47]'} type="button" aria-pressed={watchlist.has(coin.id)} aria-label={watchlist.has(coin.id) ? `Remove ${coin.name} from watchlist` : `Add ${coin.name} to watchlist`} on:click={() => toggleWatch(coin.id)}>
                     <Star size={17} fill={watchlist.has(coin.id) ? 'currentColor' : 'none'} />
                   </button>
                 </td>
                 <td class="px-3 py-4 font-black text-[#91a59a]">{coin.market_cap_rank ?? '-'}</td>
                 <td class="px-3 py-4">
-                  <button class="flex min-w-0 items-center gap-3 text-left" on:click={() => selectCoin(coin)}>
+                  <button class="flex min-w-0 items-center gap-3 text-left" type="button" aria-label={`Open selected coin drawer for ${coin.name}`} on:click={() => selectCoin(coin)}>
                     {#if safeImageUrl(coin.image)}<img class="size-8 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" loading="lazy" />{/if}
                     <span class="min-w-0">
                       <span class="block truncate font-black text-[#f4f1e8]">{coin.name}</span>
@@ -1057,7 +1109,9 @@
                   <div class="flex items-center justify-end gap-3">
                     <button
                       class={compare.has(coin.id) ? 'grid size-9 place-items-center rounded-xl bg-[#b8ff4d] text-[#07110f]' : compare.size >= compareSelectionLimit ? 'grid size-9 cursor-not-allowed place-items-center rounded-xl border border-white/10 text-[#91a59a] opacity-45' : 'grid size-9 place-items-center rounded-xl border border-white/10 text-[#91a59a]'}
+                      type="button"
                       disabled={!compare.has(coin.id) && compare.size >= compareSelectionLimit}
+                      aria-pressed={compare.has(coin.id)}
                       aria-label={compareButtonLabel(coin, compare.has(coin.id), compare.size)}
                       title={compareButtonLabel(coin, compare.has(coin.id), compare.size)}
                       on:click={() => toggleCompare(coin.id)}
@@ -1082,7 +1136,7 @@
     </section>
 
     <div class="mt-6 grid gap-5 lg:grid-cols-[380px_1fr]">
-      <section id="portfolio" class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
+      <section id="portfolio" tabindex="-1" class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><WalletCards size={22} /> Local Portfolio</h2>
           <span class="text-2xl font-black tracking-[-0.04em]">{money(portfolioValue, true)}</span>
@@ -1123,7 +1177,7 @@
                   {#if safeImageUrl(coin.image)}<img class="size-7 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
                   {coin.symbol.toUpperCase()}
                 </span>
-                <button class="text-[#91a59a]" aria-label={`Remove ${coin.name} from compare`} on:click={() => toggleCompare(coin.id)}><X size={15} /></button>
+                <button class="text-[#91a59a]" type="button" aria-label={`Remove ${coin.name} from compare`} on:click={() => toggleCompare(coin.id)}><X size={15} /></button>
               </div>
               <div class="text-3xl font-black tracking-[-0.04em]">{money(coin.current_price)}</div>
               <div class={isPositive(coin.price_change_percentage_24h) ? 'mt-1 text-sm font-black text-[#b8ff4d]' : 'mt-1 text-sm font-black text-[#ff5c5c]'}>{percent(coin.price_change_percentage_24h)} 24h</div>
@@ -1140,7 +1194,7 @@
       </section>
     </div>
 
-    <section id="api" class="mt-6 overflow-hidden rounded-[2rem] border border-[#b8ff4d]/20 bg-[#07110f] p-6 shadow-[0_0_70px_rgba(184,255,77,0.08)]">
+    <section id="api" tabindex="-1" class="mt-6 overflow-hidden rounded-[2rem] border border-[#b8ff4d]/20 bg-[#07110f] p-6 shadow-[0_0_70px_rgba(184,255,77,0.08)]">
       <div class="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
         <div>
           <p class="mb-2 text-xs font-black uppercase tracking-[0.28em] text-[#ffbf47]">Data transparency advantage</p>
@@ -1158,16 +1212,16 @@
   </section>
 
   {#if selectedCoin}
-    <aside class="fixed bottom-4 left-4 right-4 z-20 rounded-[1.75rem] border border-white/10 bg-[#07110f]/95 p-4 text-[#f4f1e8] shadow-2xl backdrop-blur-xl md:left-auto md:w-[440px]">
+    <div class="fixed bottom-4 left-4 right-4 z-20 rounded-[1.75rem] border border-white/10 bg-[#07110f]/95 p-4 text-[#f4f1e8] shadow-2xl backdrop-blur-xl md:left-auto md:w-[440px]" role="dialog" aria-modal="false" aria-labelledby="selected-coin-title">
       <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
           {#if safeImageUrl(selectedCoin.image)}<img class="size-10 rounded-full" src={safeImageUrl(selectedCoin.image) ?? ''} alt="" />{/if}
           <div>
-            <div class="font-black">{selectedCoin.name}</div>
+            <div id="selected-coin-title" class="font-black">{selectedCoin.name}</div>
             <div class="text-xs font-black uppercase tracking-[0.14em] text-[#91a59a]">{selectedCoin.symbol} · Rank #{selectedCoin.market_cap_rank ?? '-'}</div>
           </div>
         </div>
-        <button class="text-[#91a59a]" aria-label="Close selected coin" on:click={closeSelectedCoin}><X size={18} /></button>
+        <button class="text-[#91a59a]" bind:this={selectedCoinCloseButton} type="button" aria-label={`Close selected coin drawer for ${selectedCoin.name}`} on:click={closeSelectedCoin}><X size={18} /></button>
       </div>
       <div class="grid grid-cols-3 gap-2 text-sm">
         <div class="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><div class="text-xs font-bold text-[#91a59a]">Price</div><div class="font-black">{money(selectedCoin.current_price)}</div></div>
@@ -1175,21 +1229,23 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><div class="text-xs font-bold text-[#91a59a]">Low</div><div class="font-black">{money(selectedCoin.low_24h)}</div></div>
       </div>
       <div class="mt-3 flex gap-2">
-        <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" on:click={() => toggleWatch(selectedCoin.id)}>{watchlist.has(selectedCoin.id) ? 'Remove Watchlist' : 'Add Watchlist'}</button>
+        <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" type="button" aria-label={watchlist.has(selectedCoin.id) ? `Remove ${selectedCoin.name} from watchlist` : `Add ${selectedCoin.name} to watchlist`} on:click={() => toggleWatch(selectedCoin.id)}>{watchlist.has(selectedCoin.id) ? 'Remove Watchlist' : 'Add Watchlist'}</button>
         <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={apiUrl(`/coins/${selectedCoin.id}`)} target="_blank" rel="noreferrer">Open raw coin API</a>
       </div>
-    </aside>
+    </div>
   {/if}
 
   {#if searchOpen}
     <div class="fixed inset-0 z-50 p-4">
-      <button class="absolute inset-0 bg-[#020504]/70 backdrop-blur-sm" aria-label="Close search" on:click={() => (searchOpen = false)}></button>
-      <div class="relative mx-auto mt-16 max-w-2xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0d1714] text-[#f4f1e8] shadow-2xl" role="dialog" aria-modal="true" aria-label="Search OpenGecko">
+      <button class="absolute inset-0 bg-[#020504]/70 backdrop-blur-sm" type="button" aria-label="Close search dialog" on:click={() => closeSearch()}></button>
+      <div class="relative mx-auto mt-16 max-w-2xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0d1714] text-[#f4f1e8] shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="search-dialog-title">
         <div class="flex items-center gap-3 border-b border-white/10 px-4 py-3">
           <Search size={18} class="text-[#91a59a]" />
-          <input class="h-12 flex-1 bg-transparent outline-none placeholder:text-[#66766d]" bind:this={searchInput} bind:value={query} placeholder="Search loaded market coins by name, ticker, or id" />
-          <button class="grid size-9 place-items-center rounded-xl text-[#91a59a] hover:bg-white/10" aria-label="Close search" on:click={() => (searchOpen = false)}><X size={18} /></button>
+          <label id="search-dialog-title" class="sr-only" for="dashboard-search-input">Search loaded market coins</label>
+          <input id="dashboard-search-input" class="h-12 flex-1 bg-transparent outline-none placeholder:text-[#66766d]" bind:this={searchInput} bind:value={query} aria-describedby="search-dialog-help" placeholder="Search loaded market coins by name, ticker, or id" />
+          <button class="grid size-9 place-items-center rounded-xl text-[#91a59a] hover:bg-white/10" type="button" aria-label="Close search dialog" on:click={() => closeSearch()}><X size={18} /></button>
         </div>
+        <p id="search-dialog-help" class="border-b border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]">Results are filtered from the loaded top-100 market rows. Use Enter to select a result or Escape to close.</p>
         <div class="max-h-[520px] overflow-y-auto p-3">
           {#if loading && markets.length === 0}
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">Loading searchable market coins...</div>
@@ -1197,7 +1253,7 @@
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">{marketEmptyCopy}</div>
           {:else}
             {#each searchedMarkets.slice(0, 10) as coin}
-              <button class="flex w-full items-center justify-between rounded-2xl p-3 text-left hover:bg-white/[0.06]" on:click={() => selectCoin(coin)}>
+              <button class="flex w-full items-center justify-between rounded-2xl p-3 text-left hover:bg-white/[0.06]" type="button" aria-label={`Select ${coin.name} from search results`} on:click={() => selectCoin(coin)}>
                 <span class="flex items-center gap-3">
                   {#if safeImageUrl(coin.image)}<img class="size-9 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
                   <span>
