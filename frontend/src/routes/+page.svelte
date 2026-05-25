@@ -129,6 +129,7 @@
   type ResourceResult = { key: ResourceKey; ok: true } | { key: ResourceKey; ok: false; error: string };
 
   const apiBase = import.meta.env.PUBLIC_OPENGECKO_API_BASE_URL ?? '';
+  const rawApiBase = import.meta.env.PUBLIC_OPENGECKO_RAW_API_BASE_URL ?? apiBase;
   const watchlistStorageKey = 'opengecko.watchlist.v1';
   const portfolioStorageKey = 'opengecko.portfolio.v1';
   const dashboardControlsStorageKey = 'opengecko.dashboard.controls.v1';
@@ -203,6 +204,7 @@
   let selectedDrawerReturnFocus: HTMLElement | null = null;
 
   const apiUrl = (path: string) => `${apiBase}${path}`;
+  const rawApiUrl = (path: string) => `${rawApiBase}${path}`;
 
   function money(value: number | null | undefined, compact = false) {
     if (value == null || Number.isNaN(value)) return '-';
@@ -722,7 +724,7 @@
       <button class="grid size-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#cbd8d0] disabled:opacity-50" type="button" disabled aria-label="Notifications are not configured in this local dashboard">
         <Bell size={18} />
       </button>
-      <a class="hidden rounded-2xl bg-[#b8ff4d] px-5 py-3 text-sm font-black text-[#07110f] shadow-[0_0_28px_rgba(184,255,77,0.25)] sm:inline-flex" href={apiUrl('/ping')} target="_blank" rel="noreferrer">
+      <a class="hidden rounded-2xl bg-[#b8ff4d] px-5 py-3 text-sm font-black text-[#07110f] shadow-[0_0_28px_rgba(184,255,77,0.25)] sm:inline-flex" href={rawApiUrl('/ping')} target="_blank" rel="noreferrer">
         Open raw /ping
       </a>
     </div>
@@ -846,7 +848,7 @@
         <section class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="flex items-center gap-2 text-xl font-black tracking-[-0.04em]"><Flame class="text-[#f59e0b]" size={22} /> Search Heat</h2>
-            <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/search/trending')} target="_blank" rel="noreferrer">Open raw /search/trending</a>
+            <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl('/search/trending')} target="_blank" rel="noreferrer">Open raw /search/trending</a>
           </div>
           <div class="space-y-2">
             {#if initialDashboardPending && trending.length === 0}
@@ -929,7 +931,7 @@
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><Layers3 size={22} /> Sector Radar</h2>
             <p class="mt-1 text-sm text-[#91a59a]">Category strength, liquidity, and leaders.</p>
           </div>
-          <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
+          <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           {#if initialDashboardPending && categories.length === 0}
@@ -963,7 +965,7 @@
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><BriefcaseBusiness size={22} /> Exchange Quality</h2>
             <p class="mt-1 text-sm text-[#617269]">Trust-ranked venues and normalized BTC volume.</p>
           </div>
-          <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/exchanges')} target="_blank" rel="noreferrer">Open raw /exchanges</a>
+          <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl('/exchanges')} target="_blank" rel="noreferrer">Open raw /exchanges</a>
         </div>
         <div class="grid gap-2">
           {#if initialDashboardPending && exchanges.length === 0}
@@ -975,14 +977,15 @@
           {:else}
             {#each exchanges.slice(0, 5) as exchange, index}
               <div class="flex items-center justify-between gap-3 rounded-2xl border border-black/5 bg-white/60 p-3 transition hover:bg-white">
-                <span class="flex min-w-0 items-center gap-3">
+                <a class="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-3 focus-visible:outline-[#b8ff4d]" href={`/exchange/${exchange.id}`} aria-label={`Open frontend exchange detail for ${exchange.name}`}>
                   <span class="grid size-7 place-items-center rounded-full bg-[#07110f] text-xs font-black text-[#b8ff4d]">{exchange.trust_score_rank ?? index + 1}</span>
                   {#if safeImageUrl(exchange.image)}<img class="size-8 rounded-full" src={safeImageUrl(exchange.image) ?? ''} alt="" />{:else}<span class="grid size-8 place-items-center rounded-full bg-[#dfe7d8] text-xs font-black">{exchange.name.slice(0, 1)}</span>{/if}
                   <span class="truncate font-black">{exchange.name}</span>
-                </span>
+                </a>
                 <span class="flex shrink-0 items-center gap-3 text-sm font-black text-[#617269]">
                   <span>{money((exchange.trade_volume_24h_btc ?? 0) * (topCoin?.current_price ?? 0), true)}</span>
-                  <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl(`/exchanges/${exchange.id}`)} target="_blank" rel="noreferrer">Open raw exchange API</a>
+                  <a class="rounded-full border border-[#07110f]/20 px-3 py-1 text-xs font-black text-[#07110f]" href={`/exchange/${exchange.id}`}>View detail</a>
+                  <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl(`/exchanges/${exchange.id}`)} target="_blank" rel="noreferrer">Open raw /exchanges/{exchange.id}</a>
                 </span>
               </div>
             {/each}
@@ -1004,7 +1007,7 @@
             <button class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]" type="button" aria-label="Open search for loaded market coins" on:click={() => void openSearch()}>
               <Search size={16} /> Search
             </button>
-            <a class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#b8ff4d]" href={apiUrl(marketRequestPath)} target="_blank" rel="noreferrer">
+            <a class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#b8ff4d]" href={rawApiUrl(marketRequestPath)} target="_blank" rel="noreferrer">
               Open raw /coins/markets
             </a>
             <button
@@ -1094,7 +1097,7 @@
               </th>
               <th class="px-3 py-4 text-right">Mkt / FDV</th>
               <th class="px-3 py-4 text-right">Holdings</th>
-              <th class="px-4 py-4 text-right">Compare / 7D Trace / Raw API</th>
+              <th class="px-4 py-4 text-right">Compare / Detail / 7D Trace / Raw API</th>
             </tr>
           </thead>
           <tbody>
@@ -1154,7 +1157,8 @@
                     >
                       {#if compare.has(coin.id)}<Check size={15} />{:else}<LineChart size={15} />{/if}
                     </button>
-                    <a class="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={apiUrl(`/coins/${coin.id}`)} target="_blank" rel="noreferrer" aria-label={`Open raw coin API for ${coin.name}`}>Raw API</a>
+                    <a class="rounded-xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={`/coin/${coin.id}`} aria-label={`Open frontend coin detail for ${coin.name}`}>Detail</a>
+                    <a class="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={rawApiUrl(`/coins/${coin.id}`)} target="_blank" rel="noreferrer" aria-label={`Open raw /coins/${coin.id} API for ${coin.name}`}>Open raw API</a>
                     {#if sparkPath(coin.sparkline_in_7d?.price)}
                       <svg class="h-10 w-[154px]" viewBox="0 0 154 42" role="img" aria-label={`${coin.name} 7-day sparkline from /coins/markets`}>
                         <path d={sparkPath(coin.sparkline_in_7d?.price)} fill="none" stroke={isPositive(coin.price_change_percentage_7d_in_currency) ? '#b8ff4d' : '#ff5c5c'} stroke-linecap="round" stroke-width="2.4" />
@@ -1241,7 +1245,7 @@
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><Server size={15} /> Server</div><div class="text-xl font-black capitalize">{runtime?.readiness?.state ?? 'unknown'}</div></div>
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><ShieldCheck size={15} /> Provider</div><div class="text-xl font-black capitalize">{runtime?.provider_health?.status ?? 'unknown'}</div></div>
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><CircleDollarSign size={15} /> Freshness</div><div class="text-xl font-black capitalize">{runtime?.freshness?.status ?? 'unknown'}</div></div>
-          <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><BookOpen size={15} /> Runtime</div><a class="inline-flex items-center gap-2 text-xl font-black text-[#b8ff4d]" href={apiUrl('/diagnostics/runtime')} target="_blank" rel="noreferrer">Open raw /diagnostics/runtime <ExternalLink size={15} /></a></div>
+          <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><BookOpen size={15} /> Runtime</div><a class="inline-flex items-center gap-2 text-xl font-black text-[#b8ff4d]" href={rawApiUrl('/diagnostics/runtime')} target="_blank" rel="noreferrer">Open raw /diagnostics/runtime <ExternalLink size={15} /></a></div>
         </div>
       </div>
     </section>
@@ -1266,7 +1270,8 @@
       </div>
       <div class="mt-3 flex gap-2">
         <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" type="button" aria-label={watchlist.has(selectedCoin.id) ? `Remove ${selectedCoin.name} from watchlist` : `Add ${selectedCoin.name} to watchlist`} on:click={() => toggleWatch(selectedCoin.id)}>{watchlist.has(selectedCoin.id) ? 'Remove Watchlist' : 'Add Watchlist'}</button>
-        <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={apiUrl(`/coins/${selectedCoin.id}`)} target="_blank" rel="noreferrer">Open raw coin API</a>
+        <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={`/coin/${selectedCoin.id}`}>View coin detail</a>
+        <a class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-center text-sm font-black text-[#b8ff4d]" href={rawApiUrl(`/coins/${selectedCoin.id}`)} target="_blank" rel="noreferrer">Open raw API</a>
       </div>
     </div>
   {/if}
@@ -1281,7 +1286,7 @@
           <input id="dashboard-search-input" class="h-12 flex-1 bg-transparent outline-none placeholder:text-[#66766d]" bind:this={searchInput} bind:value={query} aria-describedby="search-dialog-help" placeholder="Search loaded market coins by name, ticker, or id" />
           <button class="grid size-9 place-items-center rounded-xl text-[#91a59a] hover:bg-white/10" type="button" aria-label="Close search dialog" on:click={() => closeSearch()}><X size={18} /></button>
         </div>
-        <p id="search-dialog-help" class="border-b border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]">Results are filtered from the loaded top-100 market rows. Use Enter to select a result or Escape to close.</p>
+        <p id="search-dialog-help" class="border-b border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]">Results are filtered from the loaded top-100 market rows. Select keeps dashboard context; View detail opens the frontend coin route.</p>
         <div class="max-h-[520px] overflow-y-auto p-3">
           {#if initialDashboardPending && markets.length === 0}
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">Loading searchable market coins...</div>
@@ -1289,16 +1294,19 @@
             <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-bold text-[#91a59a]">{marketEmptyCopy}</div>
           {:else}
             {#each searchedMarkets.slice(0, 10) as coin}
-              <button class="flex w-full items-center justify-between rounded-2xl p-3 text-left hover:bg-white/[0.06]" type="button" aria-label={`Select ${coin.name} from search results`} on:click={() => selectCoin(coin)}>
-                <span class="flex items-center gap-3">
-                  {#if safeImageUrl(coin.image)}<img class="size-9 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
-                  <span>
-                    <span class="block font-black">{coin.name}</span>
-                    <span class="text-xs font-black uppercase tracking-[0.14em] text-[#91a59a]">{coin.symbol} · #{coin.market_cap_rank ?? '-'}</span>
+              <div class="flex items-center justify-between gap-3 rounded-2xl p-2 hover:bg-white/[0.06]">
+                <button class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left" type="button" aria-label={`Select ${coin.name} from search results`} on:click={() => selectCoin(coin)}>
+                  <span class="flex min-w-0 items-center gap-3">
+                    {#if safeImageUrl(coin.image)}<img class="size-9 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
+                    <span class="min-w-0">
+                      <span class="block truncate font-black">{coin.name}</span>
+                      <span class="text-xs font-black uppercase tracking-[0.14em] text-[#91a59a]">{coin.symbol} · #{coin.market_cap_rank ?? '-'}</span>
+                    </span>
                   </span>
-                </span>
-                <span class="font-black">{money(coin.current_price)}</span>
-              </button>
+                  <span class="font-black">{money(coin.current_price)}</span>
+                </button>
+                <a class="shrink-0 rounded-xl border border-[#b8ff4d]/30 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={`/coin/${coin.id}`} aria-label={`Open frontend coin detail for ${coin.name}`}>View detail</a>
+              </div>
             {/each}
           {/if}
         </div>
