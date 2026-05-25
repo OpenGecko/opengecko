@@ -706,9 +706,11 @@
       <div class="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 text-sm font-black text-[#cbd8d0] lg:flex">
         <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="#markets">Markets</a>
         <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="#discover">Discover</a>
+        <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="/categories">Categories</a>
         <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="#exchanges">Exchanges</a>
+        <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="/status">Status</a>
         <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="#portfolio">Portfolio</a>
-        <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="#api">API Proof</a>
+        <a class="rounded-full px-4 py-2 hover:bg-white/10 hover:text-white" href="/api">API Proof</a>
       </div>
 
       <button
@@ -734,9 +736,11 @@
         <div class="grid gap-3 text-sm font-black text-[#f4f1e8]">
           <a href="#markets" on:click={(event) => { event.preventDefault(); void navigateToSection('markets'); }}>Markets</a>
           <a href="#discover" on:click={(event) => { event.preventDefault(); void navigateToSection('discover'); }}>Discover</a>
+          <a href="/categories" on:click={() => closeMobileMenu()}>Categories overview</a>
           <a href="#exchanges" on:click={(event) => { event.preventDefault(); void navigateToSection('exchanges'); }}>Exchanges</a>
+          <a href="/status" on:click={() => closeMobileMenu()}>Status runtime</a>
           <a href="#portfolio" on:click={(event) => { event.preventDefault(); void navigateToSection('portfolio'); }}>Portfolio</a>
-          <a href="#api" on:click={(event) => { event.preventDefault(); void navigateToSection('api'); }}>API Proof</a>
+          <a href="/api" on:click={() => closeMobileMenu()}>API proof explorer</a>
           <button class="text-left" type="button" on:click={() => void openSearch(menuButton)}>Search loaded market coins</button>
         </div>
       </div>
@@ -929,9 +933,12 @@
         <div class="mb-5 flex items-center justify-between">
           <div>
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><Layers3 size={22} /> Sector Radar</h2>
-            <p class="mt-1 text-sm text-[#91a59a]">Category strength, liquidity, and leaders.</p>
+            <p class="mt-1 text-sm text-[#91a59a]">Category strength, liquidity, and leaders. Detail navigation is not implied unless the API exposes supported detail data.</p>
           </div>
-          <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
+          <div class="flex flex-wrap justify-end gap-2">
+            <a class="rounded-full border border-white/10 px-3 py-1 text-xs font-black text-[#f4f1e8]" href="/categories">Open frontend categories</a>
+            <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={rawApiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
+          </div>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           {#if initialDashboardPending && categories.length === 0}
@@ -948,6 +955,7 @@
                   <div class={isPositive(category.market_cap_change_24h) ? 'text-sm font-black text-[#b8ff4d]' : 'text-sm font-black text-[#ff5c5c]'}>{percent(category.market_cap_change_24h)}</div>
                 </div>
                 <div class="text-sm text-[#91a59a]">Market Cap <strong class="text-[#f4f1e8]">{money(category.market_cap, true)}</strong></div>
+                <div class="mt-2 text-xs font-black uppercase tracking-[0.12em] text-[#ffdf9b]">Overview-only: no unsupported category detail route is linked.</div>
                 <div class="mt-3 flex -space-x-2">
                   {#each category.top_3_coins?.slice(0, 3) ?? [] as image}
                     {#if safeImageUrl(image)}<img class="size-7 rounded-full border-2 border-[#0d1714] bg-[#f4f1e8]" src={safeImageUrl(image) ?? ''} alt="" />{/if}
@@ -1240,6 +1248,10 @@
           <p class="mb-2 text-xs font-black uppercase tracking-[0.28em] text-[#ffbf47]">Data transparency advantage</p>
           <h2 class="text-3xl font-black tracking-[-0.06em]">Every card should explain its source.</h2>
           <p class="mt-3 max-w-xl text-sm leading-7 text-[#91a59a]">OpenGecko can beat closed dashboards by turning runtime health, provider freshness, cache state, and CoinGecko-compatible route proof into first-class UI.</p>
+          <div class="mt-5 flex flex-wrap gap-3">
+            <a class="rounded-2xl bg-[#b8ff4d] px-4 py-3 text-sm font-black text-[#07110f]" href="/status">Open frontend status</a>
+            <a class="rounded-2xl border border-[#b8ff4d]/30 px-4 py-3 text-sm font-black text-[#b8ff4d]" href="/api">Open frontend API explorer</a>
+          </div>
         </div>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><Server size={15} /> Server</div><div class="text-xl font-black capitalize">{runtime?.readiness?.state ?? 'unknown'}</div></div>
