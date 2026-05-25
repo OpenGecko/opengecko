@@ -8,6 +8,7 @@
     safePersistJson
   } from '$lib/dashboard-local-state';
   import type { DashboardControlsState, RowsPerPage, Segment } from '$lib/dashboard-local-state';
+  import { apiBase, apiUrl, rawApiUrl } from '$lib/api';
   import { sortMarketRows, type MarketSortDirection, type MarketSortKey } from '$lib/market-sort';
   import {
     Activity,
@@ -128,8 +129,6 @@
   type ResourceKey = 'markets' | 'trending' | 'global' | 'runtime' | 'categories' | 'exchanges';
   type ResourceResult = { key: ResourceKey; ok: true } | { key: ResourceKey; ok: false; error: string };
 
-  const apiBase = import.meta.env.PUBLIC_OPENGECKO_API_BASE_URL ?? '';
-  const rawApiBase = import.meta.env.PUBLIC_OPENGECKO_RAW_API_BASE_URL ?? apiBase;
   const watchlistStorageKey = 'opengecko.watchlist.v1';
   const portfolioStorageKey = 'opengecko.portfolio.v1';
   const dashboardControlsStorageKey = 'opengecko.dashboard.controls.v1';
@@ -202,9 +201,6 @@
   let selectedCoinCloseButton: HTMLButtonElement | null = null;
   let searchReturnFocus: HTMLElement | null = null;
   let selectedDrawerReturnFocus: HTMLElement | null = null;
-
-  const apiUrl = (path: string) => `${apiBase}${path}`;
-  const rawApiUrl = (path: string) => `${rawApiBase}${path}`;
 
   function money(value: number | null | undefined, compact = false) {
     if (value == null || Number.isNaN(value)) return '-';
@@ -500,7 +496,7 @@
   $: hasAnyDashboardData = markets.length > 0 || trending.length > 0 || categories.length > 0 || exchanges.length > 0 || globalData != null || runtime != null;
   $: initialDashboardPending = !hasLoadedOnce && !error;
   $: loadingCopy = hasLoadedOnce ? 'Refreshing dashboard data from the OpenGecko API.' : 'Loading dashboard data from the OpenGecko API.';
-  $: apiBoundaryLabel = apiBase || 'frontend proxy → OpenGecko API';
+  $: apiBoundaryLabel = apiBase === '/__opengecko_api' ? 'frontend relative proxy /__opengecko_api → configured OpenGecko API' : apiBase;
   $: marketEmptyCopy = computeMarketEmptyMessage(Boolean(resourceErrors.markets), markets.length, query, segment);
   $: sortStatus = `${sortLabels[sortKey]} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`;
   $: selectedCoin = selectedCoinId ? markets.find((coin) => coin.id === selectedCoinId) ?? null : null;
