@@ -2,6 +2,12 @@
   import { onMount, tick } from 'svelte';
   import { Tabs } from 'bits-ui';
   import {
+    compareSelectionLimit,
+    restoreDashboardLocalState,
+    safePersistJson
+  } from '$lib/dashboard-local-state';
+  import type { DashboardControlsState, RowsPerPage, Segment } from '$lib/dashboard-local-state';
+  import {
     Activity,
     ArrowDown,
     ArrowUp,
@@ -116,13 +122,13 @@
   };
 
   type SortKey = 'rank' | 'price' | 'change24h' | 'volume' | 'marketCap' | 'fdv';
-  type Segment = 'all' | 'gainers' | 'losers' | 'watchlist';
   type ResourceKey = 'markets' | 'trending' | 'global' | 'runtime' | 'categories' | 'exchanges';
   type ResourceResult = { key: ResourceKey; ok: true } | { key: ResourceKey; ok: false; error: string };
 
   const apiBase = import.meta.env.PUBLIC_OPENGECKO_API_BASE_URL ?? '';
   const watchlistStorageKey = 'opengecko.watchlist.v1';
   const portfolioStorageKey = 'opengecko.portfolio.v1';
+  const dashboardControlsStorageKey = 'opengecko.dashboard.controls.v1';
   const resourceLabels: Record<ResourceKey, string> = {
     markets: 'Market rows',
     trending: 'Search heat',
@@ -166,15 +172,17 @@
   let globalData: GlobalPayload['data'] | null = null;
   let runtime: RuntimePayload['data'] | null = null;
   let selectedCoin: MarketCoin | null = null;
+  let selectedCoinId: string | null = null;
   let query = '';
   let searchOpen = false;
   let mobileMenuOpen = false;
   let segment: Segment = 'all';
   let sortKey: SortKey = 'rank';
   let sortDirection: 'asc' | 'desc' = 'asc';
-  let rowsPerPage = 25;
+  let rowsPerPage: RowsPerPage = 25;
   let loading = false;
   let hasLoadedOnce = false;
+  let localStateRestored = false;
   let lastUpdatedAt = '';
   let error = '';
   let resourceErrors: Partial<Record<ResourceKey, string>> = {};
@@ -183,6 +191,8 @@
   let compare = new Set<string>();
   let holdings: Record<string, number> = {};
   let discoveryMessage = '';
+  let localStateMessage = '';
+  let compareLimitMessage = '';
   let searchInput: HTMLInputElement | null = null;
 
   const apiUrl = (path: string) => `${apiBase}${path}`;
@@ -296,6 +306,7 @@
   }
 
   function toggleWatch(id: string) {
+    if (!id) return;
     const next = new Set(watchlist);
     if (next.has(id)) {
       next.delete(id);
@@ -303,31 +314,50 @@
       next.add(id);
     }
     watchlist = next;
-    localStorage.setItem(watchlistStorageKey, JSON.stringify([...watchlist]));
+    safePersistJson(localStorage, watchlistStorageKey, [...watchlist]);
   }
 
   function toggleCompare(id: string) {
+    if (!id) return;
     const next = new Set(compare);
     if (next.has(id)) {
       next.delete(id);
-    } else if (next.size < 4) {
+      compareLimitMessage = '';
+    } else if (next.size < compareSelectionLimit) {
       next.add(id);
+      compareLimitMessage = '';
+    } else {
+      compareLimitMessage = `Compare Bench is full (${compareSelectionLimit}/${compareSelectionLimit}). Remove an asset before adding another.`;
     }
     compare = next;
   }
 
   function updateHolding(id: string, value: string) {
+    if (!id) return;
     const amount = Number(value);
-    holdings = {
-      ...holdings,
-      [id]: Number.isFinite(amount) && amount > 0 ? amount : 0
-    };
-    localStorage.setItem(portfolioStorageKey, JSON.stringify(holdings));
+    const next = { ...holdings };
+    if (Number.isFinite(amount) && amount > 0) {
+      next[id] = amount;
+    } else {
+      delete next[id];
+    }
+    holdings = next;
+    safePersistJson(localStorage, portfolioStorageKey, holdings);
   }
 
   function selectCoin(coin: MarketCoin) {
-    selectedCoin = coin;
+    selectedCoinId = coin.id;
     searchOpen = false;
+  }
+
+  function closeSelectedCoin() {
+    selectedCoinId = null;
+  }
+
+  function compareButtonLabel(coin: MarketCoin, isSelected: boolean, selectedCount: number) {
+    if (isSelected) return `Remove ${coin.name} from compare`;
+    if (selectedCount >= compareSelectionLimit) return `Compare bench is full; remove an asset before adding ${coin.name}`;
+    return `Compare ${coin.name}`;
   }
 
   async function openSearch() {
@@ -355,7 +385,7 @@
       discoveryMessage = `${match.name} selected from Search Heat. The drawer and market-row highlight now show that asset.`;
     } else {
       query = item.name;
-      selectedCoin = null;
+      selectedCoinId = null;
       discoveryMessage = `${item.name} is trending but is not in the loaded top-100 market rows. The table is now filtered to loaded coins matching that name, ticker, or id.`;
     }
 
@@ -396,6 +426,16 @@
   $: apiBoundaryLabel = apiBase || 'frontend proxy → OpenGecko API';
   $: marketEmptyCopy = computeMarketEmptyMessage(Boolean(resourceErrors.markets), markets.length, query, segment);
   $: sortStatus = `${sortLabels[sortKey]} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`;
+  $: selectedCoin = selectedCoinId ? markets.find((coin) => coin.id === selectedCoinId) ?? null : null;
+  $: if (localStateRestored) {
+    const controls: DashboardControlsState = {
+      compareIds: [...compare],
+      selectedCoinId,
+      rowsPerPage,
+      segment
+    };
+    safePersistJson(localStorage, dashboardControlsStorageKey, controls);
+  }
 
   async function fetchJson<T>(path: string): Promise<T> {
     const response = await fetch(apiUrl(path), {
@@ -436,9 +476,8 @@
           marketRequestPath,
           (marketRows) => {
             markets = Array.isArray(marketRows) ? marketRows : [];
-            if (!hasLoadedOnce && !selectedCoin && markets[0]) selectedCoin = markets[0];
-            if (selectedCoin && markets.length > 0 && !markets.some((coin) => coin.id === selectedCoin?.id)) {
-              selectedCoin = markets[0];
+            if (selectedCoinId && markets.length > 0 && !markets.some((coin) => coin.id === selectedCoinId)) {
+              selectedCoinId = null;
             }
           }
         ),
@@ -494,13 +533,22 @@
   }
 
   function restoreLocalState() {
-    try {
-      watchlist = new Set(JSON.parse(localStorage.getItem(watchlistStorageKey) ?? '[]'));
-      holdings = JSON.parse(localStorage.getItem(portfolioStorageKey) ?? '{}') as Record<string, number>;
-    } catch {
-      watchlist = new Set();
-      holdings = {};
-    }
+    const restored = restoreDashboardLocalState(localStorage, {
+      watchlist: watchlistStorageKey,
+      holdings: portfolioStorageKey,
+      controls: dashboardControlsStorageKey
+    });
+
+    watchlist = new Set(restored.watchlistIds);
+    holdings = restored.holdings;
+    compare = new Set(restored.controls.compareIds);
+    selectedCoinId = restored.controls.selectedCoinId;
+    rowsPerPage = restored.controls.rowsPerPage;
+    segment = restored.controls.segment;
+    localStateMessage = restored.repairedKeys.length > 0
+      ? `Recovered local dashboard state by repairing ${restored.repairedKeys.join(', ')}. Valid watchlist and portfolio entries were kept when possible.`
+      : 'Local watchlist, holdings, compare bench, selected drawer, row limit, and active tab are restored in this browser. Search text resets intentionally.';
+    localStateRestored = true;
   }
 
   onMount(() => {
@@ -516,6 +564,7 @@
       if (event.key === 'Escape') {
         searchOpen = false;
         mobileMenuOpen = false;
+        selectedCoinId = null;
       }
     };
 
@@ -902,6 +951,10 @@
           <div class="mb-4 rounded-2xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-4 py-3 text-sm font-bold text-[#d7ff9c]" aria-live="polite">{discoveryMessage}</div>
         {/if}
 
+        {#if localStateMessage}
+          <div class="mb-4 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-[#91a59a]" aria-live="polite">{localStateMessage}</div>
+        {/if}
+
         <Tabs.Root bind:value={segment}>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <Tabs.List class="flex flex-wrap gap-2">
@@ -919,6 +972,7 @@
         </Tabs.Root>
         <p class="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-[#91a59a]">
           Rows is a local limit over the loaded top-100 `/coins/markets` response; no fake page navigation is shown.
+          Watchlist, holdings, compare bench, active tab, row limit, and an open selected drawer are browser-local state; closing the drawer clears that selected context, and search text resets on reload.
           <span class="text-[#b8ff4d] md:hidden"> On mobile, swipe the table horizontally to reach holdings, compare, trace, and raw-detail actions.</span>
         </p>
       </div>
@@ -964,7 +1018,7 @@
             {#each visibleMarkets as coin}
               <tr class={selectedCoin?.id === coin.id ? 'selected-market-row border-t border-white/10 bg-[#b8ff4d]/10 transition hover:bg-white/[0.04]' : 'border-t border-white/10 transition hover:bg-white/[0.04]'}>
                 <td class="px-4 py-4">
-                  <button class={watchlist.has(coin.id) ? 'text-[#ffbf47]' : 'text-white/25 hover:text-[#ffbf47]'} aria-label={`Watch ${coin.name}`} on:click={() => toggleWatch(coin.id)}>
+                  <button class={watchlist.has(coin.id) ? 'text-[#ffbf47]' : 'text-white/25 hover:text-[#ffbf47]'} aria-label={watchlist.has(coin.id) ? `Remove ${coin.name} from watchlist` : `Add ${coin.name} to watchlist`} on:click={() => toggleWatch(coin.id)}>
                     <Star size={17} fill={watchlist.has(coin.id) ? 'currentColor' : 'none'} />
                   </button>
                 </td>
@@ -997,11 +1051,17 @@
                   {/if}
                 </td>
                 <td class="px-3 py-4 text-right">
-                  <input class="h-9 w-24 rounded-xl border border-white/10 bg-white/[0.06] px-2 text-right text-xs font-bold text-[#f4f1e8] outline-none focus:border-[#b8ff4d]" value={holdings[coin.id] || ''} placeholder="0" on:input={(event) => updateHolding(coin.id, event.currentTarget.value)} aria-label={`${coin.name} holding amount`} />
+                  <input class="h-9 w-24 rounded-xl border border-white/10 bg-white/[0.06] px-2 text-right text-xs font-bold text-[#f4f1e8] outline-none focus:border-[#b8ff4d]" value={holdings[coin.id] ?? ''} placeholder="0" on:input={(event) => updateHolding(coin.id, event.currentTarget.value)} aria-label={`${coin.name} holding amount`} />
                 </td>
                 <td class="px-4 py-4">
                   <div class="flex items-center justify-end gap-3">
-                    <button class={compare.has(coin.id) ? 'grid size-9 place-items-center rounded-xl bg-[#b8ff4d] text-[#07110f]' : 'grid size-9 place-items-center rounded-xl border border-white/10 text-[#91a59a]'} aria-label={`Compare ${coin.name}`} on:click={() => toggleCompare(coin.id)}>
+                    <button
+                      class={compare.has(coin.id) ? 'grid size-9 place-items-center rounded-xl bg-[#b8ff4d] text-[#07110f]' : compare.size >= compareSelectionLimit ? 'grid size-9 cursor-not-allowed place-items-center rounded-xl border border-white/10 text-[#91a59a] opacity-45' : 'grid size-9 place-items-center rounded-xl border border-white/10 text-[#91a59a]'}
+                      disabled={!compare.has(coin.id) && compare.size >= compareSelectionLimit}
+                      aria-label={compareButtonLabel(coin, compare.has(coin.id), compare.size)}
+                      title={compareButtonLabel(coin, compare.has(coin.id), compare.size)}
+                      on:click={() => toggleCompare(coin.id)}
+                    >
                       {#if compare.has(coin.id)}<Check size={15} />{:else}<LineChart size={15} />{/if}
                     </button>
                     <a class="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={apiUrl(`/coins/${coin.id}`)} target="_blank" rel="noreferrer" aria-label={`Open raw coin API for ${coin.name}`}>Raw API</a>
@@ -1032,7 +1092,10 @@
             <div class="flex items-center justify-between rounded-2xl bg-white/65 p-3">
               <span class="flex items-center gap-2">
                 {#if safeImageUrl(coin.image)}<img class="size-7 rounded-full" src={safeImageUrl(coin.image) ?? ''} alt="" />{/if}
-                <span class="font-black">{coin.symbol.toUpperCase()}</span>
+                <span>
+                  <span class="block font-black">{coin.symbol.toUpperCase()}</span>
+                  <span class="block text-xs font-bold text-[#617269]">{holdings[coin.id]} × {money(coin.current_price)}</span>
+                </span>
               </span>
               <span class="font-black">{money((holdings[coin.id] ?? 0) * (coin.current_price ?? 0), true)}</span>
             </div>
@@ -1045,8 +1108,13 @@
       <section class="rounded-[2rem] border border-white/10 bg-[#0d1714]/95 p-5 shadow-xl">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><LineChart size={22} /> Compare Bench</h2>
-          <span class="rounded-full border border-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]">{compare.size}/4 selected</span>
+          <span class="rounded-full border border-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]">{compare.size}/{compareSelectionLimit} selected</span>
         </div>
+        {#if compareLimitMessage || compare.size >= compareSelectionLimit}
+          <div class="mb-3 rounded-2xl border border-[#ffbf47]/30 bg-[#ffbf47]/10 px-4 py-3 text-sm font-bold text-[#ffe0a3]" aria-live="polite">
+            {compareLimitMessage || `Compare Bench is full (${compareSelectionLimit}/${compareSelectionLimit}). Remove an asset before adding another.`}
+          </div>
+        {/if}
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {#each compareCoins as coin}
             <div class="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
@@ -1059,9 +1127,14 @@
               </div>
               <div class="text-3xl font-black tracking-[-0.04em]">{money(coin.current_price)}</div>
               <div class={isPositive(coin.price_change_percentage_24h) ? 'mt-1 text-sm font-black text-[#b8ff4d]' : 'mt-1 text-sm font-black text-[#ff5c5c]'}>{percent(coin.price_change_percentage_24h)} 24h</div>
+              <div class="mt-4 grid gap-2 text-xs font-bold text-[#91a59a]">
+                <div class="flex justify-between gap-3"><span>Rank</span><strong class="text-[#f4f1e8]">#{coin.market_cap_rank ?? '-'}</strong></div>
+                <div class="flex justify-between gap-3"><span>Market cap</span><strong class="text-[#f4f1e8]">{money(coin.market_cap, true)}</strong></div>
+                <div class="flex justify-between gap-3"><span>24h volume</span><strong class="text-[#f4f1e8]">{money(coin.total_volume, true)}</strong></div>
+              </div>
             </div>
           {:else}
-            <div class="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-[#91a59a] md:col-span-2 xl:col-span-4">Use chart buttons in the market table to compare up to four assets.</div>
+            <div class="rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-sm font-bold text-[#91a59a] md:col-span-2 xl:col-span-4">Use chart buttons in the market table to compare up to four assets. The bench is restored locally in this browser and can be cleared with each card's remove button.</div>
           {/each}
         </div>
       </section>
@@ -1094,7 +1167,7 @@
             <div class="text-xs font-black uppercase tracking-[0.14em] text-[#91a59a]">{selectedCoin.symbol} · Rank #{selectedCoin.market_cap_rank ?? '-'}</div>
           </div>
         </div>
-        <button class="text-[#91a59a]" aria-label="Close selected coin" on:click={() => (selectedCoin = null)}><X size={18} /></button>
+        <button class="text-[#91a59a]" aria-label="Close selected coin" on:click={closeSelectedCoin}><X size={18} /></button>
       </div>
       <div class="grid grid-cols-3 gap-2 text-sm">
         <div class="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><div class="text-xs font-bold text-[#91a59a]">Price</div><div class="font-black">{money(selectedCoin.current_price)}</div></div>
@@ -1102,7 +1175,7 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.05] p-3"><div class="text-xs font-bold text-[#91a59a]">Low</div><div class="font-black">{money(selectedCoin.low_24h)}</div></div>
       </div>
       <div class="mt-3 flex gap-2">
-        <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" on:click={() => toggleWatch(selectedCoin?.id ?? '')}>{watchlist.has(selectedCoin.id) ? 'Watching' : 'Add Watchlist'}</button>
+        <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" on:click={() => toggleWatch(selectedCoin.id)}>{watchlist.has(selectedCoin.id) ? 'Remove Watchlist' : 'Add Watchlist'}</button>
         <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={apiUrl(`/coins/${selectedCoin.id}`)} target="_blank" rel="noreferrer">Open raw coin API</a>
       </div>
     </aside>
