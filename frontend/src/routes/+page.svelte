@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Tabs } from 'bits-ui';
   import {
     Activity,
@@ -140,6 +140,7 @@
     fdv: 'FDV'
   };
   const resourceOrder: ResourceKey[] = ['markets', 'trending', 'global', 'runtime', 'categories', 'exchanges'];
+  const marketRequestPath = '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h,24h,7d,30d';
 
   const formatUsd = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -182,6 +183,7 @@
   let compare = new Set<string>();
   let holdings: Record<string, number> = {};
   let discoveryMessage = '';
+  let searchInput: HTMLInputElement | null = null;
 
   const apiUrl = (path: string) => `${apiBase}${path}`;
 
@@ -242,22 +244,40 @@
     return (coin.market_cap / coin.fully_diluted_valuation) * 100;
   }
 
-  function sortValue(coin: MarketCoin, key: SortKey) {
+  function nullableSortValue(coin: MarketCoin, key: SortKey) {
     switch (key) {
       case 'price':
-        return safeNumber(coin.current_price, -1);
+        return coin.current_price;
       case 'change24h':
-        return safeNumber(coin.price_change_percentage_24h, -999);
+        return coin.price_change_percentage_24h;
       case 'volume':
-        return safeNumber(coin.total_volume, -1);
+        return coin.total_volume;
       case 'marketCap':
-        return safeNumber(coin.market_cap, -1);
+        return coin.market_cap;
       case 'fdv':
-        return safeNumber(coin.fully_diluted_valuation, -1);
+        return coin.fully_diluted_valuation;
       case 'rank':
       default:
-        return safeNumber(coin.market_cap_rank, 999999);
+        return coin.market_cap_rank;
     }
+  }
+
+  function compareMarkets(left: MarketCoin, right: MarketCoin) {
+    const modifier = sortDirection === 'asc' ? 1 : -1;
+    const leftValue = nullableSortValue(left, sortKey);
+    const rightValue = nullableSortValue(right, sortKey);
+
+    if (leftValue == null && rightValue != null) return 1;
+    if (rightValue == null && leftValue != null) return -1;
+    if (leftValue != null && rightValue != null && leftValue !== rightValue) {
+      return (leftValue - rightValue) * modifier;
+    }
+
+    return (
+      safeNumber(left.market_cap_rank, 999999) - safeNumber(right.market_cap_rank, 999999)
+      || left.name.localeCompare(right.name)
+      || left.id.localeCompare(right.id)
+    );
   }
 
   function setSort(key: SortKey) {
@@ -310,6 +330,13 @@
     searchOpen = false;
   }
 
+  async function openSearch() {
+    searchOpen = true;
+    await tick();
+    searchInput?.focus();
+    searchInput?.select();
+  }
+
   function scrollToMarkets() {
     document.getElementById('markets')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -328,7 +355,8 @@
       discoveryMessage = `${match.name} selected from Search Heat. The drawer and market-row highlight now show that asset.`;
     } else {
       query = item.name;
-      discoveryMessage = `${item.name} is trending but is not in the loaded top-100 market rows, so the table is filtered to the closest loaded match.`;
+      selectedCoin = null;
+      discoveryMessage = `${item.name} is trending but is not in the loaded top-100 market rows. The table is now filtered to loaded coins matching that name, ticker, or id.`;
     }
 
     scrollToMarkets();
@@ -349,10 +377,7 @@
     return true;
   });
 
-  $: sortedMarkets = [...segmentedMarkets].sort((left, right) => {
-    const modifier = sortDirection === 'asc' ? 1 : -1;
-    return (sortValue(left, sortKey) - sortValue(right, sortKey)) * modifier;
-  });
+  $: sortedMarkets = [...segmentedMarkets].sort(compareMarkets);
 
   $: visibleMarkets = sortedMarkets.slice(0, rowsPerPage);
   $: topCoin = markets[0] ?? null;
@@ -408,7 +433,7 @@
       const results = await Promise.all([
         loadResource<MarketCoin[]>(
           'markets',
-          '/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h,24h,7d,30d',
+          marketRequestPath,
           (marketRows) => {
             markets = Array.isArray(marketRows) ? marketRows : [];
             if (!hasLoadedOnce && !selectedCoin && markets[0]) selectedCoin = markets[0];
@@ -485,7 +510,7 @@
     const onKeydown = (event: KeyboardEvent) => {
       if (event.key === '/' && event.target instanceof HTMLElement && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
         event.preventDefault();
-        searchOpen = true;
+        void openSearch();
       }
 
       if (event.key === 'Escape') {
@@ -560,7 +585,7 @@
 
       <button
         class="ml-auto hidden h-12 min-w-[360px] items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 text-left text-sm text-[#91a59a] transition hover:border-[#b8ff4d]/40 hover:bg-white/[0.09] md:flex"
-        on:click={() => (searchOpen = true)}
+        on:click={() => void openSearch()}
       >
         <span class="flex items-center gap-2"><Search size={17} /> Search loaded market coins</span>
         <kbd class="rounded-lg border border-white/15 bg-black/30 px-2 py-1 text-[11px] font-black text-[#f4f1e8]">/</kbd>
@@ -569,7 +594,7 @@
       <button class="grid size-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#cbd8d0]" aria-label="Notifications">
         <Bell size={18} />
       </button>
-      <a class="hidden rounded-2xl bg-[#b8ff4d] px-5 py-3 text-sm font-black text-[#07110f] shadow-[0_0_28px_rgba(184,255,77,0.25)] sm:inline-flex" href="/ping" target="_blank" rel="noreferrer">
+      <a class="hidden rounded-2xl bg-[#b8ff4d] px-5 py-3 text-sm font-black text-[#07110f] shadow-[0_0_28px_rgba(184,255,77,0.25)] sm:inline-flex" href={apiUrl('/ping')} target="_blank" rel="noreferrer">
         Open raw /ping
       </a>
     </div>
@@ -581,7 +606,7 @@
           <a href="#discover">Discover</a>
           <a href="#exchanges">Exchanges</a>
           <a href="#portfolio">Portfolio</a>
-          <button class="text-left" on:click={() => (searchOpen = true)}>Search</button>
+          <button class="text-left" on:click={() => { mobileMenuOpen = false; void openSearch(); }}>Search</button>
         </div>
       </div>
     {/if}
@@ -690,7 +715,7 @@
         <section class="rounded-[2rem] border border-white/10 bg-[#f4f1e8] p-5 text-[#07110f] shadow-xl">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="flex items-center gap-2 text-xl font-black tracking-[-0.04em]"><Flame class="text-[#f59e0b]" size={22} /> Search Heat</h2>
-            <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href="/search/trending" target="_blank" rel="noreferrer">Open raw /search/trending</a>
+            <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/search/trending')} target="_blank" rel="noreferrer">Open raw /search/trending</a>
           </div>
           <div class="space-y-2">
             {#if loading && trending.length === 0}
@@ -772,7 +797,7 @@
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><Layers3 size={22} /> Sector Radar</h2>
             <p class="mt-1 text-sm text-[#91a59a]">Category strength, liquidity, and leaders.</p>
           </div>
-          <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href="/coins/categories" target="_blank" rel="noreferrer">Open raw /coins/categories</a>
+          <a class="rounded-full border border-[#b8ff4d]/30 px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/coins/categories')} target="_blank" rel="noreferrer">Open raw /coins/categories</a>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           {#if loading && categories.length === 0}
@@ -806,7 +831,7 @@
             <h2 class="flex items-center gap-2 text-2xl font-black tracking-[-0.05em]"><BriefcaseBusiness size={22} /> Exchange Quality</h2>
             <p class="mt-1 text-sm text-[#617269]">Trust-ranked venues and normalized BTC volume.</p>
           </div>
-          <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href="/exchanges" target="_blank" rel="noreferrer">Open raw /exchanges</a>
+          <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl('/exchanges')} target="_blank" rel="noreferrer">Open raw /exchanges</a>
         </div>
         <div class="grid gap-2">
           {#if loading && exchanges.length === 0}
@@ -825,7 +850,7 @@
                 </span>
                 <span class="flex shrink-0 items-center gap-3 text-sm font-black text-[#617269]">
                   <span>{money((exchange.trade_volume_24h_btc ?? 0) * (topCoin?.current_price ?? 0), true)}</span>
-                  <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={`/exchanges/${exchange.id}`} target="_blank" rel="noreferrer">Open raw API</a>
+                  <a class="rounded-full bg-[#07110f] px-3 py-1 text-xs font-black text-[#b8ff4d]" href={apiUrl(`/exchanges/${exchange.id}`)} target="_blank" rel="noreferrer">Open raw exchange API</a>
                 </span>
               </div>
             {/each}
@@ -844,9 +869,12 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <button class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]" on:click={() => (searchOpen = true)}>
+            <button class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#f4f1e8]" on:click={() => void openSearch()}>
               <Search size={16} /> Search
             </button>
+            <a class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-black text-[#b8ff4d]" href={apiUrl(marketRequestPath)} target="_blank" rel="noreferrer">
+              Open raw /coins/markets
+            </a>
             <button
               class="inline-flex items-center gap-2 rounded-2xl border border-[#b8ff4d]/30 bg-[#b8ff4d]/10 px-4 py-3 text-sm font-black text-[#b8ff4d] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={loading}
@@ -924,7 +952,7 @@
               </th>
               <th class="px-3 py-4 text-right">Mkt / FDV</th>
               <th class="px-3 py-4 text-right">Holdings</th>
-              <th class="px-4 py-4 text-right">Compare / 7D Trace</th>
+              <th class="px-4 py-4 text-right">Compare / 7D Trace / Raw API</th>
             </tr>
           </thead>
           <tbody>
@@ -934,7 +962,7 @@
               </tr>
             {/if}
             {#each visibleMarkets as coin}
-              <tr class={selectedCoin?.id === coin.id ? 'border-t border-white/10 bg-[#b8ff4d]/10 transition hover:bg-white/[0.04]' : 'border-t border-white/10 transition hover:bg-white/[0.04]'}>
+              <tr class={selectedCoin?.id === coin.id ? 'selected-market-row border-t border-white/10 bg-[#b8ff4d]/10 transition hover:bg-white/[0.04]' : 'border-t border-white/10 transition hover:bg-white/[0.04]'}>
                 <td class="px-4 py-4">
                   <button class={watchlist.has(coin.id) ? 'text-[#ffbf47]' : 'text-white/25 hover:text-[#ffbf47]'} aria-label={`Watch ${coin.name}`} on:click={() => toggleWatch(coin.id)}>
                     <Star size={17} fill={watchlist.has(coin.id) ? 'currentColor' : 'none'} />
@@ -976,6 +1004,7 @@
                     <button class={compare.has(coin.id) ? 'grid size-9 place-items-center rounded-xl bg-[#b8ff4d] text-[#07110f]' : 'grid size-9 place-items-center rounded-xl border border-white/10 text-[#91a59a]'} aria-label={`Compare ${coin.name}`} on:click={() => toggleCompare(coin.id)}>
                       {#if compare.has(coin.id)}<Check size={15} />{:else}<LineChart size={15} />{/if}
                     </button>
+                    <a class="rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-[#b8ff4d]" href={apiUrl(`/coins/${coin.id}`)} target="_blank" rel="noreferrer" aria-label={`Open raw coin API for ${coin.name}`}>Raw API</a>
                     {#if sparkPath(coin.sparkline_in_7d?.price)}
                       <svg class="h-10 w-[154px]" viewBox="0 0 154 42" role="img" aria-label={`${coin.name} 7-day sparkline from /coins/markets`}>
                         <path d={sparkPath(coin.sparkline_in_7d?.price)} fill="none" stroke={isPositive(coin.price_change_percentage_7d_in_currency) ? '#b8ff4d' : '#ff5c5c'} stroke-linecap="round" stroke-width="2.4" />
@@ -1049,7 +1078,7 @@
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><Server size={15} /> Server</div><div class="text-xl font-black capitalize">{runtime?.readiness?.state ?? 'unknown'}</div></div>
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><ShieldCheck size={15} /> Provider</div><div class="text-xl font-black capitalize">{runtime?.provider_health?.status ?? 'unknown'}</div></div>
           <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><CircleDollarSign size={15} /> Freshness</div><div class="text-xl font-black capitalize">{runtime?.freshness?.status ?? 'unknown'}</div></div>
-          <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><BookOpen size={15} /> Runtime</div><a class="inline-flex items-center gap-2 text-xl font-black text-[#b8ff4d]" href="/diagnostics/runtime" target="_blank" rel="noreferrer">Open raw /diagnostics/runtime <ExternalLink size={15} /></a></div>
+          <div class="terminal-card"><div class="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-[#91a59a]"><BookOpen size={15} /> Runtime</div><a class="inline-flex items-center gap-2 text-xl font-black text-[#b8ff4d]" href={apiUrl('/diagnostics/runtime')} target="_blank" rel="noreferrer">Open raw /diagnostics/runtime <ExternalLink size={15} /></a></div>
         </div>
       </div>
     </section>
@@ -1074,7 +1103,7 @@
       </div>
       <div class="mt-3 flex gap-2">
         <button class="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm font-black" on:click={() => toggleWatch(selectedCoin?.id ?? '')}>{watchlist.has(selectedCoin.id) ? 'Watching' : 'Add Watchlist'}</button>
-        <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={`/coins/${selectedCoin.id}`} target="_blank" rel="noreferrer">Open raw coin API</a>
+        <a class="flex-1 rounded-2xl bg-[#b8ff4d] px-3 py-2 text-center text-sm font-black text-[#07110f]" href={apiUrl(`/coins/${selectedCoin.id}`)} target="_blank" rel="noreferrer">Open raw coin API</a>
       </div>
     </aside>
   {/if}
@@ -1085,7 +1114,7 @@
       <div class="relative mx-auto mt-16 max-w-2xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0d1714] text-[#f4f1e8] shadow-2xl" role="dialog" aria-modal="true" aria-label="Search OpenGecko">
         <div class="flex items-center gap-3 border-b border-white/10 px-4 py-3">
           <Search size={18} class="text-[#91a59a]" />
-          <input class="h-12 flex-1 bg-transparent outline-none placeholder:text-[#66766d]" bind:value={query} placeholder="Search coins by name, ticker, or id" />
+          <input class="h-12 flex-1 bg-transparent outline-none placeholder:text-[#66766d]" bind:this={searchInput} bind:value={query} placeholder="Search loaded market coins by name, ticker, or id" />
           <button class="grid size-9 place-items-center rounded-xl text-[#91a59a] hover:bg-white/10" aria-label="Close search" on:click={() => (searchOpen = false)}><X size={18} /></button>
         </div>
         <div class="max-h-[520px] overflow-y-auto p-3">

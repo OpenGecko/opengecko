@@ -131,6 +131,12 @@ input {
     box-shadow: 16px 0 24px -22px rgb(0 0 0 / 90%);
   }
 
+  .market-table .selected-market-row td:nth-child(1),
+  .market-table .selected-market-row td:nth-child(2),
+  .market-table .selected-market-row td:nth-child(3) {
+    background: #1c321b;
+  }
+
   .market-table thead th {
     z-index: 3;
   }
